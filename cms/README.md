@@ -7,7 +7,20 @@ belong to window 10 (brands). See [CLAUDE.md](./CLAUDE.md) for commands and cons
 
 Contract with the core: the dataset name **is** `store.code` and is what the core stores as
 `store.content_space_id` (docs/domain.md, decision 8). A storefront resolves its dataset from the
-store it serves; it never chooses one by hand.
+store it serves; it never chooses one by hand — and never from a request header, path or query.
+
+**How a storefront picks the dataset** (`resolveDataset`, #521), from the `GET /store` row only:
+
+1. `store.content_space_id`, when it is a valid dataset name (`isDatasetName`: lowercase letters,
+   digits, `_`, `-`, starting with a letter or digit, at most 64 characters). This is how a brand
+   onboarded from the admin UI — not in the table below — gets its content: the wizard sets the
+   content space id, an operator creates the dataset of that name in the Sanity project.
+2. Else the seeded table below by `store.code`.
+3. Else **no CMS content**: the storefront renders its static fallback and warns once. Never an
+   error on a route. An invalid content space id is treated as unset, not repaired.
+
+`datasetForStore(store.code)` still exists for the seeded brands (seed, tests) and throws for
+anything else; storefront routes do not call it.
 
 | Store code (`packages/db` seed) | Dataset   | Locales          |
 | ------------------------------- | --------- | ---------------- |
@@ -15,8 +28,12 @@ store it serves; it never chooses one by hand.
 | `brand-b`                       | `brand-b` | `en-GB`          |
 | `brand-c`                       | `brand-c` | `en-US`          |
 
-`src/datasets.ts` is the code form of this table; `test/datasets.test.ts` fails if it drifts from
-the seed.
+`src/datasets.ts` is the code form of this table; `test/datasets.test.ts` fails if a seeded store
+is missing from it or lists other locales (the table may hold more brands than the seed, never
+fewer). The Studio opens one workspace per row, plus one per dataset named in the optional
+`SANITY_DATASETS` (comma-separated, validated with the same rule) for brands onboarded from the
+admin UI — set it in the root `.env` next to `SANITY_PROJECT_ID`; `scripts/studio.mjs` passes it
+through, and an invalid entry stops the Studio with the entry named.
 
 ## Environments and tokens
 
@@ -63,7 +80,8 @@ re-run at will. Without `SANITY_PROJECT_ID` and `SANITY_WRITE_TOKEN` it writes n
 these manual steps instead:
 
 1. In sanity.io/manage create (or open) the project and add a dataset named after the store code,
-   private.
+   private. For a brand onboarded from the admin UI the name is its `content_space_id` (the wizard
+   sets it to the store code); add it to `SANITY_DATASETS` so the Studio shows a workspace for it.
 2. Add a token with Editor rights under API → Tokens; put it in `.env` as `SANITY_WRITE_TOKEN` and
    the project id as `SANITY_PROJECT_ID`. Never commit `.env`.
 3. Re-run the seed — or, without a token, open the Studio workspace for that dataset and create one
@@ -236,5 +254,6 @@ the cache tags and the publish webhook: URL `/api/cms/revalidate`, projection
 
 `@platform/cms` exports the typed documents (`PageDocument`, `CampaignLandingDocument`,
 `NavigationDocument`, `FooterDocument`, `LegalDocument`, the block union `PageBlock`),
-`DOCUMENT_TYPES`, `documentId`, `datasetForStore(store.code)`, `SANITY_API_VERSION`, the fixtures
-and `validateDocument`. Build the package first (`turbo` does, via `dependsOn: ^build`).
+`DOCUMENT_TYPES`, `documentId`, `resolveDataset({ storeCode, contentSpaceId })` (+ `isDatasetName`;
+`datasetForStore(store.code)` for the seeded brands only), `SANITY_API_VERSION`, the fixtures and
+`validateDocument`. Build the package first (`turbo` does, via `dependsOn: ^build`).

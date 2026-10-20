@@ -1,6 +1,7 @@
-import { datasetForStore } from '@platform/cms';
+import { resolveDataset } from '@platform/cms';
 import { cmsConfigFromEnv } from '@/lib/cms/config';
 import { handlePreview } from '@/lib/cms/handlers';
+import { datasetSource } from '@/lib/cms';
 import { getStoreOrNull } from '@/lib/store';
 
 /**
@@ -11,13 +12,9 @@ import { getStoreOrNull } from '@/lib/store';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request): Promise<Response> {
-  const store = await getStoreOrNull();
-  let dataset: string | null = null;
-  try {
-    dataset = store ? datasetForStore(store.code) : null;
-  } catch {
-    dataset = null;
-  }
+  // The dataset comes from the store row only (#521) — never from this request's query, path or
+  // headers — and an unknown store yields `null`, which `handlePreview` answers with 503.
+  const dataset = resolveDataset(datasetSource(await getStoreOrNull()));
   return handlePreview(request, {
     config: cmsConfigFromEnv(),
     dataset,

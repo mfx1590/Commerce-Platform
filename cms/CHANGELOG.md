@@ -1,5 +1,20 @@
 # Changelog — @platform/cms
 
+## 0.6.0 — 2026-10-20
+
+Issue #521: the dataset of a brand onboarded from the admin UI.
+
+- `resolveDataset({ storeCode, contentSpaceId })` → `string | null`, never throws: the store row's
+  `content_space_id` when it is a valid dataset name, else `BRAND_DATASETS` by store code, else
+  `null`. `isDatasetName` / `DATASET_NAME_PATTERN` / `DATASET_NAME_MAX_LENGTH` (Sanity's rule:
+  `^[a-z0-9][a-z0-9_-]*$`, ≤ 64). An invalid id is treated as unset, never repaired.
+- `datasetForStore` is unchanged (seeded brands, throws otherwise) and documented as not for routes.
+- `datasetsFromEnv(SANITY_DATASETS)`: optional extra Studio workspaces, validated, seeded names
+  deduplicated, throws on a bad entry. `sanity.config.ts` adds those workspaces;
+  `scripts/studio.mjs` passes `SANITY_DATASETS` through as `SANITY_STUDIO_DATASETS`.
+- `test/datasets.test.ts`: the seed check is a superset ("every seeded store is listed with its
+  locales") so a UI-onboarded brand may be added to the list.
+
 ## 0.5.0 — 2026-10-07
 
 REQUEST #330, the CMS half: an optional video loop on the hero.
