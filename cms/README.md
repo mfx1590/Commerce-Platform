@@ -19,6 +19,9 @@ store it serves; it never chooses one by hand — and never from a request heade
 3. Else **no CMS content**: the storefront renders its static fallback and warns once. Never an
    error on a route. An invalid content space id is treated as unset, not repaired.
 
+`content_space_id` is set only by HQ (store onboarding / `updateStore`), and it can point a store at
+**any** dataset, including another brand's: that is HQ's responsibility, and the reader trusts it.
+
 `datasetForStore(store.code)` still exists for the seeded brands (seed, tests) and throws for
 anything else; storefront routes do not call it.
 
