@@ -7,13 +7,18 @@
 // that every topic the policy derives exists on the broker and refuses to start otherwise (the dev container
 // auto-creates topics with the wrong numbers). SIGTERM / SIGINT stop it after the current pass.
 // `--once` runs a single pass and exits (runbooks, tests). The per-pass JSON line carries counts only.
+// Schema ids (#532): every topic@version is resolved to its registry id at start (SCHEMA_REGISTRY_URL, default
+// 127.0.0.1:18081) and stamped as the `schema_id` header; an unreachable registry or a missing schema refuses the
+// start. `--no-registry` publishes without the header (runbooks only).
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   assertTopicsPresent,
   createKafka,
   createKafkaPublisher,
+  createRegistryClient,
   planTopics,
+  resolveSchemaIds,
   type TopicPolicy,
 } from '@platform/events';
 import { closePool, getPool, initDb, organizationClient } from '../lib/db';
@@ -32,6 +37,8 @@ export interface RelayCliArgs {
   once: boolean;
   batchSize: number;
   intervalMs: number;
+  /** Resolve and stamp schema ids (default true; `--no-registry` turns it off). */
+  registry: boolean;
 }
 
 export function parseArgs(argv: string[]): RelayCliArgs {
@@ -46,6 +53,7 @@ export function parseArgs(argv: string[]): RelayCliArgs {
     once: argv.includes('--once'),
     batchSize: num('--batch', DEFAULT_BATCH_SIZE),
     intervalMs: num('--interval-ms', DEFAULT_INTERVAL_MS),
+    registry: !argv.includes('--no-registry'),
   };
 }
 
@@ -73,10 +81,24 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     await admin.connect();
     await assertTopicsPresent(admin, requiredTopics());
     await admin.disconnect();
+    let schemaIds: Record<string, number> | undefined;
+    if (args.registry) {
+      const registry = createRegistryClient();
+      if (!(await registry.reachable())) {
+        throw new Error(
+          `schema registry at ${registry.url} is unreachable (SCHEMA_REGISTRY_URL; or --no-registry for a runbook)`,
+        );
+      }
+      schemaIds = await resolveSchemaIds(registry);
+    }
     await publisher.connect();
     const client = organizationClient({ organizationId });
     if (args.once) {
-      await relayOnce(client, publisher, { organizationId, batchSize: args.batchSize });
+      await relayOnce(client, publisher, {
+        organizationId,
+        batchSize: args.batchSize,
+        ...(schemaIds ? { schemaIds } : {}),
+      });
     } else {
       console.info(
         JSON.stringify({
@@ -85,6 +107,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
           organization_id: organizationId,
           batch_size: args.batchSize,
           interval_ms: args.intervalMs,
+          schema_ids: schemaIds ? Object.keys(schemaIds).length : 0,
         }),
       );
       const totals = await runRelayLoop(client, publisher, {
@@ -92,6 +115,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         batchSize: args.batchSize,
         intervalMs: args.intervalMs,
         signal: controller.signal,
+        ...(schemaIds ? { schemaIds } : {}),
       });
       console.info(JSON.stringify({ relay: 'outbox', state: 'stopped', ...totals }));
     }

@@ -68,6 +68,8 @@ export interface RelayOptions {
   /** Where the per-pass line goes. Default: console.info as one JSON line. */
   log?: (line: RelayPassResult) => void;
   now?: () => Date;
+  /** `topic@version` → schema registry id, stamped as the `schema_id` header (#532). Absent = no header. */
+  schemaIds?: Record<string, number>;
   /** Per-topic send deadline. Default 15 s. */
   publishTimeoutMs?: number;
   /** `SET LOCAL statement_timeout` on the pass transaction. Default 30 s. */
@@ -182,7 +184,11 @@ export async function relayOnce(
       }
       const group = byTopic.get(row.topic) ?? { ids: [], messages: [] };
       group.ids.push(row.id);
-      group.messages.push(envelopeToMessage(envelope, RELAY_PRODUCER));
+      group.messages.push(
+        envelopeToMessage(envelope, RELAY_PRODUCER, {
+          schemaId: opts.schemaIds?.[`${row.topic}@${row.version}`],
+        }),
+      );
       byTopic.set(row.topic, group);
     }
 

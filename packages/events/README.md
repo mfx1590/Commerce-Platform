@@ -132,3 +132,29 @@ const { envelope, outboxId } = decodeMessage({
 ```
 
 The relay itself lives in `apps/core/src/outbox/relay.ts` (it reads the outbox; this package never touches a database).
+
+## Schema registry and the published lock (0.5.0, #532)
+
+- **Subjects:** one per (topic, version), `<topic>-v<N>-value`, compatibility **BACKWARD** on each. BACKWARD therefore
+  means _a published version only evolves compatibly_; a new version is a new file and a new subject, free to
+  break — consumers handle both (ADR 0003). The registered schema is the file with the common `$defs` inlined
+  (the registry's JSON checker rejects `$ref`). `pnpm --filter @platform/events schemas:register` registers
+  everything idempotently (`SCHEMA_REGISTRY_URL`, default `http://127.0.0.1:18081`).
+- **The lock, `schemas/published.lock.json`:** the canonical inlined form of every published version. The test
+  suite compares every schema file with it, offline: a published version that changed incompatibly fails with the
+  rule named (`REQUIRED_ADDED at #/required: note`), a compatible change fails until it is accepted explicitly
+  with `pnpm --filter @platform/events schemas:lock`, a new version or topic is published the same way.
+  `schemas:lock` refuses a breaking change or a removed version, so the lock cannot be used to bypass the rule.
+- **Our checker is the gate, the registry the second opinion:** Redpanda 24.2 catches a removed property, a type
+  change and a narrowed enum, but accepts an added required property; `backwardIncompatibilities` catches all of
+  them. A live test pins the registry's verdicts.
+- **On the wire:** the relay stamps `schema_id` (the registry id of `topic@version`) next to `version`;
+  `decodeMessage` exposes it.
+
+## Evolving a schema (updated for 0.5.0)
+
+1. Additive and backward-compatible (an optional field, a wider enum)? You MAY edit `v<N>.json` in place —
+   then `pnpm --filter @platform/events schemas:lock` to accept it (the test tells you so), bump the package version.
+2. Anything else (a required field, a removed or renamed field, a narrower type or enum)? Copy `v<N>.json` to
+   `v<N+1>.json`, change it, bump `$id` and `title`; `schemas:lock` publishes the new version. The old file never changes.
+3. `pnpm --filter @platform/events generate && pnpm --filter @platform/events test`, CHANGELOG line, tag `events-vX.Y` at integration time.

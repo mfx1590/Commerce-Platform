@@ -38,6 +38,8 @@ export const HEADER_ORGANIZATION_ID = 'organization_id';
 export const HEADER_STORE_ID = 'store_id';
 export const HEADER_OCCURRED_AT = 'occurred_at';
 export const HEADER_PRODUCER = 'producer';
+/** The registry id of the payload schema (#532); absent when the producer ran without a registry. */
+export const HEADER_SCHEMA_ID = 'schema_id';
 
 type Headers = { actor?: EventEnvelopeV1Base['actor']; trace?: EventEnvelopeV1Base['trace'] };
 
@@ -62,7 +64,11 @@ export function outboxRowToEnvelope(row: OutboxRow): EventEnvelopeV1Base {
 }
 
 /** The Kafka message for an envelope. `producer` names the process that published (`core-outbox-relay/0.4.1`). */
-export function envelopeToMessage(e: EventEnvelopeV1Base, producer: string): RelayMessage {
+export function envelopeToMessage(
+  e: EventEnvelopeV1Base,
+  producer: string,
+  opts: { schemaId?: number | undefined } = {},
+): RelayMessage {
   const headers: Record<string, string> = {
     [HEADER_OUTBOX_ID]: e.event_id,
     [HEADER_EVENT_ID]: e.event_id,
@@ -73,6 +79,7 @@ export function envelopeToMessage(e: EventEnvelopeV1Base, producer: string): Rel
     [HEADER_PRODUCER]: producer,
   };
   if (e.store_id) headers[HEADER_STORE_ID] = e.store_id;
+  if (opts.schemaId !== undefined) headers[HEADER_SCHEMA_ID] = String(opts.schemaId);
   return { key: partitionKey(e), value: JSON.stringify(e), headers };
 }
 
@@ -80,6 +87,8 @@ export interface DecodedMessage {
   envelope: EventEnvelopeV1Base;
   /** The idempotency key: the `outbox_id` header, falling back to the envelope's event_id. */
   outboxId: string;
+  /** The registry id from the `schema_id` header, null when the producer stamped none. */
+  schemaId: number | null;
   headers: Record<string, string>;
 }
 
@@ -114,5 +123,11 @@ export function decodeMessage(m: RawMessage): DecodedMessage {
     const s = text(v);
     if (s !== undefined) headers[k] = s;
   }
-  return { envelope, outboxId: headers[HEADER_OUTBOX_ID] ?? envelope.event_id, headers };
+  const sid = headers[HEADER_SCHEMA_ID];
+  return {
+    envelope,
+    outboxId: headers[HEADER_OUTBOX_ID] ?? envelope.event_id,
+    schemaId: sid !== undefined && /^\d+$/.test(sid) ? Number(sid) : null,
+    headers,
+  };
 }
