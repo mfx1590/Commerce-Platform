@@ -2,11 +2,22 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-20 · Integration 3 gate G2: two brands buy from one stock pool through the APIs (#519)
+
+- `test/two-brands-one-pool.test.ts` (unit job, Postgres, dev tokens, own throwaway database): brand A places 2
+  through its Store API (manual payment) → brand B's `available_quantity` drops by 2 → HQ ships A's order through
+  the Admin API (`createShipment` + `updateShipment` → `shipped`) → `on_hand` −2 and one attributed `sale`
+  movement, B unchanged → brand B buys the rest → one more unit is 409 `out_of_stock` in BOTH brands; nothing
+  oversold, nothing lost. Window 11's allocation engine is registered as `createServer()` does. The order ids and
+  the quantities are printed at every step.
+- Docs (#503): the HQ finance report needs `finance` on `organization:hq`, not `analyst` (this CHANGELOG and
+  `src/http/README.md`).
+
 ### 2026-10-18 · the report routes mounted (REQUEST #494, #479)
 
 - `moduleAdminRouters()` mounts window 12's `reportingAdminRouter()`: `GET /admin/stores/:storeId/reports/sales` and
-  `…/stock` (`viewer` on the store), `GET /admin/hq/reports/sales` and `…/finance` (`analyst` on
-  `organization:hq`). Eleven module routers. The mount test checks an analyst 200 with a `SalesReport`, a store
+  `…/stock` (`viewer` on the store), `GET /admin/hq/reports/sales` (`analyst` on `organization:hq`) and
+  `…/finance` (`finance` on `organization:hq` — corrected per #503; the spec and the router always said `finance`). Eleven module routers. The mount test checks an analyst 200 with a `SalesReport`, a store
   admin 403, no token 401.
 
 ### 2026-10-18 · the consent ledger route mounted (REQUEST #492, #471)
