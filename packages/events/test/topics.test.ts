@@ -203,11 +203,22 @@ describe.runIf(brokerDown === null)(
       await admin.connect();
     }, 30_000);
 
+    // The shared broker must never collect test topics: whatever happened above, delete every `t-<rand>.`
+    // topic this block created, say which, and only then disconnect.
     afterAll(async () => {
-      const existing = new Set(await admin.listTopics());
-      const mine = names.filter((n) => existing.has(n));
-      if (mine.length > 0) await admin.deleteTopics({ topics: mine, timeout: 30_000 });
-      await admin.disconnect();
+      try {
+        const existing = new Set(await admin.listTopics());
+        const mine = names.filter((n) => existing.has(n));
+        if (mine.length > 0) await admin.deleteTopics({ topics: mine, timeout: 30_000 });
+        const left = (await admin.listTopics()).filter((n) => n.startsWith(prefix));
+        console.info(
+          `topics.test: deleted ${mine.length} test topic(s) with prefix ${prefix}: ${mine.join(', ') || '(none)'}` +
+            (left.length ? ` — STILL PRESENT: ${left.join(', ')}` : ''),
+        );
+        expect(left).toEqual([]);
+      } finally {
+        await admin.disconnect();
+      }
     }, 60_000);
 
     it('a dry run touches nothing', async () => {
