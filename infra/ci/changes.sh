@@ -124,7 +124,7 @@ if match '(^|/)Dockerfile$' || match '^\.dockerignore$' || match '^infra/docker/
   images=true
 fi
 if match '^(infra/terraform/|infra/kubernetes/)' || match '^\.github/workflows/ci\.yml$'; then terraform=true; fi
-if [ "$code" = true ] || match '^(infra/keycloak/|infra/openfga/|infra/docker/)' || match "$CI_SCRIPTS"; then e2e=true; fi
+if [ "$code" = true ] || match '^(infra/keycloak/|infra/openfga/|infra/docker/|infra/redpanda/)' || match "$CI_SCRIPTS"; then e2e=true; fi
 # infra/deploy/ is what gets deployed alongside the charts (the derived customers realm, #297), and the
 # customers realm export is its input: a change to either must re-run the derivation's self-test.
 if match '^(infra/helm/|infra/argocd/|infra/deploy/)' || match '^infra/keycloak/customers-realm\.json$' ||
