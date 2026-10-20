@@ -469,6 +469,18 @@ jobs:
           echo "::add-mask::$model"
           { echo "OPENFGA_STORE_ID=$store"; echo "OPENFGA_MODEL_ID=$model"; } >> "$GITHUB_ENV"
           echo "exported OPENFGA_STORE_ID (${#store} chars) and OPENFGA_MODEL_ID (${#model} chars) to the job"
+          # The core's role changes end the user's Keycloak sessions through the dev core-admin service account
+          # (hq-rbac README); without these two every assign/revoke answers 503 "identity provider unavailable"
+          # (#525). The values are the dev realm's, from .env.example via fga:seed's .env, never written here.
+          kc_id="$(sed -n 's/^KEYCLOAK_ADMIN_CLIENT_ID=//p' .env)"
+          kc_secret="$(sed -n 's/^KEYCLOAK_ADMIN_CLIENT_SECRET=//p' .env)"
+          if [ -z "$kc_id" ] || [ -z "$kc_secret" ]; then
+            echo '.env (from .env.example) has no KEYCLOAK_ADMIN_CLIENT_ID / _SECRET'
+            exit 1
+          fi
+          echo "::add-mask::$kc_secret"
+          { echo "KEYCLOAK_ADMIN_CLIENT_ID=$kc_id"; echo "KEYCLOAK_ADMIN_CLIENT_SECRET=$kc_secret"; } >> "$GITHUB_ENV"
+          echo "exported KEYCLOAK_ADMIN_CLIENT_ID and KEYCLOAK_ADMIN_CLIENT_SECRET (${#kc_secret} chars) to the job"
           rm -f .env
       # run-e2e.sh installs the browser itself, from the package that declares @playwright/test —
       # `pnpm exec playwright` at the workspace root cannot find it.
@@ -564,6 +576,12 @@ jobs:
           pnpm --filter @platform/auth-sdk fga:seed
           grep -E '^OPENFGA_(STORE|MODEL)_ID=.+' .env >> "$GITHUB_ENV"
           grep -cE '^OPENFGA_(STORE|MODEL)_ID=.+' .env | grep -qx 2 || { echo 'fga:seed wrote no ids'; exit 1; }
+          # The core's role changes end the user's Keycloak sessions through the dev core-admin service account
+          # (hq-rbac README); without these two every assign/revoke answers 503 "identity provider unavailable"
+          # (#525). The values are the dev realm's, from .env.example via fga:seed's .env, never written here.
+          grep -cE '^KEYCLOAK_ADMIN_CLIENT_(ID|SECRET)=.+' .env | grep -qx 2 || { echo '.env (from .env.example) has no core-admin client'; exit 1; }
+          echo "::add-mask::$(sed -n 's/^KEYCLOAK_ADMIN_CLIENT_SECRET=//p' .env)"
+          grep -E '^KEYCLOAK_ADMIN_CLIENT_(ID|SECRET)=.+' .env >> "$GITHUB_ENV"
           rm -f .env
       - name: core boots for real with OpenFGA and stays up (no dev tokens)
         if: needs.changes.outputs.e2e == 'true'

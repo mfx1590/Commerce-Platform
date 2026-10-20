@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added — issue #518: Integration 3 G1 from the UI (core-mode e2e)
+
+- `e2e/hq-onboarding.spec.ts`: after Activate, (a) the wizard's key answers `GET /store` as the new
+  store; (b) HQ · Roles grants `store-staff` `store_staff` on the new store and shows it; (c) that
+  user's token gets 200 with an empty product list on the new store and 403 on brand-b. One owner
+  TOTP sign-in; one printed line per step. `staffToken` and `STORE_STAFF` / `BRAND_B` in
+  `e2e/staff.ts`.
+- Comment-only nits from the #481 review: the warehouse page no longer says the ledger waits for
+  #469; `src/lib/api/admin.ts` names Admin API 0.4.22.
+
 ### Added — #468 follow-up: stock item ledger, reservations, approve preview (Admin API 0.4.16), warehouse codes (0.4.17)
 
 - Store inventory names each row's warehouse by its `warehouse_code` (#475) for store
