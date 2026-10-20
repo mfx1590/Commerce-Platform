@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-16 · Contracts: contracts-v0.4.19 on main (Admin API 0.4.17) · Branch: `admin/phase3` (= main d9eb8a2) · Manager: "Manager session six" (report there) · Status: HOLD — #468 complete (#474 ce0b823, #481 d9eb8a2); build slot with window 13
+Last updated: 2026-10-20 · Contracts: contracts-v0.4.25 on main (Admin API 0.4.22) · Branch: `admin/phase3` · Manager: "Manager session seven" (local_484d7727…; report there) · Status: #518 (Integration 3 G1) — plan sent
 
 ## Identity (does not change)
 Owned paths (write):
@@ -557,8 +557,15 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **HOLD (manager, 2026-10-16):** no task; the build slot goes to window 13. admin/phase3 = main
-  d9eb8a2, install + package build done. No pushes except memory records until a new assignment.
+- **#518 — Integration 3 G1 (tracking #517), 2026-10-20.** Manager is now **"Manager session
+  seven"** (local_484d7727-b945-48ba-bb27-0366bd2bbdcc); report there. Merged main 78db5ce (Admin
+  API 0.4.22, contracts-v0.4.25), install + build; `fga:seed` run (reused store 01M4ZT6H…, new
+  model; no tracked file changed). PLAN sent — wait for the answer. Extend the owner journey in
+  `e2e/hq-onboarding.spec.ts` (one TOTP per spec): after Activate → (a) GET {core}/store with the
+  wizard's key → the new code; (b) /roles → Stef StoreStaff → store_staff on the new store, read
+  back; (c) store-staff token (staff test-cli password grant) → products 200 [] on the new store,
+  403 on brand-b. One printed line per step. Ask the manager before the core e2e; check the 5 h
+  usage first (stop at 80%). Full admin suite. Parked nits below ride in this PR.
 - **Parked comment-only nits (#481 review) — ride in the NEXT PR, never a PR on their own:**
   `src/app/(hq)/warehouse/page.tsx` ~92 doc comment still says the ledger and reservations "wait
   for CONTRACT CHANGE #469" (they shipped in #481); `src/lib/api/admin.ts` header says
