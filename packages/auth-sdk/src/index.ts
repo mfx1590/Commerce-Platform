@@ -69,6 +69,23 @@ export type {
   CreateStaffUserInput,
 } from './keycloak/admin.js';
 
+// customer.erased consumer (#483): delete the customers-realm user of an erased row unless a live row elsewhere
+// in the organization still carries the subject.
+export { deleteErasedCustomerIdentity, onCustomerErased } from './customers/erasure.js';
+export { createCustomerErasureConsumer } from './customers/consumer.js';
+export type {
+  CustomerErasureConsumer,
+  CustomerErasureConsumerOptions,
+  CustomerErasureRunResult,
+} from './customers/consumer.js';
+export type {
+  CustomerErasureDeps,
+  CustomerErasureOutcome,
+  CustomerErasureResult,
+  CustomerErasedEnvelope,
+  CustomerErasedEventResult,
+} from './customers/erasure.js';
+
 // JWT verification + scope resolution (ADR 0002 §4).
 export { createStaffTokenVerifier, bearerToken } from './jwt/verify.js';
 export type { StaffTokenVerifier, StaffTokenVerifierOptions, StaffClaims } from './jwt/verify.js';

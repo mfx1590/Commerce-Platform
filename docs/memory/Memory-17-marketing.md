@@ -1,6 +1,6 @@
 # Memory 17 — Marketing
 Window: 17 · Key: `marketing` · Branch prefix: `marketing/` · Model: Fable (manager decision 2026-09-08: money and attribution)
-Last updated: 2026-10-07 · Contracts: contracts-v0.4.12 · Branch: `marketing/phase3` · Status: **Phase 3 — #360 worker MERGED (PR #396 → 035238d); QUIET until the manager confirms db 0.3.3 (#393) on main, then the one-line follow-up** (#360 itself stays open for the 2b live send)
+Last updated: 2026-10-07 · Contracts: contracts-v0.4.12 (db 0.3.3) · Branch: `marketing/phase3` · Status: **Phase 3 — #360 docket DONE, QUIET** (PR #396 → 035238d, follow-up PR #404 → 7e92680; #360 itself stays open for the live send at the 2b gate; quiet-state contract applies — wake only for a routed REQUEST or the manager)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -29,6 +29,10 @@ Never touches:
 Make marketing a product, not a side effect: campaigns with server-side attribution, product feeds for Google Merchant and Meta per brand, segments with a rule builder synced to the messaging provider, abandoned-cart recovery, and the Marketing section of the admin (Store view). Every number reported comes from events and orders in the core, never from a pixel. Wave B — starts when core 2.1–2.2 have merged; marketing may start against the mocks as soon as contracts-v0.3 is tagged.
 
 ## Done
+- **#360 · follow-up: docs on the real 0180 migration + `errorLabel` label-only** — commit `3b0eb9c`, PR #404
+  (merged 7e92680), 2026-10-07. After #397 (= 0eed019) landed db 0.3.3 and deleted the proposed copy + the
+  test-side apply, README "Schema", CLAUDE.md and the package `files` list follow; `errorLabel` contributes a
+  `TransportError`'s built label or any other error's name only (unit test); CHANGELOG 0.2.1. 41/41.
 - **#360 · order-confirmation email (`apps/notifications`)** — built 2026-10-07 on `marketing/phase3`, commits
   `c001856` + `92cd163` (tpl tag), merge of main e64a7f5 = `95efa7f`, memory `593e8f7`, **PR #396 merged =
   035238d** (Refs #360; the issue closes at the 2b gate). Scaffold → ESM worker: `consumer.ts` (CLAIM in one transaction:
@@ -102,10 +106,33 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   Gates: lint, typecheck (18/18), format:check, `pnpm test --filter @platform/core` = 190 passed / 1 skipped.
 
 ## In progress
-- **#360 · docs + nit follow-up PR** (manager's go 2026-10-07 after #397 = 0eed019 landed db 0.3.3 with the
-  proposed copy and the test-side apply deleted in the landing). Merged main (9a33951), rebuilt; README "Schema",
-  CLAUDE.md layout line, package.json `files`, `errorLabel` label-only (+ unit test), CHANGELOG 0.2.1. One push,
-  PR "Refs #360", report number + head sha, then QUIET. The live Resend send at the 2b gate closes #360.
+- **ACTIVE again 2026-10-19** (manager = session "Manager session seven"; report there). Merged main b1d9225
+  (contracts-v0.4.24, db 0.3.12) = `8af2d6a`, `pnpm install --frozen-lockfile`, packages rebuilt. Two tasks,
+  in order; one PR each; hold pushes until the manager confirms a merge; full suite of every package touched.
+- **Task 1 · #491 `never_asked` consent operator (GATE before any re-consent send).** CONTRACT CHANGE **#508**
+  filed (exact yaml diff: `SegmentPredicate` consent `op` enum += `never_asked`; Admin API 0.4.21 → 0.4.22,
+  contracts 0.4.24 → 0.4.25). Lands as an integration PR: the manager's contracts commit on
+  `integration/marketing-never-asked`, then my ONE commit cut from that sha (`git checkout -b … <sha>` +
+  cherry-pick). Built locally: `segment-rules.ts` (type, `SEGMENT_FIELDS`, schema enum), `segment-sql.ts`
+  (`c.consent->$ch IS NULL`), `segments.test.ts` (+ id-level test over granted / refused / opted-out /
+  never-asked / sms-only), admin `_rules.ts` (op + hint; its unit + Prism tests iterate the op list), window
+  13's `it.todo` → real test (named exception), module README + CHANGELOG. To run the admin Prism contract
+  test locally the yaml is patched UNCOMMITTED and reverted. Semantics: never_asked = no `marketing_email`
+  key; a refusal (`granted:false`) and an opt-out are NOT never_asked.
+- **Task 2 · #499 `export_ready` notification kind** — BUILT locally (apps/notifications 0.3.0, 47/47, lint,
+  typecheck, prettier). `TOPIC_KINDS` += `customer.export_ready`; `loadExportReady` (event payload only names
+  the export id; rows: `customer_export` must be `ready`, `customer` row for address + first name; skips
+  `customer_erased` / `customer_disabled` / `export_not_ready` / `source_not_found` via the new
+  `LoadOutcome = Loaded | { skip } | null`); template `export-ready.ts` (no token, no link with credentials, no
+  export id — the brand's `/account` page; "available until <expires_at>" in the store zone; footer reason per
+  kind); `DeliveryMeta.displayId: number | null`; staff-requested gets the same mail. **Found: 0180's
+  `kind` CHECK refuses a third kind** → CONTRACT CHANGE **#511**, manager chose form (b) = EXTEND the CHECK;
+  landed as db 0.3.14 / 0198 on `origin/integration/notifications-export-ready` = 56bfa09 (stacked on
+  `integration/customers-erasure`, PR #514, so #499 merges after #514). Cut `marketing/phase3-export-ready`
+  from 56bfa09, #499 as ONE commit, proposed copy deleted, tests on the landed migration. Earlier it was
+  built against the proposed copy `apps/notifications/migrations/0198_notification_delivery_kind.sql`
+  applied by `consumer.test.ts` (#244 pattern). Waiting for the manager's (a)/(b) answer; PR after #491.
+- Open for the owner: the live Resend send at the 2b gate closes #360.
   Review 2026-10-07 (manager, Fable static): **MERGE**, queues on green after the running queue. Deferred nit for
   the follow-up PR, not before the merge: `errorLabel` forwards a generic `Error`'s message verbatim into
   `last_error` — make it label-only (name, or a fixed word) everywhere, keep the full message for the log only.
@@ -248,12 +275,8 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
 - 2026-09-05 (manager) · Marketing never mutates orders, prices or stock; it reads events and writes its own tables.
 
 ## Blocked / waiting
-- **#393** CONTRACT CHANGE (db `0180_notification_delivery.sql`) — until it lands, the app's tests apply the
-  proposed copy; the shared stack's `platform` DB has no table yet, so "an order placed on the laptop produces one
-  email" can only be shown on a throwaway DB (the consumer test does exactly that).
-- **#394** REQUEST (root `.gitignore` `.notifications/`, `.env.example` rows) — cosmetic, nothing blocks.
 - **The live Resend send** (owner's account; 2b gate) — closes #360. `RESEND_API_KEY` must only ever be in the env.
-- Push of `marketing/phase3` — held until the manager confirms the previous merge.
+  Landed meanwhile: #393 (db 0.3.3, #397 = 0eed019), #394 (main a469ace), #396 (035238d), #404 (7e92680).
 - #266 (2.6) merged as 132f3b0, #269 (promotions route) as fb2371c.
 - **REQUEST #247** (windows 3/10, the storefront recovery page) — still open; does not block the module.
 - Everything else from Phase 2 has landed: #181 (mount), #194 (0.4.1), #195 (infra #210), #239 (0.4.4),

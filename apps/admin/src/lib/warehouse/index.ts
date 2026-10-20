@@ -206,7 +206,53 @@ export function olderOpenCounts(
   return older;
 }
 
-/** A warehouse the principal cannot name (no hq read): the start of its id. */
+// ---------------------------------------------------------------------------- ledger and reservations words
+
+/** `StockMovement.reason` in words. */
+export const MOVEMENT_REASONS: Record<string, string> = {
+  receipt: 'Receipt',
+  sale: 'Sale',
+  return: 'Return',
+  adjustment: 'Adjustment',
+  transfer_in: 'Transfer in',
+  transfer_out: 'Transfer out',
+  cycle_count: 'Cycle count',
+};
+
+export function movementReasonLabel(reason: string): string {
+  return MOVEMENT_REASONS[reason] ?? reason;
+}
+
+/** Why a warehouse was chosen for a reservation (window 11's placement rules). */
+const ALLOCATION_RULES: Record<string, string> = {
+  store_country: 'the store’s country',
+  store_default: 'the store’s default warehouse',
+  same_country: 'same country as the address',
+  same_region: 'same region as the address',
+  priority: 'warehouse priority',
+};
+
+/**
+ * `reservation.allocation_rule` in words: the five rules; `split:<rule>` for the second and later
+ * warehouse of a split line; `backorder` for a shortfall reserved anyway; null before 0191. An
+ * unknown value is shown as it is rather than hidden.
+ */
+export function allocationRuleLabel(rule: string | null): string {
+  if (rule === null || rule === '') return '—';
+  if (rule === 'backorder') return 'backorder — reserved beyond stock';
+  if (rule.startsWith('split:')) {
+    const inner = rule.slice('split:'.length);
+    return `split — further warehouse, by ${ALLOCATION_RULES[inner] ?? inner}`;
+  }
+  return ALLOCATION_RULES[rule] ?? rule;
+}
+
+export const RESERVATION_STATUSES = ['open', 'released', 'all'] as const;
+
+/**
+ * A warehouse nothing on the page names: no hq read and no row carrying its `warehouse_code` (a
+ * filtered warehouse with no rows). The start of its id.
+ */
 export function shortWarehouseLabel(id: string): string {
   return `Warehouse ${id.slice(0, 8)}`;
 }

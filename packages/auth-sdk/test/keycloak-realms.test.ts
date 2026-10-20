@@ -296,7 +296,8 @@ describe('customers realm export (static)', () => {
   // export declares no clientScopes, so nothing here depends on Keycloak's built-in `email` scope).
   it('every client emits email_verified as a JSON boolean in the access token (#307)', () => {
     expect(customers.clients.map((c) => c.clientId)).toContain('test-cli');
-    for (const c of customers.clients) {
+    // Every client that issues tokens to a person; the core-admin service account issues none (#483).
+    for (const c of customers.clients.filter((x) => !x.serviceAccountsEnabled)) {
       const m = c.protocolMappers?.find((x) => x.config['claim.name'] === 'email_verified');
       expect(m, `${c.clientId}: email_verified mapper`).toBeDefined();
       expect(m!.protocolMapper).toBe('oidc-usermodel-property-mapper');
@@ -327,8 +328,35 @@ describe('customers realm export (static)', () => {
     expect(google?.config.clientSecret).toMatch(/^\$\{[A-Z_]+(:[^}]*)?\}$/);
   });
 
-  it('keeps Jane', () => {
-    expect(customers.users.map((u) => u.email)).toEqual(['jane@example.com']);
+  it('keeps Jane (and the one service account, which is no customer)', () => {
+    expect(customers.users.filter((u) => !u.serviceAccountClientId).map((u) => u.email)).toEqual([
+      'jane@example.com',
+    ]);
+  });
+
+  it('core-admin is the one service account here too: deletes the user of an erased customer (#483)', () => {
+    const sa = client(customers, 'core-admin');
+    expect(sa.publicClient).toBe(false);
+    expect(sa.serviceAccountsEnabled).toBe(true);
+    expect(sa.standardFlowEnabled).toBe(false);
+    expect(sa.implicitFlowEnabled).toBe(false);
+    expect(sa.directAccessGrantsEnabled).toBe(false);
+    expect(sa.fullScopeAllowed).toBe(true);
+    expect(sa.redirectUris).toEqual([]);
+    expect(sa.webOrigins).toEqual([]);
+    expect(sa.secret).toMatch(/^dev-only-[a-z-]+$/);
+    expect(sa.secret).not.toBe(client(staff, 'core-admin').secret); // one secret per realm
+    expect(
+      customers.clients.filter((c) => c.serviceAccountsEnabled).map((c) => c.clientId),
+    ).toEqual(['core-admin']);
+    const saUsers = customers.users.filter((u) => u.serviceAccountClientId);
+    expect(saUsers.map((u) => u.serviceAccountClientId)).toEqual(['core-admin']);
+    expect(saUsers[0]!.clientRoles).toEqual({
+      'realm-management': ['manage-users', 'view-users', 'query-users'],
+    });
+    expect(saUsers[0]!.realmRoles).toBeUndefined();
+    expect(saUsers[0]!.email).toBeUndefined();
+    expect(saUsers[0]!.credentials).toBeUndefined();
   });
 });
 

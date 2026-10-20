@@ -5,7 +5,7 @@
  */
 export interface EventEnvelopeV1Base {
 event_id: string
-topic: ("store.created" | "store.updated" | "product.published" | "product.updated" | "product.archived" | "customer.created" | "customer.updated" | "customer.erased" | "customer.export_requested" | "order.placed" | "order.confirmed" | "order.cancelled" | "order.completed" | "order.updated" | "payment.authorized" | "payment.captured" | "payment.failed" | "refund.issued" | "refund.failed" | "shipment.created" | "shipment.label_created" | "shipment.shipped" | "shipment.delivered" | "fulfillment.requested" | "fulfillment.picking" | "fulfillment.packed" | "return.requested" | "return.received" | "stock.moved" | "stock_item.mapped" | "campaign.launched" | "campaign.ended" | "feed.published" | "attribution.recorded" | "referral.converted" | "review.published" | "cart.abandoned")
+topic: ("store.created" | "store.updated" | "product.published" | "product.updated" | "product.archived" | "customer.created" | "customer.updated" | "customer.erased" | "customer.export_requested" | "customer.export_ready" | "order.placed" | "order.confirmed" | "order.cancelled" | "order.completed" | "order.updated" | "payment.authorized" | "payment.captured" | "payment.failed" | "refund.issued" | "refund.failed" | "shipment.created" | "shipment.label_created" | "shipment.shipped" | "shipment.delivered" | "fulfillment.requested" | "fulfillment.picking" | "fulfillment.packed" | "return.requested" | "return.received" | "stock.moved" | "stock_item.mapped" | "campaign.launched" | "campaign.ended" | "feed.published" | "attribution.recorded" | "referral.converted" | "review.published" | "cart.abandoned")
 version: number
 occurred_at: string
 organization_id: string
@@ -135,11 +135,30 @@ identity_id: (string | null)
 erased_at: string
 }
 /**
+ * A GDPR export bundle is built and downloadable by the customer (Store API getMyExport, signed in) and by store admins (Admin API getCustomerExport) until expires_at. Ids and timestamps only — never the bundle, never personal data. Consumers: the notifications app tells the customer by email (it reads the address from the customer row at send time; the mail carries no token and no link with credentials).
+ */
+export interface CustomerExportReadyV1 {
+export_id: string
+customer_id: string
+requested_by: string
+requested_by_type: ("staff" | "customer")
+expires_at: string
+}
+/**
  * A GDPR data export was requested for one customer of one store (Admin API exportCustomer). The consumer builds the bundle through the core and delivers it; the payload carries ids only, never personal data.
  */
 export interface CustomerExportRequestedV1 {
 customer_id: string
 requested_by: string
+requested_at: string
+}
+/**
+ * A GDPR data export was requested for one customer of one store — by staff (Admin API exportCustomer) or by the customer (Store API requestMyExport). The consumer builds the bundle through the core and delivers it; the payload carries ids only, never personal data. v2 adds requested_by_type; requested_by is the staff_user id or the customer id accordingly.
+ */
+export interface CustomerExportRequestedV2 {
+customer_id: string
+requested_by: string
+requested_by_type: ("staff" | "customer")
 requested_at: string
 }
 /**
@@ -645,7 +664,9 @@ export interface EventPayloads {
   'cart.abandoned@1': CartAbandonedV1;
   'customer.created@1': CustomerCreatedV1;
   'customer.erased@1': CustomerErasedV1;
+  'customer.export_ready@1': CustomerExportReadyV1;
   'customer.export_requested@1': CustomerExportRequestedV1;
+  'customer.export_requested@2': CustomerExportRequestedV2;
   'customer.updated@1': CustomerUpdatedV1;
   'feed.published@1': FeedPublishedV1;
   'fulfillment.packed@1': FulfillmentPackedV1;
@@ -686,7 +707,8 @@ export interface LatestPayloads {
   'cart.abandoned': CartAbandonedV1;
   'customer.created': CustomerCreatedV1;
   'customer.erased': CustomerErasedV1;
-  'customer.export_requested': CustomerExportRequestedV1;
+  'customer.export_ready': CustomerExportReadyV1;
+  'customer.export_requested': CustomerExportRequestedV2;
   'customer.updated': CustomerUpdatedV1;
   'feed.published': FeedPublishedV1;
   'fulfillment.packed': FulfillmentPackedV1;

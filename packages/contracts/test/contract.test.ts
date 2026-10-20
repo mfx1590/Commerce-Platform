@@ -734,3 +734,211 @@ describe('Store API mock (0.3.0 currency query)', () => {
     expect(bad.status).toBe(400);
   });
 });
+
+describe('Store + Admin API mock (0.4.21 customer consent ledger, #489)', () => {
+  const customerHeaders = { ...storeHeaders, authorization: 'Bearer customer' };
+  const CUSTOMER_ID = '30000000-0000-4000-8000-000000000a01';
+
+  it('getMyConsents and putMyConsents answer schema-valid current states; a bad body is refused', async () => {
+    const got = await fetch(`${STORE}/store/customers/me/consents`, { headers: customerHeaders });
+    expect(got.status).toBe(200);
+    const current = (await json(got)).items as Array<{ purpose: string; granted: boolean | null }>;
+    expect(current[0]?.purpose).toBe('marketing_email');
+
+    const put = await fetch(`${STORE}/store/customers/me/consents`, {
+      method: 'PUT',
+      headers: customerHeaders,
+      body: JSON.stringify({
+        policy_version: '2026-10',
+        consents: [{ purpose: 'marketing_email', granted: false }],
+      }),
+    });
+    expect(put.status).toBe(200);
+    const after = (await json(put)).items as Array<{ granted: boolean | null }>;
+    expect(after[0]?.granted).toBe(false);
+
+    for (const body of [
+      { policy_version: '', consents: [{ purpose: 'marketing_email', granted: true }] },
+      { policy_version: '2026-10', consents: [] },
+      { policy_version: '2026-10', consents: [{ purpose: 'sms', granted: true }] },
+    ]) {
+      const bad = await fetch(`${STORE}/store/customers/me/consents`, {
+        method: 'PUT',
+        headers: customerHeaders,
+        body: JSON.stringify(body),
+      });
+      expect(bad.status, JSON.stringify(body)).toBe(400);
+    }
+    const conflict = await fetch(`${STORE}/store/customers/me/consents`, {
+      headers: { ...customerHeaders, prefer: 'code=409' },
+    });
+    expect(conflict.status).toBe(409);
+  });
+
+  it('listCustomerConsents answers the ledger; refusals 403 and 404', async () => {
+    const res = await fetch(
+      `${ADMIN}/admin/stores/${STORE_ID}/customers/${CUSTOMER_ID}/consents?purpose=marketing_email`,
+      { headers: adminHeaders },
+    );
+    expect(res.status).toBe(200);
+    const items = (await json(res)).items as Array<{ id: string; granted: boolean }>;
+    expect(typeof items[0]?.granted).toBe('boolean');
+    const badPurpose = await fetch(
+      `${ADMIN}/admin/stores/${STORE_ID}/customers/${CUSTOMER_ID}/consents?purpose=sms`,
+      { headers: adminHeaders },
+    );
+    // 0.4.23 (#496 follow-up): the operation documents 400, so the bad enum is the house 400
+    expect(badPurpose.status).toBe(400);
+    for (const code of [403, 404]) {
+      const refused = await fetch(
+        `${ADMIN}/admin/stores/${STORE_ID}/customers/${CUSTOMER_ID}/consents`,
+        { headers: { ...adminHeaders, prefer: `code=${code}` } },
+      );
+      expect(refused.status).toBe(code);
+    }
+  });
+});
+
+describe('Admin API mock (0.4.19 report operations, #493)', () => {
+  const range = 'from=2026-03-01&to=2026-03-02';
+  const salesPaths = [`/admin/stores/${STORE_ID}/reports/sales`, '/admin/hq/reports/sales'];
+
+  it('the store and HQ sales reports answer schema-valid per-currency rows and totals', async () => {
+    for (const path of salesPaths) {
+      const res = await fetch(`${ADMIN}${path}?${range}`, { headers: adminHeaders });
+      expect(res.status, path).toBe(200);
+      const report = await json(res);
+      const rows = report.rows as Array<{
+        net_minor: number;
+        total_minor: number;
+        refunded_minor: number;
+      }>;
+      expect(rows.length, path).toBeGreaterThan(0);
+      for (const r of rows) expect(r.net_minor).toBe(r.total_minor - r.refunded_minor);
+      expect((report.totals as unknown[]).length, path).toBeGreaterThan(0);
+      expect((report.currency_totals as unknown[]).length, path).toBeGreaterThan(0);
+    }
+  });
+
+  it('the stock report answers a schema-valid page', async () => {
+    const res = await fetch(`${ADMIN}/admin/stores/${STORE_ID}/reports/stock?page=1&limit=20`, {
+      headers: adminHeaders,
+    });
+    expect(res.status).toBe(200);
+    const page = await json(res);
+    const items = page.items as Array<{ on_hand: number; reserved: number; available: number }>;
+    expect(page.total).toBe(items.length);
+    expect(items[0]!.available).toBe(items[0]!.on_hand - items[0]!.reserved);
+  });
+
+  it('the HQ finance report answers unreconciled fees per store and currency', async () => {
+    const res = await fetch(`${ADMIN}/admin/hq/reports/finance?from=2026-03-01&to=2026-04-01`, {
+      headers: adminHeaders,
+    });
+    expect(res.status).toBe(200);
+    const report = await json(res);
+    expect(report.fees_reconciled).toBe(false);
+    expect((report.rows as unknown[]).length).toBeGreaterThan(0);
+    expect((report.currency_totals as unknown[]).length).toBeGreaterThan(0);
+  });
+
+  it('a missing range or a malformed currency is a 400; refusals 403 (and 404 on a store)', async () => {
+    for (const path of [...salesPaths, '/admin/hq/reports/finance']) {
+      const missing = await fetch(`${ADMIN}${path}?from=2026-03-01`, { headers: adminHeaders });
+      expect(missing.status, `${path} missing to`).toBe(400);
+      const badCurrency = await fetch(`${ADMIN}${path}?${range}&currency=eur`, {
+        headers: adminHeaders,
+      });
+      expect(badCurrency.status, `${path} bad currency`).toBe(400);
+      const codes = path.startsWith('/admin/stores/') ? [403, 404] : [403];
+      for (const code of codes) {
+        const refused = await fetch(`${ADMIN}${path}?${range}`, {
+          headers: { ...adminHeaders, prefer: `code=${code}` },
+        });
+        expect(refused.status, `${path} ${code}`).toBe(code);
+      }
+    }
+    for (const code of [403, 404]) {
+      const refused = await fetch(`${ADMIN}/admin/stores/${STORE_ID}/reports/stock`, {
+        headers: { ...adminHeaders, prefer: `code=${code}` },
+      });
+      expect(refused.status, `stock ${code}`).toBe(code);
+    }
+  });
+});
+
+describe('Store + Admin API mock (0.4.23 customer exports, #498)', () => {
+  const customerHeaders = { ...storeHeaders, authorization: 'Bearer customer' };
+  const CUSTOMER_ID = '30000000-0000-4000-8000-000000000a01';
+  const EXPORT_ID = '30000000-0000-4000-8000-000000000e01';
+
+  it('listMyExports answers summaries; getMyExport downloads, or answers 404 / 409 / 410', async () => {
+    const list = await fetch(`${STORE}/store/customers/me/exports`, { headers: customerHeaders });
+    expect(list.status).toBe(200);
+    const items = (await json(list)).items as Array<{ id: string; status: string }>;
+    expect(items[0]?.status).toBe('ready');
+
+    const one = await fetch(`${STORE}/store/customers/me/exports/${EXPORT_ID}`, {
+      headers: customerHeaders,
+    });
+    expect(one.status).toBe(200);
+    expect(typeof (await json(one))).toBe('object');
+
+    for (const code of [404, 409, 410]) {
+      const refused = await fetch(`${STORE}/store/customers/me/exports/${EXPORT_ID}`, {
+        headers: { ...customerHeaders, prefer: `code=${code}` },
+      });
+      expect(refused.status, String(code)).toBe(code);
+      if (code === 410) {
+        const body = await json(refused);
+        expect(body.code).toBe('expired');
+        expect((body.details as { expires_at?: string }).expires_at).toBeTruthy();
+      }
+    }
+  });
+
+  it('listCustomerExports / getCustomerExport answer; refusals 400 / 403 / 404 and the 410 expired', async () => {
+    const base = `${ADMIN}/admin/stores/${STORE_ID}/customers/${CUSTOMER_ID}/exports`;
+    const list = await fetch(base, { headers: adminHeaders });
+    expect(list.status).toBe(200);
+    expect(Array.isArray((await json(list)).items)).toBe(true);
+    const one = await fetch(`${base}/${EXPORT_ID}`, { headers: adminHeaders });
+    expect(one.status).toBe(200);
+    for (const path of [base, `${base}/${EXPORT_ID}`]) {
+      for (const code of [400, 403, 404]) {
+        const refused = await fetch(path, { headers: { ...adminHeaders, prefer: `code=${code}` } });
+        expect(refused.status, `${path} ${code}`).toBe(code);
+      }
+    }
+    const gone = await fetch(`${base}/${EXPORT_ID}`, {
+      headers: { ...adminHeaders, prefer: 'code=410' },
+    });
+    expect(gone.status).toBe(410);
+    expect((await json(gone)).code).toBe('expired');
+  });
+});
+
+describe('Admin API mock (0.4.21 customer identity, #504)', () => {
+  const IDENTITY_ID = '50000000-0000-4000-8000-000000000301';
+  const path = `${ADMIN}/admin/customer-identities/${IDENTITY_ID}`;
+
+  it('getCustomerIdentity answers ids only: the identity and its per-store customer rows', async () => {
+    const res = await fetch(path, { headers: adminHeaders });
+    expect(res.status).toBe(200);
+    const identity = await json(res);
+    expect(identity.id).toBe(IDENTITY_ID);
+    const customers = identity.customers as Array<Record<string, unknown>>;
+    expect(customers.length).toBeGreaterThan(0);
+    for (const c of customers) expect(Object.keys(c).sort()).toEqual(['customer_id', 'store_id']);
+    expect(Object.keys(identity).sort()).toEqual(['customers', 'id']);
+  });
+
+  it('refusals: 401 without a token, 403 for a store-scoped principal, 404 for an unknown identity', async () => {
+    const anonymous = await fetch(path);
+    expect(anonymous.status).toBe(401);
+    for (const code of [403, 404]) {
+      const refused = await fetch(path, { headers: { ...adminHeaders, prefer: `code=${code}` } });
+      expect(refused.status, String(code)).toBe(code);
+    }
+  });
+});

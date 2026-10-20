@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-15 · Contracts: contracts-v0.4.17 on main (Admin API 0.4.15, PR #467 merged f2c7df5; next 0.4.16/contracts-v0.4.18 with #469) · Branch: `admin/phase3` · Manager: "Manager session six" (report there; session five retired) · Status: #474 (#468) review MERGE; queue refused it (advisory core e2e red) → e2e fix + review follow-ups pushed into #474; queue reruns when green
+Last updated: 2026-10-15 · Contracts: contracts-v0.4.17 on main (Admin API 0.4.15, PR #467 merged f2c7df5; next 0.4.16/contracts-v0.4.18 with #469) · Branch: `admin/phase3` · Manager: "Manager session six" (report there; session five retired) · Status: #474 MERGED ce0b823 (#468 closed); follow-up B (#476 screens + warehouse_code) — PR up (see In progress)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -446,6 +446,41 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#468 follow-up B — PR "Refs #468" on the #476 reads (2026-10-15).** #474 MERGED = ce0b823
+  (#468 closed). admin/phase3 = main ce0b823, Admin API 0.4.16 / contracts-v0.4.18; install + package
+  build done. PLAN APPROVED (manager: log one line per path of the conditional approve step; keep
+  the `operations` gate). BUILT: f2f48a1 screens, 74ff8fd tests, then e2e + docs. Gotcha: the
+  preview's 409 has no spec example, so Prism sends `code: string` and no `details.reason` →
+  the action reads a preview 409 by `details.reason` ('superseded' → said, Approve hidden; another
+  reason → described, not superseded) and only a REASON-LESS 409 (the mock) as superseded
+  (manager 2026-10-16). Item (4) included: #477 MERGED 2f82b92 (contracts-v0.4.19, Admin API
+  0.4.17); store inventory shows `warehouse_code`, short id only for a filtered warehouse with
+  no rows. Main 2f82b92 merged into admin/phase3, install + rebuild done.
+  Gate after the merge: lint 0, typecheck 0, contract 14/14, ownership OK. Full admin unit at the
+  default worker count flaked 3–9 timeouts per run (slow multi-step tests: onboarding wizard,
+  catalog matrix — files pass alone; Duration 32–41 s vs 24 s before) → `npx vitest run
+  --maxWorkers=4` 816/816 (53 s). Watch CI's unit job.
+  Mock e2e 2026-10-16: 26 passed + 7 skipped (core-only), 0 failed — app built (130 s) and started
+  by hand on :3200 (Playwright's 180 s build+start wait timed out), mocks on :4411/:4414: after the
+  sleep Windows reserved 4302–4401 (and 4162–4261) → EACCES on 4311/4314. Check `netsh int ipv4
+  show excludedportrange protocol=tcp` before picking ports. Machine freed (3200/4411/4414/9000).
+  **PR #481 opened 2026-10-16** (Refs #468; code + main merge dc99138; head = this memory commit).
+  Next: report PR + head + "machine free" to the manager, then "checks finished". Push nothing more
+  unless the manager says so.
+  Found by the gate: ApproveButton shared ONE transition for the preview and the approval → the
+  button read "Approving…" while only the preview had resolved → split into two transitions; tests
+  wait for Approve to be enabled. Also fixed `test/contract-form.test.tsx` (sync read after an async
+  resolver, #398 class). Gate 2026-10-16: lint 0, typecheck 0, admin unit 814/814 (24 s). Two
+  earlier runs were void: the laptop slept mid-run (Duration 12672 s / 20962 s → 5 s timeouts);
+  check `Duration` before believing a timeout. #477 (warehouse_code REQUIRED on InventoryLevel,
+  Admin API 0.4.17): the manager added the field to my inventory fixtures on its branch (4605aa6);
+  every NEW InventoryLevel fixture needs it after merging main. (1) ledger
+  (`listStockItemMovements`) and (2) reservations with allocation_rule in words
+  (`listStockItemReservations`, open/released/all) as `?item=&view=` cards on the stock items tab;
+  (3) approve dialog uses `previewCycleCountReconcile` via a guarded server action (409 superseded
+  → said + Approve disabled; other failure → the flag's delta with the old label), "may differ"
+  note kept (no lock). (4) store inventory shows `warehouse_code` once #477 merges (manager sends
+  the sha) — if not merged when 1–3 are ready, ship 1–3 alone. Ask before any e2e.
 - **#468 (2026-10-15) — stock pool + cycle-count screens (HQ), pool-keyed inventory rows, payment
   status "voided".** Assigned by "Manager session six". Done so far: merged main f2c7df5 (#467
   merged: Admin API 0.4.15, voided) into admin/phase3 (pushed with PR #474), install, packages rebuilt.

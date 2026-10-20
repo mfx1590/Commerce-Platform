@@ -2,6 +2,67 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-18 · the report routes mounted (REQUEST #494, #479)
+
+- `moduleAdminRouters()` mounts window 12's `reportingAdminRouter()`: `GET /admin/stores/:storeId/reports/sales` and
+  `…/stock` (`viewer` on the store), `GET /admin/hq/reports/sales` and `…/finance` (`analyst` on
+  `organization:hq`). Eleven module routers. The mount test checks an analyst 200 with a `SalesReport`, a store
+  admin 403, no token 401.
+
+### 2026-10-18 · the consent ledger route mounted (REQUEST #492, #471)
+
+- `moduleAdminRouters()` mounts window 13's `customersAdminRouter()`: `GET
+/admin/stores/:storeId/customers/:customerId/consents` (Admin API `listCustomerConsents`, `support` on
+  `store:{storeId}`). Ten module routers. The mount test checks support and a store admin 200, store staff 403, no
+  token 401, an unknown customer the route's own 404.
+
+### 2026-10-18 · cross-brand identity (#473, window 13; CONTRACT CHANGE #504: db 0196, Admin API `getCustomerIdentity`)
+
+- `customer_identity` is written at last — by `app.link_customer_identity` from `resolveIn`, for a verified email
+  only (provisioning, adoption, the first verified sign-in of an older row → `customer.updated` `identity_id`); key
+  = the Keycloak subject; a guest-only identity is merged by email_hash only when exactly one candidate matches. The
+  table is closed to store sessions (RLS `organization_only`); erasure unlinks through
+  `app.unlink_customer_identity`. Admin HQ-only `GET /admin/customer-identities/{identityId}` (support on
+  organization:hq, ids only) on `customersAdminRouter`. `eraseCustomerIdentity` (every brand, one transaction) is
+  built and tested, not wired to `deleteMe` (owner decision pending).
+
+### 2026-10-18 · export delivery (#472, window 13; CONTRACT CHANGE #498: db 0195 `customer_export`, events `customer.export_ready`, Store API 0.5.8, Admin API 0.4.20, error code `expired`)
+
+- `src/jobs/customer-export.ts` (Medusa job every five minutes + one-shot CLI) consumes `customer.export_requested`:
+  claim (one `customer_export` row per event, idempotent on `event_id`), build (`buildCustomerExport` → gzip →
+  `bytea` + sha256 under a hard size cap `CORE_CUSTOMER_EXPORT_MAX_BYTES`, 30-day TTL, one `customer.export_ready`),
+  purge (bundle, size and digest gone after the TTL; the bare row stays). Store `GET /store/customers/me/exports`
+  and `…/exports/{exportId}` (the bundle as a JSON attachment; expired / purged → 410 `expired`); Admin
+  `listCustomerExports` / `getCustomerExport` (store_admin) on `customersAdminRouter`. Every download is counted and
+  audited. Erase deletes every export of the customer, bundles included (`exports_deleted`).
+- `src/lib/errors.ts`: `expired` → 410 (the new contract code; integration exception, named in the commit).
+
+### 2026-10-18 · consent ledger (#471, window 13; CONTRACT CHANGE #489: db 0194 `customer_consent`, Store API 0.5.7, Admin API 0.4.18)
+
+- `customer_consent` is the record of truth (append-only, store-scoped, one row per changed answer with source and
+  the policy version the customer saw); `customer.consent` stays the projection window 17's segments read,
+  rewritten by the one writer `recordConsent` in the same transaction. Store API `GET` / `PUT
+/store/customers/me/consents` (`granted: null` = never asked); `registerCustomer` / `updateMe.marketing_consent`
+  record through the ledger with the store's `settings.privacy.policy_version` (`unversioned` when unset). Admin
+  `listCustomerConsents` (support) as `customersAdminRouter()` — mounted through `module-routers.ts` (REQUEST to
+  window 1). Erase deletes the ledger (`consents_deleted`); the export bundle carries `consents`.
+- **Rule change (manager 2026-10-18):** a first explicit `false` is now recorded — a refusal is a decision. A
+  refuser must never be in a re-consent audience: window 17's `never_asked` operator (REQUEST #491) must land before
+  any re-consent send; the proof test keeps that assertion as `it.todo`.
+- Migration 0194 backfills one ledger row per existing projection (`pre-ledger`, the projection's own timestamp).
+
+### 2026-10-18 · account self-service (#470, window 13; CONTRACT CHANGE #482: Store API 0.5.6, contracts 0.4.20, events 0.3.5)
+
+- Store API: `PATCH` / `DELETE /store/customers/me/addresses/{addressId}` (`updateMyAddress`: partial patch, a
+  default flag moves under the customer-row lock, `false` hands it to the oldest other address; `deleteMyAddress`:
+  200 with the remaining addresses, a held default moves to the oldest remaining one), `POST
+/store/customers/me/export` (`requestMyExport`, 202) and `DELETE /store/customers/me` (`deleteMe`, 202 — #414's
+  erasure for the token's own row in this store; replay no-op). All in `src/http/customer-routes.ts`.
+- `customer.export_requested` **v2**: `requested_by_type` `staff` (Admin `exportCustomer`) or `customer`.
+- **Erasure keeps `keycloak_subject` as a tombstone** (manager decision 2026-10-18, #482, lawyer list; admin and
+  self-service alike): the same login is a 401 everywhere afterwards instead of re-provisioning a fresh account. The
+  Keycloak user is deleted by window 2 (REQUEST #483).
+
 ### 2026-10-15 · `InventoryLevel.warehouse_code` (CONTRACT CHANGE #475, contracts 0.4.19)
 
 - Every `InventoryLevel` (`GET /admin/inventory/levels`, the `POST /admin/inventory/movements` response) carries

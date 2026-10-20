@@ -4,6 +4,7 @@
 export const TOPIC_KINDS = {
   'order.placed': 'order_confirmation',
   'shipment.shipped': 'shipment_shipped',
+  'customer.export_ready': 'export_ready',
 } as const;
 export type ConsumedTopic = keyof typeof TOPIC_KINDS;
 export type NotificationKind = (typeof TOPIC_KINDS)[ConsumedTopic];
@@ -97,9 +98,20 @@ export interface ShipmentShippedData {
   shippingAddress: Address;
 }
 
+/**
+ * The data-export notice (#499): the bundle is downloadable signed in, until `expiresAt`. Deliberately no
+ * export id, no token and no link with credentials — the link in the mail is the brand's `/account` page.
+ */
+export interface ExportReadyData {
+  expiresAt: string;
+  requestedByType: 'staff' | 'customer';
+  firstName: string | null;
+}
+
 export type NotificationData = {
   order_confirmation: OrderConfirmationData;
   shipment_shipped: ShipmentShippedData;
+  export_ready: ExportReadyData;
 };
 
 export interface RenderContext {
@@ -128,7 +140,8 @@ export interface DeliveryMeta {
   kind: NotificationKind;
   storeCode: string;
   locale: Locale;
-  displayId: number;
+  /** The order's display number for the order kinds; null for a notice that is not about an order. */
+  displayId: number | null;
 }
 
 export interface SendResult {

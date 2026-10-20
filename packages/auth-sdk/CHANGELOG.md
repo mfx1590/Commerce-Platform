@@ -194,3 +194,34 @@ all`, `verifyEmail: true`, brute force on, no client secret, exact https callbac
   for Keycloak (the realm's user profile requires both names) and gets no token, not even through the
   direct grant. `createUser` now splits the display name into `firstName` / `lastName` (a one-word name is
   stored as both); `KeycloakStaffUser.lastName` added.
+
+## Unreleased — 2026-10-19 (auth/phase3-erasure, #483)
+
+- #483 (window 13's REQUEST for #470): `deleteErasedCustomerIdentity(deps, { customerId })` deletes the
+  customers-realm Keycloak user of an ERASED customer row — the row's `keycloak_subject` is the erasure
+  tombstone — unless a non-erased row of the organization still carries the subject (one realm serves every
+  brand; the check runs through an organization-scope client). Outcomes `nothing_to_delete` /
+  `kept_live_elsewhere` / `deleted` / `already_gone` (Keycloak 404 = done, so a replayed event is a no-op); one
+  `customer.identity_deleted` audit row with ids and the outcome; the subject is never logged or returned.
+  `onCustomerErased(deps, envelope)` is the bus-side entry (topic/version/organization checked, typed result).
+  `KeycloakAdmin.deleteUser` now answers `deleted` | `not_found`. The customers realm export gains its own
+  `core-admin` service account (`dev-only-core-admin-customers-secret`, env
+  `KEYCLOAK_CUSTOMERS_ADMIN_CLIENT_ID` / `_SECRET`, REQUEST #509); production derivation keeps it without the
+  secret. Wiring A (manager 2026-10-19): `createCustomerErasureConsumer({ pool, organizationId, keycloak })`
+  reads the unclaimed `customer.erased` events from the outbox (oldest first) and settles each with one
+  `customer_erasure_claim` row (CONTRACT CHANGE #512, landed as db 0.3.13 / migration 0199: written once,
+  UPDATE and DELETE revoked — the consumer only INSERTs) after a definitive outcome — a Keycloak 503 leaves no claim and the next
+  run retries; a settled event never calls Keycloak again. The core job that calls `runOnce` is window 13's
+  (REQUEST #513). Tests: `test/customer-erasure.test.ts` (unit on a scripted db + admin client; live on a
+  throw-away database and the test's own customers-realm user, consumer included).
+
+## Unreleased — 2026-10-19 (auth/phase3)
+
+- #488: the four hq-rbac live tests that change a role (roles.test.ts assign / revoke / organization assign,
+  scope.test.ts cache invalidation) answered 503 locally and passed in CI. Cause: since #415 every role change
+  ends the user's Keycloak sessions through the core-admin service account built from the environment; the
+  core's vitest runs these files too and loads neither the root `.env` nor the auth-sdk vitest env default,
+  so `KEYCLOAK_ADMIN_CLIENT_SECRET` was unset → 503 `identity provider unavailable` (CI runs them through the
+  auth-sdk config, which defaults it). Fix: the two test files default the dev realm secret themselves (as
+  invite.test.ts does) and print the error body on a failed status; the hq-rbac README names the two env
+  lines as required for every role change. Not an OpenFGA problem: these tests seed their own store.

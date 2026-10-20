@@ -28,6 +28,8 @@ import {
 import { mountCustomerRoutes } from '../src/http/customer-routes';
 import { customerGateWith, getOrderRouteWith } from '../src/http/store-routes';
 import { paymentProvider } from '../src/modules/checkout';
+import { runCustomerErasure } from '../src/jobs/customer-erasure';
+import { runCustomerExports } from '../src/jobs/customer-export';
 import { closePool, initDb } from '../src/lib/db';
 import { mountCoreMiddleware } from '../src/server';
 import { specValidator } from './helpers/openapi';
@@ -69,6 +71,17 @@ const PERSONAS: Record<string, Persona> = {
   bob: { subject: 'sub-bob', storeCode: 'brand-b', email: 'bob@example.test' },
   nomail: { subject: 'sub-nomail', storeCode: 'brand-a' },
   blocked: { subject: 'sub-blocked', storeCode: 'brand-a', email: 'blocked@example.test' },
+  // #470 account self-service
+  nina: { subject: 'sub-nina', storeCode: 'brand-a', email: 'nina@example.test' },
+  dora: {
+    subject: 'sub-dora',
+    storeCode: 'brand-a',
+    email: 'dora@example.test',
+    emailVerified: true,
+  },
+  deleter: { subject: 'sub-deleter', storeCode: 'brand-a', email: 'deleter@example.test' },
+  leaver: { subject: 'sub-leaver', storeCode: 'brand-a', email: 'leaver@example.test' },
+  ghost: { subject: 'sub-ghost', storeCode: 'brand-a', email: 'ghost@example.test' },
 };
 
 const fakeVerifier: CustomerTokenVerifier = {
@@ -95,16 +108,12 @@ let db: TestDatabase;
 let app: express.Express;
 let owner: ReturnType<typeof createOrganizationClient>;
 
-const as = (
-  token: string | null,
-  method: 'get' | 'post' | 'patch',
-  path: string,
-  key: string = KEY_A,
-) => {
+type Method = 'get' | 'post' | 'patch' | 'delete' | 'put';
+const as = (token: string | null, method: Method, path: string, key: string = KEY_A) => {
   const req = request(app)[method](path).set('X-Publishable-Key', key);
   return token ? req.set('Authorization', `Bearer ${token}`) : req;
 };
-const guest = (method: 'get' | 'post' | 'patch', path: string) => as(null, method, path);
+const guest = (method: Method, path: string) => as(null, method, path);
 
 const address = {
   first_name: 'Guest',
@@ -880,6 +889,437 @@ describe('placement-time customer link (Store API 0.5.1, #310): createCart and c
   });
 });
 
+describe('account self-service (#470, Store API 0.5.6): edit / delete an address, request my export, delete my account', () => {
+  const outboxOf = async (customerId: string) =>
+    (
+      await owner.query<{ topic: string; payload: Record<string, unknown> }>(
+        `SELECT topic, payload FROM outbox WHERE aggregate_id = $1 ORDER BY seq`,
+        [customerId],
+      )
+    ).rows;
+
+  it("PATCH / DELETE …/addresses/{id}: own addresses only; another customer's id and an unknown id are the same 404; a brand-b key refuses the brand-a token", async () => {
+    const home = await as('nina', 'post', '/store/customers/me/addresses').send(address);
+    const work = await as('nina', 'post', '/store/customers/me/addresses').send({
+      ...address,
+      line1: 'Office 2',
+    });
+    expect([home.status, work.status]).toEqual([201, 201]);
+    const nina = (await as('nina', 'get', '/store/customers/me')).body;
+
+    // edit: a field replaced, a default moved (clear-then-set), the contract shape
+    const edited = await as('nina', 'patch', `/store/customers/me/addresses/${work.body.id}`).send({
+      line1: 'Office 2b',
+      company: 'ACME',
+      is_default_shipping: true,
+    });
+    expect(edited.status).toBe(200);
+    spec.assertSchema('CustomerAddress', edited.body);
+    expect(edited.body).toMatchObject({
+      id: work.body.id,
+      line1: 'Office 2b',
+      company: 'ACME',
+      is_default_shipping: true,
+      is_default_billing: false,
+    });
+    const list = await as('nina', 'get', '/store/customers/me/addresses');
+    expect(
+      list.body.items.map((x: { id: string; is_default_shipping: boolean }) => [
+        x.id,
+        x.is_default_shipping,
+      ]),
+    ).toEqual([
+      [work.body.id, true],
+      [home.body.id, false],
+    ]);
+    // the id is checked before the body: a malformed id is the same 404 as an unknown one (#487 review — the
+    // contract documents no 400 for the path, as on getOrder); a bad body is a 400 naming the field
+    for (const method of ['patch', 'delete'] as const) {
+      const malformed = await as('nina', method, '/store/customers/me/addresses/not-a-uuid').send(
+        method === 'patch' ? {} : undefined,
+      );
+      expect(malformed.status).toBe(404);
+      spec.assertSchema('Error', malformed.body);
+      expect(malformed.body.code).toBe('not_found');
+    }
+    const bad = await as('nina', 'patch', `/store/customers/me/addresses/${work.body.id}`).send({
+      country: 'nl',
+    });
+    expect(bad.status).toBe(400);
+    expect(bad.body).toMatchObject({
+      code: 'validation_error',
+      details: { country: expect.any(String) },
+    });
+
+    // isolation: jane (another customer of the same store) and an unknown id → the same 404
+    for (const [method, id] of [
+      ['patch', work.body.id],
+      ['delete', work.body.id],
+      ['patch', '00000000-0000-4000-8000-0000000000aa'],
+      ['delete', '00000000-0000-4000-8000-0000000000aa'],
+    ] as const) {
+      const res = await as('jane', method, `/store/customers/me/addresses/${id}`).send(
+        method === 'patch' ? { city: 'Elsewhere' } : undefined,
+      );
+      expect(res.status).toBe(404);
+      spec.assertSchema('Error', res.body);
+      expect(res.body.code).toBe('not_found');
+    }
+    // the store_code binding: nina's token with brand-b's key is a 401 on every new route, nothing written
+    const before = (await outboxOf(nina.id)).length;
+    for (const [method, path] of [
+      ['patch', `/store/customers/me/addresses/${work.body.id}`],
+      ['delete', `/store/customers/me/addresses/${work.body.id}`],
+      ['post', '/store/customers/me/export'],
+      ['delete', '/store/customers/me'],
+    ] as const) {
+      const res = await as('nina', method, path, KEY_B).send(
+        method === 'patch' ? { city: 'X' } : undefined,
+      );
+      expect(res.status).toBe(401);
+      expect(res.body.code).toBe('unauthorized');
+    }
+    expect(await outboxOf(nina.id)).toHaveLength(before);
+    expect((await as('nina', 'get', '/store/customers/me/addresses')).body.items).toHaveLength(2);
+
+    // delete: 200 with the remaining addresses (listMyAddresses shape); the default the deleted address held
+    // moves to the oldest remaining one, and the answer already shows it
+    const gone = await as('nina', 'delete', `/store/customers/me/addresses/${work.body.id}`);
+    expect(gone.status).toBe(200);
+    spec.assertItems('CustomerAddress', gone.body);
+    const left = await as('nina', 'get', '/store/customers/me/addresses');
+    expect(left.body).toEqual(gone.body);
+    expect(left.body.items).toEqual([
+      expect.objectContaining({
+        id: home.body.id,
+        is_default_shipping: true,
+        is_default_billing: true,
+      }),
+    ]);
+    expect(
+      (await as('nina', 'delete', `/store/customers/me/addresses/${work.body.id}`)).status,
+    ).toBe(404);
+  });
+
+  it('POST /store/customers/me/export: 202 without a body, one customer.export_requested v2 per call (requested by the customer), ids only', async () => {
+    const nina = (await as('nina', 'get', '/store/customers/me')).body;
+    const before = (await outboxOf(nina.id)).filter((e) => e.topic === 'customer.export_requested');
+    expect(before).toHaveLength(0);
+    for (let i = 0; i < 2; i += 1) {
+      const res = await as('nina', 'post', '/store/customers/me/export');
+      expect(res.status).toBe(202);
+      expect(res.text).toBe('');
+    }
+    const requested = (await outboxOf(nina.id)).filter(
+      (e) => e.topic === 'customer.export_requested',
+    );
+    expect(requested).toHaveLength(2);
+    expect(requested[0]!.payload).toEqual({
+      customer_id: nina.id,
+      requested_by: nina.id,
+      requested_by_type: 'customer',
+      requested_at: expect.any(String),
+    });
+    expect(JSON.stringify(requested)).not.toContain('nina');
+    const audit = await owner.query(
+      `SELECT actor_type, actor_id FROM audit_log WHERE entity_id = $1 AND action = 'customer.export_request'`,
+      [nina.id],
+    );
+    expect(audit.rows).toEqual([
+      { actor_type: 'customer', actor_id: nina.id },
+      { actor_type: 'customer', actor_id: nina.id },
+    ]);
+    // an unknown token cannot ask for anything
+    expect((await as('nobody', 'post', '/store/customers/me/export')).status).toBe(401);
+  });
+
+  it('DELETE /me and POST /me/export for a subject with NO row: 202, nothing provisioned, the outbox stays empty (#487 review)', async () => {
+    const count = await customerCount();
+    const outbox = async () =>
+      Number(
+        (
+          await owner.query<{ n: string }>(
+            `SELECT count(*)::text AS n FROM outbox WHERE aggregate_type = 'customer'`,
+          )
+        ).rows[0]!.n,
+      );
+    const events = await outbox();
+    for (const [method, path] of [
+      ['delete', '/store/customers/me'],
+      ['post', '/store/customers/me/export'],
+      ['delete', '/store/customers/me'],
+    ] as const) {
+      const res = await as('ghost', method, path);
+      expect(res.status, `${method} ${path}`).toBe(202);
+      expect(res.text).toBe('');
+    }
+    expect(await customerCount()).toBe(count);
+    expect(await outbox()).toBe(events);
+    // the first ordinary call still provisions as before
+    expect((await as('ghost', 'get', '/store/customers/me')).status).toBe(200);
+    expect(await customerCount()).toBe(count + 1);
+  });
+
+  it('DELETE /store/customers/me: 202; no PII left in customer or customer_address; the order keeps customer_id; one customer.erased; the replay is a 202 no-op; the same login is a 401 everywhere after', async () => {
+    // dora: a profile, an address and one order placed with her token
+    await as('dora', 'patch', '/store/customers/me').send({
+      first_name: 'Dora',
+      last_name: 'Explorer',
+      phone: '+31 6 4444 4444',
+      marketing_consent: true,
+    });
+    await as('dora', 'post', '/store/customers/me/addresses').send({
+      ...address,
+      line1: 'Mapstreet 7',
+    });
+    const dora = (await as('dora', 'get', '/store/customers/me')).body;
+    const cartId = await readyCartOn(app, 'dora@example.test', 'dora');
+    const placed = await completeOn(app, cartId, 'dora');
+    expect(placed.status).toBe(201);
+    const orderId = placed.body.id as string;
+
+    const res = await as('dora', 'delete', '/store/customers/me');
+    expect(res.status).toBe(202);
+    expect(res.text).toBe('');
+
+    const row = (await owner.query('SELECT * FROM customer WHERE id = $1', [dora.id])).rows[0];
+    expect(row).toMatchObject({
+      status: 'erased',
+      email: `erased+${dora.id}@invalid`,
+      first_name: null,
+      last_name: null,
+      phone: null,
+      consent: {},
+      metadata: {},
+      keycloak_subject: 'sub-dora', // the erasure tombstone, #482
+    });
+    expect(
+      (await owner.query('SELECT 1 FROM customer_address WHERE customer_id = $1', [dora.id]))
+        .rowCount,
+    ).toBe(0);
+    const order = await owner.query<{ customer_id: string | null; email: string }>(
+      'SELECT customer_id, email FROM "order" WHERE id = $1',
+      [orderId],
+    );
+    expect(order.rows[0]).toEqual({ customer_id: dora.id, email: 'dora@example.test' });
+    const erased = (await outboxOf(dora.id)).filter((e) => e.topic === 'customer.erased');
+    expect(erased).toHaveLength(1);
+    // dora's email is verified: she is linked (#473), and the erasure names the identity — an id, not a person
+    expect(erased[0]!.payload).toEqual({
+      customer_id: dora.id,
+      identity_id: expect.any(String),
+      erased_at: expect.any(String),
+    });
+    const docs = await owner.query<{ doc: string }>(
+      `SELECT payload::text AS doc FROM outbox WHERE aggregate_id = $1
+       UNION ALL SELECT coalesce(after::text, '') FROM audit_log WHERE entity_id = $1`,
+      [dora.id],
+    );
+    const written = docs.rows.map((r) => r.doc).join('\n');
+    for (const pii of ['dora@example.test', 'Dora', 'Explorer', '4444', 'Mapstreet', 'sub-dora']) {
+      expect(written).not.toContain(pii);
+    }
+
+    // replay: 202, nothing more written
+    expect((await as('dora', 'delete', '/store/customers/me')).status).toBe(202);
+    expect((await outboxOf(dora.id)).filter((e) => e.topic === 'customer.erased')).toHaveLength(1);
+    // the same login: 401 on every route, no fresh account (the tombstone keeps the subject bound to the erased row)
+    const count = await customerCount();
+    for (const [method, path] of [
+      ['get', '/store/customers/me'],
+      ['post', '/store/customers'],
+      ['patch', '/store/customers/me'],
+      ['get', '/store/customers/me/orders'],
+      ['get', '/store/customers/me/addresses'],
+      ['post', '/store/customers/me/addresses'],
+      ['post', '/store/customers/me/export'],
+    ] as const) {
+      const r = await as('dora', method, path).send(
+        method === 'get'
+          ? undefined
+          : path === '/store/customers'
+            ? { email: 'dora@example.test' }
+            : address,
+      );
+      expect(r.status, `${method} ${path}`).toBe(401);
+    }
+    expect(await customerCount()).toBe(count);
+  });
+});
+
+describe('consents (#471, Store API 0.5.7): GET / PUT /store/customers/me/consents', () => {
+  it('GET: one item per purpose, granted null until asked; PUT records the answer under the version sent, answers the state, 400 names the field; a brand-b key refuses the token', async () => {
+    const before = await as('nina', 'get', '/store/customers/me/consents');
+    expect(before.status).toBe(200);
+    spec.assertSchema('CustomerConsents', before.body);
+    expect(before.body).toEqual({
+      items: [
+        {
+          purpose: 'marketing_email',
+          granted: null,
+          source: null,
+          policy_version: null,
+          recorded_at: null,
+        },
+      ],
+    });
+
+    const put = await as('nina', 'put', '/store/customers/me/consents').send({
+      policy_version: '2026-10',
+      consents: [{ purpose: 'marketing_email', granted: true }],
+    });
+    expect(put.status).toBe(200);
+    spec.assertSchema('CustomerConsents', put.body);
+    expect(put.body.items[0]).toMatchObject({
+      purpose: 'marketing_email',
+      granted: true,
+      source: 'storefront',
+      policy_version: '2026-10',
+    });
+    expect((await as('nina', 'get', '/store/customers/me/consents')).body).toEqual(put.body);
+    expect((await as('nina', 'get', '/store/customers/me')).body.marketing_consent).toBe(true);
+
+    for (const [body, field] of [
+      [{ consents: [{ purpose: 'marketing_email', granted: true }] }, 'policy_version'],
+      [{ policy_version: 'v', consents: [] }, 'consents'],
+      [
+        { policy_version: 'v', consents: [{ purpose: 'marketing_sms', granted: true }] },
+        'consents.0.purpose',
+      ],
+      // a non-JSON body is parsed as {}: the schema's required fields are what the 400 names
+      ['not an object', 'policy_version'],
+    ] as const) {
+      const bad = await as('nina', 'put', '/store/customers/me/consents').send(body);
+      expect(bad.status, field).toBe(400);
+      spec.assertSchema('Error', bad.body);
+      expect(bad.body.code).toBe('validation_error');
+      expect(Object.keys(bad.body.details).join(',')).toContain(field);
+    }
+    // store_code binding
+    for (const method of ['get', 'put'] as const) {
+      const res = await as('nina', method, '/store/customers/me/consents', KEY_B).send(
+        method === 'put'
+          ? { policy_version: 'v', consents: [{ purpose: 'marketing_email', granted: false }] }
+          : undefined,
+      );
+      expect(res.status).toBe(401);
+    }
+    expect((await as('nina', 'get', '/store/customers/me/consents')).body.items[0].granted).toBe(
+      true,
+    );
+    // the unticked box: an explicit refusal is recorded, not "never asked"
+    const refused = await as('nina', 'put', '/store/customers/me/consents').send({
+      policy_version: '2026-10',
+      consents: [{ purpose: 'marketing_email', granted: false }],
+    });
+    expect(refused.body.items[0]).toMatchObject({ granted: false });
+    const ledger = await owner.query(
+      `SELECT granted FROM customer_consent WHERE customer_id = (SELECT id FROM customer WHERE keycloak_subject = 'sub-nina' AND store_id = $1) ORDER BY recorded_at, id`,
+      [A],
+    );
+    expect(ledger.rows.map((r: { granted: boolean }) => r.granted)).toEqual([true, false]);
+  });
+});
+
+describe('export delivery (#472, Store API 0.5.8): the job, GET /store/customers/me/exports and the download', () => {
+  it('requests → the job builds → list shows ready → the bundle downloads as a JSON attachment; malformed / foreign ids 404; expired 410; a brand-b key refuses the token', async () => {
+    const T0 = new Date('2026-10-18T12:00:00.000Z');
+    PERSONAS.exporter = {
+      subject: 'sub-exporter',
+      storeCode: 'brand-a',
+      email: 'exporter@example.test',
+    };
+    await as('exporter', 'patch', '/store/customers/me').send({ first_name: 'Exa' });
+    expect((await as('exporter', 'post', '/store/customers/me/export')).status).toBe(202);
+    const empty = await as('exporter', 'get', '/store/customers/me/exports');
+    expect(empty.status).toBe(200);
+    expect(empty.body).toEqual({ items: [] });
+
+    // the job (the same function the Medusa job and the CLI run), with an injected clock
+    const run = await runCustomerExports({ now: T0, organizationId: ORG });
+    expect(run.stores).toBeGreaterThanOrEqual(2);
+    expect(run.claimed).toBeGreaterThanOrEqual(1);
+    const again = await runCustomerExports({ now: T0, organizationId: ORG });
+    expect(again.claimed).toBe(0);
+    expect(again.built).toEqual([]);
+
+    const list = await as('exporter', 'get', '/store/customers/me/exports');
+    expect(list.status).toBe(200);
+    spec.assertItems('CustomerExportSummary', list.body);
+    expect(list.body.items).toHaveLength(1);
+    const item = list.body.items[0];
+    expect(item).toMatchObject({ status: 'ready', ready_at: T0.toISOString(), reason: null });
+
+    const file = await as('exporter', 'get', `/store/customers/me/exports/${item.id}`);
+    expect(file.status).toBe(200);
+    expect(file.headers['content-type']).toMatch(/^application\/json/);
+    expect(file.headers['content-disposition']).toBe(
+      `attachment; filename="customer-export-${item.id}.json"`,
+    );
+    expect(file.headers['cache-control']).toBe('no-store');
+    expect(file.body).toMatchObject({
+      format: 'customer-export/v1',
+      store_id: A,
+      customer: { email: 'exporter@example.test', first_name: 'Exa' },
+    });
+
+    expect((await as('exporter', 'get', '/store/customers/me/exports/not-a-uuid')).status).toBe(
+      404,
+    );
+    expect((await as('jane', 'get', `/store/customers/me/exports/${item.id}`)).status).toBe(404);
+    for (const path of ['/store/customers/me/exports', `/store/customers/me/exports/${item.id}`]) {
+      expect((await as('exporter', 'get', path, KEY_B)).status).toBe(401);
+    }
+
+    // past the TTL: the next run purges; the download is 410 `expired`, the list says expired
+    const later = await runCustomerExports({
+      now: new Date(T0.getTime() + 31 * 86_400_000),
+      organizationId: ORG,
+    });
+    expect(later.purged).toBeGreaterThanOrEqual(1);
+    const gone = await as('exporter', 'get', `/store/customers/me/exports/${item.id}`);
+    expect(gone.status).toBe(410);
+    spec.assertSchema('Error', gone.body);
+    expect(gone.body).toMatchObject({ code: 'expired', details: { expires_at: item.expires_at } });
+    expect(
+      (await as('exporter', 'get', '/store/customers/me/exports')).body.items[0],
+    ).toMatchObject({
+      status: 'expired',
+      size_bytes: null,
+    });
+  });
+});
+
+describe('customer erasure job (#483 / #513): the customer.erased consumer through the job', () => {
+  it('after a self-service deletion the job deletes the tombstone subject at Keycloak once and settles the event; a second run settles nothing more; the log names no one', async () => {
+    PERSONAS.vanisher = {
+      subject: 'sub-vanisher',
+      storeCode: 'brand-a',
+      email: 'vanisher@example.test',
+    };
+    expect((await as('vanisher', 'get', '/store/customers/me')).status).toBe(200);
+    expect((await as('vanisher', 'delete', '/store/customers/me')).status).toBe(202);
+    const deleted: string[] = [];
+    const keycloak = {
+      realm: 'customers',
+      async deleteUser(subject: string) {
+        deleted.push(subject);
+        return 'deleted' as const;
+      },
+    };
+    const first = await runCustomerErasure({ organizationId: ORG, keycloak });
+    expect(first.processed).toBeGreaterThanOrEqual(1);
+    expect(first.retry).toBe(0);
+    expect(deleted).toContain('sub-vanisher');
+    const settledBefore = deleted.length;
+    const second = await runCustomerErasure({ organizationId: ORG, keycloak });
+    expect(second.processed).toBe(0);
+    expect(deleted).toHaveLength(settledBefore); // nothing deleted twice: the claim is the replay guard
+    expect(JSON.stringify(first)).not.toContain('sub-vanisher');
+    expect(JSON.stringify(first)).not.toContain('vanisher@');
+  });
+});
+
 describe('nothing personal is logged', () => {
   it('no log line carries an email, a token or a name across every customer route, errors included', async () => {
     const logged: string[] = [];
@@ -906,6 +1346,30 @@ describe('nothing personal is logged', () => {
       });
       await as('jane', 'post', '/store/customers/me/addresses').send({ ...address, city: '' });
       await as('jane', 'get', '/store/customers/me/addresses');
+      // #470
+      const mine = (await as('jane', 'get', '/store/customers/me/addresses')).body.items[0].id;
+      await as('jane', 'patch', `/store/customers/me/addresses/${mine}`).send({
+        line1: 'Quietlane 4',
+        phone: '+31 6 5555 5555',
+      });
+      await as('jane', 'patch', `/store/customers/me/addresses/${mine}`).send({ country: 'x' });
+      await as('jane', 'delete', `/store/customers/me/addresses/${mine}`);
+      await as('jane', 'post', '/store/customers/me/export');
+      await as('deleter', 'post', '/store/customers/me/addresses').send({
+        ...address,
+        line1: 'Lastlane 1',
+      });
+      await as('jane', 'put', '/store/customers/me/consents').send({
+        policy_version: 'hush-policy-7',
+        consents: [{ purpose: 'marketing_email', granted: false }],
+      });
+      await as('jane', 'get', '/store/customers/me/consents');
+      await as('jane', 'get', '/store/customers/me/exports');
+      await as('jane', 'get', '/store/customers/me/exports/00000000-0000-4000-8000-0000000000ee');
+      await runCustomerExports({ organizationId: ORG });
+      await as('deleter', 'delete', '/store/customers/me');
+      await as('deleter', 'delete', '/store/customers/me');
+      await as('deleter', 'get', '/store/customers/me');
     } finally {
       spies.forEach((s) => s.mockRestore());
     }
@@ -915,10 +1379,15 @@ describe('nothing personal is logged', () => {
       'janet',
       'bearer',
       'sub-jane',
+      'sub-deleter',
       'mallory',
       'secretstreet',
       'hiddentown',
       '6 7777',
+      'quietlane',
+      'lastlane',
+      '6 5555',
+      'hush-policy',
     ]) {
       expect(all).not.toContain(secret);
     }
@@ -935,6 +1404,14 @@ describe('the core answers these paths itself', () => {
       'GET /store/customers/me/orders',
       'GET /store/customers/me/addresses',
       'POST /store/customers/me/addresses',
+      'PATCH /store/customers/me/addresses/{addressId}',
+      'DELETE /store/customers/me/addresses/{addressId}',
+      'POST /store/customers/me/export',
+      'DELETE /store/customers/me',
+      'GET /store/customers/me/consents',
+      'PUT /store/customers/me/consents',
+      'GET /store/customers/me/exports',
+      'GET /store/customers/me/exports/{exportId}',
     ]);
 
     const seen: string[] = [];
@@ -950,19 +1427,34 @@ describe('the core answers these paths itself', () => {
         customerTokenVerifier: fakeVerifier,
         storeApiFallbackUrl: `http://127.0.0.1:${(mock.address() as AddressInfo).port}`,
       });
-      const call = (method: 'get' | 'post' | 'patch', path: string) =>
+      const call = (method: Method, path: string, token = 'jane') =>
         request(proxied)
           [method](path)
           .set('X-Publishable-Key', KEY_A)
-          .set('Authorization', 'Bearer jane');
+          .set('Authorization', `Bearer ${token}`);
       // every customer path is answered here — the bearer token never reaches the mock
+      const added = await call('post', '/store/customers/me/addresses').send(address);
       for (const res of [
         await call('get', '/store/customers/me'),
         await call('patch', '/store/customers/me').send({ first_name: 'Jane' }),
         await call('get', '/store/customers/me/orders'),
         await call('get', '/store/customers/me/addresses'),
-        await call('post', '/store/customers/me/addresses').send(address),
+        added,
         await call('post', '/store/customers').send({ email: 'jane@example.test' }),
+        // #470: the four new operations answer from the customer router too (a path that were NOT mounted
+        // would fall through to the fallback and come back as `{ mock: true }`)
+        await call('patch', `/store/customers/me/addresses/${added.body.id}`).send({
+          city: 'Utrecht',
+        }),
+        await call('delete', `/store/customers/me/addresses/${added.body.id}`),
+        await call('post', '/store/customers/me/export'),
+        await call('get', '/store/customers/me/consents'),
+        await call('put', '/store/customers/me/consents').send({
+          policy_version: 'v1',
+          consents: [{ purpose: 'marketing_email', granted: true }],
+        }),
+        await call('get', '/store/customers/me/exports'),
+        await call('delete', '/store/customers/me', 'leaver'),
       ]) {
         expect(res.status).toBeLessThan(300);
         expect(res.body.mock).toBeUndefined();
@@ -972,13 +1464,19 @@ describe('the core answers these paths itself', () => {
       // without a bearer, and the mock never sees it (no 405, no new error code)
       const undefinedOperations: Array<['put' | 'delete' | 'get' | 'patch' | 'post', string]> = [
         ['put', '/store/customers/me'],
-        ['delete', '/store/customers/me'],
         ['put', '/store/customers'],
         ['delete', '/store/customers/me/addresses'],
         ['patch', '/store/customers/me/orders'],
         ['get', '/store/customers'],
         ['get', '/store/customers/me/unknown'],
-        ['delete', '/store/customers/me/addresses/00000000-0000-4000-8000-000000000001'],
+        ['put', '/store/customers/me/addresses/00000000-0000-4000-8000-000000000001'],
+        ['get', '/store/customers/me/addresses/00000000-0000-4000-8000-000000000001'],
+        ['get', '/store/customers/me/export'],
+        ['delete', '/store/customers/me/export'],
+        ['post', '/store/customers/me/consents'],
+        ['delete', '/store/customers/me/consents'],
+        ['post', '/store/customers/me/exports'],
+        ['delete', '/store/customers/me/exports/00000000-0000-4000-8000-000000000001'],
         ['post', '/store/customers/someone-else'],
       ];
       for (const [method, path] of undefinedOperations) {

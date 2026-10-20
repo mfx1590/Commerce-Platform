@@ -33,7 +33,7 @@ export type SegmentPredicate =
   | { field: 'total_spent_minor'; op: 'gte' | 'lte' | 'eq'; value: number }
   | { field: 'last_order_at'; op: 'after' | 'before'; value: string }
   | { field: 'tags'; op: 'includes' | 'excludes'; value: string }
-  | { field: 'consent'; op: 'granted' | 'not_granted'; value: ConsentChannel }
+  | { field: 'consent'; op: 'granted' | 'not_granted' | 'never_asked'; value: ConsentChannel }
   | { field: 'country'; op: 'in' | 'not_in'; value: string[] }
   | { field: 'customer_group_ids'; op: 'in' | 'not_in'; value: string[] };
 
@@ -62,7 +62,7 @@ export const SEGMENT_FIELDS: Record<SegmentField, FieldSpec> = {
   total_spent_minor: { ops: ['gte', 'lte', 'eq'], value: 'integer' },
   last_order_at: { ops: ['after', 'before'], value: 'timestamp' },
   tags: { ops: ['includes', 'excludes'], value: 'string' },
-  consent: { ops: ['granted', 'not_granted'], value: 'consent' },
+  consent: { ops: ['granted', 'not_granted', 'never_asked'], value: 'consent' },
   country: { ops: ['in', 'not_in'], value: 'country_list' },
   customer_group_ids: { ops: ['in', 'not_in'], value: 'uuid_list' },
 };
@@ -255,7 +255,7 @@ export const SEGMENT_RULES_SCHEMA = {
           required: ['field', 'op', 'value'],
           properties: {
             field: { const: 'consent' },
-            op: { enum: ['granted', 'not_granted'] },
+            op: { enum: ['granted', 'not_granted', 'never_asked'] },
             value: { enum: ['email', 'sms'] },
           },
         },

@@ -2,7 +2,12 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { createCycleCount, mapVariantToStockItem, reconcileCycleCount } from '@/lib/api/admin';
+import {
+  createCycleCount,
+  mapVariantToStockItem,
+  previewCycleCountReconcile,
+  reconcileCycleCount,
+} from '@/lib/api/admin';
 import type { AdminComponents } from '@/lib/api/admin-client';
 import { actionError, type ActionResult } from '@/lib/forms/action-result';
 import { refuseUnlessPermitted } from '@/lib/permissions/guard';
@@ -11,6 +16,7 @@ import {
   cycleCountSchema,
   describeCycleCountError,
   describeMapError,
+  isSuperseded,
   type CycleCountValues,
 } from '@/lib/warehouse';
 
@@ -93,5 +99,42 @@ export async function reconcileCycleCountAction(
     return actionError(describeCycleCountError(result), refusalOf(result.status, result.error));
   }
   revalidatePath('/warehouse');
+  return { status: 'success', data: result.data };
+}
+
+type CycleCountPreview = AdminComponents['CycleCountPreview'];
+
+/**
+ * The approve dialog's preview (`previewCycleCountReconcile`, operations on hq): what reconciling
+ * would do now, written nowhere. A 409 superseded comes back with `superseded: true`, so the dialog
+ * can say it and refuse to offer Approve.
+ */
+export async function previewCycleCountAction(
+  cycleCountId: string,
+): Promise<ActionResult<CycleCountPreview> & { superseded?: true }> {
+  const refused = await refuseUnlessPermitted('previewCycleCountReconcile', '');
+  if (refused !== null) return refused;
+  if (!UUID.safeParse(cycleCountId).success) return invalid('That count is not valid.');
+  const result = await previewCycleCountReconcile(cycleCountId);
+  if (!result.ok) {
+    // A 409 is read by its `details.reason` when it carries one ('superseded' → said, no Approve;
+    // any other reason is described as such, never mislabelled). Only a 409 with NO reason — the
+    // Prism mock's generated body — falls back to superseded, the one 409 the spec documents.
+    if (result.status === 409) {
+      const details = (result.error.details as Record<string, unknown> | undefined) ?? {};
+      const reason = details['reason'];
+      if (typeof reason !== 'string' || reason === '') {
+        const assumed = {
+          ...result,
+          error: { ...result.error, details: { ...details, reason: 'superseded' } },
+        };
+        return { ...actionError(describeCycleCountError(assumed)), superseded: true as const };
+      }
+      if (isSuperseded(result.error)) {
+        return { ...actionError(describeCycleCountError(result)), superseded: true as const };
+      }
+    }
+    return actionError(describeCycleCountError(result), refusalOf(result.status, result.error));
+  }
   return { status: 'success', data: result.data };
 }

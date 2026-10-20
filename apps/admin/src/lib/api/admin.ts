@@ -6,7 +6,7 @@
  * type parameter is the contract `operationId`, so `AdminResponse<'listProducts'>` is exactly the
  * response body `admin-api.yaml` documents and a contract rename breaks the build.
  *
- * Contract: Admin API 0.4.15.
+ * Contract: Admin API 0.4.16.
  */
 
 import 'server-only';
@@ -834,5 +834,41 @@ export async function reconcileCycleCount(
     path: buildPath('/admin/cycle-counts/{cycleCountId}/reconcile', { cycleCountId }),
     method: 'POST',
     ...(approve ? { body: { approve: true } } : {}),
+  });
+}
+
+// ---------------------------------------------------------------------------- warehouse reads (#469, Admin API 0.4.16)
+
+/** The pool row's ledger: every movement of this stock item, newest first (viewer on hq). */
+export async function listStockItemMovements(
+  stockItemId: string,
+  query: Query,
+): Promise<ApiResult<AdminResponse<'listStockItemMovements'>>> {
+  return adminCall<'listStockItemMovements'>({
+    path: buildPath('/admin/stock-items/{stockItemId}/movements', { stockItemId }),
+    query,
+  });
+}
+
+/** Every store's reservations on this item's pool rows, with `allocation_rule` (viewer on hq). */
+export async function listStockItemReservations(
+  stockItemId: string,
+  query: Query,
+): Promise<ApiResult<AdminResponse<'listStockItemReservations'>>> {
+  return adminCall<'listStockItemReservations'>({
+    path: buildPath('/admin/stock-items/{stockItemId}/reservations', { stockItemId }),
+    query,
+  });
+}
+
+/**
+ * What `reconcileCycleCount` would do now, without writing (operations on hq). Takes no lock: an
+ * approval right after may still compute another delta.
+ */
+export async function previewCycleCountReconcile(
+  cycleCountId: string,
+): Promise<ApiResult<AdminResponse<'previewCycleCountReconcile'>>> {
+  return adminCall<'previewCycleCountReconcile'>({
+    path: buildPath('/admin/cycle-counts/{cycleCountId}/reconcile-preview', { cycleCountId }),
   });
 }

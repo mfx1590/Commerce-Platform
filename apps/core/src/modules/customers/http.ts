@@ -1,0 +1,119 @@
+// Admin API router of the customers module (#471): `listCustomerConsents`. Mounted through
+// `src/http/module-routers.ts` with one `routers.push(customersAdminRouter())` line (REQUEST to window 1 — that
+// file is theirs); the other Admin customer operations of #414 stay in `src/http/admin-routes.ts`. Same pattern as
+// the marketing, shipping and cycle-count routers: the permission from the spec's `x-permission` with `{storeId}`
+// from the path, the store-scoped client from the principal (403 outside their scope).
+import { Router, type Request, type RequestHandler } from 'express';
+import { handle } from '../../http/errors';
+import { loadSpec } from '../../http/openapi';
+import { requirePermission, resolveObject } from '../../http/permissions';
+import { enumParam, one, throwIfProblems, uuidParam } from '../../http/query';
+import { organizationClientFor, requirePrincipal, storeClientFor } from '../../http/staff-auth';
+import { adminListCustomerConsents } from './consent';
+import { CONSENT_PURPOSES } from './consent-ledger';
+import {
+  adminGetCustomerExport,
+  adminListCustomerExports,
+  type ExportDownload,
+} from './export-delivery';
+import { getCustomerIdentity } from './identity';
+
+export const CUSTOMER_CONSENTS_PATH = '/admin/stores/:storeId/customers/:customerId/consents';
+export const CUSTOMER_EXPORTS_PATH = '/admin/stores/:storeId/customers/:customerId/exports';
+export const CUSTOMER_EXPORT_PATH =
+  '/admin/stores/:storeId/customers/:customerId/exports/:exportId';
+
+export const CUSTOMER_IDENTITY_PATH = '/admin/customer-identities/:identityId';
+
+type Operation =
+  'listCustomerConsents' | 'listCustomerExports' | 'getCustomerExport' | 'getCustomerIdentity';
+
+/** Sends a bundle as a JSON attachment: never cached, never inline (the browser must not render it as a page). */
+export function sendExport(
+  res: {
+    setHeader(name: string, value: string): unknown;
+    status(code: number): { send(body: Buffer): unknown };
+  },
+  file: ExportDownload,
+): void {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.status(200).send(file.body);
+}
+
+function permission(operationId: Operation): RequestHandler {
+  const perm = loadSpec('admin-api.yaml').permission(operationId);
+  return requirePermission(perm.relation, (req: Request) =>
+    resolveObject(perm.object, { storeId: one(req.params.storeId) }),
+  );
+}
+
+export function customersAdminRouter(): Router {
+  const r = Router();
+  r.get(
+    CUSTOMER_CONSENTS_PATH,
+    permission('listCustomerConsents'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const storeId = uuidParam(req.params, 'storeId');
+      const customerId = uuidParam(req.params, 'customerId');
+      const problems: Record<string, string> = {};
+      const purpose = enumParam(req.query, 'purpose', CONSENT_PURPOSES, problems);
+      throwIfProblems(problems);
+      res.json({
+        items: await adminListCustomerConsents(
+          storeClientFor(p, storeId),
+          storeId,
+          customerId,
+          purpose,
+        ),
+      });
+    }),
+  );
+  // #472: the customer's exports (store_admin)
+  r.get(
+    CUSTOMER_EXPORTS_PATH,
+    permission('listCustomerExports'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const storeId = uuidParam(req.params, 'storeId');
+      const customerId = uuidParam(req.params, 'customerId');
+      res.json({
+        items: await adminListCustomerExports(storeClientFor(p, storeId), storeId, customerId),
+      });
+    }),
+  );
+  r.get(
+    CUSTOMER_EXPORT_PATH,
+    permission('getCustomerExport'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const storeId = uuidParam(req.params, 'storeId');
+      const customerId = uuidParam(req.params, 'customerId');
+      const exportId = uuidParam(req.params, 'exportId');
+      sendExport(
+        res,
+        await adminGetCustomerExport(
+          storeClientFor(p, storeId),
+          storeId,
+          customerId,
+          exportId,
+          p.actor,
+        ),
+      );
+    }),
+  );
+  // #473: the HQ-only identity read (support on organization:hq) — ids only, on an organization client
+  r.get(
+    CUSTOMER_IDENTITY_PATH,
+    permission('getCustomerIdentity'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const identityId = uuidParam(req.params, 'identityId');
+      res.json(await getCustomerIdentity(organizationClientFor(p), identityId));
+    }),
+  );
+  return r;
+}
