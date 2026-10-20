@@ -117,7 +117,8 @@ describe('server errors land on the right control', () => {
     render(<StoreForm action={action} />);
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
-    expect(screen.getByRole('alert')).toHaveTextContent('psp_account_id is not configured');
+    // The action resolves after the click returns (#398 class): wait for the alert.
+    expect(await screen.findByRole('alert')).toHaveTextContent('psp_account_id is not configured');
     expect(screen.getByLabelText(/Code/)).not.toHaveAttribute('aria-invalid', 'true');
   });
 

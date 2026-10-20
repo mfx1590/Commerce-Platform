@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added — #520 (CONTRACT CHANGE #522): store tax rates (Admin API 0.4.23)
+
+- Store · Settings → Tax rates: list (country, region, category, name, bp and %), edit name/bp,
+  delete after asking (409 `last_rate_of_market_country` said with the way out), add (country,
+  optional region and category, name, bp). Wrappers `listTaxRates`, `createTaxRate`,
+  `updateTaxRate`, `deleteTaxRate`; `TAX_PERMISSIONS` guard rows (store_admin); actions in
+  `src/app/actions/tax-rates.ts`; `src/lib/tax-rates`.
+- Readiness panel: activateStore's 409 `tax_rates` + `missing_tax_countries` → "a tax rate for XX"
+  and one "Create a rate for XX" form per country; `ActionResult.missingTaxCountries`;
+  `activationMessage` names the countries (also on the Store view's #420 message).
+- e2e: the onboarding journey proves the refusal for NL, creates the rate from the panel, then
+  activates (`G1 tax:` line). Tests: `test/tax-rates-actions.test.ts` (29),
+  `test/tax-rates-screens.test.tsx` (10), Prism `test-contract/tax-rates.test.tsx` (7).
+
 ### Added — issue #518: Integration 3 G1 from the UI (core-mode e2e)
 
 - `e2e/hq-onboarding.spec.ts`: after Activate, (a) the wizard's key answers `GET /store` as the new

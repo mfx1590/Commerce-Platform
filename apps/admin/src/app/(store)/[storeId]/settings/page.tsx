@@ -11,7 +11,14 @@ import {
 } from '@/components/states/state-panel';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
-import { getStore, listApiKeys, listDomains, listSalesChannels } from '@/lib/api/admin';
+import {
+  getStore,
+  listApiKeys,
+  listCategories,
+  listDomains,
+  listSalesChannels,
+  listTaxRates,
+} from '@/lib/api/admin';
 import type { AdminComponents } from '@/lib/api/admin-client';
 import { loadPrincipal } from '@/lib/principal';
 import {
@@ -20,6 +27,8 @@ import {
   settingsPermissions,
   type SettingsPermissions,
 } from '@/lib/settings';
+import { mayManageTaxRates } from '@/lib/tax-rates';
+import { CreateTaxRateForm, TaxRatesTable } from '@/components/tax-rates/tax-rate-forms';
 import { GeneralSettingsForm } from './general-form';
 
 export const dynamic = 'force-dynamic';
@@ -72,7 +81,7 @@ function ReadOnlyGeneral({ store }: { store: AdminComponents['Store'] }) {
 }
 
 /**
- * Store settings (#117): General, Domains, Sales channels, API keys.
+ * Store settings (#117): General, Tax rates (#520), Domains, Sales channels, API keys.
  *
  * store_staff reads everything except the API keys (listing them is store_admin); each form and
  * button is offered only to the relation its operation needs, and otherwise names that relation.
@@ -88,13 +97,19 @@ export default async function SettingsPage({ params }: { params: Promise<{ store
   const can = principal.ok ? settingsPermissions(principal.data, storeId) : NONE;
   const storeObject = `store:${storeId}`;
 
-  const [store, domains, channels, keys] = await Promise.all([
+  const canManageTax = principal.ok && mayManageTaxRates(principal.data, storeId);
+  const [store, domains, channels, keys, taxRates, categories] = await Promise.all([
     getStore(storeId),
     listDomains(storeId),
     listSalesChannels(storeId),
     // Below store_admin the list is a certain 403; do not ask.
     can.canManageKeys ? listApiKeys(storeId) : Promise.resolve(null),
+    listTaxRates(storeId),
+    listCategories(storeId),
   ]);
+  const categoryOptions = categories.ok
+    ? categories.data.items.map((c) => ({ id: c.id, name: c.name }))
+    : [];
 
   return (
     <StoreSectionGuard storeId={storeId} id="settings">
@@ -126,6 +141,34 @@ export default async function SettingsPage({ params }: { params: Promise<{ store
                 <ReadOnlyGeneral store={store.data} />
                 <Needs relation="store_admin" object={storeObject} to="Changing these" />
               </div>
+            )}
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="Tax rates"
+            description="One rate per country, optionally per region or category; the most specific wins. Every country the store sells to needs one before it can be active."
+          />
+          <CardBody className="space-y-4">
+            {taxRates.ok ? (
+              <TaxRatesTable
+                storeId={storeId}
+                rates={taxRates.data.items}
+                canManage={canManageTax}
+                categories={categoryOptions}
+              />
+            ) : (
+              <RequestErrorPanel status={taxRates.status} error={taxRates.error} />
+            )}
+            {canManageTax ? (
+              <CreateTaxRateForm
+                storeId={storeId}
+                defaultCountry={store.ok ? store.data.default_country : ''}
+                categories={categoryOptions}
+              />
+            ) : (
+              <Needs relation="store_admin" object={storeObject} to="Changing tax rates" />
             )}
           </CardBody>
         </Card>
