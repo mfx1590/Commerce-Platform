@@ -70,7 +70,7 @@ export interface paths {
         put?: never;
         /**
          * Move a draft or paused store to active once every prerequisite is present
-         * @description Prerequisites: a legal entity, at least one locale and one currency, a primary domain, a live publishable key and the store's OpenFGA object. Missing ones are listed in the 409's `details.missing`. An active store answers 200 unchanged; an archived store answers 409 with `details.status: archived`. Writes an audit row and a `store.updated` event on the status change.
+         * @description Prerequisites: a legal entity, at least one locale and one currency, a primary domain, a live publishable key, the store's OpenFGA object, and at least one tax rate for each of the store's market countries (`tax_rates`) — the market countries are `default_country` plus every country of the store's active shipping options; a country is covered by any row for it (any region, any category). Missing ones are listed in the 409's `details.missing`; with `tax_rates`, `details.missing_tax_countries` lists the uncovered countries, sorted. An active store answers 200 unchanged; an archived store answers 409 with `details.status: archived`. Writes an audit row and a `store.updated` event on the status change.
          */
         post: operations["activateStore"];
         delete?: never;
@@ -137,6 +137,56 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/tax-rates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        /** The store's tax rates (the table the `table` tax provider reads) */
+        get: operations["listTaxRates"];
+        put?: never;
+        /**
+         * Add a tax rate for a country (optionally a region and/or a product category)
+         * @description One row per (country, region, product category), enforced by the database (unique index `tax_rate_identity_key`, NULLS NOT DISTINCT): a second row with the same three is 409 `conflict` (`details.tax_rate_id` = the existing row). `product_category_id` must be a category of this store (400 otherwise). Lookup precedence is the provider's, unchanged: category over store-wide, region over country-wide, no row → 0 bp. Writes an audit row and `store.updated` (`changed_fields: [tax_rates]`).
+         */
+        post: operations["createTaxRate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/tax-rates/{taxRateId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                taxRateId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a tax rate
+         * @description 204. Refused with 409 `conflict` (`details: { country, reason: last_rate_of_market_country }`) when the store is `active` and this is the last row for one of its market countries (see `activateStore`): deleting it would silently tax that country at 0 bp. Writes an audit row and `store.updated` (`changed_fields: [tax_rates]`).
+         */
+        delete: operations["deleteTaxRate"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a rate's name or basis points
+         * @description Country, region and category identify the row and are not editable: delete and create instead. An empty body is 400. Writes an audit row (before / after) and `store.updated` (`changed_fields: [tax_rates]`). A cart already priced keeps its price; a placement re-prices it (the cart's rules, unchanged).
+         */
+        patch: operations["updateTaxRate"];
         trace?: never;
     };
     "/admin/stores/{storeId}/api-keys": {
@@ -1977,6 +2027,20 @@ export interface components {
             type: "web" | "app" | "marketplace" | "pos";
             is_active: boolean;
         };
+        TaxRate: {
+            /** Format: uuid */
+            id: string;
+            country: string;
+            region: string | null;
+            name: string;
+            rate_bp: number;
+            /** Format: uuid */
+            product_category_id: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
         ApiKey: {
             /** Format: uuid */
             id: string;
@@ -3493,7 +3557,12 @@ export interface components {
                  *       "details": {
                  *         "missing": [
                  *           "primary_domain",
-                 *           "publishable_key"
+                 *           "publishable_key",
+                 *           "tax_rates"
+                 *         ],
+                 *         "missing_tax_countries": [
+                 *           "BE",
+                 *           "DE"
                  *         ]
                  *       }
                  *     }
@@ -3972,6 +4041,153 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    listTaxRates: {
+        parameters: {
+            query?: {
+                country?: string;
+            };
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK — ordered by country, region (nulls first), product_category_id (nulls first), name */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "id": "47000000-0000-4000-8000-000000000001",
+                     *           "country": "NL",
+                     *           "region": null,
+                     *           "name": "VAT 21%",
+                     *           "rate_bp": 2100,
+                     *           "product_category_id": null,
+                     *           "created_at": "2026-10-20T09:00:00Z",
+                     *           "updated_at": "2026-10-20T09:00:00Z"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": {
+                        items: components["schemas"]["TaxRate"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createTaxRate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    country: string;
+                    /** @description e.g. a US state code; null = country-wide */
+                    region?: string | null;
+                    name: string;
+                    /** @description Basis points (2100 = 21 %) */
+                    rate_bp: number;
+                    /**
+                     * Format: uuid
+                     * @description null = every product
+                     */
+                    product_category_id?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxRate"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    deleteTaxRate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                taxRateId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateTaxRate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                taxRateId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name?: string;
+                    rate_bp?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaxRate"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listApiKeys: {

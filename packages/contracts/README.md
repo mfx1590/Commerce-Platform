@@ -6,9 +6,9 @@ See [CLAUDE.md](./CLAUDE.md) for the public API and frozen conventions.
 | Spec                     | `info.version` | Operations | Areas                                                                                                           |
 | ------------------------ | -------------- | ---------- | --------------------------------------------------------------------------------------------------------------- |
 | `openapi/store-api.yaml` | 0.5.8          | 30         | store, catalog, cart, checkout, orders, customers                                                               |
-| `openapi/admin-api.yaml` | 0.4.22         | 131        | registry, catalog, pricing, orders, inventory, fulfillment, customers, roles, audit, marketing, search, reports |
+| `openapi/admin-api.yaml` | 0.4.23         | 135        | registry, catalog, pricing, orders, inventory, fulfillment, customers, roles, audit, marketing, search, reports |
 
-`CONTRACTS_VERSION` is `0.4.25` (tag contracts-v0.4.25); it ships with events 0.3.6 and db 0.3.11. 0.4.4 froze the `SegmentRules` grammar (#239); 0.4.5 added
+`CONTRACTS_VERSION` is `0.4.26` (tag contracts-v0.4.26); it ships with events 0.3.6 and db 0.3.15. 0.4.4 froze the `SegmentRules` grammar (#239); 0.4.5 added
 abandoned-cart recovery (#244/#245); 0.4.6 the pick/pack examples (#261); 0.4.7 the typed review shape (#270),
 the customers additions (#264) and the registry settings operations (#279); 0.4.8 makes `Store.currencies` / `Store.locales`
 required (#279), documents the customer self-service statuses (#303) and lets `createCart` / `completeCart` take an optional
@@ -50,7 +50,10 @@ fees unreconciled), amounts per currency, never summed across currencies; 0.4.23
 `getCustomerExport` (`store_admin` on the store), `CustomerExportSummary` in both specs, and the #496 follow-up 400
 on `listCustomerConsents`; 0.4.24 (Admin API 0.4.21, #504 + db 0.3.11) adds
 `getCustomerIdentity` (`support` on `organization:hq`; a store-scoped principal gets 403, an unknown identity 404),
-the per-brand customer rows one person's identity links, ids only. The marketing area (37 operations, 15 components) is specified in
+the per-brand customer rows one person's identity links, ids only; 0.4.26 (Admin API 0.4.23, #522 + db 0.3.15)
+adds the store tax rates — `listTaxRates` (`viewer` on the store), `createTaxRate` / `updateTaxRate` /
+`deleteTaxRate` (`store_admin`; a duplicate (country, region, category) is a 409 from the database index), `TaxRate`,
+and the `tax_rates` activation prerequisite with `details.missing_tax_countries`. The marketing area (37 operations, 15 components) is specified in
 [docs/marketing-scope.md](../../docs/marketing-scope.md); the search area (6 merchandising operations, 5 components) in
 CONTRACT CHANGE #162; 0.4.1 adds product media (5 operations, 5 components, #168), `getPromotion` / `updatePromotion`
 with `buy_x_get_y` and `stackable` / `exclusive` (#189) and a spelled-out `ProductFeed` (#194); 0.4.2 adds order
