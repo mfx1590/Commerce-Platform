@@ -580,6 +580,15 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   memory commit; head = this PR-record commit; GitHub closing
   refs [518] only; #517 in prose). Opus reviews. Hold ALL pushes until the manager confirms the merge
   (this note is a local commit). Then report "checks finished".
+  **#523 REFUSED by the queue (2026-10-20):** CI core job red at hq-onboarding.spec.ts:91, both
+  attempts. Artifact page snapshot: the Assign form showed `alert: identity provider unavailable`
+  (503) — the core's assignRole ends the user's Keycloak sessions via the core-admin service account
+  and CI never gives the core KEYCLOAK_ADMIN_CLIENT_ID/SECRET (fga:seed's .env from .env.example is
+  deleted after only the OPENFGA ids are exported). No role change had ever succeeded in CI. Locally
+  .env has them. → REQUEST **#525** (exact ci.yml diff: export the two lines from that .env; the realm
+  export's core-admin secret matches .env.example, checked without printing). Admin side: the spec now
+  waits for the granted row OR a refusal alert in the form and fails WITH the refusal text (tightened,
+  not loosened). Asked the manager whether to push before #525 lands.
 - (#481 review nits: fixed in the #518 PR.)
 - **#428 (Phase 3 task 3.1) — plan CONFIRMED by the manager** (2026-10-08). Two PRs. A built:
   local commits 5de060d, a9cc7ae, 9a9b94f + #431 fold (customers placeholder branch dropped after

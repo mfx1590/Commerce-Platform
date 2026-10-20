@@ -88,6 +88,15 @@ test.describe('HQ onboarding', () => {
       .getByRole('list', { name: 'Relations' })
       .getByRole('listitem')
       .filter({ hasText: `(${code})` });
+    // Either the relation shows up, or the core refused it and the form says why (e.g. 503 "identity
+    // provider unavailable" when the core has no core-admin service account, #525): fail on THAT text
+    // rather than time out on a missing row.
+    const refusal = assign.getByRole('alert').filter({ hasText: /\S/ });
+    await expect(granted.getByText('store_staff').or(refusal)).toBeVisible();
+    expect(
+      await refusal.count(),
+      `the core refused the assignment: ${await refusal.allInnerTexts()}`,
+    ).toBe(0);
     await expect(granted.getByText('store_staff')).toBeVisible();
     console.info(`G1 role: store_staff for store-staff on ${code}, shown in the roles UI`);
 
