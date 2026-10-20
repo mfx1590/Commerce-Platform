@@ -36,6 +36,8 @@ export type ActionResult<T> =
       unavailable?: true;
       /** `activateStore`'s 409: the prerequisites the store lacks (`details.missing`). */
       missing?: string[];
+      /** With `missing` containing `tax_rates`: the uncovered market countries (sorted). */
+      missingTaxCountries?: string[];
     } & FormErrors);
 
 export function actionSuccess<T>(data: T): ActionResult<T> {

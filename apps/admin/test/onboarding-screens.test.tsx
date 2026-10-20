@@ -14,6 +14,12 @@ vi.mock('next/navigation', () => ({
 }));
 const actions = vi.hoisted(() => ({ onboardStoreAction: vi.fn(), activateStoreAction: vi.fn() }));
 vi.mock('@/app/actions/stores', () => actions);
+const taxActions = vi.hoisted(() => ({
+  createTaxRateAction: vi.fn(),
+  updateTaxRateAction: vi.fn(),
+  deleteTaxRateAction: vi.fn(),
+}));
+vi.mock('@/app/actions/tax-rates', () => taxActions);
 
 const STORE = '00000000-0000-4000-8000-000000000034';
 const ENTITY = {

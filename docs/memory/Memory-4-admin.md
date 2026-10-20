@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-20 · Contracts: contracts-v0.4.25 on main (Admin API 0.4.22) · Branch: `admin/phase3` · Manager: "Manager session seven" (local_484d7727…; report there) · Status: #518 — PR #523 up (head ad6faf0), in review; pushes held
+Last updated: 2026-10-20 · Contracts: contracts-v0.4.26 on integration/tax-rates (Admin API 0.4.23) · Branch: `admin/tax-cut` (from c420d97) · Manager: "Manager session seven" (local_484d7727…; report there) · Status: #523 MERGED 3a3e6fc; #520 admin commit cut, live run next
 
 ## Identity (does not change)
 Owned paths (write):
@@ -592,13 +592,24 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   Manager chose (a): #525 applied on main 35245d5 (both jobs that remove .env; secret masked).
   Merged main, pushed the fix 396e133 + this record (head = this commit). Next: quote the G1 lines
   from CI's admin e2e job when green; the manager queues on green.
-- **NEXT (after the #523 fix): admin commit of the tax-rate landing #520 / CONTRACT CHANGE #522.**
-  Contract on origin/integration/tax-rates 5e15db2 (Admin API 0.4.23: list/create/update/deleteTaxRate,
-  TaxRate; activateStore 409 `missing` + `missing_tax_countries`; delete 409 `last_rate_of_market_country`).
-  PLAN sent 2026-10-20 (Q1 tax section in Store settings, Q2 e2e proves the 409 then creates NL 2100 bp
-  from the readiness panel → "G1 tax:" line). Build on local branch admin/tax-rates from 5e15db2,
-  code-only; cut ONE commit on window 1's sha when the manager sends it; live run only on handover.
-- (#481 review nits: fixed in the #518 PR.)
+- **#520 admin commit (tax rates, CONTRACT CHANGE #522), 2026-10-20.** #523 MERGED = 3a3e6fc (#518,
+  #525 closed). Cut as ONE commit on origin/integration/tax-rates c420d97 (window 1's core commit,
+  cherry-picked by the manager onto 9d39673 = main + the TaxRate examples), on local branch
+  `admin/tax-cut` (no upstream — never push to the integration branch from here). Contents: wrappers
+  listTaxRates/createTaxRate/updateTaxRate/deleteTaxRate; TAX_PERMISSIONS guard rows (store_admin);
+  `src/app/actions/tax-rates.ts`; `src/lib/tax-rates` (schema, words, formatRate,
+  readMissingTaxCountries); Store · Settings → Tax rates (list / edit name+bp / delete with the
+  last_rate_of_market_country 409 said / add); readiness panel: 409 tax_rates + missing_tax_countries
+  → one "Create a rate for XX" form per country, Activate again; ActionResult.missingTaxCountries;
+  activationMessage names the countries; e2e onboarding: refused for NL → "VAT 21%" 2100 bp from the
+  panel → active → `G1 tax:` line, then G1 key/role/relation. Tests: unit 29 + component 10 + Prism 7
+  (round trip un-skipped since 9d39673's examples); contract-form #398-class fixes. Found on the way:
+  Prism answered 500 to create/update without a TaxRate example → the manager added them (9d39673).
+  Next: gate, ask the manager for the machine, core FROM THIS WORKTREE on :9000 (window 1's readiness
+  rule), admin :3200, specs hq-onboarding + hq-roles + warehouse; do NOT migrate (tax_rate exists;
+  0201 not applied on the dev DB). Push only after the live run is green; send the sha.
+  (Outgoing session messages were paused after 10 in a row without the owner typing — reports were
+  written as the last turn for the manager to read.)
 - **#428 (Phase 3 task 3.1) — plan CONFIRMED by the manager** (2026-10-08). Two PRs. A built:
   local commits 5de060d, a9cc7ae, 9a9b94f + #431 fold (customers placeholder branch dropped after
   #429 = ecab260). Machine runs: mock e2e 22 passed + 5 skipped + 1 failed → fixed (hq-roles

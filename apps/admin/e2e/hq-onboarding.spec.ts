@@ -60,9 +60,23 @@ test.describe('HQ onboarding', () => {
     expect(await page.content()).not.toContain(value);
     const storeId = /\/onboarding\/([0-9a-f-]{36})$/.exec(page.url())![1]!;
 
-    // The readiness panel: a fresh onboarding has every prerequisite, so Activate goes through.
+    // The readiness panel. A fresh onboarding has every prerequisite but a tax rate (#520): the
+    // first Activate is refused for the store's market country (its default country, NL), the panel
+    // offers "Create a rate for NL", and after that rate the second Activate goes through.
     await page.getByRole('button', { name: 'Activate' }).click();
-    await expect(page.getByRole('status')).toHaveText(/Active/);
+    await expect(page.getByRole('list', { name: 'Missing prerequisites' })).toHaveText(
+      /a tax rate for NL/,
+    );
+    const nl = page.getByRole('form', { name: 'Create a rate for NL' });
+    await nl.getByLabel('Rate name', { exact: true }).fill('VAT 21%');
+    await nl.getByLabel('Rate (basis points)', { exact: true }).fill('2100');
+    await nl.getByRole('button', { name: 'Create a rate for NL' }).click();
+    await expect(page.getByText('NL: rate created.')).toBeVisible();
+    await page.getByRole('button', { name: 'Activate' }).click();
+    await expect(page.getByRole('status').filter({ hasText: /Active/ })).toBeVisible();
+    console.info(
+      `G1 tax: Activate refused for NL without a rate; "VAT 21%" (2100 bp) created from the readiness panel; ${code} active`,
+    );
 
     await page.goto('/stores?sort=created_at');
     await expect(page.getByRole('row').filter({ hasText: code }).getByText('active')).toBeVisible();

@@ -724,6 +724,33 @@ writes no stock (the dev database is pooled and shared): the store admin's refus
 inventory rows in both modes; in core mode the owner reads a shared item, opens the pool action up
 to its confirmation and cancels, and reads the counts.
 
+## Tax rates (#520, CONTRACT CHANGE #522; Admin API 0.4.23)
+
+**Store · Settings → Tax rates** lists the store's rates (`listTaxRates`, viewer on the store):
+country, region (country-wide when empty), product category (all when empty), name, and the rate in
+basis points with its percentage (2100 bp = 21%). A row is one (country, region, category); the most
+specific wins and no row means 0%. Store admins edit a rate's name and basis points (`updateTaxRate`
+— country, region and category are its identity: delete and add instead), delete one after a
+confirmation (`deleteTaxRate`), and add one (`createTaxRate`: country, optional region, optional
+category of this store, name, basis points). Refusals in words (`describeTaxRateError` in
+`src/lib/tax-rates`): 409 a row with the same three exists; 409 `last_rate_of_market_country` —
+the last rate for a market country of an active store, which would tax that country at 0%: add
+another first; 404; 400 under its field (a category of another store lands on Category).
+
+**Activation needs a rate per market country.** `activateStore` (and the Store view's status →
+active) answers 409 with `tax_rates` in `details.missing` and the uncovered countries in
+`details.missing_tax_countries` (the store's default country plus its active shipping options'
+countries). The HQ readiness panel says "a tax rate for NL", offers one "Create a rate for NL"
+form per country (name, basis points), ticks each off, and Activate is pressed again — the core
+re-checks; the panel never guesses the market countries itself. The core-mode onboarding journey
+proves it: the first Activate is refused for NL, the rate is created from the panel, the second
+Activate succeeds (`G1 tax: …`).
+
+Every mutation is refused server-side before the API below `store_admin` on the store
+(`TAX_PERMISSIONS` in the shared guard, pinned against the yaml). The Prism contract suite
+walks list, create, update and delete through the actions plus every documented refusal (the
+201/200 examples were added to the spec for it, 9d39673).
+
 ## When a screen cannot show what was asked for
 
 One pattern, in [`src/components/states/`](./src/components/states/). Two rules hold across all of it:

@@ -390,3 +390,26 @@
   suppression list for sends. Additive: rules with the old two values stay valid. Operations unchanged (131).
 - `CONTRACTS_VERSION = '0.4.25'`; types regenerated; a spec test pins the version and the enum.
   Producer: window 17 (segment grammar, segment-sql, the admin rule builder). Store API, events and db unchanged.
+
+## 0.4.26 — 2026-10-20 (store tax rates, CONTRACT CHANGE #522 for #520; contracts-v0.4.26)
+
+- Admin API 0.4.23 (135 operations, was 131), under `registry`, after the sales channels:
+  - `listTaxRates` — `GET /admin/stores/{storeId}/tax-rates` (`viewer` on the store, optional `?country`): the table
+    the `table` tax provider reads, ordered by country, region and category (nulls first), name. 400 / 401 / 403.
+  - `createTaxRate` — `POST …/tax-rates` (`store_admin`): one row per (country, region, product category), enforced
+    by the database (db 0.3.15 `tax_rate_identity_key`, NULLS NOT DISTINCT); a duplicate is 409 `conflict` with
+    `details.tax_rate_id`. A foreign `product_category_id` is 400. 201 / 400 / 401 / 403 / 404 / 409.
+  - `updateTaxRate` — `PATCH …/tax-rates/{taxRateId}` (`store_admin`): `name` and `rate_bp` only, an empty body
+    is 400. 200 / 400 / 401 / 403 / 404.
+  - `deleteTaxRate` — `DELETE …/tax-rates/{taxRateId}` (`store_admin`): 204; 409 `conflict`
+    (`reason: last_rate_of_market_country`) for the last row of a market country of an active store.
+  - `TaxRate` added to the components. The three writes emit `store.updated` v1 with
+    `changed_fields: [tax_rates]` (no new topic) and an audit row.
+  - `activateStore` gains the `tax_rates` prerequisite: one row per market country (`default_country` plus every
+    country of the store's active shipping options); `details.missing_tax_countries` lists the uncovered ones,
+    sorted. The `ActivationBlocked` example shows it.
+- Store API and events unchanged. db 0.3.15: migration 0201 (the unique index) and the brand A seed rows DE / BE / FR.
+- `CONTRACTS_VERSION = '0.4.26'`; types regenerated; spec tests pin the version, the operation count (135), the
+  paths, permissions and codes, `TaxRate` and the activation prerequisite; `test:contract` reads the list, creates
+  (201, generated from the schema: the 201 documents no example) and drives the 409.
+  Producer: window 1 (core registry module, readiness, #520). Consumers: the admin store settings (tax rates).

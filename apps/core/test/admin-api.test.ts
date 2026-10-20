@@ -19,8 +19,8 @@ import {
   moduleAdminRouters,
   moduleWebhookRouters,
 } from '../src/http';
-import { closePool, initDb, tenantClient } from '../src/lib/db';
-import { addLineItem, createCart, updateCart } from '../src/modules/cart';
+import { closePool, initDb, organizationClient, tenantClient } from '../src/lib/db';
+import { addLineItem, createCart, taxOn, updateCart } from '../src/modules/cart';
 import { completeCart, createPaymentSession } from '../src/modules/checkout';
 import {
   confirmOrder,
@@ -28,7 +28,7 @@ import {
   markShipmentCreated,
   markShipped,
 } from '../src/modules/orders';
-import { inMemoryStoreRegistrar } from '../src/modules/registry';
+import { inMemoryStoreRegistrar, marketCountries, storeReadiness } from '../src/modules/registry';
 import { mountCoreMiddleware } from '../src/server';
 import { specValidator } from './helpers/openapi';
 
@@ -258,7 +258,10 @@ describe('registry routes', () => {
     expect(activated.status).toBe(409);
     expect(activated.body).toMatchObject({
       code: 'conflict',
-      details: { missing: ['primary_domain', 'publishable_key', 'fga_object'] },
+      details: {
+        missing: ['primary_domain', 'publishable_key', 'fga_object', 'tax_rates'],
+        missing_tax_countries: ['NL'],
+      },
     });
 
     const events = await db.owner.query(
@@ -1199,6 +1202,17 @@ describe('store onboarding (#413, Admin API 0.4.11): onboardStore, activateStore
     expect(onboarded.status).toBe(201);
     const id = onboarded.body.store.id as string;
     expect((await storeAdmin.post(`/admin/stores/${id}/activate`)).status).toBe(403);
+    // #520: an onboarded store has no tax rate yet — readiness names the rule and the countries
+    const untaxed = await owner.post(`/admin/stores/${id}/activate`);
+    expect(untaxed.status).toBe(409);
+    spec.assertSchema('Error', untaxed.body);
+    expect(untaxed.body.details).toEqual({ missing: ['tax_rates'], missing_tax_countries: ['NL'] });
+    const rate = await owner.post(`/admin/stores/${id}/tax-rates`, {
+      country: 'NL',
+      name: 'VAT 21%',
+      rate_bp: 2100,
+    });
+    expect(rate.status).toBe(201);
     const active = await owner.post(`/admin/stores/${id}/activate`);
     expect(active.status).toBe(200);
     spec.assertSchema('Store', active.body);
@@ -1217,7 +1231,10 @@ describe('store onboarding (#413, Admin API 0.4.11): onboardStore, activateStore
     expect(refused.status).toBe(409);
     expect(refused.body).toMatchObject({
       code: 'conflict',
-      details: { missing: ['primary_domain', 'publishable_key', 'fga_object'] },
+      details: {
+        missing: ['primary_domain', 'publishable_key', 'fga_object', 'tax_rates'],
+        missing_tax_countries: ['NL'],
+      },
     });
     expect(
       (await owner.post('/admin/stores/00000000-0000-4000-8000-00000000ffff/activate')).status,
@@ -1469,5 +1486,177 @@ describe('the shared stock pool (#456, CONTRACT CHANGE #453): listStockItems, ma
     const bad = await operations.get(`${reservationsPath}?status=maybe&warehouse_id=x`);
     expect(bad.status).toBe(400);
     expect(Object.keys(bad.body.details).sort()).toEqual(['status', 'warehouse_id']);
+  });
+});
+
+describe('tax rates for a store (#520, CONTRACT CHANGE #522): list / create / update / delete', () => {
+  const A_KEY = SEED_IDS.publishableKeys.brandA;
+  const storeApi = {
+    post: (path: string, body?: unknown) =>
+      request(app).post(path).set('X-Publishable-Key', A_KEY).send(body),
+  };
+  const put = (subject: string, method: 'patch' | 'delete', path: string, body?: unknown) =>
+    request(app)[method](path).set('Authorization', `Bearer dev:${subject}`).send(body);
+
+  it('viewer lists, store_admin writes; one row per (country, region, category); a cart to DE carries the new rate; the delete guard', async () => {
+    const path = `/admin/stores/${A}/tax-rates`;
+    // the seeded brand A covers its four market countries (default NL + the shipping countries DE, BE, FR)
+    const list = await storeStaff.get(path);
+    expect(list.status).toBe(200);
+    for (const r of list.body.items) spec.assertSchema('TaxRate', r);
+    expect(
+      list.body.items.map((r: { country: string; rate_bp: number }) => [r.country, r.rate_bp]),
+    ).toEqual([
+      ['BE', 2100],
+      ['DE', 1900],
+      ['FR', 2000],
+      ['NL', 2100],
+    ]);
+    expect((await storeStaff.get(`${path}?country=DE`)).body.items).toHaveLength(1);
+    expect((await storeStaff.get(`${path}?country=de`)).status).toBe(400);
+    expect((await request(app).get(path)).status).toBe(401);
+
+    // a reduced rate for one product category of brand A, shipped to DE
+    const product = await db.owner.query<{ category_id: string; variant_id: string }>(
+      `SELECT p.category_id, v.id AS variant_id
+       FROM product p JOIN product_variant v ON v.product_id = p.id
+       JOIN price pr ON pr.variant_id = v.id AND pr.currency = 'EUR' AND pr.min_quantity = 1
+       JOIN inventory_level il ON il.stock_item_id = v.stock_item_id AND il.available >= 2
+       WHERE p.store_id = $1 AND p.status = 'published' AND p.category_id IS NOT NULL
+       ORDER BY v.sku LIMIT 1`,
+      [A],
+    );
+    const { category_id: categoryId, variant_id: variantId } = product.rows[0]!;
+    const reduced = {
+      country: 'DE',
+      name: 'Reduced VAT 7%',
+      rate_bp: 700,
+      product_category_id: categoryId,
+    };
+    expect((await storeStaff.post(path, reduced)).status).toBe(403);
+    const created = await storeAdmin.post(path, reduced);
+    expect(created.status).toBe(201);
+    spec.assertSchema('TaxRate', created.body);
+    expect(created.body).toMatchObject({ ...reduced, region: null });
+
+    // the identity is the database's (0201, NULLS NOT DISTINCT): a second row is 409 naming the existing one
+    const twice = await storeAdmin.post(path, { ...reduced, name: 'again' });
+    expect(twice.status).toBe(409);
+    spec.assertSchema('Error', twice.body);
+    expect(twice.body.details).toEqual({ tax_rate_id: created.body.id });
+    const countryWide = await storeAdmin.post(path, { country: 'DE', name: 'dup', rate_bp: 1900 });
+    expect(countryWide.status).toBe(409); // NULL region + NULL category counts as a value
+    expect(countryWide.body.details.tax_rate_id).toBe(
+      list.body.items.find((r: { country: string }) => r.country === 'DE').id,
+    );
+    // a category of another store, a bad body
+    const foreign = await db.owner.query<{ id: string }>(
+      `SELECT id FROM product_category WHERE store_id = $1 LIMIT 1`,
+      [B],
+    );
+    const notOurs = await storeAdmin.post(path, {
+      ...reduced,
+      product_category_id: foreign.rows[0]!.id,
+    });
+    expect(notOurs.status).toBe(400);
+    expect(notOurs.body.details).toEqual({
+      product_category_id: 'a product category of this store',
+    });
+    expect((await storeAdmin.post(path, { country: 'DE', name: 'x', rate_bp: 10001 })).status).toBe(
+      400,
+    );
+    expect((await storeAdmin.post(path, { ...reduced, country: 'XX', extra: 1 })).status).toBe(400);
+
+    // a Store API cart to DE prices the line at the new rate (category over store-wide), through the provider
+    const cart = await storeApi.post('/store/carts', { country: 'DE' });
+    expect(cart.status).toBe(201);
+    const withLine = await storeApi.post(`/store/carts/${cart.body.id}/line-items`, {
+      variant_id: variantId,
+      quantity: 2,
+    });
+    expect(withLine.status).toBe(200);
+    const line = withLine.body.items.find(
+      (l: { variant_id: string }) => l.variant_id === variantId,
+    );
+    const base = line.subtotal.amount_minor - line.discount.amount_minor;
+    expect(line.tax.amount_minor).toBe(taxOn(base, 700));
+
+    // update: name and rate only; the next mutation re-prices the cart
+    const patched = await put('seed-store-admin', 'patch', `${path}/${created.body.id}`, {
+      rate_bp: 500,
+    });
+    expect(patched.status).toBe(200);
+    spec.assertSchema('TaxRate', patched.body);
+    expect(patched.body).toMatchObject({ id: created.body.id, rate_bp: 500, name: reduced.name });
+    expect((await put('seed-store-admin', 'patch', `${path}/${created.body.id}`, {})).status).toBe(
+      400,
+    );
+    expect(
+      (await put('seed-store-admin', 'patch', `${path}/${created.body.id}`, { country: 'NL' }))
+        .status,
+    ).toBe(400);
+    expect(
+      (await put('seed-store-staff', 'patch', `${path}/${created.body.id}`, { rate_bp: 1 })).status,
+    ).toBe(403);
+
+    // delete: the extra DE row goes (204); BE's only row of an ACTIVE store cannot (409); unknown → 404
+    expect((await put('seed-store-admin', 'delete', `${path}/${created.body.id}`)).status).toBe(
+      204,
+    );
+    expect((await put('seed-store-admin', 'delete', `${path}/${created.body.id}`)).status).toBe(
+      404,
+    );
+    const be = list.body.items.find((r: { country: string }) => r.country === 'BE');
+    const guarded = await put('seed-store-admin', 'delete', `${path}/${be.id}`);
+    expect(guarded.status).toBe(409);
+    expect(guarded.body.details).toEqual({ country: 'BE', reason: 'last_rate_of_market_country' });
+    // another store's rate through brand A's path is not found (the row is not brand A's)
+    const bRate = await db.owner.query<{ id: string }>(
+      `SELECT id FROM tax_rate WHERE store_id = $1 LIMIT 1`,
+      [B],
+    );
+    expect((await put('seed-store-admin', 'delete', `${path}/${bRate.rows[0]!.id}`)).status).toBe(
+      404,
+    );
+
+    // every write: an audit row and one store.updated (changed_fields: [tax_rates]) without any rate in it
+    const updates = await db.owner.query<{ payload: { changed_fields: string[] } }>(
+      `SELECT payload FROM outbox WHERE topic = 'store.updated' AND aggregate_id = $1
+         AND payload->'changed_fields' = '["tax_rates"]'::jsonb`,
+      [A],
+    );
+    expect(updates.rows).toHaveLength(3); // create, update, delete
+    expect(JSON.stringify(updates.rows)).not.toContain('700');
+    const audit = await db.owner.query<{ action: string }>(
+      `SELECT action FROM audit_log WHERE entity_id = $1 ORDER BY created_at`,
+      [created.body.id],
+    );
+    expect(audit.rows.map((r) => r.action)).toEqual([
+      'tax_rate.create',
+      'tax_rate.update',
+      'tax_rate.delete',
+    ]);
+  });
+});
+
+describe('readiness with tax rates (#520): the seeded stores stay ready', () => {
+  it('every seeded store has a tax rate for each of its market countries', async () => {
+    const hq = organizationClient({ organizationId: SEED_IDS.organization });
+    const registered = { hasStoreObject: async () => true, ensureStoreObject: async () => {} };
+    for (const id of [A, B, SEED_IDS.stores.brandC]) {
+      const readiness = await hq.transaction(async (tx) => {
+        const s = await tx.query<{ id: string; legal_entity_id: string; default_country: string }>(
+          'SELECT id, legal_entity_id, default_country FROM store WHERE id = $1',
+          [id],
+        );
+        return {
+          markets: await marketCountries(tx, s.rows[0]!),
+          ...(await storeReadiness(tx, s.rows[0]!, registered)),
+        };
+      });
+      expect(readiness.missing).toEqual([]);
+      expect(readiness.missing_tax_countries).toEqual([]);
+      expect(readiness.markets.length).toBeGreaterThan(0);
+    }
   });
 });

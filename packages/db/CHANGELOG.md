@@ -1,5 +1,10 @@
 # Changelog — @platform/db
 
+## 0.3.15 — 2026-10-20
+
+- `0201_tax_rate_identity_unique.sql` (CONTRACT CHANGE #522, window 1 #520; contracts-v0.4.26): unique index `tax_rate_identity_key` on `tax_rate (store_id, country, region, product_category_id) NULLS NOT DISTINCT` — one row per (country, region, category) per store; `region` and `product_category_id` are nullable, so a plain UNIQUE would let two country-wide rows through. The core maps the 23505 on this index to 409 `conflict` (`details.tax_rate_id`). No data change (the dev data has no duplicates). Manager landing.
+- Seed: brand A gains tax rows DE 1900 (`VAT 19%`), BE 2100 (`VAT 21%`) and FR 2000 (`VAT 20%`) next to NL 2100, one per shipping country, so seeded brand A passes the new `tax_rates` activation prerequisite and its orders to those countries are taxed. Deterministic ids (`seedId(1, KIND.tax, 2..4)`; NL keeps `n = 1`), `ON CONFLICT DO NOTHING` as every seed row. `StoreDef.taxRate` became `taxRates` (the home-country row first).
+
 ## 0.3.14 — 2026-10-19
 
 - `0198_notification_delivery_kind.sql` (CONTRACT CHANGE #511, window 17 #499): `notification_delivery.kind`'s CHECK gains `export_ready` (form b: the database keeps the closed list; each new email kind lands with its event). No data change. Manager landing.
