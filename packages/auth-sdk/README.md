@@ -121,6 +121,26 @@ await requirePermission('store_admin', 'store:{storeId}')(scope, req.params, { f
 - CLI: `pnpm --filter @platform/auth-sdk roles assign|revoke <email> <relation> <store-code|hq>`,
   `roles list <email>`.
 
+### Customer erasure (#483)
+
+After `eraseCustomer` / `deleteMe` the Postgres row holds no personal data, but the customers-realm Keycloak
+user still exists. `deleteErasedCustomerIdentity(deps, { customerId })` deletes it — `deps.db` an
+**organization-scope** client, `deps.keycloak` the customers-realm service account
+(`createKeycloakAdmin({ realm: 'customers', clientId: KEYCLOAK_CUSTOMERS_ADMIN_CLIENT_ID, clientSecret:
+KEYCLOAK_CUSTOMERS_ADMIN_CLIENT_SECRET })`). The erased row keeps `keycloak_subject` as the erasure tombstone;
+because one realm serves every brand, the user is deleted only when no non-erased row of the organization
+still carries that subject (per-brand accounts; cross-brand self-service deletion is the owner's open
+decision). Outcomes: `nothing_to_delete` (no row, not erased, guest without a subject — no audit row),
+`kept_live_elsewhere`, `deleted`, `already_gone` (Keycloak 404 — a replayed event ends here). One
+`customer.identity_deleted` audit row carries ids and the outcome only; the subject is never logged or
+returned; Keycloak unreachable → 503 so the consumer retries. `onCustomerErased(deps, envelope)` is the
+bus-side entry for a `customer.erased` v1 event (other topics, versions or organizations → a typed
+`handled: false`). `createCustomerErasureConsumer({ pool, organizationId, keycloak }).runOnce({ limit })` is
+the outbox consumer (wiring A): unclaimed `customer.erased` events oldest first, each settled with one
+`customer_erasure_claim` row (#512, migration 0199 — written once, the consumer only INSERTs) after a definitive outcome, so a settled event never calls Keycloak again;
+a Keycloak 503 leaves no claim (`retry` in the result) and the next run retries. The Medusa job that calls it
+per tick is the core's (`apps/core/src/jobs/customer-erasure.ts`, REQUEST #513).
+
 ### Audit log
 
 - `audit(tx, entry)` — append-only, inside the CALLER's transaction (`Queryable` only, never opens a

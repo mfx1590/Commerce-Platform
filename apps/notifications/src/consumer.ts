@@ -12,7 +12,12 @@
 // and NOT resent, because the email may already have arrived. The owner decides about those.
 import type { Queryable, ScopedClient } from '@platform/db';
 import { applyLegalEntity } from './brands.js';
-import { loadOrderConfirmation, loadShipmentShipped } from './render-data.js';
+import {
+  loadExportReady,
+  loadOrderConfirmation,
+  loadShipmentShipped,
+  type LoadOutcome,
+} from './render-data.js';
 import { pickLocale, render } from './templates/index.js';
 import {
   CONSUMED_TOPICS,
@@ -206,7 +211,23 @@ export function errorLabel(err: unknown): string {
 }
 
 function describe(meta: DeliveryMeta): string {
-  return `kind=${meta.kind} store=${meta.storeCode} locale=${meta.locale} event=${meta.eventId} order=#${meta.displayId}`;
+  const ref = meta.displayId === null ? '' : ` order=#${meta.displayId}`;
+  return `kind=${meta.kind} store=${meta.storeCode} locale=${meta.locale} event=${meta.eventId}${ref}`;
+}
+
+async function load(
+  db: ScopedClient,
+  storeId: string,
+  row: DeliveryRow,
+): Promise<LoadOutcome<NotificationKind>> {
+  switch (row.kind) {
+    case 'order_confirmation':
+      return loadOrderConfirmation(db, storeId, row.aggregate_id);
+    case 'shipment_shipped':
+      return loadShipmentShipped(db, storeId, row.aggregate_id);
+    case 'export_ready':
+      return loadExportReady(db, storeId, row.aggregate_id, row.event_id);
+  }
 }
 
 /** DELIVER: every claimed row of the store that still needs a send, one by one, outside any transaction. */
@@ -249,29 +270,27 @@ export async function deliverPending(
   );
 
   for (const row of rows.rows) {
-    const loaded =
-      row.kind === 'order_confirmation'
-        ? await loadOrderConfirmation(client, store.id, row.aggregate_id)
-        : await loadShipmentShipped(client, store.id, row.aggregate_id);
-    if (!loaded) {
+    const loaded = await load(client, store.id, row);
+    if (loaded === null || 'skip' in loaded) {
+      const reason = loaded === null ? 'source_not_found' : loaded.skip;
       await client.query(
-        `UPDATE notification_delivery SET status = 'skipped', last_error = 'source_not_found' WHERE id = $1`,
-        [row.id],
+        `UPDATE notification_delivery SET status = 'skipped', last_error = $2 WHERE id = $1`,
+        [row.id, reason],
       );
       log.warn(
-        `notifications: skipped kind=${row.kind} store=${store.code} event=${row.event_id} (source row not found)`,
+        `notifications: skipped kind=${row.kind} store=${store.code} event=${row.event_id} reason=${reason}`,
       );
       result.skipped += 1;
       continue;
     }
 
-    const locale = pickLocale(loaded.locale, brand.defaultLocale);
+    const locale = pickLocale(loaded.locale ?? store.defaultLocale, brand.defaultLocale);
     const meta: DeliveryMeta = {
       eventId: row.event_id,
       kind: row.kind,
       storeCode: store.code,
       locale,
-      displayId: loaded.data.displayId,
+      displayId: 'displayId' in loaded.data ? loaded.data.displayId : null,
     };
     const content = render(row.kind, loaded.data, { brand, locale, timeZone: store.timeZone });
     const email: RenderedEmail = {

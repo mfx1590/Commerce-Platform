@@ -38,6 +38,11 @@ window 2 (auth).
   grant is shared between processes through a per-user file (`RUNNER_TEMP` in CI) so live suites never spend
   the same TOTP code (#346); this package deletes the file once per local run (`test/global-setup.ts`), a
   single-file consumer may call `forgetStaffToken()` in `afterAll`; a refused grant waits 1.5 s (#406).
+- `deleteErasedCustomerIdentity(deps, { customerId })` / `onCustomerErased(deps, envelope)` (#483): after a
+  `customer.erased` event, delete the customers-realm Keycloak user of the erased row's tombstone subject —
+  only when no live row of the ORGANIZATION still carries it (organization-scope client); idempotent by
+  state; the subject is never logged. Needs the customers-realm service account
+  (`createKeycloakAdmin({ realm: 'customers' })`, env `KEYCLOAK_CUSTOMERS_ADMIN_CLIENT_*`).
 - Production realm exports (#416): `infra/keycloak/production/*.json` are DERIVED by
   `infra/keycloak/derive-production.mjs` from the dev export + `production/production-profile.json`; never edit them
   by hand — `test/production-realms.test.ts` re-derives and compares.

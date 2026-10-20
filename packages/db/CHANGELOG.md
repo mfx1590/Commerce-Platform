@@ -1,5 +1,17 @@
 # Changelog — @platform/db
 
+## 0.3.14 — 2026-10-19
+
+- `0198_notification_delivery_kind.sql` (CONTRACT CHANGE #511, window 17 #499): `notification_delivery.kind`'s CHECK gains `export_ready` (form b: the database keeps the closed list; each new email kind lands with its event). No data change. Manager landing.
+
+## 0.3.13 — 2026-10-19
+
+- `0199_customer_erasure_claim.sql` (CONTRACT CHANGE #512, window 2 #483): one row per settled `customer.erased` outbox event — event_id UNIQUE (the replay guard: Keycloak is never called again for a settled event), event_seq, customer_id, outcome (nothing_to_delete | kept_live_elsewhere | deleted | already_gone), live_rows; store RLS; written once (UPDATE and DELETE revoked from platform_app). No personal data. Manager landing.
+
+## 0.3.12 — 2026-10-19
+
+- `0197_customer_identity_link_lock_order.sql`: `app.link_customer_identity` takes the guest merge's locks in one order — the guest's customer rows first (`FOR UPDATE SKIP LOCKED`), the identity second; a guest whose rows another transaction holds is left to that transaction (contention = no merge, #504). Fixes the 40P01 deadlock main's unit job hit at ebb203f on the concurrent guest-merge test. The re-point also filters `organization_id`. Manager fix.
+
 ## 0.1.0 — 2026-09-04
 
 - Scaffold created by the main window (Phase 0).
@@ -100,3 +112,81 @@
   and no backfill (manager decision on #466); the core starts writing the value in a later PR.
 - test/rls.test.ts: the re-added check keeps its name and carries `voided`; an order row updates to `voided`; unknown
   values (`cancelled`, the payment row's word, and `void`) are still refused by it.
+
+## 0.3.8 — 2026-10-18 (CONTRACT CHANGE #485, reporting views; window 12, #478)
+
+- Migration 0200 reporting views: `rpt_sales_daily`, `rpt_payments_daily`, `rpt_refunds_daily`, `rpt_stock_position`,
+  `rpt_customers_daily`; security_invoker, SELECT-only for platform_app; partial indexes payment (store_id,
+  captured_at), refund (store_id, created_at). The SQL is window 12's proposed file verbatim (header replaced). Every
+  view is `security_invoker = true`, so the base tables' row-level security runs as the caller: a store session sees
+  only its own stores' rows, no context sees nothing. No new role, no SECURITY DEFINER, no materialisation. The
+  migration revokes everything 0009's default privileges would grant and grants `platform_app` SELECT only. Money
+  columns are bigint minor units grouped by currency; no column carries PII. Grain and filters: data/reporting/README.md.
+- No seed change and no new event. The views' reconciliation and isolation tests live in the core reporting module
+  (window 12); its commit in this landing runs them on the landed migration.
+
+## 0.3.9 — 2026-10-18 (CONTRACT CHANGE #489, customer consent ledger; window 13, #471; contracts-v0.4.21)
+
+- Migration 0194: `customer_consent` — the append-only, store-scoped record of truth for a customer's consent
+  decisions (`purpose` = `marketing_email` only until the lawyer review; `granted` boolean; `source`
+  `storefront | admin | import`; non-blank `policy_version`; `recorded_at`). The SQL is the issue's diff verbatim
+  (header replaced). RLS kind `store`; `REVOKE UPDATE` from `platform_app` (a decision is never edited), DELETE
+  kept for erasure; index `customer_consent_customer_idx` (customer, purpose, `recorded_at DESC`).
+  `customer.consent` (0005) stays the current-state projection window 17's segments read; the core rewrites it from
+  the newest ledger row in the same transaction.
+- Backfill: one row per existing `customer.consent.marketing_email` projection with a boolean `granted` (erased
+  customers skipped), `recorded_at` = the projection's own `at` (missing → the row's `updated_at`, never now()),
+  `source` from the block (unknown/missing → `import`), `policy_version` `'pre-ledger'`. Idempotent: a customer
+  with any ledger row for the purpose is skipped. Like 0190's backfill it runs as the migration role, which must
+  bypass row security.
+- No seed change and no new event.
+- test/rls.test.ts: a store session reads and records only its own store's consent rows, another store's are
+  invisible (and refused on insert), no context sees none; the purpose and policy-version CHECKs; UPDATE refused
+  for `platform_app` in store and organization scope (grants DELETE, INSERT, SELECT); DELETE works in the same store
+  and deletes nothing from another. Backfill on its own throwaway database: migrated, then returned to the state
+  before 0194 (table dropped, migration unrecorded), seeded with projections (granted, refused, unknown source
+  without `at`, never asked, non-boolean, erased); `migrate` applies only 0194 and writes exactly the three expected
+  rows; the backfill statement run again adds nothing (33 cases).
+
+## 0.3.10 — 2026-10-18 (CONTRACT CHANGE #498, customer export delivery; window 13, #472; contracts-v0.4.23)
+
+- Migration 0195: `customer_export` — one row per `customer.export_requested` event (`event_id` UNIQUE = the export
+  job's idempotency), `requested_by` / `requested_by_type` (`staff | customer`) and `requested_at` from the event,
+  `status` `pending | ready | expired` (default `pending`), `reason` (`customer_gone` | `too_large`), `format`, the
+  bundle as gzip JSON in `bytea` with `bundle_sha256` and `bundle_size` (compressed bytes) until object storage
+  exists (#361), `ready_at` / `expires_at` / `purged_at`, `download_count`. The SQL is the issue's diff verbatim
+  (header prepended, the issue-number placeholder filled in). RLS kind `store`; `set_updated_at` trigger; grants
+  from 0009's default privileges (UPDATE and DELETE stay: the job moves the status and purges the bundle, erasure
+  deletes every export of the customer in the erasure transaction). Indexes `customer_export_customer_idx`
+  (customer, `created_at DESC`), partial `customer_export_pending_idx` (store, status) on `pending` and partial
+  `customer_export_expiry_idx` (`expires_at`) on `ready`.
+- No backfill (the job's first run picks up earlier requests from the outbox), no seed change. The event the job
+  emits is events 0.3.6 `customer.export_ready`.
+- No rls.test.ts case in this landing (the landing was assembled without a database); the export job's tests in the
+  core customers module run on the landed migration.
+
+## 0.3.11 — 2026-10-18 (CONTRACT CHANGE #504, cross-brand identity link; window 13, #473; contracts-v0.4.24)
+
+- Migration 0196: `customer_identity` closed to store sessions and written at last. The SQL is the issue's diff with
+  the manager's conditions applied (header prepended, the issue-number placeholder filled in):
+  - RLS kind `organization_only` (0192's kind): `apply_rls` drops the existing `tenant_isolation` policy before it
+    creates the new one, so 0009's `organization` policy is replaced — a store session reads and writes no identity.
+  - Keyed by subject: the inline UNIQUE `customer_identity_organization_id_email_hash_key` (name checked in
+    pg_constraint on dev) is dropped; `customer_identity_email_hash_idx` (organization, email_hash) and the partial
+    UNIQUE `customer_identity_subject_key` (organization, keycloak_subject) WHERE the subject is set are added. Two
+    subjects with the same verified email are two identities.
+  - `app.link_customer_identity(p_customer_id, p_subject, p_email_hash) RETURNS uuid` and
+    `app.unlink_customer_identity(p_customer_id) RETURNS boolean`: SECURITY DEFINER, pinned `search_path`,
+    `SET app.scope = 'organization'` (0191's pattern). Condition 1: no organization parameter — the caller's
+    `app.organization_id` is used, and the target customer must be in it and, for a store-scoped caller (non-empty
+    `app.store_ids`), in one of the caller's stores; otherwise SQLSTATE 42501 and nothing changes. Condition 2: the
+    guest merge locks its candidates `FOR UPDATE` before counting, merges only `WHERE merged_into_id IS NULL`, and
+    re-points customers only when that UPDATE hit a row; exactly one candidate merges, two or more never do.
+  - EXECUTE revoked from PUBLIC and granted to `platform_app` (0110's pattern).
+- No backfill (the table is empty on dev; existing customers are linked on their next verified sign-in), no seed
+  change, no event change.
+- test/rls.test.ts: one case, as 0192's — the policy is the `organization_only` predicate and the only one on the
+  table; organization scope writes and reads identities, two subjects may share an email_hash, a subject is one
+  identity; single- and multi-store sessions read, insert and update none; no context and another organization see
+  none. The two functions' scope and merge cases (condition 3) are window 13's tests in the core customers module.
+  Not run in this landing (assembled without a database).

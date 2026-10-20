@@ -19,7 +19,10 @@ check.
 
 `inviteUser` (#415): body `{ email, display_name }` → auth-sdk `inviteUser` → 201 `StaffUser`. The Keycloak
 user is created through the `core-admin` service account (`HqRbacDeps.keycloak`, default
-`createKeycloakAdmin()` from the environment: `KEYCLOAK_ADMIN_CLIENT_ID` / `KEYCLOAK_ADMIN_CLIENT_SECRET`) with
+`createKeycloakAdmin()` from the environment: `KEYCLOAK_ADMIN_CLIENT_ID` / `KEYCLOAK_ADMIN_CLIENT_SECRET` —
+both are REQUIRED for every role change too, since each assign/revoke ends the user's sessions: without the
+secret every `POST`/`DELETE …/roles` answers 503 `identity provider unavailable`, which is what a worktree
+whose `.env` predates #418 sees in the live tests (#488; copy the two lines from `.env.example`)) with
 the required actions `UPDATE_PASSWORD` and `CONFIGURE_TOTP` and no password; the invitation email itself
 waits for SMTP (Integration 2b). 409 on an existing email, 400 on a malformed body. Every role change
 (`assignRole` / `revokeRole`) also ends the user's Keycloak sessions through the same client — after the

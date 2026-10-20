@@ -154,9 +154,9 @@ describe('createKeycloakAdmin (unit, fake Keycloak)', () => {
     expect(await a.listUserSessions(u.subject)).toEqual([{ id: `sess-${u.subject}` }]);
     await a.logoutUser(u.subject);
     expect(await a.listUserSessions(u.subject)).toEqual([]);
-    await a.deleteUser(u.subject);
+    expect(await a.deleteUser(u.subject)).toBe('deleted');
     expect(await a.getUser(u.subject)).toBeNull();
-    await expect(a.deleteUser(u.subject)).resolves.toBeUndefined(); // idempotent (404 tolerated)
+    expect(await a.deleteUser(u.subject)).toBe('not_found'); // idempotent: 404 is an answer, not an error
     await expect(a.logoutUser(u.subject)).resolves.toBeUndefined();
   });
 

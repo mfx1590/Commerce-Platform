@@ -3,14 +3,17 @@ export {
   ADDRESS_LIMIT,
   addCustomerAddress,
   customerEmailHash,
+  deleteCustomerAddress,
   findCustomerForSubject,
   listCustomerAddresses,
   registerCustomer,
   resolveCustomer,
   updateCustomer,
+  updateCustomerAddress,
 } from './service';
 export type {
   AddressInput,
+  AddressPatch,
   Customer,
   CustomerAddress,
   CustomerIdentity,
@@ -38,10 +41,66 @@ export type {
   CustomerSortField,
 } from './admin';
 // GDPR erasure and export (#414)
-export { buildCustomerExport, eraseCustomer, erasedEmail, requestCustomerExport } from './gdpr';
+export {
+  buildCustomerExport,
+  eraseCustomer,
+  eraseCustomerIdentity,
+  eraseMe,
+  erasedEmail,
+  requestCustomerExport,
+} from './gdpr';
 export type {
   CustomerExport,
   CustomerExportOrder,
   CustomerExportOrderLine,
   EraseResult,
 } from './gdpr';
+// Cross-brand identity (#473)
+export { getCustomerIdentity, unlinkIdentity } from './identity';
+export type { CustomerIdentityView, EraseIdentityResult } from './identity';
+// Consent ledger (#471)
+export { adminListCustomerConsents, getMyConsents, putMyConsents } from './consent';
+export type { CustomerConsent, PutMyConsentsInput } from './consent';
+export {
+  CONSENT_PURPOSES,
+  CONSENT_SOURCES,
+  consentLedger,
+  DEFAULT_POLICY_VERSION,
+  recordConsent,
+  storePolicyVersion,
+} from './consent-ledger';
+export type {
+  ConsentAnswer,
+  ConsentDecision,
+  ConsentPurpose,
+  ConsentSource,
+} from './consent-ledger';
+export {
+  customersAdminRouter,
+  CUSTOMER_CONSENTS_PATH,
+  CUSTOMER_IDENTITY_PATH,
+  CUSTOMER_EXPORT_PATH,
+  CUSTOMER_EXPORTS_PATH,
+  sendExport,
+} from './http';
+// Export delivery (#472)
+export {
+  adminGetCustomerExport,
+  adminListCustomerExports,
+  buildPendingExports,
+  claimExportRequests,
+  DEFAULT_EXPORT_MAX_BYTES,
+  DEFAULT_EXPORT_TTL_DAYS,
+  EXPORT_CLAIM_LOOKBACK,
+  EXPORT_FORMAT,
+  getMyExport,
+  listMyExports,
+  purgeExpiredExports,
+} from './export-delivery';
+export type {
+  AdminCustomerExportSummary,
+  BuildOptions,
+  BuildResult,
+  CustomerExportSummary,
+  ExportDownload,
+} from './export-delivery';

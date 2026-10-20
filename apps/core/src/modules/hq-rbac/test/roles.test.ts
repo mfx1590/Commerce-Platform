@@ -20,6 +20,10 @@ const ORG = SEED_IDS.organization;
 const U = SEED_IDS.users;
 const S = SEED_IDS.stores;
 const API = process.env.OPENFGA_API_URL ?? 'http://localhost:8081';
+// Every role change ends the user's Keycloak sessions through the core-admin service account (#415). The
+// core's vitest runs this file too and loads neither the root .env nor the auth-sdk vitest env, so the dev
+// realm secret is defaulted here — without it every assign/revoke answers 503 (#488).
+process.env.KEYCLOAK_ADMIN_CLIENT_SECRET ??= 'dev-only-core-admin-secret';
 
 async function up(url: string): Promise<boolean> {
   try {
@@ -138,7 +142,7 @@ describe.runIf(fgaUp && dbUp)('hq-rbac roles (live Postgres + OpenFGA)', () => {
       path: `/admin/users/${U.analyst}/roles/${assignmentId}`,
       principal: owner,
     });
-    expect(revoked).toEqual({ status: 204 });
+    expect(revoked, JSON.stringify(revoked?.body)).toEqual({ status: 204 });
     expect(loggedOut).toEqual(['seed-analyst', 'seed-analyst']);
     expect(await rowCount()).toBe(0);
     expect(await tupleCount()).toBe(0);
@@ -290,7 +294,7 @@ describe.runIf(fgaUp && dbUp)('hq-rbac roles (live Postgres + OpenFGA)', () => {
       body,
       requestId: 'req-1',
     });
-    expect(res?.status).toBe(201);
+    expect(res, JSON.stringify(res?.body)).toMatchObject({ status: 201 });
     const a = res!.body as {
       id: string;
       relation: string;
@@ -352,7 +356,7 @@ describe.runIf(fgaUp && dbUp)('hq-rbac roles (live Postgres + OpenFGA)', () => {
       path: `/admin/users/${U.storeStaff}/roles/${target.id}`,
       principal: owner,
     });
-    expect(res).toEqual({ status: 204 });
+    expect(res, JSON.stringify(res?.body)).toEqual({ status: 204 });
     expect(await check(U.storeStaff, 'store_admin', `store:${S.brandC}`)).toBe(false);
     expect(await countRows('role_assignment WHERE id = $1', [target.id])).toBe(0);
     const auditRows = await hq.query<{ action: string; before: { id: string }; after: null }>(
@@ -383,7 +387,7 @@ describe.runIf(fgaUp && dbUp)('hq-rbac roles (live Postgres + OpenFGA)', () => {
       principal: owner,
       body: { relation: 'analyst', object_type: 'organization', object_id: ORG },
     });
-    expect(res?.status).toBe(201);
+    expect(res, JSON.stringify(res?.body)).toMatchObject({ status: 201 });
     expect(await check(U.storeStaff, 'analyst', 'organization:hq')).toBe(true);
     expect(await check(U.storeStaff, 'viewer', `store:${S.brandC}`)).toBe(true); // analyst from organization
     await rbac.handle({

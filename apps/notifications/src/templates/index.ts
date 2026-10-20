@@ -8,12 +8,13 @@ import {
   type RenderContext,
   type RenderedContent,
 } from '../types.js';
+import { renderExportReady } from './export-ready.js';
 import { renderOrderConfirmation } from './order-confirmation.js';
 import { renderShipmentShipped } from './shipment-shipped.js';
 
 export { FIXTURES, fixtureFor } from './fixtures.js';
 export { strings } from './strings.js';
-export { renderOrderConfirmation, renderShipmentShipped };
+export { renderExportReady, renderOrderConfirmation, renderShipmentShipped };
 
 export function render<K extends NotificationKind>(
   kind: K,
@@ -25,6 +26,8 @@ export function render<K extends NotificationKind>(
       return renderOrderConfirmation(data as NotificationData['order_confirmation'], ctx);
     case 'shipment_shipped':
       return renderShipmentShipped(data as NotificationData['shipment_shipped'], ctx);
+    case 'export_ready':
+      return renderExportReady(data as NotificationData['export_ready'], ctx);
     default:
       throw new Error(`no template for kind "${String(kind)}"`);
   }

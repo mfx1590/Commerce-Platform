@@ -82,9 +82,16 @@ function compilePredicate(p: SegmentPredicate, params: unknown[]): string {
       // throw mid-query, and one malformed row must not fail a whole segment.
       //
       // `not_granted` is `IS DISTINCT FROM`, not `NOT (… = …)`. A customer who was never asked has no
-      // `marketing_email` key, so the comparison is NULL and `NOT NULL` is NULL — which silently drops exactly
-      // the people a re-consent campaign exists to reach. `IS DISTINCT FROM` is the two-valued form.
-      const path = `c.consent->${bind(CONSENT_KEY[p.value]!)}->'granted'`;
+      // `marketing_email` key, so the comparison is NULL and `NOT NULL` is NULL — which silently drops them
+      // from the suppression list. `IS DISTINCT FROM` is the two-valued form.
+      //
+      // `never_asked` (#491, the #489 condition): no block for the channel at all — no decision was ever
+      // recorded. Since #471 a first explicit "no" is recorded as `{granted: false}`, so a refusal and an
+      // opt-out both HAVE a block: they are `not_granted` and never `never_asked`. A re-consent ("please opt
+      // in") audience must use this operator, never `not_granted`. `IS NULL` on `->` is two-valued too.
+      const channel = bind(CONSENT_KEY[p.value]!);
+      if (p.op === 'never_asked') return `c.consent->${channel} IS NULL`;
+      const path = `c.consent->${channel}->'granted'`;
       return p.op === 'granted'
         ? `${path} = 'true'::jsonb`
         : `${path} IS DISTINCT FROM 'true'::jsonb`;

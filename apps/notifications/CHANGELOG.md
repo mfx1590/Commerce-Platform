@@ -1,5 +1,21 @@
 # Changelog — @platform/notifications
 
+## 0.3.0 — 2026-10-19 (window 17, REQUEST #499)
+
+- New kind **`export_ready`** on `customer.export_ready` v1 (events 0.3.6): "your copy of your data is ready —
+  sign in to your account to download it; available until <expires_at>". The recipient is read from the
+  `customer` row at send time, the deadline and `requested_by_type` from `customer_export`; the event's payload
+  only names which export. **No token, no download link, no export id** in the mail — the one link is the
+  brand's `/account` page. Skipped with the reason on the delivery row: erased customer (`customer_erased`, the
+  `erased+<id>@invalid` placeholder), disabled (`customer_disabled`, cannot sign in), export no longer ready
+  (`export_not_ready`), missing rows (`source_not_found`). A staff-requested export gets the same notice.
+  en-GB and de-DE; preview at `/preview/export-ready`.
+- Schema: 0180's `kind` CHECK listed the two kinds of that day; packages/db migration 0198 (db 0.3.14, CONTRACT
+  CHANGE #511, form b) extends it to the three. The tests run on the landed migration.
+- Loaders may now answer `{ skip: reason }` next to `null`; a delivery's `displayId` is `null` for a notice that
+  is not about an order (log line drops the `order=#` part); the footer's "why you receive this" line is per
+  kind; `formatDateTime` for deadlines.
+
 ## 0.2.1 — 2026-10-07 (window 17, Refs #360)
 
 - `notification_delivery` is now the real migration (packages/db 0180, db 0.3.3, #393 landed in #397); the

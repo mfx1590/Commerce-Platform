@@ -2,9 +2,11 @@
 
 ## Purpose
 
-Transactional email worker (#360): consumes `order.placed` and `shipment.shipped` from the outbox table and
-sends one email per event, exactly once, through a transport (`dev` sink or Resend). Templates per brand and
-locale (brand A: en-GB, de-DE), a staff-only preview route, `GET /health`. README.md has the design.
+Transactional email worker (#360, #499): consumes `order.placed`, `shipment.shipped` and
+`customer.export_ready` from the outbox table and sends one email per event, exactly once, through a transport
+(`dev` sink or Resend). Templates per brand and locale (brand A: en-GB, de-DE), a staff-only preview route,
+`GET /health`. README.md has the design. The export notice carries no token, link with credentials or export
+id — the brand's `/account` page only.
 
 ## Owner
 

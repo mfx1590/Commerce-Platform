@@ -7,7 +7,11 @@ import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { adminNotFound, coreErrorHandler, DevTokenVerifier } from '../src/http';
 import { closePool, initDb, tenantClient } from '../src/lib/db';
-import { buildCustomerExport, customerEmailHash } from '../src/modules/customers';
+import {
+  buildCustomerExport,
+  customerEmailHash,
+  customersAdminRouter,
+} from '../src/modules/customers';
 import { inMemoryStoreRegistrar } from '../src/modules/registry';
 import { mountCoreMiddleware } from '../src/server';
 import { specValidator } from './helpers/openapi';
@@ -78,6 +82,8 @@ beforeAll(async () => {
   await initDb({ connectionString: db.app.options.connectionString! });
   app = express();
   mountCoreMiddleware(app, new DevTokenVerifier(), { storeRegistrar: inMemoryStoreRegistrar() });
+  // #471: the module's own Admin router (mounted in production through src/http/module-routers.ts, window 1)
+  app.use(customersAdminRouter());
   app.use('/admin', adminNotFound);
   app.use(coreErrorHandler);
 }, 180_000);
@@ -347,7 +353,8 @@ describe('eraseCustomer / buildCustomerExport (#414, GDPR)', () => {
       first_name: null,
       last_name: null,
       phone: null,
-      keycloak_subject: null,
+      // the erasure tombstone (#470 / #482): the opaque IdP id stays so the same login is a 401 everywhere
+      keycloak_subject: 'kc-erin',
       identity_id: null,
       consent: {},
       metadata: {},
@@ -386,13 +393,15 @@ describe('eraseCustomer / buildCustomerExport (#414, GDPR)', () => {
         after: {
           status: 'erased',
           addresses_deleted: 1,
+          consents_deleted: 0,
+          exports_deleted: 0,
           identity_unlinked: true,
           identity_deleted: false,
         },
       },
     ]);
     const written = JSON.stringify(audit.rows) + JSON.stringify(ev.rows);
-    for (const pii of ['erin@example.com', 'Erin', 'Rae', '+31611111111'])
+    for (const pii of ['erin@example.com', 'Erin', 'Rae', '+31611111111', 'kc-erin'])
       expect(written).not.toContain(pii);
 
     // replay: 202, nothing more written; the erased record stays readable, not updatable, not exportable
@@ -434,7 +443,258 @@ describe('eraseCustomer / buildCustomerExport (#414, GDPR)', () => {
   });
 });
 
-describe('exportCustomer (#414, events 0.3.2 customer.export_requested)', () => {
+describe('getCustomerIdentity (#473, Admin API HQ-only, support on organization:hq)', () => {
+  const PERSON = '50000000-0000-4000-8000-000000000401';
+  const MERGED = '50000000-0000-4000-8000-000000000402';
+  const P_A = '50000000-0000-4000-8000-000000000051';
+  const P_B = '50000000-0000-4000-8000-000000000052';
+  const owner = as('seed-owner');
+  beforeAll(async () => {
+    await db.owner.query(
+      `INSERT INTO customer_identity (id, organization_id, email_hash, keycloak_subject, merged_into_id)
+       VALUES ($1, $3, $4, 'kc-person', NULL), ($2, $3, $4, NULL, $1)`,
+      [PERSON, MERGED, ORG, customerEmailHash('person@example.com')],
+    );
+    await db.owner.query(
+      `INSERT INTO customer (id, organization_id, store_id, identity_id, keycloak_subject, email, status)
+       VALUES ($1, $3, $4, $6, 'kc-person', 'person@example.com', 'registered'),
+              ($2, $3, $5, $6, 'kc-person', 'person@example.com', 'registered')`,
+      [P_A, P_B, ORG, A, B, PERSON],
+    );
+  });
+
+  it("an HQ principal reads ids only — both brands' rows, never a hash, a subject or an email; a merged identity answers its target; unknown → 404", async () => {
+    const res = await owner.get(`/admin/customer-identities/${PERSON}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      id: PERSON,
+      customers: [
+        { store_id: A, customer_id: P_A },
+        { store_id: B, customer_id: P_B },
+      ].sort((x, y) => (x.store_id < y.store_id ? -1 : 1)),
+    });
+    for (const secret of [
+      'person@example.com',
+      'kc-person',
+      customerEmailHash('person@example.com'),
+    ]) {
+      expect(JSON.stringify(res.body)).not.toContain(secret);
+    }
+    expect((await owner.get(`/admin/customer-identities/${MERGED}`)).body.id).toBe(PERSON);
+    expect(
+      (await owner.get('/admin/customer-identities/50000000-0000-4000-8000-0000000004ee')).status,
+    ).toBe(404);
+    expect((await owner.get('/admin/customer-identities/not-a-uuid')).status).toBe(400);
+  });
+
+  it('a store-scoped principal never reaches it (403), whatever the store; a per-store customer read names no other store and no other customer (identity_id itself stays on the Admin Customer shape by contract — an opaque id only the HQ read resolves; addendum question on #504)', async () => {
+    expect((await aOnlyAdmin.get(`/admin/customer-identities/${PERSON}`)).status).toBe(403);
+    const read = await support.get(`/admin/stores/${A}/customers/${P_A}`);
+    expect(read.status).toBe(200);
+    expect(JSON.stringify(read.body)).not.toContain(P_B);
+    expect(JSON.stringify(read.body)).not.toContain(B);
+    expect(JSON.stringify(read.body)).not.toContain('kc-person');
+  });
+});
+
+describe('listCustomerExports / getCustomerExport (#472, Admin API 0.4.20)', () => {
+  const NED = '50000000-0000-4000-8000-000000000041'; // brand-a, registered
+  const NED_EVENT = '50000000-0000-4000-8000-0000000000a1';
+  const READY = '50000000-0000-4000-8000-000000000e01';
+  const EXPIRED = '50000000-0000-4000-8000-000000000e02';
+  const PENDING = '50000000-0000-4000-8000-000000000e03';
+  const bundle = {
+    format: 'customer-export/v1',
+    store_id: A,
+    customer: { id: NED, email: 'ned@example.com' },
+  };
+  beforeAll(async () => {
+    const { gzipSync } = await import('node:zlib');
+    const { createHash } = await import('node:crypto');
+    const gz = gzipSync(Buffer.from(JSON.stringify(bundle), 'utf8'));
+    await db.owner.query(
+      `INSERT INTO customer (id, organization_id, store_id, keycloak_subject, email, status)
+       VALUES ($1, $2, $3, 'kc-ned', 'ned@example.com', 'registered')`,
+      [NED, ORG, A],
+    );
+    await db.owner.query(
+      `INSERT INTO customer_export (id, organization_id, store_id, customer_id, event_id, requested_by, requested_by_type,
+         requested_at, status, reason, format, bundle, bundle_sha256, bundle_size, ready_at, expires_at, purged_at, created_at)
+       VALUES ($1, $4, $5, $6, $7, $6, 'customer', '2026-10-01T10:00:00Z', 'ready', NULL, 'customer-export/v1', $8, $9, $10,
+               '2026-10-01T10:05:00Z', '2026-10-31T10:05:00Z', NULL, '2026-10-01T10:00:00Z'),
+              ($2, $4, $5, $6, gen_random_uuid(), $6, 'customer', '2026-09-01T10:00:00Z', 'expired', NULL, 'customer-export/v1', NULL, NULL, NULL,
+               '2026-09-01T10:05:00Z', '2026-10-01T10:05:00Z', '2026-10-01T10:05:00Z', '2026-09-01T10:00:00Z'),
+              ($3, $4, $5, $6, gen_random_uuid(), '00000000-0000-4000-8000-000000000044', 'staff', '2026-10-02T10:00:00Z', 'pending', NULL, NULL, NULL, NULL, NULL,
+               NULL, NULL, NULL, '2026-10-02T10:00:00Z')`,
+      [
+        READY,
+        EXPIRED,
+        PENDING,
+        ORG,
+        A,
+        NED,
+        NED_EVENT,
+        gz,
+        createHash('sha256').update(gz).digest('hex'),
+        gz.length,
+      ],
+    );
+  });
+
+  it('store_admin lists newest first with who asked; downloads the ready bundle as an attachment (audited, counted); pending 404; expired 410; support 403', async () => {
+    const list = await storeAdmin.get(`/admin/stores/${A}/customers/${NED}/exports`);
+    expect(list.status).toBe(200);
+    expect(list.body.items.map((x: { id: string }) => x.id)).toEqual([PENDING, READY, EXPIRED]);
+    expect(list.body.items[1]).toEqual({
+      id: READY,
+      status: 'ready',
+      requested_at: '2026-10-01T10:00:00.000Z',
+      ready_at: '2026-10-01T10:05:00.000Z',
+      expires_at: '2026-10-31T10:05:00.000Z',
+      size_bytes: expect.any(Number),
+      reason: null,
+      requested_by: NED,
+      requested_by_type: 'customer',
+      download_count: 0,
+    });
+    expect(JSON.stringify(list.body)).not.toContain('ned@example.com');
+
+    const file = await storeAdmin.get(`/admin/stores/${A}/customers/${NED}/exports/${READY}`);
+    expect(file.status).toBe(200);
+    expect(file.headers['content-disposition']).toBe(
+      `attachment; filename="customer-export-${READY}.json"`,
+    );
+    expect(file.body).toEqual(bundle);
+    const audit = await db.owner.query(
+      `SELECT actor_type FROM audit_log WHERE action = 'customer_export.download' AND entity_id = $1`,
+      [READY],
+    );
+    expect(audit.rows).toEqual([{ actor_type: 'staff' }]);
+    expect(
+      (await db.owner.query('SELECT download_count FROM customer_export WHERE id = $1', [READY]))
+        .rows[0],
+    ).toEqual({ download_count: 1 });
+
+    expect(
+      (await storeAdmin.get(`/admin/stores/${A}/customers/${NED}/exports/${PENDING}`)).status,
+    ).toBe(404);
+    const gone = await storeAdmin.get(`/admin/stores/${A}/customers/${NED}/exports/${EXPIRED}`);
+    expect(gone.status).toBe(410);
+    expect(gone.body).toMatchObject({
+      code: 'expired',
+      details: { expires_at: '2026-10-01T10:05:00.000Z' },
+    });
+    expect((await support.get(`/admin/stores/${A}/customers/${NED}/exports`)).status).toBe(403);
+    expect((await support.get(`/admin/stores/${A}/customers/${NED}/exports/${READY}`)).status).toBe(
+      403,
+    );
+  });
+
+  it("store-scoped: through brand-b's path the customer is a 404; a brand-a-only admin cannot reach brand-b (403); an erased customer is a 404 and its exports are gone", async () => {
+    expect((await storeAdmin.get(`/admin/stores/${B}/customers/${NED}/exports`)).status).toBe(404);
+    expect(
+      (await storeAdmin.get(`/admin/stores/${B}/customers/${NED}/exports/${READY}`)).status,
+    ).toBe(404);
+    expect((await aOnlyAdmin.get(`/admin/stores/${B}/customers/${NED}/exports`)).status).toBe(403);
+    expect(
+      (
+        await request(app)
+          .post(`/admin/stores/${A}/customers/${NED}/erase`)
+          .set('Authorization', 'Bearer dev:seed-store-admin')
+          .send({})
+      ).status,
+    ).toBe(202);
+    expect((await storeAdmin.get(`/admin/stores/${A}/customers/${NED}/exports`)).status).toBe(404);
+    expect(
+      (await db.owner.query('SELECT 1 FROM customer_export WHERE customer_id = $1', [NED]))
+        .rowCount,
+    ).toBe(0);
+    const erase = await db.owner.query<{ after: Record<string, unknown> }>(
+      `SELECT after FROM audit_log WHERE action = 'customer.erase' AND entity_id = $1`,
+      [NED],
+    );
+    expect(erase.rows[0]!.after).toMatchObject({ exports_deleted: 3 });
+  });
+});
+
+describe('listCustomerConsents (#471, Admin API 0.4.18)', () => {
+  const LIV = '50000000-0000-4000-8000-000000000031'; // brand-a, registered
+  const LIV_B = '50000000-0000-4000-8000-000000000032'; // brand-b, same subject
+  beforeAll(async () => {
+    await db.owner.query(
+      `INSERT INTO customer (id, organization_id, store_id, keycloak_subject, email, status)
+       VALUES ($1, $3, $4, 'kc-liv', 'liv@example.com', 'registered'),
+              ($2, $3, $5, 'kc-liv', 'liv@example.com', 'registered')`,
+      [LIV, LIV_B, ORG, A, B],
+    );
+    await db.owner.query(
+      `INSERT INTO customer_consent (organization_id, store_id, customer_id, purpose, granted, source, policy_version, recorded_at)
+       VALUES ($1, $2, $3, 'marketing_email', true,  'storefront', 'v1', '2026-10-01T10:00:00Z'),
+              ($1, $2, $3, 'marketing_email', false, 'admin',      'v2', '2026-10-02T10:00:00Z'),
+              ($1, $4, $5, 'marketing_email', true,  'import',     'pre-ledger', '2026-09-01T10:00:00Z')`,
+      [ORG, A, LIV, B, LIV_B],
+    );
+  });
+
+  it("support: the ledger of THIS store's customer, newest first, contract shape; ?purpose filters; a bad purpose is a 400", async () => {
+    const res = await support.get(`/admin/stores/${A}/customers/${LIV}/consents`);
+    expect(res.status).toBe(200);
+    expect(
+      res.body.items.map((c: { granted: boolean; policy_version: string; source: string }) => [
+        c.granted,
+        c.policy_version,
+        c.source,
+      ]),
+    ).toEqual([
+      [false, 'v2', 'admin'],
+      [true, 'v1', 'storefront'],
+    ]);
+    expect(res.body.items[0]).toEqual({
+      id: expect.any(String),
+      purpose: 'marketing_email',
+      granted: false,
+      source: 'admin',
+      policy_version: 'v2',
+      recorded_at: '2026-10-02T10:00:00.000Z',
+    });
+    expect(
+      (await support.get(`/admin/stores/${A}/customers/${LIV}/consents?purpose=marketing_email`))
+        .body.items,
+    ).toHaveLength(2);
+    expect(
+      (await support.get(`/admin/stores/${A}/customers/${LIV}/consents?purpose=marketing_sms`))
+        .status,
+    ).toBe(400);
+    expect(JSON.stringify(res.body)).not.toContain('liv@example.com');
+  });
+
+  it("store-scoped: brand-b's customer through brand-a's path is a 404 and vice versa; an erased customer is a 404; analyst 403; a brand-a-only admin cannot reach brand-b (403)", async () => {
+    expect((await support.get(`/admin/stores/${A}/customers/${LIV_B}/consents`)).status).toBe(404);
+    expect((await support.get(`/admin/stores/${B}/customers/${LIV}/consents`)).status).toBe(404);
+    expect(
+      (await support.get(`/admin/stores/${B}/customers/${LIV_B}/consents`)).body.items,
+    ).toHaveLength(1);
+    expect((await analyst.get(`/admin/stores/${A}/customers/${LIV}/consents`)).status).toBe(403);
+    expect((await aOnlyAdmin.get(`/admin/stores/${B}/customers/${LIV_B}/consents`)).status).toBe(
+      403,
+    );
+    expect(
+      (
+        await request(app)
+          .post(`/admin/stores/${A}/customers/${LIV}/erase`)
+          .set('Authorization', 'Bearer dev:seed-store-admin')
+          .send({})
+      ).status,
+    ).toBe(202);
+    expect((await support.get(`/admin/stores/${A}/customers/${LIV}/consents`)).status).toBe(404);
+    expect(
+      (await db.owner.query('SELECT 1 FROM customer_consent WHERE customer_id = $1', [LIV]))
+        .rowCount,
+    ).toBe(0);
+  });
+});
+
+describe('exportCustomer (#414, customer.export_requested — v2 since #482: requested_by_type)', () => {
   const KIM = '50000000-0000-4000-8000-000000000021'; // brand-a, registered
   const post = (subject: string, path: string) =>
     request(app).post(path).set('Authorization', `Bearer dev:${subject}`).send({});
@@ -470,6 +730,7 @@ describe('exportCustomer (#414, events 0.3.2 customer.export_requested)', () => 
     expect(ev[0]!.payload).toEqual({
       customer_id: KIM,
       requested_by: staff.rows[0]!.id,
+      requested_by_type: 'staff',
       requested_at: expect.any(String),
     });
     expect(JSON.stringify(ev)).not.toContain('kim@example.com');

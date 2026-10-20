@@ -1,5 +1,38 @@
 # Changelog — @platform/storefront-starter
 
+## Unreleased — 2026-10-18 (window 13, #473 PR: #501 review nits)
+
+- The export download link carries the locale prefix (`exportDownloadPath`; no middleware redirect any more) and the
+  exports panel's status rule is the pure `exportStatus`, both unit-tested in `account/account.test.ts`.
+
+## Unreleased — 2026-10-18 (window 13, #472: data exports)
+
+- **Your data exports** on `/account` (`src/components/account-exports.tsx`, Store API 0.5.8 `listMyExports`): each
+  request with its state (being prepared / ready until a date / expired / too large) and a Download link for the
+  ready ones. The download is the route handler `src/app/[locale]/(account)/account/exports/[exportId]/route.ts`:
+  it calls `getMyExport` with the session token (never in the browser) and streams the JSON as an attachment,
+  `no-store`; the Store API's 404 / 410 pass through. Catalog namespace `account.exports` (en-GB, de-DE).
+
+## Unreleased — 2026-10-18 (window 13, #471: consent ledger)
+
+- **Your consents** on `/account` (`src/components/account-consents.tsx`, Store API 0.5.7 `getMyConsents` /
+  `putMyConsents`): one row per purpose with its state — never asked, allowed on a date, declined on a date — and
+  a checkbox; an unticked box is an explicit "no". The form sends the privacy-policy version the page displays:
+  `PRIVACY_POLICY_VERSION` in the environment (`unversioned` when unset; keep it equal to the store's
+  `settings.privacy.policy_version`). Catalog namespace `account.consents` (en-GB, de-DE).
+
+## Unreleased — 2026-10-18 (window 13, #470: account self-service)
+
+- **Address book: edit and remove.** Each saved address has an edit form (every field, blank optional ones clear;
+  a default is moved by ticking it on another address) and a two-step remove
+  (`src/components/account-address-forms.tsx`; `updateMyAddress` / `deleteMyAddress`, Store API 0.5.6).
+- **Privacy section** on `/account` (`src/components/account-privacy.tsx`): "Download my data" (`requestMyExport`;
+  the file is announced by email) and "Delete my account" (typed confirmation `DELETE`, then `deleteMe`, the local
+  session is cleared and the customer lands on the new `/account/deleted`, which offers the Keycloak sign-out).
+- Server actions in `src/app/[locale]/(account)/account/actions.ts` through the client's generic `request`;
+  `src/lib/store-api` is unchanged. Pure rules + unit test next to them (collected once REQUEST #484 widens the
+  vitest include).
+
 ## 0.14.3 — 2026-10-10
 
 Issue #446. Test-only.

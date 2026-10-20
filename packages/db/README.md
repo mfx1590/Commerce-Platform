@@ -42,7 +42,9 @@ recipient column. Since 0.3.4 / 0.3.5 it covers the stock pool (below): the mapp
 ledger's attribution rule and per-store reservations on a shared item. Since 0.3.6 it covers `cycle_count` (0192):
 organization scope only (a store session reads and writes none, not even for an item it maps), no DELETE for the
 application role, and the counter and movement-link CHECKs. Since 0.3.7 it covers migration 0193: `"order".payment_status`
-accepts `voided` (CONTRACT CHANGE #466) and still refuses unknown values.
+accepts `voided` (CONTRACT CHANGE #466) and still refuses unknown values. Since 0.3.9 it covers `customer_consent`
+(0194): rows stay per store, UPDATE is refused for the application role, DELETE works in the same store, and the
+backfill (on its own throwaway database that has projections before 0194) is exact and idempotent.
 
 ## Stock pool (0190 + 0191, db 0.3.4 and 0.3.5)
 
@@ -85,3 +87,45 @@ it updates the row as the count is reconciled.
 Known and accepted: "movements since `counted_at`" compares with `stock_movement.created_at`, which is the writing
 transaction's start time — a movement that began before the count and committed after it is treated as before the
 count.
+
+## Customer consent ledger (0194, db 0.3.9)
+
+`customer_consent` is the record of truth for a customer's consent decisions (CONTRACT CHANGE #489, window 13):
+one append-only row per decision, per store (RLS kind `store`; never propagated across brands). `purpose` is
+`marketing_email` only until the lawyer review; `policy_version` (non-blank) is the policy the customer saw.
+`platform_app` has no UPDATE (a decision is never edited); DELETE stays for erasure. `customer.consent` (0005)
+remains the current-state projection that segments read; the core rewrites it from the newest ledger row in the same
+transaction. A customer never asked has no row (`null` in the Store API), which differs from a refusal (`false`).
+The migration backfills one row per existing projection with the projection's own timestamp and source and
+`policy_version 'pre-ledger'`; it is idempotent and, like 0190's backfill, runs as a migration role that bypasses
+row security.
+
+## Customer export (0195, db 0.3.10)
+
+`customer_export` holds the delivered GDPR exports (CONTRACT CHANGE #498, window 13): one row per
+`customer.export_requested` event (`event_id` UNIQUE, the export job's idempotency), per store (RLS kind `store`).
+`status` moves `pending` → `ready` (bundle built: gzip JSON in `bundle`, with `bundle_sha256`, `bundle_size`,
+`ready_at`, `expires_at`) or `pending` → `expired` with a `reason` (`customer_gone`, `too_large`); after the TTL the
+bundle is purged (`bundle` NULL, `purged_at`, `status expired`) and the bare row stays. Erasure deletes every export
+of the customer, bundle included, in the erasure transaction. The bundle is personal data: never log it.
+
+## Customer identity (0196, db 0.3.11)
+
+`customer_identity` is the organization-level link between one person's per-brand `customer` rows (CONTRACT CHANGE
+#504, window 13). RLS kind `organization_only`: a store-scoped client reads and writes none (a brand must never learn
+that a person shops at another brand). The key is the customers-realm subject (partial UNIQUE per organization);
+`email_hash` is indexed but no longer unique. The core writes it only through two SECURITY DEFINER functions that run
+in organization scope and reveal only an id: `app.link_customer_identity(customer_id, subject, email_hash)` (reuse or
+create by subject, merge exactly one subjectless guest identity with the same hash, point the customer at it) and
+`app.unlink_customer_identity(customer_id)` (erasure: clear the link, delete the identity when nothing references
+it). Both take the organization from the session and refuse, with SQLSTATE 42501, a customer outside the caller's
+organization or, for a store-scoped caller, outside its stores.
+
+## Reporting views (0200, db 0.3.8)
+
+Five read-only aggregate views for reporting v1 (CONTRACT CHANGE #485, window 12): `rpt_sales_daily`,
+`rpt_payments_daily`, `rpt_refunds_daily`, `rpt_stock_position` and `rpt_customers_daily`. Every view is
+`security_invoker = true`, so a query through it runs the base tables' row-level security as the caller: read them
+through a scoped client like any table (a store session sees its own stores, organization scope sees all, no context
+sees nothing). `platform_app` has SELECT only. Days are UTC, money is bigint minor units grouped by currency, and no
+column carries PII. Grain, filters and the cohort/cash refund example: `data/reporting/README.md`.

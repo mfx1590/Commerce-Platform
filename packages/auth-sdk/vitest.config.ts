@@ -27,6 +27,10 @@ export default defineConfig({
       // The dev staff realm's core-admin service-account secret (#415); CI runs without a .env.
       KEYCLOAK_ADMIN_CLIENT_SECRET:
         process.env.KEYCLOAK_ADMIN_CLIENT_SECRET ?? 'dev-only-core-admin-secret',
+      // The customers realm's service account (#483), same dev-only shape.
+      KEYCLOAK_CUSTOMERS_ADMIN_CLIENT_SECRET:
+        process.env.KEYCLOAK_CUSTOMERS_ADMIN_CLIENT_SECRET ??
+        'dev-only-core-admin-customers-secret',
       DATABASE_URL_APP:
         process.env.DATABASE_URL_APP ??
         'postgres://platform_app:platform_app@localhost:5433/platform',
