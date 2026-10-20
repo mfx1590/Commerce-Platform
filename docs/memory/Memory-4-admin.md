@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-20 · Contracts: contracts-v0.4.25 on main (Admin API 0.4.22) · Branch: `admin/phase3` · Manager: "Manager session seven" (local_484d7727…; report there) · Status: #523 MERGED 3a3e6fc; #520 tax commit built locally (admin/tax-rates), waiting for window 1's sha
+Last updated: 2026-10-20 · Contracts: contracts-v0.4.26 on main (Admin API 0.4.23) · Branch: `admin/phase3` (= main 4942a28 + memory) · Manager: "Manager session seven" (local_484d7727…; report there) · Status: IDLE — #523 (3a3e6fc) and #529 (4942a28) merged; Integration 3 UI gate proven on main; wait for a task
 
 ## Identity (does not change)
 Owned paths (write):
@@ -592,22 +592,17 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   Manager chose (a): #525 applied on main 35245d5 (both jobs that remove .env; secret masked).
   Merged main, pushed the fix 396e133 + this record (head = this commit). Next: quote the G1 lines
   from CI's admin e2e job when green; the manager queues on green.
-- **NEXT (after the #523 fix): admin commit of the tax-rate landing #520 / CONTRACT CHANGE #522.**
-  Contract on origin/integration/tax-rates 5e15db2 (Admin API 0.4.23: list/create/update/deleteTaxRate,
-  TaxRate; activateStore 409 `missing` + `missing_tax_countries`; delete 409 `last_rate_of_market_country`).
-  PLAN sent 2026-10-20 (Q1 tax section in Store settings, Q2 e2e proves the 409 then creates NL 2100 bp
-  from the readiness panel → "G1 tax:" line). Build on local branch admin/tax-rates from 5e15db2,
-  code-only; cut ONE commit on window 1's sha when the manager sends it; live run only on handover.
-  PLAN APPROVED (Q1 settings, Q2 refusal first). BUILT on local branch admin/tax-rates (from
-  5e15db2): WIP 127e2c8, ecc47d6, c8c0388 — settings section, readiness tax step, actions, tests
-  (unit 29, component 10, Prism 6 + 1 skipped), e2e "G1 tax:" step, README/CHANGELOG; gate there
-  887/887. Gotcha: Prism answers 500 to createTaxRate/updateTaxRate (no TaxRate example in the spec)
-  — told the manager. When window 1's sha arrives: squash to ONE commit on it, rebased onto
-  whatever carries #523 (both edit hq-onboarding.spec.ts); then ask for the machine.
-  #523: admin e2e GREEN on 005893c (G1 key/role/relation lines in job 118547327054), all checks
-  finished green 2026-10-20. **#523 MERGED = 3a3e6fc** (#518 and #525 closed; G1's UI proof on main;
-  CI admin e2e now runs role changes for real). Next: the tax commit (window 1's sha from the manager).
-- (#481 review nits: fixed in the #518 PR.)
+- **#520 admin commit — MERGED with #529 = 4942a28 (tag contracts-v0.4.26), 2026-10-20.** #520 and
+  #522 closed; Integration 3's UI gate (G1 tax, key, role, relation) is proven on main. My ONE commit
+  84a4c91 on window 1's c420d97, pushed as `admin/tax-rates` after the live run. Live run (manager's
+  machine; core FROM this worktree on :9000, admin built 173 s on :3200; no migrate — 0201 not on the
+  dev DB): 7/7 — hq-onboarding 2, hq-roles 2, warehouse 3 (approve preview SKIPPED: no flagged count).
+  G1 tax: Activate refused for NL without a rate; "VAT 21%" (2100 bp) from the readiness panel;
+  e2e-brand-mvgje8jl active. Then G1 key / role / relation on the same store. Servers stopped,
+  leftovers killed, :9000/:3200 free. Before: lint 0, typecheck 0, unit 887/887 (direct, no turbo
+  cache), Prism contract 117/117. Earlier the same day: #523 MERGED = 3a3e6fc (#518, #525 closed).
+- **IDLE (manager, 2026-10-20):** no task until the manager sends one. Local branches
+  admin/tax-cut / admin/tax-trial deleted (merged); admin/tax-rates kept = origin (merged).
 - **#428 (Phase 3 task 3.1) — plan CONFIRMED by the manager** (2026-10-08). Two PRs. A built:
   local commits 5de060d, a9cc7ae, 9a9b94f + #431 fold (customers placeholder branch dropped after
   #429 = ecab260). Machine runs: mock e2e 22 passed + 5 skipped + 1 failed → fixed (hq-roles

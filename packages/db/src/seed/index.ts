@@ -64,7 +64,8 @@ interface StoreDef {
   locales: string[];
   country: string;
   timezone: string;
-  taxRate: { name: string; rateBp: number; region: string | null };
+  /** One row per market country (the home country first: its row keeps id n = 1). */
+  taxRates: Array<{ country: string; name: string; rateBp: number; region: string | null }>;
   shippingCountries: string[];
 }
 
@@ -85,7 +86,12 @@ const STORES: StoreDef[] = [
     locales: ['en-GB', 'de-DE'],
     country: 'NL',
     timezone: 'Europe/Amsterdam',
-    taxRate: { name: 'VAT 21%', rateBp: 2100, region: null },
+    taxRates: [
+      { country: 'NL', name: 'VAT 21%', rateBp: 2100, region: null },
+      { country: 'DE', name: 'VAT 19%', rateBp: 1900, region: null },
+      { country: 'BE', name: 'VAT 21%', rateBp: 2100, region: null },
+      { country: 'FR', name: 'VAT 20%', rateBp: 2000, region: null },
+    ],
     shippingCountries: ['NL', 'DE', 'BE', 'FR'],
   },
   {
@@ -104,7 +110,7 @@ const STORES: StoreDef[] = [
     locales: ['en-GB'],
     country: 'GB',
     timezone: 'Europe/London',
-    taxRate: { name: 'VAT 20%', rateBp: 2000, region: null },
+    taxRates: [{ country: 'GB', name: 'VAT 20%', rateBp: 2000, region: null }],
     shippingCountries: ['GB'],
   },
   {
@@ -123,7 +129,7 @@ const STORES: StoreDef[] = [
     locales: ['en-US'],
     country: 'US',
     timezone: 'America/New_York',
-    taxRate: { name: 'NY sales tax 8.875%', rateBp: 888, region: 'NY' },
+    taxRates: [{ country: 'US', name: 'NY sales tax 8.875%', rateBp: 888, region: 'NY' }],
     shippingCountries: ['US'],
   },
 ];
@@ -575,17 +581,15 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
         tx,
         'tax_rate',
         ['id', 'organization_id', 'store_id', 'country', 'region', 'name', 'rate_bp'],
-        [
-          [
-            id(KIND.tax, 1),
-            org,
-            storeId,
-            s.country,
-            s.taxRate.region,
-            s.taxRate.name,
-            s.taxRate.rateBp,
-          ],
-        ],
+        s.taxRates.map((r, i) => [
+          id(KIND.tax, i + 1),
+          org,
+          storeId,
+          r.country,
+          r.region,
+          r.name,
+          r.rateBp,
+        ]),
       );
       await bulk(
         tx,

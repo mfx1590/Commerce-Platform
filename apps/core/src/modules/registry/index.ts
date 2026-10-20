@@ -28,7 +28,9 @@ export { activateStore, onboardStore, onboardingConventions } from './onboarding
 export type { OnboardStoreResult } from './onboarding';
 export { inMemoryStoreRegistrar } from './registrar';
 export type { InMemoryStoreRegistrar } from './registrar';
-export { READINESS_PREREQUISITES, storeReadiness } from './readiness';
+export { marketCountries, READINESS_PREREQUISITES, storeReadiness } from './readiness';
+// tax rates for a store (#520, CONTRACT CHANGE #522)
+export { createTaxRate, deleteTaxRate, listTaxRates, updateTaxRate } from './tax-rates';
 export type { ReadinessPrerequisite, StoreReadiness } from './readiness';
 export { STORE_SETTINGS_SHAPES, settingsProblems, validateStoreSettings } from './settings-schema';
 export type { SettingsProblems } from './settings-schema';
@@ -54,6 +56,9 @@ export type {
   StoreLocale,
   StoreRow,
   StoreStatus,
+  TaxRate,
+  TaxRateInput,
+  TaxRatePatch,
   Warehouse,
   LegalEntity,
   LegalEntityInput,

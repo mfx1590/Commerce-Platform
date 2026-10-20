@@ -2,6 +2,19 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-20 · tax rates for a store + readiness requires them (#520, CONTRACT CHANGE #522, contracts 0.4.26)
+
+- Admin API `listTaxRates` (viewer), `createTaxRate` / `updateTaxRate` / `deleteTaxRate` (store_admin) on
+  `/admin/stores/{storeId}/tax-rates` (registry `tax-rates.ts`): the `tax_rate` table the `table` provider reads.
+  One row per (country, region, category) — db 0201's unique index (NULLS NOT DISTINCT), its 23505 → 409 with
+  `details.tax_rate_id`; a foreign category is 400; an update changes name / rate only; every write locks the
+  store row and writes an audit row and `store.updated` (`changed_fields: ['tax_rates']`). An active store cannot
+  delete the last rate of a market country (409 `last_rate_of_market_country`).
+- Readiness: `tax_rates` joins the prerequisites — a rate for each market country (`default_country` + the active
+  shipping options' countries), the uncovered ones in `details.missing_tax_countries`. A store onboarded from the
+  UI is refused until it has one (it would have sold at 0 bp); the seeded stores stay ready (brand A got DE / BE
+  / FR rows in the seed). Window 4's onboarding e2e needs a tax-rate step before activation.
+
 ### 2026-10-20 · Integration 3 gate G2: two brands buy from one stock pool through the APIs (#519)
 
 - `test/two-brands-one-pool.test.ts` (unit job, Postgres, dev tokens, own throwaway database): brand A places 2

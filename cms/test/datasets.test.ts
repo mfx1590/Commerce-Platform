@@ -4,9 +4,13 @@ import { describe, expect, it } from 'vitest';
 import {
   ALL_LOCALES,
   BRAND_DATASETS,
+  DATASET_NAME_MAX_LENGTH,
   LOCALE_PATTERN,
   datasetForStore,
+  datasetsFromEnv,
   isBrandDataset,
+  isDatasetName,
+  resolveDataset,
 } from '../src/index.js';
 
 /**
@@ -31,12 +35,18 @@ function seededStores(): { code: string; locales: string[] }[] {
 }
 
 describe('datasets', () => {
-  it('mirror the seeded store codes and locales', () => {
+  it('list every seeded store with its locales (a superset: UI-onboarded brands may be added)', () => {
     const seeded = seededStores();
     expect(seeded.length).toBeGreaterThan(0);
-    expect(BRAND_DATASETS.map((b) => ({ code: b.storeCode, locales: [...b.locales] }))).toEqual(
-      seeded,
+    const listed = new Map(
+      BRAND_DATASETS.map((b) => [b.storeCode, [...b.locales]] as [string, string[]]),
     );
+    for (const store of seeded) {
+      expect(listed.get(store.code), store.code).toEqual(store.locales);
+    }
+    // #521: a brand onboarded from the admin UI is not in the seed, so the list may hold more —
+    // but never fewer, and never a seeded brand with other locales.
+    expect(BRAND_DATASETS.length).toBeGreaterThanOrEqual(seeded.length);
   });
 
   it('name each dataset after its store code (= store.content_space_id)', () => {
@@ -48,6 +58,69 @@ describe('datasets', () => {
     }
     expect(isBrandDataset('production')).toBe(false);
     expect(() => datasetForStore('brand-z')).toThrow(/No CMS dataset for store "brand-z"/);
+  });
+
+  it('isDatasetName: Sanity’s rule, length-capped, never repaired', () => {
+    for (const ok of ['brand-a', 'brand_d', 'b2', 'a'.repeat(DATASET_NAME_MAX_LENGTH)]) {
+      expect(isDatasetName(ok), ok).toBe(true);
+    }
+    for (const bad of [
+      '',
+      ' brand-a',
+      'Brand-A',
+      '-brand',
+      '_brand',
+      'brand a',
+      'brand/a',
+      'brand.a',
+      'a'.repeat(DATASET_NAME_MAX_LENGTH + 1),
+      null,
+      undefined,
+      42,
+      {},
+    ]) {
+      expect(isDatasetName(bad), String(bad)).toBe(false);
+    }
+  });
+
+  it('resolveDataset: content_space_id first, then the seeded list, then null — never a throw', () => {
+    // a UI-onboarded brand: not in the list, its content space id carries the dataset
+    expect(resolveDataset({ storeCode: 'brand-z', contentSpaceId: 'brand-z' })).toBe('brand-z');
+    expect(resolveDataset({ storeCode: 'brand-z', contentSpaceId: 'north-2026' })).toBe(
+      'north-2026',
+    );
+    // the content space id wins over the list when both exist (decision 8: they are equal anyway)
+    expect(resolveDataset({ storeCode: 'brand-a', contentSpaceId: 'brand-a-staging' })).toBe(
+      'brand-a-staging',
+    );
+    // absent or invalid content space id → the seeded list
+    expect(resolveDataset({ storeCode: 'brand-a' })).toBe('brand-a');
+    expect(resolveDataset({ storeCode: 'brand-a', contentSpaceId: null })).toBe('brand-a');
+    expect(resolveDataset({ storeCode: 'brand-a', contentSpaceId: '' })).toBe('brand-a');
+    expect(resolveDataset({ storeCode: 'brand-a', contentSpaceId: 'Brand A' })).toBe('brand-a');
+    expect(resolveDataset({ storeCode: 'brand-a', contentSpaceId: '../production' })).toBe(
+      'brand-a',
+    );
+    // nothing usable → null
+    expect(resolveDataset({ storeCode: 'brand-z' })).toBeNull();
+    expect(resolveDataset({ storeCode: 'brand-z', contentSpaceId: 'Not valid' })).toBeNull();
+    expect(resolveDataset({ storeCode: null })).toBeNull();
+    expect(resolveDataset({ storeCode: null, contentSpaceId: null })).toBeNull();
+    // but a valid content space id needs no store code at all
+    expect(resolveDataset({ storeCode: null, contentSpaceId: 'brand-z' })).toBe('brand-z');
+  });
+
+  it('datasetsFromEnv: optional extra Studio workspaces, validated, seeded ones deduplicated', () => {
+    expect(datasetsFromEnv(undefined)).toEqual([]);
+    expect(datasetsFromEnv('')).toEqual([]);
+    expect(datasetsFromEnv(' , ')).toEqual([]);
+    expect(datasetsFromEnv('brand-z')).toEqual(['brand-z']);
+    expect(datasetsFromEnv(' brand-z, north-2026 ,brand-z,brand-a ')).toEqual([
+      'brand-z',
+      'north-2026',
+    ]);
+    expect(() => datasetsFromEnv('brand-z,Brand Z')).toThrow(/"Brand Z" is not a dataset name/);
+    expect(() => datasetsFromEnv('a'.repeat(65))).toThrow(/not a dataset name/);
   });
 
   it('only publish in xx-YY locales', () => {

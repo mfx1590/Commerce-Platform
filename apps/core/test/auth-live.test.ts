@@ -266,6 +266,23 @@ describe.runIf(live)(
       expect(outside.status).toBe(403);
       spec.assertSchema('Error', outside.body);
 
+      // #520: onboarding creates no tax rate — the only prerequisite left is a rate for the market country
+      const untaxed = await request(app)
+        .post(`/admin/stores/${id}/activate`)
+        .set('Authorization', owner);
+      expect(untaxed.status).toBe(409);
+      spec.assertSchema('Error', untaxed.body);
+      expect(untaxed.body.details).toEqual({
+        missing: ['tax_rates'],
+        missing_tax_countries: ['NL'],
+      });
+      const rate = await request(app)
+        .post(`/admin/stores/${id}/tax-rates`)
+        .set('Authorization', owner)
+        .send({ country: 'NL', name: 'VAT 21%', rate_bp: 2100 });
+      expect(rate.status).toBe(201);
+      spec.assertSchema('TaxRate', rate.body);
+
       // the fga_object prerequisite is read from the real OpenFGA: activation passes
       const active = await request(app)
         .post(`/admin/stores/${id}/activate`)

@@ -150,7 +150,10 @@ describe('registry: stores', () => {
     // #413: `active` is activation (readiness gate, onboarding.test.ts); a bare store is refused, nothing written
     await expect(updateStore(hq, store!.id, { status: 'active' }, actor)).rejects.toMatchObject({
       code: 'conflict',
-      details: { missing: ['primary_domain', 'publishable_key', 'fga_object'] },
+      details: {
+        missing: ['primary_domain', 'publishable_key', 'fga_object', 'tax_rates'],
+        missing_tax_countries: ['NL'],
+      },
     });
     const updated = await updateStore(hq, store!.id, { name: 'Brand A!', status: 'paused' }, actor);
     expect(updated).toMatchObject({ name: 'Brand A!', status: 'paused' });
