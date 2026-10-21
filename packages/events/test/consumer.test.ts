@@ -15,12 +15,14 @@ import {
   makeEvent,
   planTopics,
   readDeadLetters,
+  readTopicToEnd,
   replayFromDlq,
   type ConsumerLogLine,
   type DecodedMessage,
   type DeadLetter,
   type EventConsumer,
   type TopicPolicy,
+  type TopicReaderClient,
 } from '../src/index.js';
 
 const ORG = '00000000-0000-4000-8000-000000000001';
@@ -58,6 +60,67 @@ describe('processed stores', () => {
     ]);
     expect(calls[2]!.params).toEqual(['g', 'new']);
     expect(() => createPgProcessedStore(db, 'bad;drop')).toThrow(/invalid processed table name/);
+  });
+});
+
+describe('readTopicToEnd on a compacted topic (fake client)', () => {
+  const fakeClient = (
+    offsetsByPartition: Record<number, string[]>,
+    highs: Record<number, [string, string]>,
+  ) => {
+    const client: TopicReaderClient = {
+      admin: () => ({
+        connect: async () => {},
+        disconnect: async () => {},
+        fetchTopicOffsets: async () =>
+          Object.entries(highs).map(([p, [low, high]]) => ({ partition: Number(p), low, high })),
+      }),
+      consumer: () => ({
+        connect: async () => {},
+        disconnect: async () => {},
+        subscribe: async () => {},
+        run: async ({ eachMessage }) => {
+          for (const [p, offsets] of Object.entries(offsetsByPartition)) {
+            for (const offset of offsets) {
+              await eachMessage({
+                partition: Number(p),
+                message: {
+                  key: Buffer.from('k'),
+                  value: Buffer.from(offset),
+                  headers: {},
+                  offset,
+                  timestamp: '0',
+                  attributes: 0,
+                },
+              });
+            }
+          }
+          await new Promise(() => {}); // a real consumer never returns from run(); the reader must resolve on its own
+        },
+      }),
+    };
+    return client;
+  };
+
+  it('finishes when every non-empty partition reached high − 1, even with compaction gaps; an empty partition needs nothing', async () => {
+    const read = await readTopicToEnd(
+      fakeClient({ 0: ['0', '1', '4'], 1: [] }, { 0: ['0', '5'], 1: ['3', '3'] }),
+      'dlq.x',
+      'g',
+      2_000,
+    );
+    expect(read.map((m) => m.offset)).toEqual(['0', '1', '4']); // 3 of an upper bound of 5
+  });
+
+  it('an empty topic reads nothing without subscribing', async () => {
+    const read = await readTopicToEnd(fakeClient({}, { 0: ['7', '7'] }), 'dlq.x', 'g', 2_000);
+    expect(read).toEqual([]);
+  });
+
+  it('times out naming the partition that never reached its high watermark', async () => {
+    await expect(
+      readTopicToEnd(fakeClient({ 0: ['0'] }, { 0: ['0', '5'] }), 'dlq.x', 'g', 300),
+    ).rejects.toThrow(/partition\(s\) still short of their high watermark: 0/);
   });
 });
 
