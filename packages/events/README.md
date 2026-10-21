@@ -162,3 +162,29 @@ The relay itself lives in `apps/core/src/outbox/relay.ts` (it reads the outbox; 
 Why a lock and not a git comparison: CI's checkout is shallow, so a test that read the schema from `origin/main`
 would have to fetch it, and on `main` itself would have to pick the merge commit's parent. The committed lock is the
 baseline on every checkout, needs no git, and a missing or unreadable lock fails the test instead of skipping it.
+
+## Consuming (0.6.0, #533)
+
+```ts
+import { createConsumer, createPgProcessedStore, replayFromDlq } from '@platform/events';
+
+const consumer = createConsumer({
+  groupId: 'accounting',
+  topics: ['order.placed', 'payment.captured', 'refund.issued'],
+  processed: createPgProcessedStore(db, 'accounting_processed'), // your table: group_id, outbox_id, unique pair
+  handler: async ({ envelope, outboxId }, ctx) => {
+    /* your side effect; throw to retry */
+  },
+});
+await consumer.start(); // ensures dlq.accounting, subscribes, runs; SIGTERM → consumer.stop()
+
+// later, for the entries that failed after every retry
+await replayFromDlq({ groupId: 'accounting', handler, processed });
+```
+
+Guarantees: at-least-once from the bus, exactly once per group for your handler when you give it a durable
+processed store (a redelivery after a crash is a no-op); a poison message never blocks the partition (it goes to
+`dlq.<groupId>` with the error class and no payload, the offset is committed, the next message continues);
+an unknown topic or a newer version is skipped and logged, never a crash. Choose the processed store by the
+side effect: durable (your own table) for emails, ledger entries, anything that must not repeat; the memory
+store, or none, when the handler is idempotent anyway.

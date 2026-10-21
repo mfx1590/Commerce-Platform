@@ -211,3 +211,21 @@ export {
   type LockVerdict,
   type SchemaLock,
 } from './schema-lock.js';
+
+// Consumer SDK + dead-letter queue (#533).
+export {
+  createConsumer,
+  createMemoryProcessedStore,
+  createPgProcessedStore,
+  errorClassOf,
+  type ConsumerLogLine,
+  type ConsumerOptions,
+  type ConsumerStats,
+  type DeadLetter,
+  type EventConsumer,
+  type EventHandler,
+  type HandlerContext,
+  type ProcessedQueryable,
+  type ProcessedStore,
+} from './consumer.js';
+export { readDeadLetters, replayFromDlq, type ReplayOptions, type ReplayResult } from './dlq.js';
