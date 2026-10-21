@@ -22,11 +22,73 @@ export interface Incompatibility {
     | 'PATTERN_CHANGED'
     | 'FORMAT_CHANGED'
     | 'ALTERNATIVE_REMOVED'
-    | 'ITEMS_NARROWED';
+    | 'ITEMS_NARROWED'
+    | 'DEPENDENT_REQUIRED_ADDED'
+    | 'ALL_OF_NARROWED'
+    | 'UNKNOWN_KEYWORD';
   detail: string;
 }
 
 type S = Record<string, unknown>;
+
+/**
+ * Every keyword this checker understands. Anything else that appears in the NEW schema, or changes, is treated as
+ * BREAKING with the keyword named (closed by default, #545): a constraint the checker cannot reason about must
+ * not slip through as "compatible".
+ */
+const KNOWN_KEYWORDS = new Set([
+  '$schema',
+  '$id',
+  '$comment',
+  'title',
+  'description',
+  'examples',
+  'default',
+  'deprecated',
+  'readOnly',
+  'writeOnly',
+  'type',
+  'enum',
+  'const',
+  'required',
+  'properties',
+  'additionalProperties',
+  'minimum',
+  'exclusiveMinimum',
+  'maximum',
+  'exclusiveMaximum',
+  'minLength',
+  'maxLength',
+  'minItems',
+  'maxItems',
+  'minProperties',
+  'maxProperties',
+  'multipleOf',
+  'uniqueItems',
+  'pattern',
+  'format',
+  'items',
+  'oneOf',
+  'anyOf',
+  'allOf',
+  'dependentRequired',
+  '$defs',
+  'definitions',
+]);
+const UNINTERPRETED = new Set([
+  '$schema',
+  '$id',
+  '$comment',
+  'title',
+  'description',
+  'examples',
+  'default',
+  'deprecated',
+  'readOnly',
+  'writeOnly',
+  '$defs',
+  'definitions',
+]);
 
 const isObject = (v: unknown): v is S => !!v && typeof v === 'object' && !Array.isArray(v);
 const types = (s: S): string[] | null =>
@@ -178,6 +240,50 @@ export function backwardIncompatibilities(
       out.push(...backwardIncompatibilities(o.items, n.items, `${path}/items`));
     }
   }
+
+  // dependentRequired: a new dependency, or a new name under an existing one, is a requirement old data lacks
+  const oDep = isObject(o.dependentRequired) ? o.dependentRequired : {};
+  const nDep = isObject(n.dependentRequired) ? n.dependentRequired : {};
+  for (const [key, list] of Object.entries(nDep)) {
+    const was = new Set(Array.isArray(oDep[key]) ? (oDep[key] as string[]) : []);
+    const added = (Array.isArray(list) ? (list as string[]) : []).filter((name) => !was.has(name));
+    if (added.length > 0) {
+      out.push({
+        path: `${path}/dependentRequired/${key}`,
+        rule: 'DEPENDENT_REQUIRED_ADDED',
+        detail: `${key} → ${show(added)}`,
+      });
+    }
+  }
+
+  // allOf: every new conjunct must be accepted by the old schema's matching conjunct (pairwise); extra new
+  // conjuncts add constraints old data never met
+  if (Array.isArray(n.allOf)) {
+    const oAll = Array.isArray(o.allOf) ? (o.allOf as unknown[]) : [];
+    (n.allOf as unknown[]).forEach((conj, i) => {
+      if (i >= oAll.length) {
+        out.push({
+          path: `${path}/allOf/${i}`,
+          rule: 'ALL_OF_NARROWED',
+          detail: 'a conjunct was added',
+        });
+      } else {
+        out.push(...backwardIncompatibilities(oAll[i], conj, `${path}/allOf/${i}`));
+      }
+    });
+  }
+
+  // anything this checker does not understand: breaking when it appears or changes (closed by default)
+  for (const key of Object.keys(n)) {
+    if (KNOWN_KEYWORDS.has(key)) continue;
+    if (show(o[key]) === show(n[key])) continue;
+    out.push({
+      path: `${path}/${key}`,
+      rule: 'UNKNOWN_KEYWORD',
+      detail: `${key} is not understood by the checker; treat its change as breaking`,
+    });
+  }
+  void UNINTERPRETED;
 
   // oneOf / anyOf: every old alternative must still be accepted by some new alternative
   for (const key of ['oneOf', 'anyOf'] as const) {

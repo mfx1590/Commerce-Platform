@@ -30,6 +30,10 @@ if (args.includes('--help') || args.includes('-h')) {
   process.exit(0);
 }
 const i = args.indexOf('--url');
+if (i !== -1 && (args[i + 1] === undefined || args[i + 1].startsWith('--'))) {
+  console.error('register-schemas: --url needs a value (http://host:port)');
+  process.exit(2);
+}
 const url = i === -1 ? registryUrlFromEnv() : args[i + 1];
 const dryRun = args.includes('--dry-run');
 

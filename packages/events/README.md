@@ -144,7 +144,10 @@ The relay itself lives in `apps/core/src/outbox/relay.ts` (it reads the outbox; 
   suite compares every schema file with it, offline: a published version that changed incompatibly fails with the
   rule named (`REQUIRED_ADDED at #/required: note`), a compatible change fails until it is accepted explicitly
   with `pnpm --filter @platform/events schemas:lock`, a new version or topic is published the same way.
-  `schemas:lock` refuses a breaking change or a removed version, so the lock cannot be used to bypass the rule.
+  `schemas:lock` refuses a breaking change or a removed version. The lock is a reviewed artifact, not a
+  tamper-proof one: a hand edit that changes a schema file together with its lock entry and sha256 passes the test,
+  so a PR that changes an EXISTING key in `published.lock.json` is a manual review flag (manager rule, #545); a
+  test checks every entry's sha256 against its own schema, which catches a sloppy edit, not a consistent one.
 - **Our checker is the gate, the registry the second opinion:** Redpanda 24.2 catches a removed property, a type
   change and a narrowed enum, but accepts an added required property; `backwardIncompatibilities` catches all of
   them. A live test pins the registry's verdicts.

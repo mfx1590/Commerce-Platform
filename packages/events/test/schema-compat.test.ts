@@ -147,6 +147,74 @@ describe('backwardIncompatibilities (our own BACKWARD rules)', () => {
     expect(isBackwardCompatible(base, base)).toBe(true);
   });
 
+  it('dependentRequired: a new dependency or a new name under one is breaking; allOf recurses and an added conjunct is breaking', () => {
+    const withDep = edit(
+      (s) => ((s as Record<string, unknown>).dependentRequired = { note: ['amount'] }),
+    );
+    expect(backwardIncompatibilities(base, withDep).map((i) => i.rule)).toEqual([
+      'DEPENDENT_REQUIRED_ADDED',
+    ]);
+    const widerDep = edit(
+      (s) => ((s as Record<string, unknown>).dependentRequired = { note: ['amount', 'status'] }),
+    );
+    expect(
+      backwardIncompatibilities(withDep, widerDep).map((i) => `${i.rule}:${i.detail}`),
+    ).toEqual(['DEPENDENT_REQUIRED_ADDED:note → ["status"]']);
+    expect(backwardIncompatibilities(widerDep, withDep)).toEqual([]); // a dependency dropped is fine
+    const allOf = {
+      allOf: [{ type: 'object', required: ['a'], properties: { a: { type: 'string' } } }],
+    };
+    expect(
+      backwardIncompatibilities(allOf, {
+        allOf: [
+          {
+            type: 'object',
+            required: ['a'],
+            properties: { a: { type: 'string' }, b: { type: 'string' } },
+          },
+        ],
+      }),
+    ).toEqual([]);
+    expect(
+      backwardIncompatibilities(allOf, {
+        allOf: [
+          {
+            type: 'object',
+            required: ['a', 'b'],
+            properties: { a: { type: 'string' }, b: { type: 'string' } },
+          },
+        ],
+      }).map((i) => i.rule),
+    ).toEqual(['REQUIRED_ADDED']);
+    expect(
+      backwardIncompatibilities(allOf, { allOf: [...allOf.allOf, { type: 'object' }] }).map(
+        (i) => `${i.rule}@${i.path}`,
+      ),
+    ).toEqual(['ALL_OF_NARROWED@#/allOf/1']);
+  });
+
+  it('a keyword the checker does not understand is breaking when it appears or changes, and ignored when unchanged', () => {
+    const withIf = edit(
+      (s) => ((s as Record<string, unknown>).if = { properties: { status: { const: 'live' } } }),
+    );
+    expect(backwardIncompatibilities(base, withIf).map((i) => `${i.rule}@${i.path}`)).toEqual([
+      'UNKNOWN_KEYWORD@#/if',
+    ]);
+    expect(backwardIncompatibilities(withIf, withIf)).toEqual([]);
+    const nested = edit(
+      (s) => ((s.properties.id as Record<string, unknown>).patternProperties = {}),
+    );
+    expect(backwardIncompatibilities(base, nested).map((i) => i.path)).toEqual([
+      '#/properties/id/patternProperties',
+    ]);
+    // the real stock.moved v2 uses dependentRequired: its change against v1 is named, not silently accepted
+    const v1 = inlineCommonRefs(EVENT_SCHEMAS['stock.moved@1']);
+    const v2 = inlineCommonRefs(EVENT_SCHEMAS['stock.moved@2']);
+    expect(backwardIncompatibilities(v1, v2).map((i) => i.rule)).toContain(
+      'DEPENDENT_REQUIRED_ADDED',
+    );
+  });
+
   it('our real v2s are NOT backward compatible with their v1 — by design, a new version is a new file', () => {
     const v1 = inlineCommonRefs(EVENT_SCHEMAS['stock.moved@1']);
     const v2 = inlineCommonRefs(EVENT_SCHEMAS['stock.moved@2']);
@@ -235,6 +303,13 @@ describe('schemas/published.lock.json — the CI gate for published versions', (
     const added = { ...current, 'order.placed@2': current[key]! };
     expect(compareWithLock(lock, added).find((v) => v.key === 'order.placed@2')?.state).toBe('new');
     expect(compareWithLock(null).every((v) => v.state === 'new')).toBe(true);
+  });
+
+  it("every lock entry's sha256 is the digest of its own schema (a sloppy hand edit fails here; a consistent one is for review)", () => {
+    for (const [key, entry] of Object.entries(lock.schemas)) {
+      expect(entry.sha256, key).toBe(schemaDigest(entry.schema));
+      expect(canonicalJson(entry.schema), key).toBe(JSON.stringify(entry.schema)); // stored in canonical form
+    }
   });
 
   it('buildLock refuses a breaking change and a removed version; accepts the current files', () => {
