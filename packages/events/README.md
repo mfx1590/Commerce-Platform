@@ -158,3 +158,7 @@ The relay itself lives in `apps/core/src/outbox/relay.ts` (it reads the outbox; 
 2. Anything else (a required field, a removed or renamed field, a narrower type or enum)? Copy `v<N>.json` to
    `v<N+1>.json`, change it, bump `$id` and `title`; `schemas:lock` publishes the new version. The old file never changes.
 3. `pnpm --filter @platform/events generate && pnpm --filter @platform/events test`, CHANGELOG line, tag `events-vX.Y` at integration time.
+
+Why a lock and not a git comparison: CI's checkout is shallow, so a test that read the schema from `origin/main`
+would have to fetch it, and on `main` itself would have to pick the merge commit's parent. The committed lock is the
+baseline on every checkout, needs no git, and a missing or unreadable lock fails the test instead of skipping it.
