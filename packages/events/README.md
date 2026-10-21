@@ -144,7 +144,10 @@ The relay itself lives in `apps/core/src/outbox/relay.ts` (it reads the outbox; 
   suite compares every schema file with it, offline: a published version that changed incompatibly fails with the
   rule named (`REQUIRED_ADDED at #/required: note`), a compatible change fails until it is accepted explicitly
   with `pnpm --filter @platform/events schemas:lock`, a new version or topic is published the same way.
-  `schemas:lock` refuses a breaking change or a removed version, so the lock cannot be used to bypass the rule.
+  `schemas:lock` refuses a breaking change or a removed version. The lock is a reviewed artifact, not a
+  tamper-proof one: a hand edit that changes a schema file together with its lock entry and sha256 passes the test,
+  so a PR that changes an EXISTING key in `published.lock.json` is a manual review flag (manager rule, #545); a
+  test checks every entry's sha256 against its own schema, which catches a sloppy edit, not a consistent one.
 - **Our checker is the gate, the registry the second opinion:** Redpanda 24.2 catches a removed property, a type
   change and a narrowed enum, but accepts an added required property; `backwardIncompatibilities` catches all of
   them. A live test pins the registry's verdicts.
@@ -162,3 +165,36 @@ The relay itself lives in `apps/core/src/outbox/relay.ts` (it reads the outbox; 
 Why a lock and not a git comparison: CI's checkout is shallow, so a test that read the schema from `origin/main`
 would have to fetch it, and on `main` itself would have to pick the merge commit's parent. The committed lock is the
 baseline on every checkout, needs no git, and a missing or unreadable lock fails the test instead of skipping it.
+
+## Consuming (0.6.0, #533)
+
+```ts
+import { createConsumer, createPgProcessedStore, replayFromDlq } from '@platform/events';
+
+const consumer = createConsumer({
+  groupId: 'accounting',
+  topics: ['order.placed', 'payment.captured', 'refund.issued'],
+  processed: createPgProcessedStore(db, 'accounting_processed'), // your table: group_id, outbox_id, unique pair
+  handler: async ({ envelope, outboxId }, ctx) => {
+    await db.transaction(async (tx) => {
+      /* your side effects on tx; throw to retry */
+      await ctx.markProcessed(tx); // the processed row commits WITH them: exactly once for this transaction
+    });
+  },
+});
+await consumer.start(); // ensures dlq.accounting, subscribes, runs; SIGTERM → consumer.stop()
+
+// later, for the entries that failed after every retry
+await replayFromDlq({ groupId: 'accounting', handler, processed });
+```
+
+Guarantees: at-least-once from the bus, exactly once per group for your handler when you give it a durable
+processed store (a redelivery after a crash is a no-op); a poison message never blocks the partition (it goes to
+`dlq.<groupId>` with the error class and no payload, the offset is committed, the next message continues);
+an unknown topic or a newer version is skipped and logged, never a crash. Choose the processed store by the
+side effect: durable (your own table) with `ctx.markProcessed(tx)` inside your transaction for emails, ledger
+entries, anything that must not repeat (the mark and the side effects commit together); the memory store, or
+none, when the handler is idempotent anyway — those are at-least-once only, because a crash between the
+handler and the mark reruns the handler. Replay from the DLQ reports an entry whose original message is gone
+(a 30-day topic past its retention) as `missing` and keeps the entry; it never tombstones what it did not
+handle. Group timeouts: session 10 s, heartbeat 3 s (sent between retry attempts), rebalance 60 s.

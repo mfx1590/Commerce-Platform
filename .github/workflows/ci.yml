@@ -436,7 +436,8 @@ jobs:
             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/events-live.json"
           node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/events-live.json" \
             'ensureTopics against the local Redpanda (prefixed, self-cleaning)' \
-            'schema registry (live Redpanda, prefixed subjects, self-cleaning)'
+            'schema registry (live Redpanda, prefixed subjects, self-cleaning)' \
+            'consumer SDK against the local Redpanda (prefixed, self-cleaning)'
       # The core's own live suites (#297): until now they ran in no CI job — the `unit` job has no
       # Keycloak, so `describe.runIf(live)` skipped them there, quietly. Here the stack is up, and the
       # report is checked so a probe that misses fails the step instead of skipping the block. Each

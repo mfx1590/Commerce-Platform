@@ -88,6 +88,8 @@ export interface RelayPassResult {
   failed: number;
   /** Rows whose envelope no longer validates: never sent, attempts + 1, last_error = invalid_envelope. */
   invalid: number;
+  /** Rows published WITHOUT a schema_id header although ids were given (the registry lacks that topic@version). */
+  unstamped: number;
   failed_topics: string[];
   duration_ms: number;
   /** Unpublished rows of this organization after the pass (app.outbox_lag). */
@@ -178,6 +180,7 @@ export async function relayOnce(
 
     const byTopic = new Map<string, { ids: string[]; messages: RelayMessage[] }>();
     const invalid: string[] = [];
+    let unstamped = 0;
     for (const row of rows) {
       const envelope = outboxRowToEnvelope(row);
       if (!v.validateEnvelope(envelope).ok) {
@@ -186,11 +189,9 @@ export async function relayOnce(
       }
       const group = byTopic.get(row.topic) ?? { ids: [], messages: [] };
       group.ids.push(row.id);
-      group.messages.push(
-        envelopeToMessage(envelope, RELAY_PRODUCER, {
-          schemaId: opts.schemaIds?.[`${row.topic}@${row.version}`],
-        }),
-      );
+      const schemaId = opts.schemaIds?.[`${row.topic}@${row.version}`];
+      if (opts.schemaIds && schemaId === undefined) unstamped += 1;
+      group.messages.push(envelopeToMessage(envelope, RELAY_PRODUCER, { schemaId }));
       byTopic.set(row.topic, group);
     }
 
@@ -241,6 +242,7 @@ export async function relayOnce(
       published: published.length,
       failed: [...failed.values()].reduce((n, ids) => n + ids.length, 0),
       invalid: invalid.length,
+      unstamped,
       failed_topics: failedTopics,
       duration_ms: now().getTime() - started.getTime(),
       ...lag,

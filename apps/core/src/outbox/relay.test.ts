@@ -536,6 +536,19 @@ describe('relayOnce (database, recording publisher)', () => {
     const b = recording();
     await relayOnce(hq, b.publisher, { organizationId: ORG, log: quiet });
     expect(b.sent[0]!.messages[0]!.headers.schema_id).toBeUndefined();
+    // ids given but none for this topic@version: published without the header, counted as unstamped
+    await emit(hq, [storeA], 'unstamped');
+    const c = recording();
+    const r = await relayOnce(hq, c.publisher, {
+      organizationId: ORG,
+      log: quiet,
+      schemaIds: { 'order.placed@1': 1 },
+    });
+    expect(r).toMatchObject({ published: 1, unstamped: 1 });
+    expect(c.sent[0]!.messages[0]!.headers.schema_id).toBeUndefined();
+    expect(
+      (await relayOnce(hq, recording().publisher, { organizationId: ORG, log: quiet })).unstamped,
+    ).toBe(0);
     expect(
       decodeMessage({
         value: b.sent[0]!.messages[0]!.value,

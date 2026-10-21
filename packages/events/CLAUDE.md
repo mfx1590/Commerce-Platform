@@ -37,6 +37,7 @@ changes via `CONTRACT CHANGE:` issue. Adding a field = new file `v<N+1>.json`, n
 - `makeEvent({ topic, organizationId, storeId, aggregateType, aggregateId, payload, actor?, trace? })` → envelope for the latest version
 - `toOutboxRow(envelope)` → the column map for `INSERT INTO outbox`
 - Topics (0.4.0): `planTopics(policy, opts)`, `ensureTopics(admin, plan, { dryRun })`, `createKafka(opts)`, `brokersFromEnv()`, `dlqTopicName(groupId)`, `partitionKey(envelope)`, `retentionClassOf(topic, policy)`, `RETENTION_MS`, `DEFAULT_BROKERS`; types `TopicPolicy`, `TopicSpec`, `EnsureResult`, `TopicAdmin` (the narrow admin slice `ensureTopics` takes)
+- Consumer SDK (0.6.0): `createConsumer(opts)` → `{ start, stop, stats, dlqTopic }`, `createMemoryProcessedStore`, `createPgProcessedStore(db, table)`, `readDeadLetters(groupId)`, `replayFromDlq(opts)`, `errorClassOf`; types `ProcessedStore`, `EventHandler`, `HandlerContext`, `DeadLetter`, `ConsumerLogLine`
 - Registry (0.5.0): `createRegistryClient({ url })`, `subjectFor(topic, version)`, `registrySchemas()`, `registerAllSchemas(client, opts)`, `resolveSchemaIds(client)`, `schemaKey`; checker `backwardIncompatibilities(old, new)` / `isBackwardCompatible` / `formatIncompatibilities`; lock `currentLockEntries` / `compareWithLock` / `explainVerdict` / `buildLock`; `inlineCommonRefs` / `canonicalJson` / `schemaDigest`; `HEADER_SCHEMA_ID`
 - Bus (0.4.1): `outboxRowToEnvelope(row)`, `envelopeToMessage(envelope, producer)` → `{ key, value, headers }`, `decodeMessage(raw)` → `{ envelope, outboxId, headers }`, `HEADER_*` names; `createKafkaPublisher(kafka, opts)` → `MessagePublisher` (send / connect / disconnect), `assertTopicsPresent(admin, topics)`
 
@@ -47,6 +48,7 @@ changes via `CONTRACT CHANGE:` issue. Adding a field = new file `v<N+1>.json`, n
 - Money is integer minor units + ISO-4217 currency. Timestamps are RFC-3339 UTC.
 - `event_id` (= the outbox id) is the idempotency key for every consumer and travels as a message header; the Kafka _partition_ key is `store_id` (or `organization_id` for organization-scope events) so per-store order is kept (#530, `partitionKey`). Envelope `version` selects the payload schema.
 - Consumers accept unknown topics and higher versions gracefully (log and skip); they never crash on them.
+- Consumers use `createConsumer` (dedupe on `outbox_id`, retries, `dlq.<groupId>`, commit after the handler); the DLQ carries no payload. The three in-core outbox consumers stay in-process (Phase 4 decision).
 - A PUBLISHED schema version changes only backward-compatibly, and only through `schemas:lock` (#532); anything breaking is a new `v<N+1>.json`. Registry subjects are per (topic, version), BACKWARD each.
 
 ## Constraints

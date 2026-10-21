@@ -180,3 +180,8 @@ registry is unreachable or lacks a schema; `--no-registry` for runbooks) and sta
 **CI:** after `create-topics.mjs --env ci` in the live job, `node infra/redpanda/register-schemas.mjs` (idempotent)
 — one more line for #536 / a REQUEST — and `test/registry.test.ts`'s live block under `require-live-tests.mjs`
 (`schema registry (live Redpanda, prefixed subjects, self-cleaning)`).
+
+**The consumer SDK (#533)** creates its group's `dlq.<groupId>` on first start with the same `ensureTopics`
+helper (1 partition, replication 1 by default; pass the production numbers through `dlq`), writes a record
+there after the last retry (key = outbox id, value = ids, offsets, attempts, error class — never the payload),
+and `replayFromDlq` writes a tombstone when a replay succeeds.
