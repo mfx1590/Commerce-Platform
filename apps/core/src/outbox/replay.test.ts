@@ -531,10 +531,14 @@ describe('10,000 historical orders through the relay, a consumer and a replay (l
         ...Object.fromEntries(Object.entries(t).map(([k, v]) => [`${k}_ms`, v])),
       }),
     );
-    // stated bounds (CI runner); local numbers in the PR body
-    expect(t.relay).toBeLessThan(90_000);
-    expect(t.consume + t.relay).toBeLessThan(240_000);
-    expect(t.replay).toBeLessThan(60_000);
+    // Ceilings only (the real assertions are the counts and the order above): each is at least 5× the local
+    // median of three runs on 2026-10-21 (laptop, dev container) — insert 28 s → 150 s, relay 10.5 s → 60 s,
+    // consume after the relay 0 s (it kept up) → 120 s, replay 2.6 s → 15 s, replay consumed 0.2 s → 120 s.
+    // A bound that flakes on a slow runner reddens every PR; every duration is printed on every run instead.
+    expect(t.insert).toBeLessThan(150_000);
+    expect(t.relay).toBeLessThan(60_000);
+    expect(t.consume).toBeLessThan(120_000);
+    expect(t.replay).toBeLessThan(15_000);
     expect(t.replay_consume).toBeLessThan(120_000);
   }, 900_000);
 });
