@@ -101,3 +101,34 @@ const r = await ensureTopics(admin, plan); // created / altered / partitionsRais
 `pnpm --filter @platform/events topics:create [-- --env ci --dry-run]` runs it from the command line. A second run
 changes nothing. `test/topics.test.ts` checks the policy covers every schema and, when the local broker is up, that
 the ensure step is idempotent (under a random prefix, self-cleaning).
+
+## On the bus (0.4.1, #531)
+
+One wire format for everybody (`src/relay-message.ts`): key = `store_id` (organization-scope events:
+`organization_id`), value = the envelope JSON, headers `outbox_id` (= `event_id`; the idempotency key consumers
+dedupe on), `topic`, `version`, `organization_id`, `store_id`, `occurred_at`, `producer`.
+
+```ts
+import {
+  createKafka,
+  createKafkaPublisher,
+  decodeMessage,
+  envelopeToMessage,
+  outboxRowToEnvelope,
+} from '@platform/events';
+
+const publisher = createKafkaPublisher(createKafka()); // acks all, one request in flight, no auto-create
+await publisher.connect();
+await publisher.send('order.placed', [
+  envelopeToMessage(outboxRowToEnvelope(row), 'core-outbox-relay/1'),
+]);
+
+// a consumer
+const { envelope, outboxId } = decodeMessage({
+  key: message.key,
+  value: message.value,
+  headers: message.headers,
+});
+```
+
+The relay itself lives in `apps/core/src/outbox/relay.ts` (it reads the outbox; this package never touches a database).

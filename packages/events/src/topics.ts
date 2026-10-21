@@ -8,10 +8,46 @@
 import net from 'node:net';
 import tls from 'node:tls';
 import kafkajs, { Kafka, logLevel } from 'kafkajs';
-import type { Admin, ISocketFactoryArgs, KafkaConfig } from 'kafkajs';
+import type { ISocketFactoryArgs, KafkaConfig } from 'kafkajs';
 import { EVENT_TOPICS } from './generated/schemas.js';
 
 const { ConfigResourceTypes } = kafkajs;
+
+/**
+ * The slice of a Kafka admin client `ensureTopics` uses. kafkajs's `Admin` satisfies it as is; a future client
+ * swap writes a small adapter instead of changing the signature (#535 review).
+ */
+export interface TopicAdmin {
+  listTopics(): Promise<string[]>;
+  createTopics(options: {
+    waitForLeaders?: boolean;
+    topics: {
+      topic: string;
+      numPartitions: number;
+      replicationFactor: number;
+      configEntries: { name: string; value: string }[];
+    }[];
+  }): Promise<boolean>;
+  fetchTopicMetadata(options: {
+    topics: string[];
+  }): Promise<{ topics: { name: string; partitions: unknown[] }[] }>;
+  describeConfigs(options: {
+    includeSynonyms: boolean;
+    resources: { type: number; name: string; configNames: string[] }[];
+  }): Promise<{
+    resources: {
+      resourceName: string;
+      configEntries: { configName: string; configValue: string }[];
+    }[];
+  }>;
+  alterConfigs(options: {
+    validateOnly: boolean;
+    resources: { type: number; name: string; configEntries: { name: string; value: string }[] }[];
+  }): Promise<unknown>;
+  createPartitions(options: {
+    topicPartitions: { topic: string; count: number }[];
+  }): Promise<unknown>;
+}
 
 /** Shape of infra/redpanda/topics.policy.json. */
 export interface TopicPolicy {
@@ -200,6 +236,11 @@ export function createKafka(opts: CreateKafkaOptions = {}): Kafka {
     brokers: opts.brokers ?? brokersFromEnv(),
     logLevel: opts.logLevel ?? logLevel.ERROR,
     socketFactory: ipv4LoopbackSocketFactory,
+    // A broker that accepts the connection and never answers must fail a request, not hang it (the relay holds
+    // a database transaction while it waits): bounded connect and request times, enforced client-side.
+    connectionTimeout: 3_000,
+    requestTimeout: 10_000,
+    enforceRequestTimeout: true,
     ...opts.config,
   });
 }
@@ -241,7 +282,7 @@ type CreateError = Error & { errors?: (Error & { type?: string; topic?: string }
  * the rest gets the remaining 35 again. A non-retriable error, or the attempts running out, throws.
  */
 async function createWithRetry(
-  admin: Admin,
+  admin: TopicAdmin,
   specs: TopicSpec[],
   warnings: string[],
 ): Promise<void> {
@@ -283,7 +324,7 @@ async function createWithRetry(
  * with more partitions than the policy says is reported as a warning and left alone.
  */
 export async function ensureTopics(
-  admin: Admin,
+  admin: TopicAdmin,
   plan: TopicSpec[],
   opts: EnsureOptions = {},
 ): Promise<EnsureResult> {

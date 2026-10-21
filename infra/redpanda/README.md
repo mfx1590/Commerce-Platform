@@ -41,7 +41,8 @@ pnpm --filter @platform/events topics:create
 node infra/redpanda/create-topics.mjs --env local
 ```
 
-`--dry-run` prints what would change and touches nothing. The script prints one JSON summary line
+`--env production` refuses to run unless `--brokers` names a non-loopback cluster (against the local broker it would
+raise the shared topics to 12 partitions and then fail on the budget). `--dry-run` prints what would change and touches nothing. The script prints one JSON summary line
 (`created`, `altered`, `partitions_raised`, `unchanged`, `warnings`) and one line per change. A second run
 prints `created 0, altered 0, partitions_raised 0`. The script never deletes a topic.
 
