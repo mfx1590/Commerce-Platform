@@ -228,4 +228,11 @@ export {
   type ProcessedQueryable,
   type ProcessedStore,
 } from './consumer.js';
-export { readDeadLetters, replayFromDlq, type ReplayOptions, type ReplayResult } from './dlq.js';
+export {
+  readDeadLetters,
+  readTopicToEnd,
+  replayFromDlq,
+  type ReplayOptions,
+  type ReplayResult,
+  type TopicReaderClient,
+} from './dlq.js';

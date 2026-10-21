@@ -40,24 +40,48 @@ export async function readDeadLetters(
   return [...latest.values()].filter((v): v is DeadLetter => v !== null);
 }
 
-/** Every message of a topic up to its current high watermarks (bounded by `timeoutMs`). */
-async function readTopicToEnd(
-  kafka: Kafka,
+/** The slice of a kafkajs client this reader needs (a test feeds it a fake with offset gaps). */
+export interface TopicReaderClient {
+  admin(): {
+    connect(): Promise<void>;
+    disconnect(): Promise<void>;
+    fetchTopicOffsets(topic: string): Promise<{ partition: number; low: string; high: string }[]>;
+  };
+  consumer(config: { groupId: string; sessionTimeout?: number }): {
+    connect(): Promise<void>;
+    disconnect(): Promise<void>;
+    subscribe(s: { topic: string; fromBeginning: boolean }): Promise<void>;
+    run(cfg: {
+      eachMessage: (payload: { partition: number; message: KafkaMessage }) => Promise<void>;
+    }): Promise<void>;
+  };
+}
+
+/**
+ * Every message of a topic up to its current high watermarks, bounded by `timeoutMs`. A partition is finished
+ * once the consumed offset reaches `high − 1` (or it is empty, `high === low`); the message COUNT is only an upper
+ * bound, because a compacted topic (every DLQ is one) has offset gaps where compaction removed records and
+ * tombstones — counting to Σ(high − low) would never finish after the first replay.
+ */
+export async function readTopicToEnd(
+  kafka: TopicReaderClient,
   topic: string,
   groupId: string,
   timeoutMs: number,
 ): Promise<KafkaMessage[]> {
   const admin = kafka.admin();
   await admin.connect();
-  let total: number;
+  const lastOffset = new Map<number, number>(); // partition → high − 1, for the partitions that have messages
   try {
-    const offsets = await admin.fetchTopicOffsets(topic);
-    total = offsets.reduce((n, p) => n + (Number(p.high) - Number(p.low)), 0);
+    for (const p of await admin.fetchTopicOffsets(topic)) {
+      if (Number(p.high) > Number(p.low)) lastOffset.set(p.partition, Number(p.high) - 1);
+    }
   } finally {
     await admin.disconnect();
   }
   const out: KafkaMessage[] = [];
-  if (total === 0) return out;
+  if (lastOffset.size === 0) return out;
+  const pending = new Set(lastOffset.keys());
   const consumer = kafka.consumer({ groupId, sessionTimeout: 10_000 });
   await consumer.connect();
   await consumer.subscribe({ topic, fromBeginning: true });
@@ -65,15 +89,19 @@ async function readTopicToEnd(
     const timer = setTimeout(
       () =>
         reject(
-          new Error(`read ${out.length} of ${total} message(s) of ${topic} within ${timeoutMs} ms`),
+          new Error(
+            `read ${out.length} message(s) of ${topic} within ${timeoutMs} ms; partition(s) still short of their high watermark: ${[...pending].join(', ')}`,
+          ),
         ),
       timeoutMs,
     );
     consumer
       .run({
-        eachMessage: async ({ message }) => {
+        eachMessage: async ({ partition, message }) => {
           out.push(message);
-          if (out.length >= total) {
+          if (Number(message.offset) >= (lastOffset.get(partition) ?? -1))
+            pending.delete(partition);
+          if (pending.size === 0) {
             clearTimeout(timer);
             resolve();
           }
