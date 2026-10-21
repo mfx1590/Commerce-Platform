@@ -26,6 +26,7 @@ changes via `CONTRACT CHANGE:` issue. Adding a field = new file `v<N+1>.json`, n
 - `pnpm --filter @platform/events test` — Vitest: every schema compiles, sample envelopes validate, PII/float/extra-field guards
 - `pnpm --filter @platform/events build | typecheck`
 - `pnpm db:migrate` applies `migrations/0100_outbox.sql` together with packages/db migrations.
+- `pnpm --filter @platform/events schemas:register [-- --dry-run]` — registers every schema in the registry idempotently (`infra/redpanda/register-schemas.mjs`; `SCHEMA_REGISTRY_URL`, default 127.0.0.1:18081); `schemas:lock` — accepts a compatible change or a new version into `schemas/published.lock.json` (refuses a breaking one). `test/schema-compat.test.ts` fails when a published version changed; `test/registry.test.ts` has a live block that skips with a printed reason when the registry is down.
 - `pnpm --filter @platform/events topics:create [-- --env ci --dry-run]` — creates every topic on the broker idempotently (`infra/redpanda/create-topics.mjs`; `KAFKA_BROKERS`, default 127.0.0.1:19092). `test/topics.test.ts` has a live block that skips with a printed reason when the broker is down.
 
 ## Public API (`@platform/events`)
@@ -36,6 +37,7 @@ changes via `CONTRACT CHANGE:` issue. Adding a field = new file `v<N+1>.json`, n
 - `makeEvent({ topic, organizationId, storeId, aggregateType, aggregateId, payload, actor?, trace? })` → envelope for the latest version
 - `toOutboxRow(envelope)` → the column map for `INSERT INTO outbox`
 - Topics (0.4.0): `planTopics(policy, opts)`, `ensureTopics(admin, plan, { dryRun })`, `createKafka(opts)`, `brokersFromEnv()`, `dlqTopicName(groupId)`, `partitionKey(envelope)`, `retentionClassOf(topic, policy)`, `RETENTION_MS`, `DEFAULT_BROKERS`; types `TopicPolicy`, `TopicSpec`, `EnsureResult`, `TopicAdmin` (the narrow admin slice `ensureTopics` takes)
+- Registry (0.5.0): `createRegistryClient({ url })`, `subjectFor(topic, version)`, `registrySchemas()`, `registerAllSchemas(client, opts)`, `resolveSchemaIds(client)`, `schemaKey`; checker `backwardIncompatibilities(old, new)` / `isBackwardCompatible` / `formatIncompatibilities`; lock `currentLockEntries` / `compareWithLock` / `explainVerdict` / `buildLock`; `inlineCommonRefs` / `canonicalJson` / `schemaDigest`; `HEADER_SCHEMA_ID`
 - Bus (0.4.1): `outboxRowToEnvelope(row)`, `envelopeToMessage(envelope, producer)` → `{ key, value, headers }`, `decodeMessage(raw)` → `{ envelope, outboxId, headers }`, `HEADER_*` names; `createKafkaPublisher(kafka, opts)` → `MessagePublisher` (send / connect / disconnect), `assertTopicsPresent(admin, topics)`
 
 ## Rules for producers and consumers
@@ -45,6 +47,7 @@ changes via `CONTRACT CHANGE:` issue. Adding a field = new file `v<N+1>.json`, n
 - Money is integer minor units + ISO-4217 currency. Timestamps are RFC-3339 UTC.
 - `event_id` (= the outbox id) is the idempotency key for every consumer and travels as a message header; the Kafka _partition_ key is `store_id` (or `organization_id` for organization-scope events) so per-store order is kept (#530, `partitionKey`). Envelope `version` selects the payload schema.
 - Consumers accept unknown topics and higher versions gracefully (log and skip); they never crash on them.
+- A PUBLISHED schema version changes only backward-compatibly, and only through `schemas:lock` (#532); anything breaking is a new `v<N+1>.json`. Registry subjects are per (topic, version), BACKWARD each.
 
 ## Constraints
 

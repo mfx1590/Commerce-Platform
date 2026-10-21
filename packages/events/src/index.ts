@@ -161,6 +161,7 @@ export {
   HEADER_ORGANIZATION_ID,
   HEADER_OUTBOX_ID,
   HEADER_PRODUCER,
+  HEADER_SCHEMA_ID,
   HEADER_STORE_ID,
   HEADER_TOPIC,
   HEADER_VERSION,
@@ -176,3 +177,37 @@ export {
   type KafkaPublisherOptions,
   type MessagePublisher,
 } from './publisher.js';
+
+// Schema registry + versioning (#532): the registry client, the offline BACKWARD checker and the published lock.
+export { canonicalJson, inlineCommonRefs, schemaDigest } from './schema-inline.js';
+export {
+  backwardIncompatibilities,
+  formatIncompatibilities,
+  isBackwardCompatible,
+  type Incompatibility,
+} from './schema-compat.js';
+export {
+  createRegistryClient,
+  DEFAULT_REGISTRY_URL,
+  registerAllSchemas,
+  RegistryError,
+  registrySchemas,
+  registryUrlFromEnv,
+  resolveSchemaIds,
+  schemaKey,
+  subjectFor,
+  type CompatibilityLevel,
+  type RegisterAllResult,
+  type RegisteredSchema,
+  type RegistryClient,
+} from './registry.js';
+export {
+  buildLock,
+  compareWithLock,
+  currentLockEntries,
+  explainVerdict,
+  LOCK_COMMENT,
+  type LockEntry,
+  type LockVerdict,
+  type SchemaLock,
+} from './schema-lock.js';

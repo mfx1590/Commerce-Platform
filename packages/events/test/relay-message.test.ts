@@ -77,6 +77,16 @@ describe('envelopeToMessage / decodeMessage', () => {
     });
   });
 
+  it('schema_id is stamped only when given, and decodes to a number or null', () => {
+    const m = envelopeToMessage(event, 'p', { schemaId: 12 });
+    expect(m.headers.schema_id).toBe('12');
+    expect(decodeMessage({ value: m.value, headers: m.headers }).schemaId).toBe(12);
+    const none = envelopeToMessage(event, 'p');
+    expect('schema_id' in none.headers).toBe(false);
+    expect(decodeMessage({ value: none.value, headers: none.headers }).schemaId).toBeNull();
+    expect(decodeMessage({ value: none.value, headers: { schema_id: 'x' } }).schemaId).toBeNull();
+  });
+
   it('an organization-scope event is keyed by the organization and has no store_id header', () => {
     const m = envelopeToMessage({ ...event, store_id: null }, 'p');
     expect(m.key).toBe(ORG);

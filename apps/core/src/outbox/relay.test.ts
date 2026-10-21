@@ -516,6 +516,34 @@ describe('relayOnce (database, recording publisher)', () => {
     expect(Date.now() - started).toBeLessThan(10_000);
   }, 20_000);
 
+  it('stamps the schema_id header when ids are given, none otherwise', async () => {
+    await drain(hq);
+    await emit(hq, [storeA], 'sid');
+    const a = recording();
+    await relayOnce(hq, a.publisher, {
+      organizationId: ORG,
+      log: quiet,
+      schemaIds: { 'store.updated@1': 42 },
+    });
+    expect(a.sent[0]!.messages[0]!.headers.schema_id).toBe('42');
+    expect(
+      decodeMessage({
+        value: a.sent[0]!.messages[0]!.value,
+        headers: a.sent[0]!.messages[0]!.headers,
+      }).schemaId,
+    ).toBe(42);
+    await emit(hq, [storeA], 'nosid');
+    const b = recording();
+    await relayOnce(hq, b.publisher, { organizationId: ORG, log: quiet });
+    expect(b.sent[0]!.messages[0]!.headers.schema_id).toBeUndefined();
+    expect(
+      decodeMessage({
+        value: b.sent[0]!.messages[0]!.value,
+        headers: b.sent[0]!.messages[0]!.headers,
+      }).schemaId,
+    ).toBeNull();
+  });
+
   it('errorClass gives the class and the protocol type, never the message', () => {
     expect(errorClass(new Error('secret@example.com'))).toBe('Error');
     expect(errorClass('x')).toBe('Error');
@@ -526,12 +554,20 @@ describe('relayOnce (database, recording publisher)', () => {
   });
 
   it('relay-cli: arguments and the required topic list (every event topic of the policy)', () => {
-    expect(parseArgs([])).toEqual({ once: false, batchSize: 500, intervalMs: 1000 });
-    expect(parseArgs(['--once', '--batch', '50', '--interval-ms', '250'])).toEqual({
-      once: true,
-      batchSize: 50,
-      intervalMs: 250,
+    expect(parseArgs([])).toEqual({
+      once: false,
+      batchSize: 500,
+      intervalMs: 1000,
+      registry: true,
     });
+    expect(parseArgs(['--once', '--batch', '50', '--interval-ms', '250', '--no-registry'])).toEqual(
+      {
+        once: true,
+        batchSize: 50,
+        intervalMs: 250,
+        registry: false,
+      },
+    );
     expect(() => parseArgs(['--batch', '0'])).toThrow(/positive integer/);
     const topics = requiredTopics();
     expect(topics).toContain('order.placed');

@@ -123,3 +123,10 @@ the session of a client that is checked out for a pass, the client's `error` eve
 dies. `guardPoolClients(pool)` (called once by `relay-cli.ts` on the core's pool, and by the test on its own)
 attaches one to every connection the pool opens: the drop is logged as `{ state: "connection_error", error_class }`
 and the pass fails through its next statement, which the loop handles.
+
+### Schema ids (#532)
+
+`relay-cli.ts` resolves every `topic@version` to its schema registry id at start (`resolveSchemaIds`,
+`SCHEMA_REGISTRY_URL` default `http://127.0.0.1:18081`) and the relay stamps it as the `schema_id` header next to
+`version`. An unreachable registry or a schema the registry lacks refuses the start (`register-schemas.mjs`
+first); `--no-registry` publishes without the header, for runbooks only. `relayOnce({ schemaIds })` is the seam.
