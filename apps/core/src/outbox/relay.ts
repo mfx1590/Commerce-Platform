@@ -101,10 +101,12 @@ type Row = OutboxRow & { seq: string };
 const SELECT_UNPUBLISHED = `
   SELECT id, organization_id, store_id, topic, version, aggregate_type, aggregate_id, payload, headers,
          occurred_at, seq::text AS seq
-  FROM outbox
-  WHERE published_at IS NULL
-  ORDER BY seq
+  FROM outbox o
+  WHERE o.published_at IS NULL
+  ORDER BY o.seq
   LIMIT $1`;
+// `o.seq`, qualified: the select list aliases `seq::text AS seq`, and a bare `ORDER BY seq` would sort by that
+// TEXT alias ("10" before "2"). Found by the 10k test; the relay tests before it had fewer than ten rows.
 
 let validator: Validator | undefined;
 const getValidator = (): Validator => (validator ??= createValidator());
