@@ -318,6 +318,102 @@ describe.runIf(brokerDown === null)(
       expect(second.stats).toMatchObject({ handled: 0, duplicates: 1 });
     }, 60_000);
 
+    it("atomic dedupe: ctx.markProcessed(tx) marks through the handler's own client and the SDK does not mark again", async () => {
+      const calls: string[] = [];
+      const store = {
+        has: async () => false,
+        markProcessed: async (_g: string, id: string) => {
+          calls.push(`sdk:${id}`);
+        },
+        markProcessedWith: async (
+          q: { query(t: string, p?: unknown[]): Promise<{ rows: unknown[] }> },
+          _g: string,
+          id: string,
+        ) => {
+          await q.query('INSERT processed', [id]);
+          calls.push(`tx:${id}`);
+        },
+      };
+      const tx = {
+        query: async (text: string, params?: unknown[]) => {
+          calls.push(`q:${text}:${String(params?.[0])}`);
+          return { rows: [] };
+        },
+      };
+      const seen: string[] = [];
+      const c = track(
+        createConsumer({
+          groupId: 'atomic',
+          topics: [topic],
+          topicPrefix: prefix,
+          kafka,
+          fromBeginning: false,
+          processed: store,
+          log: quiet,
+          sleep: noWait,
+          handler: async (m, ctx) => {
+            // the real thing: BEGIN; side effects; ctx.markProcessed(tx); COMMIT — all on one client
+            if (tagOf(m) === 'atomic') await ctx.markProcessed(tx);
+            seen.push(tagOf(m));
+          },
+        }),
+      );
+      await c.start();
+      await new Promise((r) => setTimeout(r, 1_500));
+      const a = event('atomic');
+      const b = event('plain');
+      await publish(a, b);
+      await until(() => seen.length === 2, 20_000, 'both messages');
+      expect(calls).toEqual([
+        `q:INSERT processed:${a.event_id}`,
+        `tx:${a.event_id}`,
+        `sdk:${b.event_id}`,
+      ]);
+      expect(c.stats).toMatchObject({ handled: 2 });
+    }, 60_000);
+
+    it('a DLQ entry whose original is gone is reported as missing and kept, never tombstoned', async () => {
+      const p = kafka.producer({ allowAutoTopicCreation: false });
+      await p.connect();
+      const ghost: DeadLetter = {
+        outbox_id: '99999999-0000-4000-8000-000000000001',
+        group_id: 'ghost',
+        topic: wire,
+        partition: 0,
+        offset: '999999',
+        event_topic: topic,
+        event_version: 1,
+        attempts: 5,
+        error_class: 'HandlerFailed',
+        failed_at: new Date().toISOString(),
+      };
+      const admin = kafka.admin();
+      await admin.connect();
+      await ensureTopics(
+        admin,
+        planTopics(policy, { environment: 't', prefix, topics: [], consumerGroups: ['ghost'] }),
+      );
+      await admin.disconnect();
+      await p.send({
+        topic: `${prefix}${dlqTopicName('ghost')}`,
+        messages: [{ key: ghost.outbox_id, value: JSON.stringify(ghost) }],
+      });
+      await p.disconnect();
+      let ran = 0;
+      const r = await replayFromDlq({
+        groupId: 'ghost',
+        topicPrefix: prefix,
+        kafka,
+        sleep: noWait,
+        handler: async () => {
+          ran += 1;
+        },
+      });
+      expect(r).toEqual({ entries: 1, replayed: [], failed: [], missing: [ghost.outbox_id] });
+      expect(ran).toBe(0);
+      expect(await readDeadLetters('ghost', { kafka, topicPrefix: prefix })).toHaveLength(1);
+    }, 60_000);
+
     it('replayFromDlq reruns the handler for the live DLQ entries and tombstones the successes', async () => {
       const dead = await readDeadLetters('poison', { kafka, topicPrefix: prefix });
       expect(dead).toHaveLength(1);

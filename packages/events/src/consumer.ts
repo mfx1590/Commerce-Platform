@@ -22,6 +22,13 @@ import { dlqTopicName, ensureTopics, planTopics, type TopicPolicy } from './topi
 export interface ProcessedStore {
   has(groupId: string, outboxId: string): Promise<boolean>;
   markProcessed(groupId: string, outboxId: string): Promise<void>;
+  /**
+   * Marks through the HANDLER's own transaction (`ctx.markProcessed(tx)`), so the side effects and the processed
+   * row commit together — exactly once for what that transaction holds. Without it the mark happens after the
+   * handler returned, and a crash in between reruns the handler (at-least-once). The memory store has no such
+   * seam: it is at-least-once only.
+   */
+  markProcessedWith?(q: ProcessedQueryable, groupId: string, outboxId: string): Promise<void>;
 }
 
 /** Bounded, insertion-ordered: the oldest ids fall out first. */
@@ -65,12 +72,18 @@ export function createPgProcessedStore(db: ProcessedQueryable, table: string): P
       return r.rows.length > 0;
     },
     async markProcessed(groupId, outboxId) {
-      await db.query(
-        `INSERT INTO ${table} (group_id, outbox_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-        [groupId, outboxId],
-      );
+      await insert(db, groupId, outboxId);
+    },
+    async markProcessedWith(q, groupId, outboxId) {
+      await insert(q, groupId, outboxId);
     },
   };
+  function insert(q: ProcessedQueryable, groupId: string, outboxId: string): Promise<unknown> {
+    return q.query(
+      `INSERT INTO ${table} (group_id, outbox_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [groupId, outboxId],
+    );
+  }
 }
 
 // ---- dead-letter record ------------------------------------------------------------------------------------
@@ -105,6 +118,13 @@ export interface HandlerContext {
   offset: string;
   /** 1 on the first try. */
   attempt: number;
+  /**
+   * Atomic dedupe: call it INSIDE your transaction with that transaction's client (`await ctx.markProcessed(tx)`)
+   * and the processed row commits with your side effects; the SDK then skips its own mark after the handler.
+   * Needs a store with `markProcessedWith` (the Postgres store). Without an argument it marks through the store
+   * directly (same as not calling it).
+   */
+  markProcessed(q?: ProcessedQueryable): Promise<void>;
 }
 
 export type EventHandler = (message: DecodedMessage, ctx: HandlerContext) => Promise<void>;
@@ -159,6 +179,10 @@ export interface ConsumerOptions {
   fromBeginning?: boolean;
   /** Test seam: wait between attempts (default: real timers). */
   sleep?: (ms: number) => Promise<void>;
+  /** kafkajs group timeouts. Defaults: session 10 s, heartbeat 3 s, rebalance 60 s. */
+  sessionTimeoutMs?: number;
+  heartbeatIntervalMs?: number;
+  rebalanceTimeoutMs?: number;
 }
 
 export interface ConsumerStats {
@@ -305,9 +329,23 @@ export function createConsumer(opts: ConsumerOptions): EventConsumer {
     }
 
     for (let attempt = 1; ; attempt++) {
+      let marked = false;
+      const markProcessed = async (q?: ProcessedQueryable): Promise<void> => {
+        if (q) {
+          if (!processed.markProcessedWith) {
+            throw new Error(
+              'ctx.markProcessed(tx) needs a processed store with markProcessedWith (the Postgres store)',
+            );
+          }
+          await processed.markProcessedWith(q, opts.groupId, outboxId);
+        } else {
+          await processed.markProcessed(opts.groupId, outboxId);
+        }
+        marked = true;
+      };
       try {
-        await opts.handler(decoded, { ...ctxBase, attempt });
-        await processed.markProcessed(opts.groupId, outboxId);
+        await opts.handler(decoded, { ...ctxBase, attempt, markProcessed });
+        if (!marked) await processed.markProcessed(opts.groupId, outboxId);
         stats.handled += 1;
         return;
       } catch (err) {
@@ -348,6 +386,7 @@ export function createConsumer(opts: ConsumerOptions): EventConsumer {
         partition: batch.partition,
         offset: message.offset,
         attempt: 0,
+        markProcessed: async () => {},
       };
       try {
         await opts.onBeforeCommit?.(ctx);
@@ -387,10 +426,14 @@ export function createConsumer(opts: ConsumerOptions): EventConsumer {
       retry: { retries: 3 },
     });
     await producer.connect();
+    // Timeouts: a message's retries (default 5 attempts, backoff 200 ms → 3 s, ≈ 6 s of waiting) stay inside one
+    // session because the loop heartbeats between attempts; the handler itself must return (or throw) well
+    // within the session timeout, or raise it here. Rebalance: the time a member has to rejoin.
     consumer = kafka.consumer({
       groupId: `${prefix}${opts.groupId}`,
-      sessionTimeout: 10_000,
-      heartbeatInterval: 3_000,
+      sessionTimeout: opts.sessionTimeoutMs ?? 10_000,
+      heartbeatInterval: opts.heartbeatIntervalMs ?? 3_000,
+      rebalanceTimeout: opts.rebalanceTimeoutMs ?? 60_000,
     });
     await consumer.connect();
     await consumer.subscribe({ topics: wireTopics, fromBeginning: opts.fromBeginning ?? true });

@@ -10,6 +10,7 @@ import {
   errorClassOf,
   type DeadLetter,
   type EventHandler,
+  type ProcessedQueryable,
   type ProcessedStore,
 } from './consumer.js';
 import { decodeMessage, HEADER_OUTBOX_ID } from './relay-message.js';
@@ -83,61 +84,91 @@ async function readTopicToEnd(
   return out;
 }
 
-/** Fetches specific messages by (topic, partition, offset) with a throwaway group that seeks to the lowest wanted offset. */
+/**
+ * Fetches specific messages by (topic, partition, offset). Bounded by the partitions' current watermarks: an
+ * offset below the low watermark (retention took it) or at/above the high watermark does not exist and is
+ * reported as missing without waiting; the read stops once every partition passed its highest wanted offset.
+ * A missing original never tombstones its DLQ entry (replayFromDlq reports it per entry and keeps the entry).
+ */
 async function fetchOriginals(
   kafka: Kafka,
   wanted: DeadLetter[],
   groupId: string,
   timeoutMs: number,
-): Promise<Map<string, KafkaMessage>> {
+): Promise<{ found: Map<string, KafkaMessage>; missing: Set<string> }> {
   const found = new Map<string, KafkaMessage>();
-  if (wanted.length === 0) return found;
-  const want = new Map<string, Set<string>>(); // `${topic}:${partition}` → offsets
+  const missing = new Set<string>();
+  if (wanted.length === 0) return { found, missing };
+
+  // watermarks per (topic, partition)
+  const admin = kafka.admin();
+  await admin.connect();
+  const marks = new Map<string, { low: number; high: number }>();
+  try {
+    for (const topic of new Set(wanted.map((d) => d.topic))) {
+      for (const p of await admin.fetchTopicOffsets(topic)) {
+        marks.set(`${topic}:${p.partition}`, { low: Number(p.low), high: Number(p.high) });
+      }
+    }
+  } finally {
+    await admin.disconnect();
+  }
+
+  const want = new Map<string, Set<number>>(); // `${topic}:${partition}` → offsets that exist
   for (const d of wanted) {
     const k = `${d.topic}:${d.partition}`;
-    want.set(k, new Set([...(want.get(k) ?? []), d.offset]));
+    const m = marks.get(k);
+    const offset = Number(d.offset);
+    if (!m || offset < m.low || offset >= m.high) {
+      missing.add(`${k}:${d.offset}`);
+      continue;
+    }
+    want.set(k, new Set([...(want.get(k) ?? []), offset]));
   }
-  const topics = [...new Set(wanted.map((d) => d.topic))];
+  if (want.size === 0) return { found, missing };
+
+  const maxWanted = new Map([...want].map(([k, s]) => [k, Math.max(...s)]));
+  const done = new Set<string>();
+  const topics = [...new Set([...want.keys()].map((k) => k.slice(0, k.lastIndexOf(':'))))];
   const consumer = kafka.consumer({ groupId, sessionTimeout: 10_000 });
   await consumer.connect();
   await consumer.subscribe({ topics, fromBeginning: true });
-  let remaining = wanted.length;
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(
       () =>
         reject(
           new Error(
-            `fetched ${wanted.length - remaining} of ${wanted.length} original message(s) within ${timeoutMs} ms`,
+            `fetched ${found.size} of ${wanted.length - missing.size} original message(s) within ${timeoutMs} ms`,
           ),
         ),
       timeoutMs,
     );
+    const finish = () => {
+      clearTimeout(timer);
+      resolve();
+    };
     consumer
       .run({
         eachMessage: async ({ topic, partition, message }) => {
           const k = `${topic}:${partition}`;
-          if (want.get(k)?.has(message.offset)) {
-            found.set(`${k}:${message.offset}`, message);
-            remaining -= 1;
-            if (remaining === 0) {
-              clearTimeout(timer);
-              resolve();
-            }
-          }
+          const offset = Number(message.offset);
+          if (want.get(k)?.has(offset)) found.set(`${k}:${message.offset}`, message);
+          if (offset >= (maxWanted.get(k) ?? -1)) done.add(k);
+          if (done.size >= want.size) finish();
         },
       })
       .catch(reject);
-    // seek each partition to the lowest wanted offset (after run(): kafkajs applies it on the next fetch)
+    // seek each partition to its lowest wanted offset (after run(): kafkajs applies it on the next fetch)
     for (const [k, offsets] of want) {
-      const [topic, partition] = [
-        k.slice(0, k.lastIndexOf(':')),
-        Number(k.slice(k.lastIndexOf(':') + 1)),
-      ];
-      const lowest = [...offsets].map(Number).sort((a, b) => a - b)[0]!;
-      consumer.seek({ topic, partition, offset: String(lowest) });
+      const topic = k.slice(0, k.lastIndexOf(':'));
+      const partition = Number(k.slice(k.lastIndexOf(':') + 1));
+      consumer.seek({ topic, partition, offset: String(Math.min(...offsets)) });
     }
   }).finally(() => consumer.disconnect().catch(() => {}));
-  return found;
+  for (const [k, offsets] of want) {
+    for (const o of offsets) if (!found.has(`${k}:${o}`)) missing.add(`${k}:${o}`);
+  }
+  return { found, missing };
 }
 
 export interface ReplayResult {
@@ -182,7 +213,7 @@ export async function replayFromDlq(opts: ReplayOptions): Promise<ReplayResult> 
   const result: ReplayResult = { entries: entries.length, replayed: [], failed: [], missing: [] };
   if (opts.dryRun || entries.length === 0) return result;
 
-  const originals = await fetchOriginals(
+  const { found: originals, missing } = await fetchOriginals(
     kafka,
     entries,
     `${prefix}dlq-fetch-${opts.groupId}-${Math.random().toString(36).slice(2, 8)}`,
@@ -196,8 +227,10 @@ export async function replayFromDlq(opts: ReplayOptions): Promise<ReplayResult> 
   await producer.connect();
   try {
     for (const entry of entries) {
-      const original = originals.get(`${entry.topic}:${entry.partition}:${entry.offset}`);
+      const key = `${entry.topic}:${entry.partition}:${entry.offset}`;
+      const original = missing.has(key) ? undefined : originals.get(key);
       if (!original) {
+        // retention took it, or the entry points nowhere: reported, and the DLQ entry stays (never tombstoned)
         result.missing.push(entry.outbox_id);
         continue;
       }
@@ -216,13 +249,29 @@ export async function replayFromDlq(opts: ReplayOptions): Promise<ReplayResult> 
       let ok = false;
       for (let attempt = 1; attempt <= retries; attempt++) {
         try {
+          let marked = false;
+          const markProcessed = async (q?: ProcessedQueryable): Promise<void> => {
+            if (q) {
+              if (!processed.markProcessedWith) {
+                throw new Error(
+                  'ctx.markProcessed(tx) needs a processed store with markProcessedWith',
+                );
+              }
+              await processed.markProcessedWith(q, opts.groupId, entry.outbox_id);
+            } else {
+              await processed.markProcessed(opts.groupId, entry.outbox_id);
+            }
+            marked = true;
+          };
           await opts.handler(decoded, {
             groupId: opts.groupId,
             topic: entry.topic,
             partition: entry.partition,
             offset: entry.offset,
             attempt,
+            markProcessed,
           });
+          if (!marked) await processed.markProcessed(opts.groupId, entry.outbox_id);
           ok = true;
           break;
         } catch (err) {
@@ -232,7 +281,6 @@ export async function replayFromDlq(opts: ReplayOptions): Promise<ReplayResult> 
         }
       }
       if (ok) {
-        await processed.markProcessed(opts.groupId, entry.outbox_id);
         await producer.send({
           topic: dlqTopic,
           acks: -1,

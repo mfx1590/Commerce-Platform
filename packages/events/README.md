@@ -173,7 +173,10 @@ const consumer = createConsumer({
   topics: ['order.placed', 'payment.captured', 'refund.issued'],
   processed: createPgProcessedStore(db, 'accounting_processed'), // your table: group_id, outbox_id, unique pair
   handler: async ({ envelope, outboxId }, ctx) => {
-    /* your side effect; throw to retry */
+    await db.transaction(async (tx) => {
+      /* your side effects on tx; throw to retry */
+      await ctx.markProcessed(tx); // the processed row commits WITH them: exactly once for this transaction
+    });
   },
 });
 await consumer.start(); // ensures dlq.accounting, subscribes, runs; SIGTERM → consumer.stop()
@@ -186,5 +189,9 @@ Guarantees: at-least-once from the bus, exactly once per group for your handler 
 processed store (a redelivery after a crash is a no-op); a poison message never blocks the partition (it goes to
 `dlq.<groupId>` with the error class and no payload, the offset is committed, the next message continues);
 an unknown topic or a newer version is skipped and logged, never a crash. Choose the processed store by the
-side effect: durable (your own table) for emails, ledger entries, anything that must not repeat; the memory
-store, or none, when the handler is idempotent anyway.
+side effect: durable (your own table) with `ctx.markProcessed(tx)` inside your transaction for emails, ledger
+entries, anything that must not repeat (the mark and the side effects commit together); the memory store, or
+none, when the handler is idempotent anyway — those are at-least-once only, because a crash between the
+handler and the mark reruns the handler. Replay from the DLQ reports an entry whose original message is gone
+(a 30-day topic past its retention) as `missing` and keeps the entry; it never tombstones what it did not
+handle. Group timeouts: session 10 s, heartbeat 3 s (sent between retry attempts), rebalance 60 s.
