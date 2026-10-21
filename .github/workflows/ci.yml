@@ -449,8 +449,8 @@ jobs:
         if: needs.changes.outputs.e2e == 'true'
         run: |
           pnpm exec turbo run build --filter='@platform/core^...'
-          pnpm --filter @platform/core exec vitest run test/auth-live.test.ts test/customers-api.test.ts             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/core-live.json"
-          node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/core-live.json"             'Integration 1: real Keycloak tokens + OpenFGA through mountCoreMiddleware'             'live: real customers-realm tokens through the real verifier'
+          pnpm --filter @platform/core exec vitest run test/auth-live.test.ts test/customers-api.test.ts src/outbox/relay.test.ts             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/core-live.json"
+          node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/core-live.json"             'Integration 1: real Keycloak tokens + OpenFGA through mountCoreMiddleware'             'live: real customers-realm tokens through the real verifier'             'relay against the local Redpanda (prefixed topics, self-cleaning)'
       # One command covers both suites: packages/auth-sdk/vitest.config.ts already collects
       # ../../apps/core/src/modules/hq-rbac/test/**, which is how window 2 wired them.
       # Through turbo, not `pnpm --filter ... test`, so `dependsOn: ^build` builds @platform/db and
