@@ -103,6 +103,14 @@ export interface DeadLetter {
   failed_at: string;
 }
 
+/** A misconfigured consumer (e.g. ctx.markProcessed(tx) with a store that cannot mark through a client): thrown out of the batch, never dead-lettered. */
+export class ConsumerConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConsumerConfigurationError';
+  }
+}
+
 export function errorClassOf(err: unknown): string {
   if (!(err instanceof Error)) return 'Error';
   const type = (err as Error & { type?: unknown }).type;
@@ -337,11 +345,17 @@ export function createConsumer(opts: ConsumerOptions): EventConsumer {
     }
 
     for (let attempt = 1; ; attempt++) {
+      // another instance of the group may have handled it between two attempts (a rebalance mid-retry)
+      if (attempt > 1 && (await processed.has(opts.groupId, outboxId))) {
+        stats.duplicates += 1;
+        log({ ...base, ...info, event: 'duplicate', attempt });
+        return;
+      }
       let marked = false;
       const markProcessed = async (q?: ProcessedQueryable): Promise<void> => {
         if (q) {
           if (!processed.markProcessedWith) {
-            throw new Error(
+            throw new ConsumerConfigurationError(
               'ctx.markProcessed(tx) needs a processed store with markProcessedWith (the Postgres store)',
             );
           }
@@ -357,6 +371,7 @@ export function createConsumer(opts: ConsumerOptions): EventConsumer {
         stats.handled += 1;
         return;
       } catch (err) {
+        if (err instanceof ConsumerConfigurationError) throw err; // misconfiguration: stop the consumer, no DLQ
         const errorClass = errorClassOf(err);
         if (attempt >= retries) {
           stats.dead_lettered += 1;

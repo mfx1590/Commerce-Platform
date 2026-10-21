@@ -117,9 +117,29 @@ describe('readTopicToEnd on a compacted topic (fake client)', () => {
     expect(read).toEqual([]);
   });
 
-  it('times out naming the partition that never reached its high watermark', async () => {
+  it('a partition whose last record was compacted away (high − 1 never arrives) is done after idleMs of silence', async () => {
+    const started = Date.now();
+    const read = await readTopicToEnd(
+      fakeClient({ 0: ['0', '1'] }, { 0: ['0', '5'] }),
+      'dlq.x',
+      'g',
+      5_000,
+      200,
+    );
+    expect(read.map((m) => m.offset)).toEqual(['0', '1']);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(190);
+    expect(Date.now() - started).toBeLessThan(3_000);
+  });
+
+  it('times out naming a partition that never delivered anything', async () => {
     await expect(
-      readTopicToEnd(fakeClient({ 0: ['0'] }, { 0: ['0', '5'] }), 'dlq.x', 'g', 300),
+      readTopicToEnd(
+        fakeClient({ 1: ['0'] }, { 0: ['0', '5'], 1: ['0', '1'] }),
+        'dlq.x',
+        'g',
+        400,
+        100,
+      ),
     ).rejects.toThrow(/partition\(s\) still short of their high watermark: 0/);
   });
 });
@@ -379,6 +399,64 @@ describe.runIf(brokerDown === null)(
       await until(() => second.stats.duplicates === 1, 20_000, 'the redelivery');
       expect(seen).toEqual(['fragile']); // handled once in total
       expect(second.stats).toMatchObject({ handled: 0, duplicates: 1 });
+    }, 60_000);
+
+    it('a store without markProcessedWith makes ctx.markProcessed(tx) a configuration error that stops the consumer — never a DLQ record', async () => {
+      const errors: string[] = [];
+      const c = track(
+        createConsumer({
+          groupId: 'misconfigured',
+          topics: [topic],
+          topicPrefix: prefix,
+          kafka,
+          fromBeginning: false,
+          processed: createMemoryProcessedStore(),
+          retries: 2,
+          log: (l) => {
+            if (l.event === 'dead_lettered') errors.push(l.error_class ?? '');
+          },
+          sleep: noWait,
+          handler: async (_m, ctx) => {
+            await ctx.markProcessed({ query: async () => ({ rows: [] }) });
+          },
+        }),
+      );
+      await c.start();
+      await new Promise((r) => setTimeout(r, 1_500));
+      await publish(event('cfg'));
+      await new Promise((r) => setTimeout(r, 2_500));
+      expect(c.stats.dead_lettered).toBe(0);
+      expect(errors).toEqual([]);
+      expect(await readDeadLetters('misconfigured', { kafka, topicPrefix: prefix })).toEqual([]);
+    }, 60_000);
+
+    it('has() is re-checked before every retry: an id another instance marked meanwhile is not retried', async () => {
+      const store = createMemoryProcessedStore();
+      let attempts = 0;
+      const c = track(
+        createConsumer({
+          groupId: 'raced',
+          topics: [topic],
+          topicPrefix: prefix,
+          kafka,
+          fromBeginning: false,
+          processed: store,
+          retries: 5,
+          log: quiet,
+          sleep: noWait,
+          handler: async (m) => {
+            attempts += 1;
+            await store.markProcessed('raced', m.outboxId); // "the other instance" won while we were failing
+            throw new Error('first attempt fails');
+          },
+        }),
+      );
+      await c.start();
+      await new Promise((r) => setTimeout(r, 1_500));
+      await publish(event('raced'));
+      await until(() => c.stats.duplicates === 1, 20_000, 'the duplicate verdict on retry');
+      expect(attempts).toBe(1);
+      expect(c.stats).toMatchObject({ handled: 0, retries: 1, duplicates: 1, dead_lettered: 0 });
     }, 60_000);
 
     it("atomic dedupe: ctx.markProcessed(tx) marks through the handler's own client and the SDK does not mark again", async () => {
