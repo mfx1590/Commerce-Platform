@@ -209,6 +209,19 @@ describe('relayOnce (database, recording publisher)', () => {
     expect((await relayOnce(hq, publisher, { organizationId: ORG, log: quiet })).batch).toBe(0);
   });
 
+  it('a pass of more than ten rows keeps seq order (ORDER BY the column, not the text alias)', async () => {
+    await drain(hq);
+    const ids = await emit(
+      hq,
+      Array.from({ length: 25 }, () => storeA),
+      'seq',
+    );
+    const { publisher, sent } = recording();
+    const r = await relayOnce(hq, publisher, { organizationId: ORG, log: quiet });
+    expect(r.published).toBe(25);
+    expect(sent[0]!.messages.map((m) => m.headers[HEADER_OUTBOX_ID])).toEqual(ids);
+  });
+
   it('a crash after the send and before the mark leaves the rows unpublished; the next pass sends them again (at-least-once)', async () => {
     const ids = await emit(hq, [storeA, storeA], 'crash');
     const { publisher, sent } = recording();
