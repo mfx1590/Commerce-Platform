@@ -185,3 +185,8 @@ registry is unreachable or lacks a schema; `--no-registry` for runbooks) and sta
 helper (1 partition, replication 1 by default; pass the production numbers through `dlq`), writes a record
 there after the last retry (key = outbox id, value = ids, offsets, attempts, error class — never the payload),
 and `replayFromDlq` writes a tombstone when a replay succeeds.
+
+**Replay (#534):** `pnpm --filter @platform/core outbox:replay --topic <t> [--from] [--to] [--store] [--dry-run]`
+republishes published outbox rows to the real topic with the same `outbox_id` (plus `replay: 1` /
+`replayed_at` headers). Consumers dedupe, so a replay is safe at any time; it is how a 30-day topic's history
+comes back for a consumer that fell behind, and how a new consumer group is fed what retention took.

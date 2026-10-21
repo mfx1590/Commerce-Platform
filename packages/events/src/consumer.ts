@@ -179,6 +179,14 @@ export interface ConsumerOptions {
   fromBeginning?: boolean;
   /** Test seam: wait between attempts (default: real timers). */
   sleep?: (ms: number) => Promise<void>;
+  /** Diagnostics seam: every batch kafkajs hands the consumer (topic, partition, first and last offset, size). */
+  onBatch?: (batch: {
+    topic: string;
+    partition: number;
+    first: string;
+    last: string;
+    size: number;
+  }) => void;
   /** kafkajs group timeouts. Defaults: session 10 s, heartbeat 3 s, rebalance 60 s. */
   sessionTimeoutMs?: number;
   heartbeatIntervalMs?: number;
@@ -377,8 +385,21 @@ export function createConsumer(opts: ConsumerOptions): EventConsumer {
 
   async function eachBatch(payload: EachBatchPayload): Promise<void> {
     const { batch, resolveOffset, heartbeat, isRunning, isStale } = payload;
+    // One commit per batch, after its last handled message (resolveOffset per message keeps kafkajs's view
+    // exact). A crash mid-batch redelivers the batch's earlier messages, which the processed store turns into
+    // duplicates: at-least-once as before, with one round trip per batch instead of one per message.
+    let lastOffset: string | undefined;
+    if (batch.messages.length > 0) {
+      opts.onBatch?.({
+        topic: batch.topic,
+        partition: batch.partition,
+        first: batch.messages[0]!.offset,
+        last: batch.messages[batch.messages.length - 1]!.offset,
+        size: batch.messages.length,
+      });
+    }
     for (const message of batch.messages) {
-      if (stopping || !isRunning() || isStale()) return;
+      if (stopping || !isRunning() || isStale()) break;
       await handleOne(payload, message);
       const ctx = {
         groupId: opts.groupId,
@@ -391,7 +412,7 @@ export function createConsumer(opts: ConsumerOptions): EventConsumer {
       try {
         await opts.onBeforeCommit?.(ctx);
       } catch (err) {
-        // the simulated crash: stop without committing; the message comes back on the next start
+        // the simulated crash: stop without committing anything of this batch; the messages come back
         log({
           consumer: 'events',
           group_id: opts.groupId,
@@ -406,14 +427,13 @@ export function createConsumer(opts: ConsumerOptions): EventConsumer {
         return;
       }
       resolveOffset(message.offset);
-      await consumer!.commitOffsets([
-        {
-          topic: batch.topic,
-          partition: batch.partition,
-          offset: String(Number(message.offset) + 1),
-        },
-      ]);
+      lastOffset = message.offset;
       await heartbeat();
+    }
+    if (lastOffset !== undefined && !stopping && consumer) {
+      await consumer.commitOffsets([
+        { topic: batch.topic, partition: batch.partition, offset: String(Number(lastOffset) + 1) },
+      ]);
     }
   }
 
