@@ -12,6 +12,18 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+const args = process.argv.slice(2);
+if (args.includes('--help') || args.includes('-h')) {
+  console.info('usage: register-schemas.mjs [--dry-run] [--url http://host:port]');
+  process.exit(0);
+}
+const i = args.indexOf('--url');
+if (i !== -1 && (args[i + 1] === undefined || args[i + 1].startsWith('--'))) {
+  console.error('register-schemas: --url needs a value (http://host:port)');
+  process.exit(2);
+}
+const dryRun = args.includes('--dry-run');
+
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = resolve(here, '../../packages/events/dist/index.js');
 if (!existsSync(dist)) {
@@ -24,18 +36,7 @@ const { createRegistryClient, registerAllSchemas, registryUrlFromEnv } = await i
   pathToFileURL(dist).href
 );
 
-const args = process.argv.slice(2);
-if (args.includes('--help') || args.includes('-h')) {
-  console.info('usage: register-schemas.mjs [--dry-run] [--url http://host:port]');
-  process.exit(0);
-}
-const i = args.indexOf('--url');
-if (i !== -1 && (args[i + 1] === undefined || args[i + 1].startsWith('--'))) {
-  console.error('register-schemas: --url needs a value (http://host:port)');
-  process.exit(2);
-}
 const url = i === -1 ? registryUrlFromEnv() : args[i + 1];
-const dryRun = args.includes('--dry-run');
 
 const client = createRegistryClient({ url });
 if (!(await client.reachable())) {

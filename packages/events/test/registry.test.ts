@@ -1,5 +1,8 @@
 // The schema registry (#532): client behaviour against a fake, and the live block against the local Redpanda
 // registry on t-<rand> subjects (self-cleaning; skipped with a printed reason when the registry is down).
+import { spawnSync } from 'node:child_process';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
   backwardIncompatibilities,
@@ -13,6 +16,20 @@ import {
   resolveSchemaIds,
   subjectFor,
 } from '../src/index.js';
+
+describe('register-schemas.mjs arguments', () => {
+  it('--url without a value is refused (exit 2) before anything is loaded', () => {
+    const script = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      '../../../infra/redpanda/register-schemas.mjs',
+    );
+    const r = spawnSync(process.execPath, [script, '--url'], { encoding: 'utf8' });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/--url needs a value/);
+    const r2 = spawnSync(process.execPath, [script, '--url', '--dry-run'], { encoding: 'utf8' });
+    expect(r2.status).toBe(2);
+  });
+});
 
 describe('registry client (fake transport)', () => {
   it('registryUrlFromEnv defaults to the local compose registry', () => {

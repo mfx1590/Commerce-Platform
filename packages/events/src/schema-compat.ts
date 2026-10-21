@@ -75,20 +75,6 @@ const KNOWN_KEYWORDS = new Set([
   '$defs',
   'definitions',
 ]);
-const UNINTERPRETED = new Set([
-  '$schema',
-  '$id',
-  '$comment',
-  'title',
-  'description',
-  'examples',
-  'default',
-  'deprecated',
-  'readOnly',
-  'writeOnly',
-  '$defs',
-  'definitions',
-]);
 
 const isObject = (v: unknown): v is S => !!v && typeof v === 'object' && !Array.isArray(v);
 const types = (s: S): string[] | null =>
@@ -283,7 +269,6 @@ export function backwardIncompatibilities(
       detail: `${key} is not understood by the checker; treat its change as breaking`,
     });
   }
-  void UNINTERPRETED;
 
   // oneOf / anyOf: every old alternative must still be accepted by some new alternative
   for (const key of ['oneOf', 'anyOf'] as const) {

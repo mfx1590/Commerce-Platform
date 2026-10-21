@@ -214,6 +214,7 @@ export {
 
 // Consumer SDK + dead-letter queue (#533).
 export {
+  ConsumerConfigurationError,
   createConsumer,
   createMemoryProcessedStore,
   createPgProcessedStore,

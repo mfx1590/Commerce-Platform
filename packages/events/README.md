@@ -178,7 +178,7 @@ const consumer = createConsumer({
   handler: async ({ envelope, outboxId }, ctx) => {
     await db.transaction(async (tx) => {
       /* your side effects on tx; throw to retry */
-      await ctx.markProcessed(tx); // the processed row commits WITH them: exactly once for this transaction
+      await ctx.markProcessed(tx); // the processed row commits WITH them: once per group for this transaction
     });
   },
 });
@@ -188,8 +188,10 @@ await consumer.start(); // ensures dlq.accounting, subscribes, runs; SIGTERM →
 await replayFromDlq({ groupId: 'accounting', handler, processed });
 ```
 
-Guarantees: at-least-once from the bus, exactly once per group for your handler when you give it a durable
-processed store (a redelivery after a crash is a no-op); a poison message never blocks the partition (it goes to
+Guarantees: at-least-once from the bus; with a durable processed store a redelivery after a crash is a
+no-op, and the side effects you commit in the same transaction as `ctx.markProcessed(tx)` happen once per
+group — anything else (the memory store, a mark after the handler, side effects outside that transaction) is
+at-least-once; a poison message never blocks the partition (it goes to
 `dlq.<groupId>` with the error class and no payload, the offset is committed, the next message continues);
 an unknown topic or a newer version is skipped and logged, never a crash. Choose the processed store by the
 side effect: durable (your own table) with `ctx.markProcessed(tx)` inside your transaction for emails, ledger

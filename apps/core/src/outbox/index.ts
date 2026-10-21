@@ -24,3 +24,14 @@ export {
   DEFAULT_STATEMENT_TIMEOUT_MS,
   DEFAULT_IDLE_IN_TRANSACTION_TIMEOUT_MS,
 } from './relay';
+
+// Replay from the outbox (#534): apps/core/src/outbox/replay.ts, CLI `pnpm --filter @platform/core outbox:replay`.
+export {
+  describeReplay,
+  HEADER_REPLAY,
+  HEADER_REPLAYED_AT,
+  replayOutbox,
+  type ReplayBatchLine,
+  type ReplayOptions,
+  type ReplaySummary,
+} from './replay';

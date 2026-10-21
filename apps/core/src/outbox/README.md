@@ -130,3 +130,29 @@ and the pass fails through its next statement, which the loop handles.
 `SCHEMA_REGISTRY_URL` default `http://127.0.0.1:18081`) and the relay stamps it as the `schema_id` header next to
 `version`. An unreachable registry or a schema the registry lacks refuses the start (`register-schemas.mjs`
 first); `--no-registry` publishes without the header, for runbooks only. `relayOnce({ schemaIds })` is the seam.
+
+## Replay — `replay.ts` (window 14, #534)
+
+`replayOutbox(client, publisher, { topic, from?, to?, storeId?, batchSize, dryRun })` republishes PUBLISHED rows
+of one topic in `seq` order, 500 per send, with the relay's wire format plus two headers, `replay: 1` and
+`replayed_at`; it writes nothing to the database. The outbox is the source of truth and the bus a delivery
+window, so a replay is how a consumer recovers what retention took, and how a new consumer rebuilds: the same
+`outbox_id` travels, a group that handled the rows dedupes them, a fresh group handles them. `--dry-run` prints
+the counts (rows, per store, oldest and newest `occurred_at`) and sends nothing. A send that fails stops the
+replay with the summary so far and the last `seq` in the error; rerunning is safe.
+
+```bash
+pnpm --filter @platform/core outbox:replay --topic order.placed [--from 2026-10-01T00:00:00Z] [--to <ts>] [--store <id>] [--dry-run] [--batch 500] [--no-registry]
+```
+
+Same environment as the relay. The CLI checks the topic exists on the broker and resolves the schema ids first.
+
+**The 10k test** (`replay.test.ts`): 10,000 orders over three stores = 30,000 rows (`order.placed`,
+`payment.authorized`, `order.confirmed`) seeded through `withEvents`, drained by the relay into prefixed
+3-partition topics, consumed by the SDK — every event once, per store and per topic in `seq` order — then
+`order.placed` replayed from the outbox (10,000 rows): the handler count stays at 30,000 and the duplicates count
+reaches 10,000. It prints `{ test: "replay-10k", insert_ms, relay_ms, consume_ms, replay_ms, replay_consume_ms }`
+and bounds each; `REPLAY_TEST_ORDERS` scales it down for a quick run. It found a real bug on its first run: the
+relay's `ORDER BY seq` resolved to the select list's `seq::text AS seq` alias and sorted as TEXT ("10" before
+"2"); every earlier test had fewer than ten rows. Both queries now order by the qualified table column (`o.seq`)
+and `relay.test.ts` has a 25-row regression test.

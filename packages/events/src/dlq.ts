@@ -6,6 +6,7 @@
 // success; a failure writes a fresh record (attempts + 1) so the entry stays visible.
 import type { Kafka, KafkaMessage } from 'kafkajs';
 import {
+  ConsumerConfigurationError,
   createMemoryProcessedStore,
   errorClassOf,
   type DeadLetter,
@@ -61,13 +62,18 @@ export interface TopicReaderClient {
  * Every message of a topic up to its current high watermarks, bounded by `timeoutMs`. A partition is finished
  * once the consumed offset reaches `high − 1` (or it is empty, `high === low`); the message COUNT is only an upper
  * bound, because a compacted topic (every DLQ is one) has offset gaps where compaction removed records and
- * tombstones — counting to Σ(high − low) would never finish after the first replay.
+ * tombstones — counting to Σ(high − low) would never finish after the first replay. And `high − 1` itself may be
+ * gone (the last record was a tombstone that compaction removed after a segment roll), so a partition that stays
+ * silent for `idleMs` after its last message is done too. A partition that never delivers anything only ends by
+ * the overall timeout, which names it.
  */
 export async function readTopicToEnd(
   kafka: TopicReaderClient,
   topic: string,
   groupId: string,
   timeoutMs: number,
+  /** A partition that received a message and then nothing for this long is done (its last record may have been a tombstone compaction removed). */
+  idleMs = 1_500,
 ): Promise<KafkaMessage[]> {
   const admin = kafka.admin();
   await admin.connect();
@@ -82,6 +88,7 @@ export async function readTopicToEnd(
   const out: KafkaMessage[] = [];
   if (lastOffset.size === 0) return out;
   const pending = new Set(lastOffset.keys());
+  const idleTimers = new Map<number, NodeJS.Timeout>();
   const consumer = kafka.consumer({ groupId, sessionTimeout: 10_000 });
   await consumer.connect();
   await consumer.subscribe({ topic, fromBeginning: true });
@@ -99,16 +106,29 @@ export async function readTopicToEnd(
       .run({
         eachMessage: async ({ partition, message }) => {
           out.push(message);
-          if (Number(message.offset) >= (lastOffset.get(partition) ?? -1))
+          const done = () => {
             pending.delete(partition);
-          if (pending.size === 0) {
-            clearTimeout(timer);
-            resolve();
+            clearTimeout(idleTimers.get(partition));
+            idleTimers.delete(partition);
+            if (pending.size === 0) {
+              clearTimeout(timer);
+              resolve();
+            }
+          };
+          if (Number(message.offset) >= (lastOffset.get(partition) ?? -1)) {
+            done();
+          } else {
+            // high − 1 may never arrive (a compacted tombstone was the last record): idle after the last message = done
+            clearTimeout(idleTimers.get(partition));
+            idleTimers.set(partition, setTimeout(done, idleMs));
           }
         },
       })
       .catch(reject);
-  }).finally(() => consumer.disconnect().catch(() => {}));
+  }).finally(() => {
+    for (const t of idleTimers.values()) clearTimeout(t);
+    return consumer.disconnect().catch(() => {});
+  });
   return out;
 }
 
@@ -281,7 +301,7 @@ export async function replayFromDlq(opts: ReplayOptions): Promise<ReplayResult> 
           const markProcessed = async (q?: ProcessedQueryable): Promise<void> => {
             if (q) {
               if (!processed.markProcessedWith) {
-                throw new Error(
+                throw new ConsumerConfigurationError(
                   'ctx.markProcessed(tx) needs a processed store with markProcessedWith',
                 );
               }
@@ -303,6 +323,7 @@ export async function replayFromDlq(opts: ReplayOptions): Promise<ReplayResult> 
           ok = true;
           break;
         } catch (err) {
+          if (err instanceof ConsumerConfigurationError) throw err;
           lastError = errorClassOf(err);
           if (attempt < retries)
             await sleep(Math.min(backoff.maxMs, backoff.initialMs * 2 ** (attempt - 1)));
