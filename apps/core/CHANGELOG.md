@@ -2,6 +2,12 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-20 · outbox scripts for window 14 (REQUEST #538)
+
+- `package.json`: `outbox:relay` (`tsx src/outbox/relay-cli.ts`, #531) and `outbox:replay`
+  (`tsx src/outbox/replay-cli.ts`, #534). Both files are window 14's and land with their PRs; a script whose file
+  does not exist yet fails only when invoked.
+
 ### 2026-10-20 · tax rates for a store + readiness requires them (#520, CONTRACT CHANGE #522, contracts 0.4.26)
 
 - Admin API `listTaxRates` (viewer), `createTaxRate` / `updateTaxRate` / `deleteTaxRate` (store_admin) on

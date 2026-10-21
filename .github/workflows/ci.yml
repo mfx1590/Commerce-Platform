@@ -389,6 +389,10 @@ jobs:
     needs: [changes]
     env:
       KEYCLOAK_URL: http://localhost:8180
+      # Redpanda (#530, #536): the external Kafka listener of the compose stack. 127.0.0.1, never localhost
+      # (Node 20 resolves localhost to ::1 first). Only this job boots the broker, so only it waits for it.
+      KAFKA_BROKERS: 127.0.0.1:19092
+      WAIT_FOR_REDPANDA: '1'
       OPENFGA_API_URL: http://localhost:8081
       # The compose stack puts Postgres on 5433, unlike the `unit` job's service container on 5432.
       DATABASE_URL: postgres://platform:platform@localhost:5433/platform
@@ -412,10 +416,24 @@ jobs:
         if: needs.changes.outputs.e2e == 'true'
         run: >-
           docker compose -f infra/docker/docker-compose.yml -f infra/ci/compose.keycloak-events.yml
-          up -d postgres redis keycloak openfga
+          up -d postgres redis keycloak openfga redpanda
       - name: the auth stack is really up (the live suites skip silently otherwise)
         if: needs.changes.outputs.e2e == 'true'
         run: bash infra/ci/wait-for-auth-stack.sh
+      # Redpanda topics + the events live block (#530, #536). The topic list is derived from packages/events;
+      # the script is idempotent (the dry run then shows nothing to create). The live block creates its own
+      # prefixed topics and deletes them; require-live-tests makes a probe that misses fail the step instead of
+      # skipping it. From #531 the relay tests run in this step; from #534 the 10k replay.
+      - name: redpanda topics + the events live block — and it really ran
+        if: needs.changes.outputs.e2e == 'true'
+        run: |
+          pnpm exec turbo run build --filter=@platform/events
+          node infra/redpanda/create-topics.mjs --env ci
+          node infra/redpanda/create-topics.mjs --env ci --dry-run
+          pnpm --filter @platform/events exec vitest run \
+            --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/events-live.json"
+          node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/events-live.json" \
+            'ensureTopics against the local Redpanda (prefixed, self-cleaning)'
       # The core's own live suites (#297): until now they ran in no CI job — the `unit` job has no
       # Keycloak, so `describe.runIf(live)` skipped them there, quietly. Here the stack is up, and the
       # report is checked so a probe that misses fails the step instead of skipping the block. Each
@@ -508,7 +526,7 @@ jobs:
         run: bash infra/ci/run-e2e.sh
       - name: keycloak and openfga logs on failure
         if: failure() && needs.changes.outputs.e2e == 'true'
-        run: docker compose -f infra/docker/docker-compose.yml logs --tail=100 keycloak openfga
+        run: docker compose -f infra/docker/docker-compose.yml logs --tail=100 keycloak openfga redpanda
       - uses: actions/upload-artifact@v4
         if: failure() && needs.changes.outputs.e2e == 'true'
         with:
