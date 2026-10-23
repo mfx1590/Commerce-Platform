@@ -12,3 +12,5 @@ dist/
 
 # rendered emails written by apps/notifications' dev transport (NOTIFICATIONS_DIR local default); contain recipients
 .notifications/
+# ops alerts written by apps/engagement's dev transport (ENGAGEMENT_DIR local default; window 16, #553)
+.engagement/
