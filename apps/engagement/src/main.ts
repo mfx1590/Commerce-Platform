@@ -10,6 +10,11 @@ import { createCdpConsumer } from './cdp/consumer.js';
 import { MemoryCdpAdapter } from './cdp/adapter/memory.js';
 import { RudderStackCdpAdapter } from './cdp/adapter/rudderstack.js';
 import type { CdpAdapter } from './cdp/types.js';
+import { createCrmConsumer } from './crm/consumer.js';
+import { createAdminApiReader, mockTokenProvider } from './crm/admin-api.js';
+import { MemoryCrmAdapter } from './crm/adapter/memory.js';
+import { TwentyCrmAdapter } from './crm/adapter/twenty.js';
+import type { CrmAdapter, TokenProvider } from './crm/types.js';
 import { createOpsConsumer } from './ops/consumer.js';
 import { createRateLimiter } from './ops/rate-limit.js';
 import { runDlqWatch } from './ops/dlq-watch.js';
@@ -35,6 +40,32 @@ export function buildCdpAdapter(config: EngagementConfig): CdpAdapter {
     });
   }
   return new MemoryCdpAdapter();
+}
+
+/** The CRM adapter the config asks for. `memory` is what runs until a Twenty instance exists. */
+export function buildCrmAdapter(config: EngagementConfig): CrmAdapter {
+  if (config.crm.adapter === 'twenty') {
+    return new TwentyCrmAdapter({
+      baseUrl: config.crm.baseUrl as string,
+      apiKey: config.crm.apiKey as string,
+      externalIdField: config.crm.externalIdField,
+    });
+  }
+  return new MemoryCrmAdapter();
+}
+
+/**
+ * The Admin API principal. Only the mock exists today: the real `crm-sync` service account is #565, accepted
+ * and routed to window 2, and `client_credentials` is refused here until it is built rather than silently
+ * falling back to the mock.
+ */
+export function buildTokenProvider(config: EngagementConfig): TokenProvider {
+  if (config.crm.tokenProvider === 'client_credentials') {
+    throw new Error(
+      'ENGAGEMENT_CRM_TOKEN_PROVIDER=client_credentials is not implemented yet (REQUEST #565)',
+    );
+  }
+  return mockTokenProvider();
 }
 
 function logLine(line: EngagementLogLine): void {
@@ -97,6 +128,21 @@ async function main(): Promise<void> {
     : null;
   if (cdp) await cdp.start();
 
+  // The CRM consumer, likewise its own group and off until a CRM and a service account exist (#555, #565).
+  const crm = config.crm.enabled
+    ? createCrmConsumer({
+        hq,
+        pool,
+        adapter: buildCrmAdapter(config),
+        customers: createAdminApiReader({
+          baseUrl: config.crm.adminApiUrl,
+          tokens: buildTokenProvider(config),
+        }),
+        log: (line) => console.info(JSON.stringify(line)),
+      })
+    : null;
+  if (crm) await crm.start();
+
   const timer = setInterval(() => {
     void runDlqWatch({
       groups: config.dlq.groups,
@@ -123,6 +169,7 @@ async function main(): Promise<void> {
     clearInterval(timer);
     await consumer.stop();
     if (cdp) await cdp.stop();
+    if (crm) await crm.stop();
     await pool.end();
   };
   process.on('SIGTERM', () => void stop());

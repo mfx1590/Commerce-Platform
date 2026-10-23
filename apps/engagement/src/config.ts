@@ -6,10 +6,12 @@
 
 import { SEED_IDS } from '@platform/db';
 import { CDP_GROUP_ID } from './cdp/consumer.js';
+import { CRM_GROUP_ID } from './crm/consumer.js';
 import { OPS_GROUP_ID } from './ops/consumer.js';
 
 export type TransportName = 'dev' | 'slack';
 export type CdpAdapterName = 'memory' | 'rudderstack';
+export type CrmAdapterName = 'memory' | 'twenty';
 
 export interface EngagementConfig {
   /** The `platform_app` role (RLS applies); the service runs an organization-scoped client. */
@@ -24,6 +26,26 @@ export interface EngagementConfig {
   rateLimit: { max: number; windowMs: number };
   dlq: { groups: string[]; threshold: number; pollMs: number };
   cdp: CdpConfig;
+  crm: CrmConfig;
+}
+
+export interface CrmConfig {
+  /** `false` keeps the CRM consumer off entirely (the default until a Twenty instance exists). */
+  enabled: boolean;
+  adapter: CrmAdapterName;
+  /** Only when `adapter === 'twenty'`. */
+  baseUrl?: string;
+  apiKey?: string;
+  /** The custom field on Twenty's person object holding OUR customer id. */
+  externalIdField: string;
+  /** The core Admin API the PII is read from. */
+  adminApiUrl: string;
+  /**
+   * `mock` until the `crm-sync` service account exists (#565, accepted and routed to window 2). A mock token
+   * is refused in production: a CRM sync running without a real principal would be silently syncing nothing,
+   * or worse, acting as somebody else.
+   */
+  tokenProvider: 'mock' | 'client_credentials';
 }
 
 export interface CdpConfig {
@@ -49,7 +71,7 @@ export interface ResolveOptions {
  * rather than "the one I am" (#562 review). IN PRODUCTION the variable must list EVERY group on the bus,
  * including other windows' (`accounting`, …): this default can only know its own.
  */
-export const KNOWN_GROUPS = [OPS_GROUP_ID, CDP_GROUP_ID] as const;
+export const KNOWN_GROUPS = [OPS_GROUP_ID, CDP_GROUP_ID, CRM_GROUP_ID] as const;
 
 const DEFAULTS = {
   dir: '.engagement',
@@ -97,6 +119,7 @@ export function resolveConfig(opts: ResolveOptions = {}): EngagementConfig {
   }
 
   const cdp = resolveCdp(env, isProduction);
+  const crm = resolveCrm(env, isProduction);
 
   const groups = (env.ENGAGEMENT_DLQ_GROUPS?.trim() || KNOWN_GROUPS.join(','))
     .split(',')
@@ -127,6 +150,57 @@ export function resolveConfig(opts: ResolveOptions = {}): EngagementConfig {
       pollMs: intFrom(env.ENGAGEMENT_DLQ_POLL_MS, DEFAULTS.dlqPollMs, 'ENGAGEMENT_DLQ_POLL_MS'),
     },
     cdp,
+    crm,
+  };
+}
+
+/**
+ * The CRM side (#555). OFF by default, like the CDP: no Twenty instance and no service account exist yet.
+ * `memory` and the mock token provider are both refused in production when it is enabled.
+ */
+function resolveCrm(env: Record<string, string | undefined>, isProduction: boolean): CrmConfig {
+  const enabled = (env.ENGAGEMENT_CRM_ENABLED?.trim() || '0') === '1';
+  const adapter = (env.ENGAGEMENT_CRM_ADAPTER?.trim() || 'memory') as CrmAdapterName;
+  if (adapter !== 'memory' && adapter !== 'twenty') {
+    throw new Error(`ENGAGEMENT_CRM_ADAPTER must be "memory" or "twenty" (got "${adapter}")`);
+  }
+  if (enabled && isProduction && adapter === 'memory') {
+    throw new Error(
+      'ENGAGEMENT_CRM_ADAPTER=memory is refused in production (nothing would be synced)',
+    );
+  }
+
+  const tokenProvider = (env.ENGAGEMENT_CRM_TOKEN_PROVIDER?.trim() || 'mock') as
+    'mock' | 'client_credentials';
+  if (tokenProvider !== 'mock' && tokenProvider !== 'client_credentials') {
+    throw new Error(
+      `ENGAGEMENT_CRM_TOKEN_PROVIDER must be "mock" or "client_credentials" (got "${tokenProvider}")`,
+    );
+  }
+  if (enabled && isProduction && tokenProvider === 'mock') {
+    throw new Error(
+      'ENGAGEMENT_CRM_TOKEN_PROVIDER=mock is refused in production (no real service principal)',
+    );
+  }
+
+  const base: CrmConfig = {
+    enabled,
+    adapter,
+    externalIdField: env.TWENTY_EXTERNAL_ID_FIELD?.trim() || 'externalId',
+    adminApiUrl: env.ADMIN_API_URL?.trim() || 'http://localhost:9000',
+    tokenProvider,
+  };
+  if (adapter === 'memory') return base;
+
+  const baseUrl = env.TWENTY_BASE_URL?.trim() || undefined;
+  const apiKey = env.TWENTY_API_KEY?.trim() || undefined;
+  if (enabled && (!baseUrl || !apiKey)) {
+    throw new Error('ENGAGEMENT_CRM_ADAPTER=twenty requires TWENTY_BASE_URL and TWENTY_API_KEY');
+  }
+  return {
+    ...base,
+    ...(baseUrl ? { baseUrl } : {}),
+    ...(apiKey ? { apiKey } : {}),
   };
 }
 

@@ -80,6 +80,8 @@ export function mapEvent(envelope: EventEnvelopeV1Base, ctx: MapContext): CdpCal
   const base = {
     identity: ctx.identity,
     timestamp: envelope.occurred_at,
+    // `event_id` IS the outbox id by contract (ADR 0003 item 2), which is the key the SDK dedupes on, so the
+    // CDP can de-duplicate a repeated call on exactly the same key.
     messageId: envelope.event_id,
   };
   const store = { store_code: ctx.storeCode };
