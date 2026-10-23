@@ -407,6 +407,30 @@ describe('the discrepant month (its own database: the same events, one differenc
     expect(await count("ledger_entry WHERE journal = 'bank'")).toBe(b.length * 2);
   });
 
+  it('a SECOND full pass finds the same four kinds on the same payouts, posts nothing, payout 2 stays discrepant (later payouts never widen an earlier window)', async () => {
+    // Fable review of #571: the window start took the max over every OTHER payout, later ones included, so a
+    // re-import of payout 2 after 3 and 4 existed saw an empty window, came out clean and POSTED the bank entry for
+    // a payout that omits a capture. Only payouts strictly earlier (arrival_date, payout id) may start the window.
+    const before = await count('ledger_entry');
+    const deps = { client: d.hq, source: createFixtureSource(files), log };
+    const again = await reconcileAll(deps, LE_A);
+    expect(again.map((r) => r.discrepancies.map((x) => x.kind))).toEqual([
+      ['unmatched_charge'],
+      ['unmatched_ledger_line'],
+      ['fee_difference'],
+      ['amount_difference'],
+    ]);
+    expect(again.map((r) => [r.status, r.posted, r.already_reconciled])).toEqual(
+      again.map(() => ['discrepant', false, false]),
+    );
+    expect(await count('ledger_entry')).toBe(before);
+    const p2 = await d.hq.query<{ status: string; posted_at: Date | null }>(
+      'SELECT status, posted_at FROM psp_payout WHERE legal_entity_id = $1 AND provider_payout_id = $2',
+      [LE_A, files[0]!.payouts[1]!.payout_id],
+    );
+    expect(p2.rows[0]).toEqual({ status: 'discrepant', posted_at: null });
+  });
+
   it('a discrepant payout imported again is re-matched, not skipped; still nothing posted', async () => {
     const deps = { client: d.hq, source: createFixtureSource(files), log };
     const again = await reconcilePayout(deps, LE_A, files[0]!.payouts[0]!.payout_id);

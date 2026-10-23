@@ -83,7 +83,11 @@ async function loadLedger(
   };
 }
 
-/** The latest ledger time any OTHER payout of the legal entity matched: the exclusive start of this payout's window. */
+/**
+ * The latest ledger time an EARLIER payout of this legal entity and provider matched — earlier by (arrival_date,
+ * provider_payout_id) — the exclusive start of this payout's window. Later payouts never count: a re-import of an
+ * older payout must see the same window it saw the first time (Fable review of #571).
+ */
 async function windowStartBefore(
   tx: Queryable,
   legalEntityId: string,
@@ -91,13 +95,16 @@ async function windowStartBefore(
   payoutRowId: string,
 ): Promise<LedgerWindow> {
   const r = await tx.query<{ payments: Date | null; refunds: Date | null }>(
-    `SELECT
+    `WITH me AS (SELECT arrival_date, provider_payout_id FROM psp_payout WHERE id = $2),
+          earlier AS (
+            SELECT o.id FROM psp_payout o, me
+             WHERE o.legal_entity_id = $1 AND o.provider = $3 AND o.id <> $2
+               AND (o.arrival_date, o.provider_payout_id) < (me.arrival_date, me.provider_payout_id))
+     SELECT
        (SELECT max(p.captured_at) FROM psp_payout_line l JOIN accounting_payment p ON p.payment_id = l.matched_reference_id
-         WHERE l.legal_entity_id = $1 AND l.payout_id <> $2 AND l.matched_reference_type = 'payment'
-           AND l.payout_id IN (SELECT id FROM psp_payout WHERE provider = $3)) AS payments,
+         WHERE l.legal_entity_id = $1 AND l.matched_reference_type = 'payment' AND l.payout_id IN (SELECT id FROM earlier)) AS payments,
        (SELECT max(r.issued_at) FROM psp_payout_line l JOIN accounting_refund r ON r.refund_id = l.matched_reference_id
-         WHERE l.legal_entity_id = $1 AND l.payout_id <> $2 AND l.matched_reference_type = 'refund'
-           AND l.payout_id IN (SELECT id FROM psp_payout WHERE provider = $3)) AS refunds`,
+         WHERE l.legal_entity_id = $1 AND l.matched_reference_type = 'refund' AND l.payout_id IN (SELECT id FROM earlier)) AS refunds`,
     [legalEntityId, payoutRowId, provider],
   );
   const row = r.rows[0];
@@ -274,14 +281,21 @@ export async function reconcilePayout(
   return result;
 }
 
-/** Every payout the source lists for the legal entity, oldest first. */
+/**
+ * Every payout the source lists for the legal entity, oldest first — sorted here by (arrival_date, payout_id)
+ * whatever order the source returned, because the window rule needs the earlier payouts matched before a later
+ * one (an out-of-order first import would report false unmatched ledger lines).
+ */
 export async function reconcileAll(
   deps: ReconcileDeps,
   legalEntityId: string,
 ): Promise<ReconcileResult[]> {
   const out: ReconcileResult[] = [];
-  for (const p of await deps.source.listPayouts(legalEntityId))
-    out.push(await reconcilePayout(deps, legalEntityId, p.payout_id));
+  const payouts = [...(await deps.source.listPayouts(legalEntityId))].sort(
+    (a, b) =>
+      a.arrival_date.localeCompare(b.arrival_date) || a.payout_id.localeCompare(b.payout_id),
+  );
+  for (const p of payouts) out.push(await reconcilePayout(deps, legalEntityId, p.payout_id));
   return out;
 }
 

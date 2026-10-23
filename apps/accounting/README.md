@@ -220,6 +220,15 @@ reference_type?, reference_id?, expected_minor?, actual_minor?, difference_minor
   After a clean reconciliation the PSP clearing account (1100) of the legal entity nets to exactly what the PSP
   still holds: captures net of fees minus refunds not yet paid out (tested on the clean month).
 
+- **Order of imports** — `reconcileAll` imports a legal entity's payouts oldest first (by arrival date, then payout id)
+  whatever order the source lists them, and the window start of a payout only ever comes from payouts EARLIER by
+  that same order (a re-import of an older payout sees the window it saw the first time; later payouts never widen
+  it). Importing single payouts by hand out of order reports false `unmatched_ledger_line` findings for the gap —
+  import oldest first.
+- **Known limits** — fee / adjustment / other rows (a Stripe fee row, a dispute adjustment) have no ledger
+  counterpart yet and are reported as `unmatched_charge` for now (#560 adds disputes); re-importing a payout whose
+  report now has FEWER rows than before keeps the earlier rows in `psp_payout_line` (lines are upserted, never
+  deleted) — the stale lines stay with their old verdict until the report is corrected and the payout re-matched.
 - **Idempotency** — `psp_payout` is UNIQUE per (legal entity, provider, payout id): a reconciled payout imported
   again is a no-op (`already_reconciled`), a discrepant one is re-matched (the ledger may have caught up) and posts
   once it is clean; `psp_payout_line` is UNIQUE per (payout, balance transaction).
@@ -253,7 +262,7 @@ creates `dlq.accounting.ledger` itself on first start.
 
 ## Tests
 
-`pnpm --filter @platform/accounting test` — 54 tests in five files:
+`pnpm --filter @platform/accounting test` — 55 tests in five files:
 
 - `src/posting/posting.test.ts` — pure: the arithmetic, the worked example of every topic above, partial shipments,
   proportional refunds and cancellations, every defect class, the netted life of one order.

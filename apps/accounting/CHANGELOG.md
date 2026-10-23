@@ -13,7 +13,12 @@
 - The ledger handler takes `pg_advisory_xact_lock(hashtext(order_id))` at the top of its transaction: a shipment parked
   at the same moment as its order.placed on another instance can no longer be orphaned (Fable review of #567, (a));
   tested with 12 shipment / order races. Header of `shipment-shipped.ts` says parking, not retry-then-DLQ.
-- Tests: 54 (+10: the race above; fixtures, matcher, the clean month to the cent with the clearing account equal to the open balance,
+- Fix (Fable review of #571): the window start of a payout came from every OTHER payout of the provider, later ones
+  included, so a re-import of an older discrepant payout saw an empty window, came out clean and posted its bank
+  entry; now only payouts strictly earlier by (arrival_date, payout id) count, `reconcileAll` sorts oldest first, and a
+  second-pass test pins it. README: import order, fee/adjustment rows as `unmatched_charge`, stale lines on a
+  shorter re-import.
+- Tests: 55 (+11: the race above, the second pass; fixtures, matcher, the clean month to the cent with the clearing account equal to the open balance,
   the discrepant month with each kind exactly once).
 
 ## 0.2.0 — 2026-10-23 (#548, 15.1)
