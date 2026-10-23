@@ -47,7 +47,9 @@ a file to edit; a change there is a `REQUEST:` to window 17.
 - `src/crm/consumer.ts` — group `engagement.crm`; consent before PII, erasure before everything
 - `src/crm/adapter/` — `memory.ts` (runs today), `twenty.ts` (upsert by our id, never by e-mail)
 - `src/support/auth.ts` — the two gates: staff token + `staff_user` row, then `support` on the store via FGA
-- `src/support/admin-api.ts` — the three reads, each with the AGENT's header; nothing cached
+- `src/support/admin-api.ts` — the three reads, each with the AGENT's header; nothing cached. Response types
+  come from `@platform/contracts/admin`, NEVER hand-written: `listOrders` is a `Page` of `items`, `total` is
+  `Money`, `getCustomer`/`getOrder` have no envelope
 - `src/support/context.ts` — pure normalisation + the glance summary; a gap becomes a `note`
 - `src/support/chatwoot.ts` — HMAC, freshness, seen-once; hashes the address on arrival
 - `src/support/server.ts` — node:http, three routes, `cache-control: no-store`
@@ -114,6 +116,14 @@ package yet.
   exists elsewhere.
 - The Chatwoot webhook resolves nothing and persists nothing, by ruling: it has no agent token and owns no
   table. Do not add a lookup or a service principal to it — that is a later phase.
+- The webhook signature is a real **HMAC** (`createHmac('sha256', secret)`), never `sha256(secret + body)`.
+  Chatwoot's documented header format is UNCONFIRMED; both bare-hex and `sha256=` are accepted and the exact
+  shape is a launch-checklist check.
+- **Validate every path id as a uuid in the route before calling anything** (404, not 400 — malformed and
+  absent must look the same), and `encodeURIComponent` every path segment in the reader. An unvalidated id in
+  a path can reach another Admin API route with the agent's own token.
+- Known limit, recorded not fixed: the store lookup precedes the permission check, so store codes are
+  enumerable by an authenticated staff user.
 - **CDP consent is READ-ONLY, from the `customer.consent` PROJECTION, at processing time** (manager ruling
   2026-10-23). Never the `customer_consent` ledger rows (window 13's semantics — a `REQUEST:` if the
   projection is not enough), never a write to either, never an API hop. Ignore the `marketing_consent` field

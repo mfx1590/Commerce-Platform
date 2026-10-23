@@ -233,6 +233,9 @@ importers:
       '@platform/auth-sdk':
         specifier: workspace:*
         version: link:../../packages/auth-sdk
+      '@platform/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@platform/db':
         specifier: workspace:*
         version: link:../../packages/db

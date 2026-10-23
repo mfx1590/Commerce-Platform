@@ -32,8 +32,9 @@ import type { Queryable, ScopedClient } from '@platform/db';
 
 /**
  * Who the gate says may be contacted. Declared HERE rather than imported from `cdp/types.ts`: this module is
- * service-wide, so it must not depend on one consumer's types. It is structurally identical to `GateIdentity`,
- * so a `GateIdentity` is a `GateIdentity` wherever the CDP wants one, with no conversion.
+ * service-wide, so it must not depend on one consumer's types. It is structurally identical to the CDP's
+ * `CdpIdentity`, so a `GateIdentity` is accepted wherever the CDP wants one — no conversion, no cast, and no
+ * import in this direction.
  */
 export interface GateIdentity {
   /** Our customer id, when one is known. */

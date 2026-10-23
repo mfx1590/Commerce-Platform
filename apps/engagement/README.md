@@ -366,6 +366,41 @@ already returned the field. That is `CONTRACT CHANGE` **#569** — accepted, Adm
 and access log then holds it), and `q` is a _search_ rather than a key, so two customers sharing an address
 would see each other's orders.
 
+### The response types come from the contract, not from guesses
+
+`admin-api.ts` types its three responses from `@platform/contracts/admin`, generated from `admin-api.yaml`:
+
+| Operation     | Body                                                                                    |
+| ------------- | --------------------------------------------------------------------------------------- |
+| `getCustomer` | `Customer`, **directly** — no envelope                                                  |
+| `getOrder`    | `Order`, **directly** — and it embeds payments, refunds, shipments and returns          |
+| `listOrders`  | the shared `Page` wrapper plus `items` — **not** `orders`. Note `Page.total` is a COUNT |
+
+Money is `Money { amount_minor, currency }` everywhere, including `OrderSummary.total`, which is the **only**
+place a summary carries a currency.
+
+The first version of this file guessed those shapes and got two wrong: it read `body.orders` and treated
+`total` as a scalar with a top-level `currency`. Against the real core every customer would have shown zero
+orders and an empty currency, and the tests could not catch it because they drove a hand-written fake
+(#573 review). Every fixture in the support tests is now typed from the contract's own schemas, so the next
+such drift is a **compile** error rather than a silent empty answer.
+
+### Ids in paths
+
+Every id is validated as a uuid **in the route, before any call**, and answers 404 when it is not one: a
+non-uuid cannot be one of our customers, and 404 is the same answer a real-but-absent id gets, so the two are
+not distinguishable. The reader then `encodeURIComponent`s every path segment as a second line, because
+`%2F..%2F` decodes to `/../` and an unvalidated id could otherwise climb out of the resource and hit another
+Admin API route **with the agent's own token**. Tests cover both the malformed id and the encoded traversal,
+and assert neither reaches the core.
+
+**Known limit:** the store lookup runs _before_ the permission check, so an authenticated staff user who is
+support for no store can still learn which store codes exist, from the difference between 404 (no such store)
+and 403 (not yours). Narrowing it would mean checking a permission against a store not yet resolved, or
+answering 403 for an unknown store and so lying to an operator debugging a typo. It is recorded rather than
+fixed: the caller is already an active staff user of this organization, for whom the store list is not a
+secret.
+
 ### Nothing is kept
 
 No cache and no copy: the answer is assembled per request and forgotten. A cache would be both a stale
@@ -387,8 +422,16 @@ discover that an id exists elsewhere in the organization.
 
 ### The Chatwoot webhook, and its documented limit
 
-The stub verifies the signature, hashes the contact's address on arrival, and returns the conversation →
-`email_hash` link. **It resolves nothing and persists nothing**, and that is a scope decision rather than
+The stub verifies the signature — **HMAC-SHA256 over the raw body**, hex, accepting either a bare digest or a
+`sha256=<hex>` prefix — hashes the contact's address on arrival, and returns the conversation → `email_hash`
+link.
+
+**Chatwoot's own header format is not confirmed.** I could not find its documented header name or signing
+scheme, so this implements the standard construction and accepts both shapes rather than inventing a specific
+one; the exact header, prefix and encoding must be checked against a real delivery or the Chatwoot source
+before go-live, which is a launch-checklist item next to "a real Chatwoot instance". The first version of this
+computed `sha256(secret + '.' + body)` — a keyed hash, **not** an HMAC: no inner/outer padding, and the
+construction length-extension attacks are written about. A test now asserts the old value is rejected. **It resolves nothing and persists nothing**, and that is a scope decision rather than
 unfinished work (manager ruling, 2026-10-23):
 
 - a Chatwoot webhook is a server-to-server call with **no agent token**, and #556 rules out a service-account

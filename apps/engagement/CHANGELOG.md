@@ -26,8 +26,32 @@ The support-context API and the Chatwoot webhook stub.
   and owns no link table, so it answers 202 with `persisted: false`. Replay safety is a 5-minute freshness
   window (a payload with no usable timestamp is rejected, not waved through) plus an in-memory seen-once LRU,
   whose limits are documented — it is enough because the stub has no side effect to replay.
-- Tests: **317 passing, 9 live skipped** with the broker offline — support server 27, Chatwoot 23, support
-  context 14, plus the #553/#554/#555 suites and the config tests.
+- Tests: **349 passing, 9 live skipped** with the broker offline — support server 30, Chatwoot 27, support
+  reader 22, support context 17, plus the #553/#554/#555 suites and the config tests.
+
+### The three #573 review fixes
+
+- **The reader did not match the contract, and would have returned nothing against the real core.** It read
+  `body.orders` where `listOrders` answers a `Page` of `items`, and treated `total` as a scalar with a
+  top-level `currency` where `OrderSummary.total` is `Money { amount_minor, currency }`. Every customer would
+  have shown zero orders and an empty currency. The three responses are now typed from
+  `@platform/contracts/admin` (`Customer` and `Order` come back directly, with no envelope), `context.ts` reads
+  `Money` and the embedded `Payment` / `Refund` / `Shipment` / `Return` shapes, and **every support fixture is
+  typed from the contract's own schemas** — so the next drift is a compile error, not a silent empty answer.
+  A test also pins the old wrong shape: a body keyed `orders` yields nothing.
+- **Path ids are validated as uuids in the route before any call** (404, so malformed and absent are
+  indistinguishable), and the reader `encodeURIComponent`s every segment. Tests cover a malformed id and an
+  encoded `%2F..%2F` traversal, and assert neither reaches the core.
+- **The webhook signature is now a real HMAC** (`createHmac('sha256', secret)`), not the keyed hash
+  `sha256(secret + '.' + body)` the first version computed; a bare hex digest or a `sha256=` prefix is
+  accepted, and a test asserts the old value is rejected. Chatwoot's own header format could not be confirmed
+  and is called out as unverified in the README — a launch-checklist check, not an assumption.
+
+Also, from the same review: the per-store 403 test now asserts the permission was asked for
+`store:<brand-b id>` specifically (the old fake returned a flat boolean and would have passed a `store:*`
+check); a core 403 for a foreign customer is proven to produce the byte-identical 404 as a missing one; the
+`consent.ts` comment no longer says a `GateIdentity` is identical to a `GateIdentity`; and the store-code
+enumeration limit is recorded in the README.
 
 ### The three #568 review nits, folded in here:
 
