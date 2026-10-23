@@ -1,5 +1,17 @@
 # Changelog — @platform/accounting
 
+## 0.4.0 — 2026-10-23 (#550, 15.3)
+
+- ERP sync (`src/erp`): `ErpAdapter` with the Odoo JSON-RPC client (`/jsonrpc`, `execute_kw` on `account.move` /
+  `account.account` / `account.journal` / `res.company`; timeouts, bounded transport retries, faults as named
+  `ErpError`s) and an in-memory mock server enforcing Odoo's rules (balanced move, company-consistent accounts and
+  journal, archived accounts); the mapping steps `mapLegalEntityToCompany` (`legal_entity.odoo_company_id`) and
+  `mapChart` (`ledger_account.erp_account_id`, optional code map); `syncLegalEntity` — one move per (event, journal),
+  `ref` = `<source_event_id>/<journal>`, search before create, refused moves reported and the rest continue, skips with
+  a reason (unmapped account, missing journal, foreign currency); CLI `pnpm erp:sync`.
+- Tests: 64 (+9: client vs mock, sync on the clean-month ledger incl. re-run, refusal, crash recovery, code map).
+  Live Odoo block skipped until the owner's instance exists (ODOO_URL).
+
 ## 0.3.0 — 2026-10-23 (#549, 15.2)
 
 - Payout reconciliation (`src/reconcile`): `PayoutSource` with a fixture implementation (Stripe itemized-report shape,
