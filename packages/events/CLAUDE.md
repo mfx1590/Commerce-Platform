@@ -11,7 +11,7 @@ campaign.{launched,ended}, feed.published, attribution.recorded, referral.conver
 since 0.3.0 fulfillment.{requested,picking,packed}, since 0.3.1 shipment.label_created, since 0.3.2 customer.export_requested,
 since 0.3.3 stock_item.mapped plus stock.moved v2 (keyed by the stock item; `makeEvent` writes v2, v1 stays frozen),
 since 0.3.5 customer.export_requested v2 (`requested_by_type` staff | customer; v1 stays frozen),
-and since 0.3.6 customer.export_ready (ids and `expires_at` only). Since 0.4.0 (#530) also the Redpanda topic plan
+and since 0.3.6 customer.export_ready (ids and `expires_at` only), since 0.6.2 customer.erased v2 (+ `email_hash`; v1 frozen). Since 0.4.0 (#530) also the Redpanda topic plan
 (`planTopics`, `ensureTopics`, `createKafka`; `src/topics.ts`) with the policy in infra/redpanda/topics.policy.json, and since
 0.4.1 (#531) the wire format (`src/relay-message.ts`) and the producer side (`src/publisher.ts`) the relay, the consumer SDK and the replay share.
 
