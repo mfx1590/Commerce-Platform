@@ -13,7 +13,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "fixtures"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -23,7 +24,9 @@
     "once": "node dist/main.js --once",
     "test": "vitest run --passWithNoTests",
     "lint": "eslint . --max-warnings 0",
-    "clean": "rm -rf dist .turbo"
+    "clean": "rm -rf dist .turbo",
+    "reconcile": "node dist/reconcile/cli.js",
+    "fixtures:payouts": "tsx src/reconcile/fixtures/write.ts"
   },
   "dependencies": {
     "@platform/db": "workspace:*",

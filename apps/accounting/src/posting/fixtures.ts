@@ -21,6 +21,30 @@ export const STORE_B = SEED_IDS.stores.brandB;
 
 const validator = createValidator();
 
+// Ids come from here so a seeded month can be reproduced byte for byte (the payout fixtures of #549 are built from one).
+let idSource: () => string = randomUUID;
+export const newId = (): string => idSource();
+/** A v4-shaped uuid from a seeded PRNG. */
+export function uuidFrom(random: () => number): string {
+  const hex = (n: number) =>
+    Math.floor(random() * 2 ** (4 * n))
+      .toString(16)
+      .padStart(n, '0');
+  const variant = ['8', '9', 'a', 'b'][Math.floor(random() * 4)]!;
+  return hex(8) + '-' + hex(4) + '-4' + hex(3) + '-' + variant + hex(3) + '-' + hex(8) + hex(4);
+}
+/** Runs fn with deterministic ids (seeded), then restores the random source. */
+export function withSeededIds<T>(seed: number, fn: () => T): T {
+  const random = rng(seed);
+  const before = idSource;
+  idSource = () => uuidFrom(random);
+  try {
+    return fn();
+  } finally {
+    idSource = before;
+  }
+}
+
 /** Throws when the envelope or its payload does not match the published schema. */
 export function assertValid<T extends EventEnvelopeV1Base>(e: T): T {
   const r = validator.validateEnvelope(e);
@@ -62,7 +86,7 @@ export const taxOn = (base: number, bp: number): number =>
   Number((BigInt(base) * BigInt(bp) * 2n + 10_000n) / 20_000n);
 
 export function orderPlaced(spec: OrderSpec): EventEnvelope<'order.placed'> {
-  const orderId = spec.orderId ?? randomUUID();
+  const orderId = spec.orderId ?? newId();
   const storeId = spec.storeId ?? STORE_A;
   const inclusive = spec.inclusive ?? false;
   const lines = spec.lines.map((l) => {
@@ -71,8 +95,8 @@ export function orderPlaced(spec: OrderSpec): EventEnvelope<'order.placed'> {
     const tax = l.tax_minor ?? taxOn(subtotal - discount, l.tax_rate_bp);
     const incl = l.inclusive ?? inclusive;
     return {
-      order_line_item_id: l.id ?? randomUUID(),
-      variant_id: randomUUID(),
+      order_line_item_id: l.id ?? newId(),
+      variant_id: newId(),
       sku: `SKU-${l.quantity}-${l.unit_price_minor}`,
       title: 'Fixture item',
       quantity: l.quantity,
@@ -91,9 +115,9 @@ export function orderPlaced(spec: OrderSpec): EventEnvelope<'order.placed'> {
   const total = inclusive ? subtotal - discount + shipping : subtotal - discount + shipping + tax;
   const payload: LatestPayloads['order.placed'] = {
     order_id: orderId,
-    display_id: spec.displayId ?? 1000 + Math.floor(Math.random() * 100_000),
+    display_id: spec.displayId ?? 1000 + parseInt(newId().slice(0, 4), 16),
     legal_entity_id: spec.legalEntityId ?? LE_A,
-    sales_channel_id: randomUUID(),
+    sales_channel_id: newId(),
     customer_id: null,
     email_hash: emailHash('fixture@example.test'),
     currency: spec.currency ?? 'EUR',
@@ -127,7 +151,7 @@ export function orderPlaced(spec: OrderSpec): EventEnvelope<'order.placed'> {
       aggregateId: orderId,
       occurredAt: new Date(payload.placed_at),
       payload,
-      ...(spec.eventId ? { eventId: spec.eventId } : {}),
+      eventId: spec.eventId ?? newId(),
     }),
   );
 }
@@ -154,7 +178,7 @@ export function orderCancelled(
         reason: 'customer_request',
         cancelled_at: opts.cancelled_at ?? '2026-10-06T09:00:00.000Z',
       },
-      ...(opts.eventId ? { eventId: opts.eventId } : {}),
+      eventId: opts.eventId ?? newId(),
     }),
   );
 }
@@ -171,7 +195,7 @@ export function paymentCaptured(
   } = {},
 ): EventEnvelope<'payment.captured'> {
   const p = placed.payload;
-  const paymentId = opts.paymentId ?? randomUUID();
+  const paymentId = opts.paymentId ?? newId();
   return assertValid(
     makeEvent({
       topic: 'payment.captured',
@@ -197,7 +221,7 @@ export function paymentCaptured(
         currency: p.currency,
         captured_at: opts.captured_at ?? '2026-10-05T10:00:05.000Z',
       },
-      ...(opts.eventId ? { eventId: opts.eventId } : {}),
+      eventId: opts.eventId ?? newId(),
     }),
   );
 }
@@ -215,7 +239,7 @@ export function refundIssued(
   },
 ): EventEnvelope<'refund.issued'> {
   const p = placed.payload;
-  const refundId = opts.refundId ?? randomUUID();
+  const refundId = opts.refundId ?? newId();
   return assertValid(
     makeEvent({
       topic: 'refund.issued',
@@ -228,7 +252,7 @@ export function refundIssued(
         refund_id: refundId,
         payment_id: payment.payload.payment_id,
         order_id: p.order_id,
-        return_id: opts.reason === 'return' ? randomUUID() : null,
+        return_id: opts.reason === 'return' ? newId() : null,
         legal_entity_id: p.legal_entity_id,
         amount_minor: opts.amount_minor,
         currency: p.currency,
@@ -239,7 +263,7 @@ export function refundIssued(
             : opts.provider_refund_id,
         issued_at: opts.issued_at ?? '2026-10-12T15:00:00.000Z',
       },
-      ...(opts.eventId ? { eventId: opts.eventId } : {}),
+      eventId: opts.eventId ?? newId(),
     }),
   );
 }
@@ -256,7 +280,7 @@ export function shipmentShipped(
   } = {},
 ): EventEnvelope<'shipment.shipped'> {
   const p = placed.payload;
-  const shipmentId = opts.shipmentId ?? randomUUID();
+  const shipmentId = opts.shipmentId ?? newId();
   return assertValid(
     makeEvent({
       topic: 'shipment.shipped',
@@ -278,7 +302,7 @@ export function shipmentShipped(
         items,
         shipped_at: opts.shipped_at ?? '2026-10-07T08:00:00.000Z',
       },
-      ...(opts.eventId ? { eventId: opts.eventId } : {}),
+      eventId: opts.eventId ?? newId(),
     }),
   );
 }
@@ -317,8 +341,25 @@ export interface GeneratedStream {
  * of unshipped and partially shipped orders. Events are emitted per order in the order the facts happen, so a
  * consumer reading them in sequence always has the projection it needs.
  */
-export function generateMonth(opts: { orders: number; seed?: number }): GeneratedStream {
+export interface GenerateMonthOptions {
+  orders: number;
+  seed?: number;
+  /** Share of captures whose fee_minor is null (default 0.1); 0 for a month a payout report can match to the cent. */
+  nullFeeRate?: number;
+  /** Orders per calendar day (default 7): 400 orders over ~8 weeks of days; the payout fixtures spread 50 over 25. */
+  ordersPerDay?: number;
+  /** Reproducible ids (seeded from `seed`): the same month byte for byte on every run. */
+  deterministicIds?: boolean;
+}
+
+export function generateMonth(opts: GenerateMonthOptions): GeneratedStream {
+  if (opts.deterministicIds)
+    return withSeededIds((opts.seed ?? 42) * 7919 + 1, () =>
+      generateMonth({ ...opts, deterministicIds: false }),
+    );
   const random = rng(opts.seed ?? 42);
+  const nullFeeRate = opts.nullFeeRate ?? 0.1;
+  const perDay = opts.ordersPerDay ?? 7;
   const pick = <T>(xs: readonly T[]): T => xs[Math.floor(random() * xs.length)]!;
   const int = (lo: number, hi: number) => lo + Math.floor(random() * (hi - lo + 1));
   const events: EventEnvelopeV1Base[] = [];
@@ -328,7 +369,7 @@ export function generateMonth(opts: { orders: number; seed?: number }): Generate
   let cancellations = 0;
   let day = 1;
   for (let i = 0; i < opts.orders; i++) {
-    if (i % 7 === 6 && day < 28) day += 1;
+    if (i > 0 && i % perDay === 0 && day < 28) day += 1;
     const dd = String(day).padStart(2, '0');
     const entity =
       random() < 0.5
@@ -358,7 +399,7 @@ export function generateMonth(opts: { orders: number; seed?: number }): Generate
     let payment: EventEnvelope<'payment.captured'> | null = null;
     if (random() < 0.9) {
       payment = paymentCaptured(placed, {
-        fee_minor: random() < 0.1 ? null : Math.round(total * 0.029) + 25,
+        fee_minor: random() < nullFeeRate ? null : Math.round(total * 0.029) + 25,
         captured_at: `2026-10-${dd}T10:${String(i % 60).padStart(2, '0')}:30.000Z`,
       });
       events.push(payment);
