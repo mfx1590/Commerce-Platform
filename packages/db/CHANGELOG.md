@@ -1,5 +1,9 @@
 # Changelog — @platform/db
 
+## 0.3.16 — 2026-10-23
+
+- `0202_consumer_processed.sql` (manager decision, Phase 4 wave 2 kickoff #548 / #553): the shared processed store of every bus consumer on the events-v1 SDK (`createPgProcessedStore(q, 'consumer_processed')`) — PK (group_id, outbox_id), `organization_id` DEFAULT `app.current_organization_id()` (the SDK insert names only the pair), `processed_at`, group_id CHECK `^[a-z][a-z0-9_.-]*; RLS kind `organization_only`; UPDATE revoked from platform_app (DELETE kept for a consumer rebuilt from scratch). No personal data. Manager landing.
+
 ## 0.3.15 — 2026-10-20
 
 - `0201_tax_rate_identity_unique.sql` (CONTRACT CHANGE #522, window 1 #520; contracts-v0.4.26): unique index `tax_rate_identity_key` on `tax_rate (store_id, country, region, product_category_id) NULLS NOT DISTINCT` — one row per (country, region, category) per store; `region` and `product_category_id` are nullable, so a plain UNIQUE would let two country-wide rows through. The core maps the 23505 on this index to 409 `conflict` (`details.tax_rate_id`). No data change (the dev data has no duplicates). Manager landing.

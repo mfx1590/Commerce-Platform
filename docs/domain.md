@@ -997,6 +997,18 @@ Derived from `cart` with `status = 'active'` and no activity for the store's aba
 Owner: window 17 (marketing). Redemption surface: `POST /store/cart-recovery/{token}` (handler mounted by window 1,
 #246); no `recovery.*` events — window 16 reacts to `cart.abandoned`, a recovered cart is visible as an order.
 
+### consumer_processed (bus consumers; migration 0202)
+One row per (consumer group, outbox event) a consumer on the events-v1 SDK has finished, written in the handler's own transaction. RLS `organization_only`; never updated; no personal data.
+
+| Field | Type | Notes |
+|---|---|---|
+| organization_id | uuid FK | DEFAULT the session organization |
+| group_id | text | consumer group (`accounting.ledger`, `engagement.ops`, …); PK with outbox_id |
+| outbox_id | uuid | outbox.id (the `outbox_id` header) |
+| processed_at | timestamptz | |
+
+Owner: main window (schema); written by every bus consumer.
+
 ### marketing_cursor (marketing; migration 0170)
 
 | Field | Type | Notes |
