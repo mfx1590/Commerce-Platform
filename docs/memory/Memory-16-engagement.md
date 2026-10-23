@@ -38,6 +38,24 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - vitest config must set DATABASE_URL/DATABASE_URL_APP in `test.env` (turbo strips DATABASE_URL* from the test environment) and `fileParallelism: false`, copied from apps/notifications.
 
 ## In progress
+- **#556 16.4 (support context + Chatwoot webhook) — BUILT, 317/9 offline, committed LOCALLY as 70f1118. Waiting for the machine for the live run, and for #568 to merge before its PR.** That is all four issues built.
+  Delivered: `src/support/` = `auth.ts` (the two gates), `admin-api.ts` (three reads, each with the AGENT's header), `context.ts` (pure normalisation + summary), `chatwoot.ts` (HMAC + freshness + seen-once), `server.ts` (node:http, three routes), `types.ts`; config + main wiring (`ENGAGEMENT_SUPPORT_ENABLED` defaults 0); `@platform/auth-sdk` added as a dependency; package 0.4.0; README + CHANGELOG + CLAUDE.md.
+  **CONTRACT CHANGE #569 ACCEPTED** (listOrders `customer_id`, Admin API 0.4.24, landed on integration/orders-customer-filter a2e6e98; window 1 adds the core predicate). Built against it.
+  **#568 = Fable MERGE**; its three nits folded in here (see below).
+
+### #556 decisions worth not re-deriving
+- **The agent's OWN token reads**, never a service principal — the opposite of #555, because #556 has a human in the request. Gate order: authenticate → resolve store → `support` on THAT store via OpenFGA → read. 401 lands before a query parameter is parsed, so the route cannot be probed for which stores/customers exist; a test asserts a refused gate makes NO Admin API call, another that every read carried the agent's header. The agent's header is forwarded so the CORE re-checks: defence in depth, and if they disagree the core wins.
+- **OpenFGA unreachable → 503, not 403.** "Forbidden" would be a lie; we cannot tell. Same choice auth-sdk's own guard makes.
+- **A customer of another store gets the SAME 404 as a non-existent one** — the route must never reveal that an id exists elsewhere in the organization.
+- **Nothing cached, `cache-control: no-store` on every response**: a cache is both a stale permission and a copy of PII.
+- `getOrder` already EMBEDS payments/refunds/shipments/returns, so the history is one list + one detail per order; `support` implies `viewer` in the model, so one grant covers all three reads.
+- **The webhook resolves and persists NOTHING by ruling**: a webhook has no agent token, #556 forbids a service principal here, and a link table is not ours. 202 + `persisted: false`. Replay = freshness window (no timestamp → REJECT, never wave through) + in-memory seen-once LRU, limits documented; it is enough only because the stub has no side effect to replay. Do not add a lookup here.
+- The contact address is hashed ON ARRIVAL in the webhook, so nothing downstream ever holds it.
+
+### #568's three nits (folded into #556)
+- A Twenty DELETE that 404s after a successful lookup is **already gone**, not a failure — a real race, and previously an erasure could fail for having already succeeded. Matching call on the write path: 404 on PATCH is RETRYABLE (the retry POSTs), 404 on POST stays fatal (wrong base URL, not a race).
+- The read-only claim is now an **md5 over every row** of order/refund/customer, and the test asserts the checksum notices a one-column change. Counts + max(updated_at) was weaker than the wording.
+- `by_currency`/`mixed_currency` stop at the `CrmContact` boundary — documented on the type and in the README; the log line is the only place that says the two contact fields differ in scope.
 - **#555 16.3 (CRM sync) — BUILT and VERIFIED: 252/252 with the broker up (~78 s, three live blocks self-cleaning: ops 12 topics, cdp 30, crm 21); 243/9 offline. Main merged (efc11b2). Pushing + PR now.**
   Delivered: `src/crm/` = `rollup.ts` (pure), `read.ts`, `admin-api.ts` (the only PII read, injected `TokenProvider`), `consumer.ts` (group `engagement.crm`), `types.ts`, `adapter/{memory,twenty}.ts`; config + main wiring (`ENGAGEMENT_CRM_ENABLED` defaults 0, `KNOWN_GROUPS` gains `engagement.crm`); package 0.3.0; README + CHANGELOG + CLAUDE.md.
   **REQUEST #565 (crm-sync service client) ACCEPTED** and routed to window 2 (client export, generalised additive ensure-service-account, FGA via assignRole per store); the `staff_user` seed row is the manager's. NOT on #555's path: built against `mockTokenProvider`, and `ENGAGEMENT_CRM_TOKEN_PROVIDER=client_credentials` THROWS rather than falling back, so its absence cannot become a silent no-op. The live service-account call is a launch-checklist item for the PR body.
