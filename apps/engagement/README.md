@@ -1,7 +1,7 @@
 # @platform/engagement
 
-The engagement service (window 16, Phase 4): bus consumers for **ops alerts** (#553) and the **CDP** (#554),
-and — as the following tasks land — CRM sync (#555) and the support-context API (#556). Owner: window 16.
+The engagement service (window 16, Phase 4): bus consumers for **ops alerts** (#553), the **CDP** (#554) and
+**CRM sync** (#555), with the support-context API (#556) to come. Owner: window 16.
 Run/test commands and the public API: [CLAUDE.md](./CLAUDE.md); the outbox/bus design: ADR 0003; the consumer
 SDK: `packages/events/README.md`.
 
@@ -41,6 +41,13 @@ reads and writes none of it.
 | `RUDDERSTACK_CONTROL_PLANE_URL`   | —                  | suppressions only (a different credential from the write key)                      |
 | `RUDDERSTACK_ACCESS_TOKEN`        | —                  | suppressions only; without it a suppression **throws** instead of doing nothing    |
 | `RUDDERSTACK_SOURCE_IDS`          | —                  | comma-separated source ids a suppression applies to                                |
+| `ENGAGEMENT_CRM_ENABLED`          | `0`                | `1` starts the CRM consumer (off until a CRM and #565 exist)                       |
+| `ENGAGEMENT_CRM_ADAPTER`          | `memory`           | `memory` or `twenty`; **`memory` is refused in production when enabled**           |
+| `ENGAGEMENT_CRM_TOKEN_PROVIDER`   | `mock`             | `mock` or `client_credentials`; **`mock` is refused in production**                |
+| `TWENTY_BASE_URL`                 | —                  | Twenty's REST base, e.g. `https://crm.example/rest`                                |
+| `TWENTY_API_KEY`                  | —                  | the Twenty key, **environment only**, never logged                                 |
+| `TWENTY_EXTERNAL_ID_FIELD`        | `externalId`       | the custom person field holding OUR customer id (the upsert key)                   |
+| `ADMIN_API_URL`                   | `localhost:9000`   | the core Admin API the contact's name and e-mail are read from                     |
 
 Locally: `.env` with the DB rows (loopback **127.0.0.1**, not `localhost` — Memory-main's IPv6 trap), nothing
 else, then `pnpm --filter @platform/engagement dev`. Make a payment fail and
@@ -202,6 +209,89 @@ complete implementation rather than a partial stub.
   marked retryable. **Not exercised against a real workspace** — no account exists, which is also why
   `ENGAGEMENT_CDP_ENABLED` defaults to `0`; live use is on the launch checklist.
 
+## CRM sync (#555)
+
+Consumer group **`engagement.crm`** over `customer.created`, `customer.updated`, `customer.erased`,
+`order.placed`, `order.cancelled` and `refund.issued`. It keeps one CRM contact per customer per store, with
+the name, the e-mail and an order/LTV rollup, and deletes the contact on erasure. Twenty is the adapter
+(open-source, self-hostable); HubSpot would be a second file behind the same interface.
+
+**This is the only module in the service that handles personal data.** Everything else works from events,
+which carry none by contract (ADR 0003 item 5). The rules that follow from that are below.
+
+### The upsert key is our customer id, never the e-mail
+
+Twenty's REST API has no upsert verb, so the adapter looks up the person whose external-id field equals our
+`customer.id`, then PATCHes that one or POSTs a new one. The filter is on that field and never on the address,
+because an e-mail changes, two people share one, and a match on it would merge two strangers' purchase
+histories. A test asserts two customers sharing an address stay two contacts, and another asserts an
+unreadable lookup response **fails** rather than falling through to a create that would duplicate the person.
+
+### The rollup is recomputed, never accumulated
+
+`orders_count`, net revenue in minor units with its currency, and the last order date come from
+`computeRollup`, a pure function over the customer's own order and refund rows. The obvious alternative — `+1
+order` on `order.placed`, `-amount` on `refund.issued` against a stored counter — is wrong here for one reason
+that outweighs its convenience: **it is not idempotent.** The bus is at-least-once and replayable, so a
+redelivery, a DLQ replay or a consumer rebuilt from the beginning would double-count, and no counter can tell a
+second delivery from a second order. Recomputing makes the sync idempotent _by construction_: a test handles
+the same event twice and asserts the contact is identical and the numbers did not move. It also means this
+service still owns no state.
+
+What the rollup decides, with the reasons in `rollup.ts`:
+
+- a **cancelled** order is not counted at all, not even as an order netted to zero — "2 orders" in a CRM
+  should mean what a reader thinks it means;
+- only a **succeeded** refund reduces revenue: a `pending` one may never happen and a `failed` one did not
+  (and `refund.failed` is an ops alert, not a revenue event);
+- a refund against a cancelled order is **not** subtracted, because that revenue was never counted;
+- net is **floored at zero** — goodwill refunds and order edits can exceed a total, and a CRM showing negative
+  lifetime revenue is worse than one showing zero. `gross_revenue_minor` and `refunded_minor` keep the
+  unclamped figures, so nothing is hidden;
+- currencies are **kept apart**, never summed. The headline is the store's `default_currency`; a customer with
+  orders in another currency sets `mixed_currency`, which the log line carries, and `by_currency` has the rest.
+
+### Consent gates the whole contact
+
+A CRM contact is marketing-shaped, so without granted consent **nothing** is synced — not a name, not a
+number (manager decision on #555). It is the same gate as the CDP, from the same `customer.consent` projection
+through the same store-scoped client, so there is one consent rule in this service and not two.
+
+The order matters: the gate runs **before** the Admin API call, so a customer without consent has their
+personal data fetched not at all, rather than fetched and discarded. A test asserts the reader was never
+called.
+
+`customer.erased` is the exception, and it deletes before anything is read: no consent lookup, no PII fetch,
+just `remove(customerId)`. It works when the customer row is already gone (erasure deletes it), because the
+identity comes from the payload there, and `remove` is idempotent by contract so a redelivered erasure is a
+second success rather than a failure.
+
+### Where the name and the e-mail come from
+
+The core Admin API, with **this service's own principal** and the least permission that does the job: two
+read-only operations, `listCustomers` and `getCustomer`, each `support` on `store:{storeId}`. The service
+account is `REQUEST: crm-sync service client` (#565 — accepted, routed to window 2): a confidential `staff`
+client with an audience mapper to `core-api`, a `staff_user` row for its subject, and `support` granted **per
+synced store** rather than on the organization.
+
+Until that exists the token comes from an injected `TokenProvider`, which is why `admin-api.ts` takes one
+rather than reading the environment: `mockTokenProvider` is what the tests and local runs use, and
+`ENGAGEMENT_CRM_TOKEN_PROVIDER=client_credentials` **throws** rather than silently falling back to the mock.
+The mock is refused in production outright. Nothing here caches a token — the provider is asked on every
+call, so a rotated secret needs no restart of ours.
+
+A 404 from the Admin API is an answer (the customer is gone), not a failure. A 401 or 403 is marked
+**retryable**, because the usual cause is the service principal not being seeded yet rather than a permanent
+refusal. No response body ever reaches an error message: it is the one payload in this service full of
+personal data.
+
+### What never leaves
+
+The name and the e-mail exist in a `CrmContact` on its way to the adapter and nowhere else. A log line carries
+the customer **id**, the store code, the counts and a reason code — never a name, an address or an e-mail, and
+a test sweeps every line of the busiest path for all three. Nothing of the contact is in a dead letter, an
+error message or a row of ours, because we keep no rows.
+
 ## Transports
 
 `AlertTransport { name; send(alert) }` in `src/transport/types.ts` — the seam `apps/notifications` proved for
@@ -258,6 +348,17 @@ pnpm lint && pnpm typecheck && pnpm test --filter @platform/engagement
 - `cdp/consumer.test.ts` — the decision path on a throwaway database (consent honoured over the payload's
   snapshot, guest dropped, erasure suppressed even with the row gone, per-store consent) plus its own live
   block.
+- `crm/rollup.test.ts` — 20 cases over placed / cancelled / refunded: exclusions, pending and failed refunds,
+  over-refunds, the newest-order date, bigint strings, zero-decimal currencies, mixed currencies, and that the
+  same rows always give the same answer.
+- `crm/adapter/adapter.test.ts` — the memory adapter, and Twenty against an injected fetch: create vs update
+  by external id, a custom field name, idempotent remove, and that the key never reaches a body, a URL, an
+  error or the object.
+- `crm/admin-api.test.ts` — the reader: the bearer header, a token asked for per call, 404 as `null`, 401/403
+  retryable, and no response body in any error.
+- `crm/consumer.test.ts` — the decision path on a throwaway database: the rollup end to end, idempotency on
+  redelivery, no consent meaning no PII fetch at all, erasure removing with the row already gone, the log-line
+  PII sweep — plus its own live block.
 - `ops/consumer.test.ts` — on a throwaway database: the `consumer_processed` guarantees this consumer depends
   on, from the consumer's side (the PK as replay guard, a store-scoped session reading and writing none,
   `UPDATE` revoked, the `organization_id` default), store-code resolution, and the
@@ -277,7 +378,9 @@ pnpm lint && pnpm typecheck && pnpm test --filter @platform/engagement
 - **A real Slack post.** Blocked on the owner's workspace; on the launch checklist.
 - **A real CDP call.** Blocked on the owner's RudderStack account; the consumer ships disabled
   (`ENGAGEMENT_CDP_ENABLED=0`) and the live use is on the launch checklist.
-- CRM sync (#555), the support-context API and Chatwoot webhook (#556).
+- **A real CRM call, and a real service-account token.** Blocked on the owner's Twenty instance and on #565;
+  both are launch-checklist items, and the consumer ships disabled (`ENGAGEMENT_CRM_ENABLED=0`).
+- The support-context API and Chatwoot webhook (#556).
 - SMS/WhatsApp (Twilio), Novu and Klaviyo flows — deferred until accounts exist (manager decision on #553).
 - The returns portal and refund limits by role — a later wave across core, auth, storefront and admin.
 - This service's `COPY` lines in the Dockerfiles: the manager lands them as an integration commit on the 16.1

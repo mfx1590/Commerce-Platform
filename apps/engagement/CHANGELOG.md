@@ -1,5 +1,36 @@
 # @platform/engagement
 
+## 0.3.0 — 2026-10-23 (#555, task 16.3)
+
+CRM sync: one contact per customer per store, with a recomputed order/LTV rollup.
+
+- **Consumer group `engagement.crm`** over `customer.created`, `customer.updated`, `customer.erased`,
+  `order.placed`, `order.cancelled` and `refund.issued`. Same SDK, same shared marks, same two clients and the
+  same post-then-mark as #553/#554.
+- **The rollup is RECOMPUTED, not accumulated** (`crm/rollup.ts`, pure, 20 unit tests): `+1 order` against a
+  stored counter cannot tell a redelivery from a second order, and the bus is at-least-once and replayable.
+  Recomputing from the customer's own rows makes the sync idempotent by construction, and a test proves the
+  same event handled twice leaves an identical contact. A cancelled order is not counted at all; only a
+  `succeeded` refund reduces revenue; a refund against a cancelled order is not subtracted; net is floored at
+  zero with the unclamped figures kept; currencies are never summed, and a customer with orders in another
+  currency sets `mixed_currency`.
+- **Upsert by OUR customer id, never by e-mail** (`crm/adapter/twenty.ts`): find the person whose external-id
+  field equals `customer.id`, then PATCH or POST. An address changes and two people share one. An unreadable
+  lookup fails rather than falling through to a create that would duplicate the person; `remove` is idempotent.
+- **PII from the core Admin API with this service's own principal**, through an injected `TokenProvider` so
+  #555 is built, tested and merged before the `crm-sync` service account exists (#565, accepted and routed to
+  window 2). Two read-only operations, `support` on the store. `client_credentials` throws rather than falling
+  back to the mock, and the mock is refused in production. A 404 is an answer, 401/403 are retryable (an
+  unseeded principal is a deploy-order problem), and no response body ever reaches an error.
+- **Consent gates the whole contact**, from the same projection as the CDP and checked BEFORE any PII is
+  fetched — a test asserts the reader is never called for a customer without consent. `customer.erased`
+  deletes before anything is read and works when the customer row is already gone.
+- **No PII in a log line**: the customer id, store code, counts and reason codes only, swept by a test.
+- `ENGAGEMENT_CRM_ENABLED` defaults to `0`; `KNOWN_GROUPS` now includes `engagement.crm`, so the DLQ watch
+  covers it by default.
+- Tests: **241 passing, 9 live skipped** with the broker offline — rollup 20, CRM consumer 22 (19 + 3 live),
+  CRM adapters 17, Admin API reader 13, plus the #553/#554 suites and the config tests.
+
 ## 0.2.0 — 2026-10-23 (#554, task 16.2)
 
 The CDP: a tracking plan, a pure mapper, a consent gate and two adapters.
