@@ -235,6 +235,34 @@ describe('one event, one transaction', () => {
     expect(after).toEqual({ ...before, GBP: 0 });
   });
 
+  it('a shipment and its order racing on two connections (two instances of the group) never leave the shipment parked', async () => {
+    // Without the per-order advisory lock the shipment can park itself while the order.placed, in a concurrent
+    // transaction, finds no parked rows yet — the parked row would then stay forever. 12 races in a row.
+    for (let i = 0; i < 12; i++) {
+      const placed = orderPlaced({
+        legalEntityId: LE_B,
+        storeId: STORE_B,
+        currency: 'GBP',
+        lines: [{ quantity: 2, unit_price_minor: 1_000 + i, tax_rate_bp: 2000 }],
+        shipping_minor: 300,
+        shipping_tax_minor: 60,
+      });
+      const ship = shipmentShipped(placed, allItems(placed), { cost_minor: 120 });
+      const results = await Promise.all([consume(ship), consume(placed)]);
+      const actions = results.map((r) => r.action).sort();
+      // either the shipment waited for the order (posted, posted) or it parked and the order applied it
+      expect([
+        ['posted', 'posted'],
+        ['parked', 'posted'],
+      ]).toContainEqual(actions);
+      expect(
+        await count('accounting_parked_event WHERE order_id = $1', [placed.payload.order_id]),
+      ).toBe(0);
+      expect(await count('ledger_entry WHERE source_event_id = $1', [placed.event_id])).toBe(4);
+      expect(await count('ledger_entry WHERE source_event_id = $1', [ship.event_id])).toBe(6);
+    }
+  }, 120_000);
+
   it('an event of another organization is refused before any write', async () => {
     const e = orderPlaced({ lines: [{ quantity: 1, unit_price_minor: 100, tax_rate_bp: 0 }] });
     const foreign = { ...e, organization_id: '00000000-0000-4000-8000-0000000000ff' };

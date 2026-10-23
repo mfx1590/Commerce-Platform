@@ -25,7 +25,9 @@ test/                     throwaway database + local broker tests; src/posting/*
 
 1. validate the envelope and its payload against the published schema (`InvalidEvent` → DLQ);
 2. refuse an event of another organization (`ForeignOrganization`);
-3. lock and load the order projection (`accounting_order` + lines, `FOR UPDATE`);
+3. take a transaction-scoped advisory lock on the order (`pg_advisory_xact_lock(hashtext(order_id))`: two
+   instances of the group never interleave one order's events, parked or not), then lock and load the order
+   projection (`accounting_order` + lines, `FOR UPDATE`);
 4. the pure posting function returns the entries (aggregated per account, balanced per currency — or it throws) and the
    new projection state;
 5. seed the chart for the legal entity if needed (`ledger_account`, `ON CONFLICT DO NOTHING`), insert the
@@ -184,6 +186,50 @@ Partially shipped (2 × 50.00 at 20 %, shipping 10.00 + 2.00, one unit shipped):
 Placed → captured (fee 4.21) → shipped (cost 4.50) → returned in full leaves: 1100 −4.21 (the fee the PSP kept),
 6100 +4.21, 4000 −107.98, 4010 −4.95, 4090 +112.93, 6000 +4.50, 2100 −4.50 — and 1200, 2200, 2300, 2310 at zero.
 
+## Reconciliation (#549)
+
+`src/reconcile/`: a payout report is imported, matched against the ledger's own projections and, when it matches to
+the cent, posted; every difference is reported as a JSON line (ids and amounts only). One transaction per payout.
+
+- **Source** — `PayoutSource { listPayouts(legalEntityId), payout(legalEntityId, payoutId) }`. The fixture source
+  (`createFixtureSource`, `loadFixtureDir`) reads `fixtures/payouts/<set>/payouts*.json`: one report per legal entity
+  in the normalised shape of Stripe's itemized payout reconciliation report / `GET /v1/balance_transactions?payout=`
+  (`balance_transaction_id`, `reporting_category`, `gross_minor` / `fee_minor` / `net_minor` as integers,
+  `available_on`, `created`, `source_id`, `payment_intent_id`, `charge_id`, `refund_id`). No Stripe keys exist
+  (#361): the live source is WAIVED to the launch checklist and plugs into the same interface.
+- **Matching** (`matchPayout`, pure) — a charge row ↔ `accounting_payment` by `payment_intent_id` (what
+  `payment.captured` carries as `provider_payment_id`) or `charge_id`: gross must equal `amount_minor`, fee must equal
+  `fee_minor`; a refund row ↔ `accounting_refund` by `refund_id`: −gross must equal `amount_minor`; Σ net of the rows
+  must equal the payout amount. Only the payments of the report's provider count (one PSP account per legal entity
+  and provider).
+- **Discrepancies** — `unmatched_charge` (a row the ledger never saw: an unknown charge or refund, a fee or
+  adjustment row), `unmatched_ledger_line` (a capture or refund that fell in this payout's window — from the latest
+  ledger time an earlier payout of the same provider matched to the latest this one matched, per type — but no row
+  carries), `fee_difference`, `amount_difference` (a row's gross, or the payout total vs Σ net). Each line:
+  `{ reconcile: 'psp.payout', legal_entity_id, payout_id, kind, currency, balance_transaction_id?, provider_reference?,
+reference_type?, reference_id?, expected_minor?, actual_minor?, difference_minor }`.
+- **Posting** — only a payout with zero discrepancies posts, journal `bank`, `source_event_id` = `psp_payout.id`,
+  `source_topic` `psp.payout` (a local marker, not a bus topic), reference the payout, `store_id` NULL (a payout is a
+  legal-entity-level fact and spans stores):
+
+  | Account | Debit  | Credit |
+  | ------- | ------ | ------ |
+  | 1000    | amount |        |
+  | 1100    |        | amount |
+
+  After a clean reconciliation the PSP clearing account (1100) of the legal entity nets to exactly what the PSP
+  still holds: captures net of fees minus refunds not yet paid out (tested on the clean month).
+
+- **Idempotency** — `psp_payout` is UNIQUE per (legal entity, provider, payout id): a reconciled payout imported
+  again is a no-op (`already_reconciled`), a discrepant one is re-matched (the ledger may have caught up) and posts
+  once it is clean; `psp_payout_line` is UNIQUE per (payout, balance transaction).
+- **Fixtures** — `pnpm fixtures:payouts` builds `fixtures/payouts/{clean-month,discrepant-month}/{events,payouts}.json`
+  from a deterministic 60-order month (seeded ids): the clean month's four weekly payouts per legal entity match to
+  the cent and leave the last days unpaid; the discrepant month carries exactly one difference kind on each of legal
+  entity A's four payouts. A test fails if a committed file drifts from the builder.
+- **CLI** — `pnpm --filter @platform/accounting reconcile -- --fixtures <dir> --legal-entity <uuid> [--payout <id>]`
+  (after `build`): exit 0 when every payout reconciled, 2 when any is discrepant.
+
 ## Out of the Phase 4 gate (manager decision 4)
 
 - **COGS**: no event carries a unit cost (`shipment.shipped` has none, `stock.moved` has none). Journal `cogs` stays
@@ -207,7 +253,7 @@ creates `dlq.accounting.ledger` itself on first start.
 
 ## Tests
 
-`pnpm --filter @platform/accounting test` — 40 tests in four files:
+`pnpm --filter @platform/accounting test` — 54 tests in five files:
 
 - `src/posting/posting.test.ts` — pure: the arithmetic, the worked example of every topic above, partial shipments,
   proportional refunds and cancellations, every defect class, the netted life of one order.
@@ -220,6 +266,10 @@ creates `dlq.accounting.ledger` itself on first start.
   fact order, a 436-event month balanced in SQL with a second pass that changes nothing, the same month delivered in
   shuffled topic order (every order last) producing the identical ledger, RLS between stores and organizations, the
   processed table append-only for the app role.
+- `test/reconcile.test.ts` — the committed payout fixtures equal the builder's output; the pure matcher (every kind,
+  the window rule); the clean month on a seeded database: eight payouts reconciled with zero differences and posted,
+  the PSP clearing account equal to the open balance to the cent, books balanced, a re-import a no-op; the discrepant
+  month on its own database: each kind exactly once, nothing posted for those payouts, a re-import re-matched.
 - `test/consumer-live.test.ts` — the consumer on the local Redpanda (prefixed topics and group, deleted afterwards):
   every event once, a redelivered `outbox_id` writes nothing, an unknown version is skipped, a shipment before its
   order is parked then applied, a genuinely bad shipment dead-letters with `ShipmentExceedsOrder` after the retries

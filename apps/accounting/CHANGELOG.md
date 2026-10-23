@@ -1,5 +1,21 @@
 # Changelog — @platform/accounting
 
+## 0.3.0 — 2026-10-23 (#549, 15.2)
+
+- Payout reconciliation (`src/reconcile`): `PayoutSource` with a fixture implementation (Stripe itemized-report shape,
+  integer minor), the pure matcher (charge by payment intent / charge id with gross and fee, refund by refund id,
+  Σ net = payout amount, per-provider ledger window for missing lines), four discrepancy kinds as JSON lines,
+  the `bank` posting (Dr 1000 / Cr 1100, `store_id` NULL: a legal-entity-level line) only on a clean match,
+  idempotent imports (`psp_payout`, `psp_payout_line`).
+- Fixtures `fixtures/payouts/{clean-month,discrepant-month}` built deterministically by `pnpm fixtures:payouts`
+  (seeded ids in the event generator: `deterministicIds`, `nullFeeRate`, `ordersPerDay`).
+- CLI `pnpm reconcile -- --fixtures <dir> --legal-entity <uuid> [--payout <id>]`.
+- The ledger handler takes `pg_advisory_xact_lock(hashtext(order_id))` at the top of its transaction: a shipment parked
+  at the same moment as its order.placed on another instance can no longer be orphaned (Fable review of #567, (a));
+  tested with 12 shipment / order races. Header of `shipment-shipped.ts` says parking, not retry-then-DLQ.
+- Tests: 54 (+10: the race above; fixtures, matcher, the clean month to the cent with the clearing account equal to the open balance,
+  the discrepant month with each kind exactly once).
+
 ## 0.2.0 — 2026-10-23 (#548, 15.1)
 
 - The ledger consumer: group `accounting.ledger` on the events-v1 consumer SDK over `order.placed`, `order.cancelled`,
