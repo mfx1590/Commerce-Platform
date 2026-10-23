@@ -239,6 +239,38 @@ reference_type?, reference_id?, expected_minor?, actual_minor?, difference_minor
 - **CLI** — `pnpm --filter @platform/accounting reconcile -- --fixtures <dir> --legal-entity <uuid> [--payout <id>]`
   (after `build`): exit 0 when every payout reconciled, 2 when any is discrepant.
 
+## ERP sync (#550)
+
+`src/erp/`: the ledger's journal entries become Odoo `account.move`s per legal entity (company =
+`legal_entity.odoo_company_id`), idempotently; the rows get `posted_to_erp_at` / `erp_reference` (the Odoo move id).
+
+- **Adapter** — `ErpAdapter { listCompanies, listAccounts, listJournals, findMoveByRef, createMove }`. Two
+  implementations: `OdooJsonRpcClient` (`POST /jsonrpc`: `common.authenticate` → uid, then `object.execute_kw` on
+  `res.company`, `account.account`, `account.journal`, `account.move` — `search_read`, `create`, `action_post`;
+  bounded timeouts, bounded retries on transport failures only, an Odoo fault is never retried and arrives as an
+  `ErpError` whose `name` is the class: `OdooUnbalancedMove`, `OdooAccountMissing`, `OdooJournalMissing`,
+  `OdooCompanyMismatch`, `OdooAccessDenied`, `OdooValidationError`, `OdooTransport`, `OdooTimeout`) and the in-memory
+  `createMockOdoo()` — a JSON-RPC server the real client talks to through its `fetch` seam, enforcing the rules the
+  sync relies on (balanced move, accounts and journal of the move's company, archived accounts refused, `action_post`).
+- **Mapping steps** (never by hand in SQL): `mapLegalEntityToCompany(client, legalEntityId, companyId)` fills
+  `legal_entity.odoo_company_id` (window 15's column, docs/domain.md); `mapChart(deps, legalEntityId)` fills
+  `ledger_account.erp_account_id` with the Odoo account of the same code — or of the code the optional
+  `accountCodeMap` names when the accountant's chart uses other codes — and lists the codes Odoo lacks.
+- **Sync** — `syncLegalEntity(deps, legalEntityId)`: one move per (`source_event_id`, `journal`), `ref` =
+  `<source_event_id>/<journal>` (the idempotency key on the Odoo side), journal by code (`sales` → SAL, `psp_fees` →
+  PSP, `refunds` → REF, `shipping` → SHP, `bank` → BNK, `cogs` → COGS, `tax` → TAX; `journalCodes` overrides), lines
+  = our account code + name, debit / credit in currency units (`toCurrencyUnits`, 2 decimals; 0 for JPY-like
+  currencies). Search before create: a crash between create and mark is recovered on the next run (`moves_found`),
+  never a second move. A refused move is reported (`erp_refused`: class, source event id, journal) and the rest of
+  the batch continues; its rows stay unposted. Skipped with a reason: `account_unmapped` (a code Odoo lacks),
+  `journal_missing`, `currency_unsupported` (a move not in the company's currency — no FX this phase).
+- **CLI** — `pnpm --filter @platform/accounting erp:sync -- --legal-entity <uuid> [--company <id>] [--mock]` (after
+  `build`): `--company` runs the mapping step first; `--mock` uses the in-memory Odoo (development). Credentials
+  only from `ODOO_URL`, `ODOO_DB`, `ODOO_USER`, `ODOO_API_KEY` — never in git, never in a log line.
+- **Live Odoo** — the instance is the owner's open question (asked 2026-10-23). `test/erp.test.ts` has a
+  `describe.runIf(odooUp)` block that authenticates and lists companies / accounts when `ODOO_URL` answers, skipped
+  with the reason otherwise; the live sync is waived to the launch checklist until then.
+
 ## Out of the Phase 4 gate (manager decision 4)
 
 - **COGS**: no event carries a unit cost (`shipment.shipped` has none, `stock.moved` has none). Journal `cogs` stays
@@ -262,7 +294,7 @@ creates `dlq.accounting.ledger` itself on first start.
 
 ## Tests
 
-`pnpm --filter @platform/accounting test` — 55 tests in five files:
+`pnpm --filter @platform/accounting test` — 64 tests in six files:
 
 - `src/posting/posting.test.ts` — pure: the arithmetic, the worked example of every topic above, partial shipments,
   proportional refunds and cancellations, every defect class, the netted life of one order.
@@ -279,6 +311,11 @@ creates `dlq.accounting.ledger` itself on first start.
   the window rule); the clean month on a seeded database: eight payouts reconciled with zero differences and posted,
   the PSP clearing account equal to the open balance to the cent, books balanced, a re-import a no-op; the discrepant
   month on its own database: each kind exactly once, nothing posted for those payouts, a re-import re-matched.
+- `test/erp.test.ts` — the JSON-RPC client against the mock (auth, retries with a bound, every refusal class), the sync
+  on the clean-month ledger: chart mapped, one posted balanced move per (event, journal), every row marked, a re-run
+  creates nothing, a refused move reported while the rest continue and posted on the next run, a crash between create
+  and mark recovered by ref, a code map with a missing Odoo account skipping only its entries; a live block for the
+  owner's Odoo (skipped with the reason).
 - `test/consumer-live.test.ts` — the consumer on the local Redpanda (prefixed topics and group, deleted afterwards):
   every event once, a redelivered `outbox_id` writes nothing, an unknown version is skipped, a shipment before its
   order is parked then applied, a genuinely bad shipment dead-letters with `ShipmentExceedsOrder` after the retries
