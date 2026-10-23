@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@platform/auth-sdk": "workspace:*",
+    "@platform/contracts": "workspace:*",
     "@platform/db": "workspace:*",
     "@platform/events": "workspace:*"
   },

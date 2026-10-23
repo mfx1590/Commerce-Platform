@@ -1,20 +1,63 @@
 // The support reader: the exact URLs it builds, and how it maps the core's answers.
 //
-// The URL assertions exist because the rest of the support suite drives a FAKE reader (it is testing the gates
-// and the assembly, not the wire). So this file is the only place that pins the request shape to the
-// contract — in particular the `customer_id` parameter from CONTRACT CHANGE #569. It proves the parameter is
-// spelled and placed correctly; it cannot prove the core honours it, and that live check is on the
-// Integration 4 list.
+// EVERY FIXTURE HERE IS TYPED FROM THE CONTRACT (`components['schemas']` of `@platform/contracts/admin`,
+// generated from admin-api.yaml). That is the point of this file after the #573 review: the first version used
+// hand-written fakes, which let the reader read `body.orders` where `listOrders` returns a `Page` of `items`,
+// and treat `total` as a scalar where `OrderSummary.total` is `Money`. Against the real core every customer
+// showed zero orders. With the fixtures typed, that drift is a COMPILE error here.
+//
+// The URL assertions pin the request shape — in particular `customer_id` from CONTRACT CHANGE #569. They prove
+// the parameter is spelled and placed correctly; they cannot prove the core honours it, and that live check is
+// on the Integration 4 list.
 
+import type { components } from '@platform/contracts/admin';
 import { describe, expect, it } from 'vitest';
 import { createSupportReader, type FetchLike } from './admin-api.js';
 import { SupportError } from './types.js';
+
+type Schemas = components['schemas'];
 
 const STORE = '00000000-0000-4000-8000-000000000031';
 const CUSTOMER = '77777777-7777-4777-8777-777777777777';
 const ORDER = '11111111-1111-4111-8111-111111111111';
 const BASE = 'http://localhost:9000';
 const AGENT = 'Bearer agent-token-in-words';
+
+// --- bodies the contract itself describes -------------------------------------------------------------------
+
+const customer: Schemas['Customer'] = {
+  id: CUSTOMER,
+  identity_id: null,
+  email: 'ada@example.test',
+  first_name: 'Ada',
+  last_name: 'Lovelace',
+  phone: null,
+  customer_group_id: null,
+  status: 'registered',
+  consent: {},
+  created_at: '2026-10-01T10:00:00.000Z',
+};
+
+const orderSummary: Schemas['OrderSummary'] = {
+  id: ORDER,
+  display_id: 1001,
+  email: 'ada@example.test',
+  customer_id: CUSTOMER,
+  status: 'completed',
+  payment_status: 'captured',
+  fulfillment_status: 'fulfilled',
+  // Money, not a scalar — and the ONLY place a summary carries a currency.
+  total: { amount_minor: 10994, currency: 'EUR' },
+  placed_at: '2026-10-05T10:00:00.000Z',
+};
+
+/** `listOrders` answers the shared `Page` wrapper plus `items`. `Page.total` is a COUNT, not money. */
+const ordersPage: Schemas['Page'] & { items: Schemas['OrderSummary'][] } = {
+  page: 1,
+  limit: 25,
+  total: 1,
+  items: [orderSummary],
+};
 
 function recorder(reply: { ok: boolean; status: number; body?: unknown; throws?: Error }) {
   const calls: { url: string; headers: Record<string, string> }[] = [];
@@ -35,19 +78,7 @@ describe('the URLs it builds', () => {
   });
 
   it('getCustomer: the store customer path, with the AGENT s header', async () => {
-    const r = recorder({
-      ok: true,
-      status: 200,
-      body: {
-        customer: {
-          id: CUSTOMER,
-          email: 'a@b.test',
-          first_name: null,
-          last_name: null,
-          status: 'registered',
-        },
-      },
-    });
+    const r = recorder({ ok: true, status: 200, body: customer });
     await reader(r.fetchImpl).getCustomer(STORE, CUSTOMER, AGENT);
     expect(r.calls[0]!.url).toBe(`${BASE}/admin/stores/${STORE}/customers/${CUSTOMER}`);
     expect(r.calls[0]!.headers.authorization).toBe(AGENT);
@@ -55,7 +86,7 @@ describe('the URLs it builds', () => {
   });
 
   it('listOrders: filters by CUSTOMER_ID (#569), newest first, with a limit', async () => {
-    const r = recorder({ ok: true, status: 200, body: { orders: [] } });
+    const r = recorder({ ok: true, status: 200, body: ordersPage });
     await reader(r.fetchImpl).listOrders(STORE, CUSTOMER, AGENT);
 
     const url = new URL(r.calls[0]!.url);
@@ -65,19 +96,19 @@ describe('the URLs it builds', () => {
     expect(url.searchParams.get('sort')).toBe('placed_at');
     expect(url.searchParams.get('order')).toBe('desc');
     expect(url.searchParams.get('limit')).toBe('25');
-    // And NOT the workaround that #569 exists to avoid: no e-mail in the query string, ever.
+    // And NOT the workaround that #569 exists to avoid: no e-mail and no `q` in the query string, ever.
     expect(url.searchParams.get('q')).toBeNull();
     expect(r.calls[0]!.url).not.toContain('@');
   });
 
   it('listOrders: honours a configured order cap', async () => {
-    const r = recorder({ ok: true, status: 200, body: { orders: [] } });
+    const r = recorder({ ok: true, status: 200, body: ordersPage });
     await reader(r.fetchImpl, 5).listOrders(STORE, CUSTOMER, AGENT);
     expect(new URL(r.calls[0]!.url).searchParams.get('limit')).toBe('5');
   });
 
   it('listOrders: encodes the customer id rather than interpolating it raw', async () => {
-    const r = recorder({ ok: true, status: 200, body: { orders: [] } });
+    const r = recorder({ ok: true, status: 200, body: ordersPage });
     await reader(r.fetchImpl).listOrders(STORE, 'not a/uuid&limit=9999', AGENT);
     const url = new URL(r.calls[0]!.url);
     // The whole value is one parameter: an id cannot smuggle a second one in.
@@ -85,20 +116,76 @@ describe('the URLs it builds', () => {
     expect(url.searchParams.get('limit')).toBe('25');
   });
 
+  it('ENCODES EVERY PATH SEGMENT: %2F..%2F cannot climb out of the resource', async () => {
+    // The route rejects a non-uuid before reaching here, but a reader must be safe on its own terms: an
+    // unencoded `/../` in a path segment would hit another Admin API route with the agent's own token.
+    const evil = '../../stores/other/customers';
+    const r = recorder({ ok: true, status: 200, body: customer });
+    await reader(r.fetchImpl).getCustomer(STORE, evil, AGENT);
+
+    const url = r.calls[0]!.url;
+    expect(url).toBe(`${BASE}/admin/stores/${STORE}/customers/${encodeURIComponent(evil)}`);
+    // The decoded path must still be the customers path of THIS store: no traversal, no second resource.
+    expect(new URL(url).pathname).toBe(
+      `/admin/stores/${STORE}/customers/${encodeURIComponent(evil)}`,
+    );
+    expect(url).not.toContain('/../');
+    expect(url).not.toContain('%2F..%2F'.toLowerCase());
+
+    // Same on the order path, and with an already-encoded traversal.
+    const r2 = recorder({ ok: true, status: 200, body: { ...orderSummary } });
+    await reader(r2.fetchImpl).getOrder(STORE, '%2F..%2Fadmin', AGENT);
+    expect(new URL(r2.calls[0]!.url).pathname).toBe(
+      `/admin/stores/${STORE}/orders/${encodeURIComponent('%2F..%2Fadmin')}`,
+    );
+  });
+
   it('getOrder: the store order path', async () => {
-    const r = recorder({ ok: true, status: 200, body: { order: { id: ORDER } } });
+    const r = recorder({ ok: true, status: 200, body: orderSummary });
     await reader(r.fetchImpl).getOrder(STORE, ORDER, AGENT);
     expect(r.calls[0]!.url).toBe(`${BASE}/admin/stores/${STORE}/orders/${ORDER}`);
   });
 
   it('trims a trailing slash off the base URL', async () => {
-    const r = recorder({ ok: true, status: 200, body: { order: { id: ORDER } } });
+    const r = recorder({ ok: true, status: 200, body: orderSummary });
     await createSupportReader({ baseUrl: `${BASE}/`, fetchImpl: r.fetchImpl }).getOrder(
       STORE,
       ORDER,
       AGENT,
     );
     expect(r.calls[0]!.url).toBe(`${BASE}/admin/stores/${STORE}/orders/${ORDER}`);
+  });
+});
+
+describe('the response shapes the contract defines', () => {
+  it('getCustomer reads the Customer body DIRECTLY (no envelope)', async () => {
+    const r = recorder({ ok: true, status: 200, body: customer });
+    const c = await reader(r.fetchImpl).getCustomer(STORE, CUSTOMER, AGENT);
+    expect(c?.id).toBe(CUSTOMER);
+    expect(c?.email).toBe('ada@example.test');
+    expect(c?.status).toBe('registered');
+  });
+
+  it('listOrders reads `items` from the Page wrapper, NOT `orders`', async () => {
+    const r = recorder({ ok: true, status: 200, body: ordersPage });
+    const orders = await reader(r.fetchImpl).listOrders(STORE, CUSTOMER, AGENT);
+    expect(orders).toHaveLength(1);
+    expect(orders[0]!.id).toBe(ORDER);
+    // The regression that shipped in the first version: a body keyed `orders` yields nothing, correctly.
+    const wrong = recorder({ ok: true, status: 200, body: { orders: [orderSummary] } });
+    expect(await reader(wrong.fetchImpl).listOrders(STORE, CUSTOMER, AGENT)).toEqual([]);
+  });
+
+  it('OrderSummary.total is Money, and carries the currency', async () => {
+    const r = recorder({ ok: true, status: 200, body: ordersPage });
+    const [order] = await reader(r.fetchImpl).listOrders(STORE, CUSTOMER, AGENT);
+    expect(order!.total).toEqual({ amount_minor: 10994, currency: 'EUR' });
+  });
+
+  it('getOrder reads the Order body DIRECTLY (no envelope)', async () => {
+    const r = recorder({ ok: true, status: 200, body: orderSummary });
+    const o = await reader(r.fetchImpl).getOrder(STORE, ORDER, AGENT);
+    expect(o?.id).toBe(ORDER);
   });
 });
 
@@ -131,11 +218,7 @@ describe('how it maps the core s answers', () => {
   });
 
   it('any other failure becomes a 502, with no body in the message', async () => {
-    const r = recorder({
-      ok: false,
-      status: 500,
-      body: { customer: { email: 'ada@example.test', last_name: 'Lovelace' } },
-    });
+    const r = recorder({ ok: false, status: 500, body: customer });
     const err = (await reader(r.fetchImpl)
       .getCustomer(STORE, CUSTOMER, AGENT)
       .catch((e: unknown) => e)) as SupportError;
@@ -174,50 +257,22 @@ describe('how it maps the core s answers', () => {
     expect(err.message).toMatch(/unreadable/);
   });
 
-  it('accepts a wrapped or a bare customer, and refuses a shape it cannot read', async () => {
-    const wrapped = recorder({
-      ok: true,
-      status: 200,
-      body: {
-        customer: {
-          id: CUSTOMER,
-          email: 'a@b.test',
-          first_name: null,
-          last_name: null,
-          status: 'guest',
-        },
-      },
-    });
-    expect((await reader(wrapped.fetchImpl).getCustomer(STORE, CUSTOMER, AGENT))?.status).toBe(
-      'guest',
-    );
-
-    const bare = recorder({
-      ok: true,
-      status: 200,
-      body: {
-        id: CUSTOMER,
-        email: 'a@b.test',
-        first_name: null,
-        last_name: null,
-        status: 'registered',
-      },
-    });
-    expect((await reader(bare.fetchImpl).getCustomer(STORE, CUSTOMER, AGENT))?.id).toBe(CUSTOMER);
-
-    const nonsense = recorder({ ok: true, status: 200, body: { customer: { nope: true } } });
-    await expect(reader(nonsense.fetchImpl).getCustomer(STORE, CUSTOMER, AGENT)).rejects.toThrow(
-      /Unexpected customer shape/,
-    );
+  it('refuses a customer shape it cannot read, without echoing it', async () => {
+    const r = recorder({ ok: true, status: 200, body: { nope: 'ada@example.test' } });
+    const err = (await reader(r.fetchImpl)
+      .getCustomer(STORE, CUSTOMER, AGENT)
+      .catch((e: unknown) => e)) as SupportError;
+    expect(err.message).toBe('Unexpected customer shape');
+    expect(err.message).not.toContain('ada@example.test');
   });
 
-  it('a listOrders answer without an orders array is an empty list, not a crash', async () => {
-    const r = recorder({ ok: true, status: 200, body: { page: 1 } });
+  it('a listOrders answer without items is an empty list, not a crash', async () => {
+    const r = recorder({ ok: true, status: 200, body: { page: 1, limit: 25, total: 0 } });
     expect(await reader(r.fetchImpl).listOrders(STORE, CUSTOMER, AGENT)).toEqual([]);
   });
 
   it('a getOrder answer with no id is null rather than a half order', async () => {
-    const r = recorder({ ok: true, status: 200, body: { order: { display_id: 1 } } });
+    const r = recorder({ ok: true, status: 200, body: { display_id: 1 } });
     expect(await reader(r.fetchImpl).getOrder(STORE, ORDER, AGENT)).toBeNull();
   });
 });

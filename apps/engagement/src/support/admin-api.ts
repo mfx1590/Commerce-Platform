@@ -9,19 +9,41 @@
 // `support` implies `viewer` in the model (`infra/openfga/model.fga`), so one `support` grant covers all three
 // and no new permission is needed for this API.
 //
-// The `customer_id` filter on `listOrders` is `CONTRACT CHANGE` #569 — accepted, landed on
-// integration/orders-customer-filter (a2e6e98, Admin API 0.4.24), core predicate from window 1. It exists
-// because the alternative, `q=<the customer's e-mail>`, puts an address in a URL (every proxy and access log
-// then has it) and is a SEARCH rather than a key, so two customers sharing an address would see each other's
-// orders. The reasoning is on #569.
+// THE RESPONSE TYPES COME FROM THE CONTRACT ITSELF (`@platform/contracts/admin`, generated from
+// admin-api.yaml), not from hand-written interfaces. The first version of this file guessed them and got two
+// wrong — it read `body.orders` where `listOrders` returns a `Page` of `items`, and treated `total` as a
+// scalar where `OrderSummary.total` is `Money { amount_minor, currency }`. Against the real core every
+// customer would have shown zero orders and an empty currency, and a fake reader in the tests could never
+// have caught it (#573 review). Typing against the generated schemas makes the next such drift a COMPILE
+// error rather than a silent empty answer.
 //
-// `getOrder` already embeds payments, refunds, shipments and returns, so the whole history is one list call
-// plus one detail call per order — no new endpoint and no join of ours.
+// The shapes, for the record:
+//   * getCustomer -> `Customer` directly (no envelope)
+//   * getOrder    -> `Order` directly (no envelope); it embeds payments, refunds, shipments and returns
+//   * listOrders  -> `Page` + `{ items: OrderSummary[] }`
+//
+// `customer_id` on `listOrders` is CONTRACT CHANGE #569 (Admin API 0.4.24, merged as #570). It exists because
+// the alternative, `q=<the customer's e-mail>`, puts an address in a URL (every proxy and access log then has
+// it) and is a SEARCH rather than a key, so two customers sharing an address would see each other's orders.
 //
 // NOTHING IS CACHED. The agent's permission is only true at the moment the core says so, and a cache would
 // also be a copy of personal data, which #556 forbids.
 
+import type { components } from '@platform/contracts/admin';
 import { SupportError } from './types.js';
+
+type Schemas = components['schemas'];
+
+/** `Customer` exactly as the Admin API defines it. */
+export type RawCustomer = Schemas['Customer'];
+/** One row of `listOrders`' `items`. `total` is `Money`; there is NO top-level currency here. */
+export type RawOrderSummary = Schemas['OrderSummary'];
+/** `getOrder`'s body: `OrderSummary` plus the embedded arrays, `currency` and `totals`. */
+export type RawOrderDetail = Schemas['Order'];
+export type RawMoney = Schemas['Money'];
+
+/** `listOrders`' body: the shared `Page` wrapper plus `items`. Note `Page.total` is a COUNT, not money. */
+type OrdersPage = Schemas['Page'] & { items: RawOrderSummary[] };
 
 export type FetchLike = (
   url: string,
@@ -36,35 +58,6 @@ export interface SupportReaderOptions {
   maxOrders?: number;
 }
 
-/** The raw shapes this reader takes from the Admin API; only the fields the context uses. */
-export interface RawCustomer {
-  id: string;
-  email: string;
-  first_name: string | null;
-  last_name: string | null;
-  status: 'guest' | 'registered' | 'disabled' | 'erased';
-  created_at?: string | null;
-}
-
-export interface RawOrderSummary {
-  id: string;
-  display_id: number;
-  status: string;
-  payment_status: string;
-  fulfillment_status: string;
-  total?: number | string | null;
-  total_minor?: number | string | null;
-  currency?: string | null;
-  placed_at: string | null;
-}
-
-export interface RawOrderDetail extends RawOrderSummary {
-  payments?: unknown[];
-  refunds?: unknown[];
-  shipments?: unknown[];
-  returns?: unknown[];
-}
-
 export interface SupportReader {
   getCustomer(
     storeId: string,
@@ -77,6 +70,16 @@ export interface SupportReader {
     authorization: string,
   ): Promise<RawOrderSummary[]>;
   getOrder(storeId: string, orderId: string, authorization: string): Promise<RawOrderDetail | null>;
+}
+
+/**
+ * Every id that reaches a path goes through this. A path segment is not a place to interpolate caller input:
+ * an unencoded `%2F..%2F` would climb out of the resource and hit another route with the agent's own token
+ * (#573 review). The route validates ids as uuids before calling at all; this is the second line, because a
+ * reader must be safe on its own terms.
+ */
+function segment(value: string): string {
+  return encodeURIComponent(value);
 }
 
 export function createSupportReader(opts: SupportReaderOptions): SupportReader {
@@ -119,36 +122,39 @@ export function createSupportReader(opts: SupportReaderOptions): SupportReader {
   return {
     async getCustomer(storeId, customerId, authorization) {
       const body = await get(
-        `${base}/admin/stores/${storeId}/customers/${customerId}`,
+        `${base}/admin/stores/${segment(storeId)}/customers/${segment(customerId)}`,
         authorization,
         'customer',
       );
       if (body === null) return null;
-      const c = (body as { customer?: RawCustomer }).customer ?? (body as RawCustomer);
-      if (!c || typeof c.id !== 'string') {
+      // The contract returns `Customer` directly.
+      const c = body as RawCustomer;
+      if (!c || typeof c.id !== 'string' || typeof c.email !== 'string') {
         throw new SupportError(502, 'upstream_error', 'Unexpected customer shape');
       }
       return c;
     },
 
     async listOrders(storeId, customerId, authorization) {
-      const url = `${base}/admin/stores/${storeId}/orders?customer_id=${encodeURIComponent(
-        customerId,
-      )}&sort=placed_at&order=desc&limit=${limit}`;
+      const url =
+        `${base}/admin/stores/${segment(storeId)}/orders` +
+        `?customer_id=${encodeURIComponent(customerId)}&sort=placed_at&order=desc&limit=${limit}`;
       const body = await get(url, authorization, 'orders');
       if (body === null) return [];
-      const orders = (body as { orders?: RawOrderSummary[] }).orders;
-      return Array.isArray(orders) ? orders : [];
+      // `Page` + `items`, per the contract. NOT `orders`.
+      const items = (body as OrdersPage | null)?.items;
+      return Array.isArray(items) ? items : [];
     },
 
     async getOrder(storeId, orderId, authorization) {
       const body = await get(
-        `${base}/admin/stores/${storeId}/orders/${orderId}`,
+        `${base}/admin/stores/${segment(storeId)}/orders/${segment(orderId)}`,
         authorization,
         'order',
       );
       if (body === null) return null;
-      const o = (body as { order?: RawOrderDetail }).order ?? (body as RawOrderDetail);
+      // The contract returns `Order` directly.
+      const o = body as RawOrderDetail;
       return o && typeof o.id === 'string' ? o : null;
     },
   };
