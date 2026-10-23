@@ -50,6 +50,13 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
   **CONTRACT CHANGE #569 ACCEPTED** (listOrders `customer_id`, Admin API 0.4.24, landed on integration/orders-customer-filter a2e6e98; window 1 adds the core predicate). Built against it.
   **#568 = Fable MERGE**; its three nits folded in here (see below).
 
+### #573 BLOCK — three real fixes, worth not repeating
+- **The support reader did not match the contract.** It read `body.orders` where `listOrders` answers a `Page` of `items`, and treated `total` as a scalar where `OrderSummary.total` is `Money { amount_minor, currency }` (the ONLY place a summary carries a currency). Against the real core: zero orders, empty currency. **No test could catch it because they all drove a hand-written fake.** LESSON: when a reader talks to a contract, type its responses FROM the contract (`@platform/contracts/admin`) and type every fixture from the contract's schemas — then drift is a compile error. Typing the existing fixtures surfaced six more wrong fields. `getCustomer` and `getOrder` return their schema DIRECTLY (no envelope).
+- **Validate path ids as uuids in the route BEFORE any call** → 404 (not 400: malformed and absent must look the same), and `encodeURIComponent` every path segment in the reader. `%2F..%2F` decodes to `/../`, and an unvalidated id in a path could reach another Admin API route WITH THE AGENT'S OWN TOKEN.
+- **`sha256(secret + '.' + body)` is NOT an HMAC** — a keyed hash, no inner/outer padding, the length-extension construction. Use `createHmac('sha256', secret)`. Chatwoot's documented header format could not be confirmed by search, so both bare-hex and `sha256=` are accepted and the README says it is UNVERIFIED (launch-checklist check). Do not claim a compatibility nobody verified.
+- Test nits worth keeping as habits: a permission fake must record WHAT IT WAS ASKED (a flat boolean would pass a `store:*` check); two different upstream answers that must look identical should be asserted byte-identical, not just same-status.
+- Known limit recorded, not fixed: the store lookup precedes the permission check, so store codes are enumerable by authenticated staff (404 vs 403).
+
 ### #556 decisions worth not re-deriving
 - **The agent's OWN token reads**, never a service principal — the opposite of #555, because #556 has a human in the request. Gate order: authenticate → resolve store → `support` on THAT store via OpenFGA → read. 401 lands before a query parameter is parsed, so the route cannot be probed for which stores/customers exist; a test asserts a refused gate makes NO Admin API call, another that every read carried the agent's header. The agent's header is forwarded so the CORE re-checks: defence in depth, and if they disagree the core wins.
 - **OpenFGA unreachable → 503, not 403.** "Forbidden" would be a lie; we cannot tell. Same choice auth-sdk's own guard makes.
@@ -95,7 +102,7 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 
 ## RESUME HERE if this window restarts (updated 2026-10-23: the PR is OPEN, so step 1 is done)
 
-**ALL FOUR ISSUES ARE DELIVERED.** #553 merged (via #563), #554 merged (#564), #555 MERGED (#568 = 9d8915a), #556 is **PR #573, head c06a9a9, open with 3 checks running**. Nothing left but its review; HOLD all pushes from c06a9a9.
+**ALL FOUR ISSUES ARE DELIVERED.** #573 came back Fable BLOCK with three REAL fixes (see below), now folded in and pushed. #553 merged (via #563), #554 merged (#564), #555 MERGED (#568 = 9d8915a), #556 is **PR #573, head c06a9a9, open with 3 checks running**. Nothing left but its review; HOLD all pushes from c06a9a9.
 
 **State:** branch `engagement/phase4` pushed at **c06a9a9** = PR #573. Verified 343/343 with the broker up (18 files, ~81 s) before the main merge, and **334/9 offline re-run AFTER merging main** (e6c73e0, which brought db migration 0203 — every DB test applies the full set, so the re-run was warranted). Lint, typecheck, ownership, prettier clean.
 
