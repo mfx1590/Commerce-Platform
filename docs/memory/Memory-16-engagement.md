@@ -1,6 +1,6 @@
 # Memory 16 — CRM, CDP, ops alerts & support
 Window: 16 · Key: `engagement` · Branch prefix: `engagement/` · Model: Sonnet
-Last updated: 2026-10-23 (window 16, session one) · Contracts: contracts-v0.4.26, events-v1 = 2abe310 · Last commit: (see In progress) · Status: 16.1 COMPLETE and verified — 71/71 on three consecutive full runs with the broker up; machine released; pushing + opening the PR next
+Last updated: 2026-10-23 (window 16, session one) · Contracts: contracts-v0.4.26, events-v1 = 2abe310 · Last commit: the memory commit on top of code commit d186210 (= PR #562 head, FROZEN for the manager's integration branch) · Status: 16.1 delivered, PR #562 open, checks running; pushes HELD after it; #554 allowed in the working tree, local only
 
 ## Identity (does not change)
 Owned paths (write):
@@ -16,15 +16,11 @@ Never touches:
 Bus consumers for engagement, each an adapter + dev sink/mock (no external accounts exist): ops alerts to Slack, a CDP tracking plan + RudderStack mapper, CRM sync (Twenty), a support-context API for agents (Chatwoot-shaped). Consent-gated, erase-aware, no PII from events.
 
 ## Done
-- (nothing merged yet)
-
-## In progress
-- **#553 16.1 apps/engagement + ops alerts — BUILT, plan approved by the manager 2026-10-23. Blocked only on the machine for the live broker block (asked 2026-10-23), then merge main → push → PR.**
-  Delivered in apps/engagement (26 files): package `@platform/engagement` 0.1.0 (index.ts public API, README, CLAUDE.md, CHANGELOG, tsconfig + tsconfig.test + vitest.config), `src/ops/{rules,consumer,rate-limit,dlq-watch,store-codes}.ts`, `src/transport/{types,dev-sink,slack}.ts`, `src/{config,main,types,index}.ts`, and `migrations/0202_consumer_processed.sql` (the COPY, see Blocked).
-  Test state: **68 passed, 3 skipped** with the broker deliberately offline (`KAFKA_BROKERS=127.0.0.1:19099`), which also proved the skip-with-a-printed-reason path. Per file: rules 16, transports 13, config 12, dlq-watch 8, rate-limit 7, consumer 15 (12 DB + 3 live skipped). Root `pnpm lint` and `pnpm typecheck` (24 tasks) green; `bash scripts/check-ownership.sh` → OK (engagement/phase4); prettier clean.
-  Commits: 065d0a3 (the service + ops alerts), fe9f910 (merge main 653d817), 1e1a9d8 (drop the 0202 copy — #557 landed). After the merge: `pnpm install --frozen-lockfile`, packages rebuilt, 68 pass / 3 live skip, lint + typecheck green.
-  LIVE RUN DONE 2026-10-23 (machine granted, then released): **71/71 on three consecutive full-suite runs**, ~26 s each, cleanup asserted ("deleted 12 topic(s) with prefix t-eng-<random>" + afterAll assertion that none remains). Manager rulings received: post-then-mark ACCEPTED, return.requested.reason excluded / PSP failure_reason included ACCEPTED, both to stay asserted.
-  STILL TO DO: (1) push engagement/phase4, open the PR (acceptance criteria, live counts + duration, exactly one `Closes #553` line); (2) message the manager the number + head sha, then HOLD ALL PUSHES — he cuts `integration/engagement-service` from my head, adds the Dockerfile COPY lines, and THAT integration PR is the one that merges; (3) expect `app images` red on my PR until his commit; (4) message him again when every check finished.
+- **#553 16.1 apps/engagement service + ops alerts — PR #562 (code commit d186210; head = this memory commit)** (open 2026-10-23, checks running; `Closes #553`; the record form the manager asked for). Branch engagement/phase4, 5 commits: 065d0a3 service + ops alerts · fe9f910 merge main 653d817 · 1e1a9d8 drop the 0202 copy (#557 landed) · f6824f6 memory · d186210 live-test isolation + a dedupe test that actually tests dedupe.
+  Delivered: `@platform/engagement` 0.1.0 at apps/engagement — `src/ops/{rules,consumer,rate-limit,dlq-watch,store-codes}.ts`, `src/transport/{types,dev-sink,slack}.ts`, `src/{config,main,types,index}.ts`, README + CHANGELOG + CLAUDE.md, scripts dev/start/once. Group `engagement.ops` over payment.failed / refund.failed / return.requested on the events-v1 SDK, marks in the shared `consumer_processed` via `createPgProcessedStore` + an organization-scoped client; 4 rules (incl. `dlq-depth`); dev JSON-lines sink + Slack webhook; rate limit per (rule, store); DLQ depth poll.
+  Verified: **71/71 on three consecutive full-suite runs** with the broker up (~26 s each, "deleted 12 topic(s) with prefix t-eng-<random>" + the afterAll assertion that none remains); 68 passed / 3 skipped with the broker unreachable (the printed-reason path); package + root typecheck (24/24), root lint, check-ownership OK, prettier clean. Machine was granted for the live run and released.
+  Manager rulings on the record: post-then-mark ACCEPTED (at-least-once for alerts is the right trade, keep the header + README wording); `return.requested.reason` excluded and PSP `failure_reason` included ACCEPTED, both to stay asserted.
+  NEXT: `app images` is expected RED until the manager's Dockerfile COPY commit — he cuts `integration/engagement-service` from this memory commit (he asked for it pushed, 2026-10-23), adds the lines, and THAT integration PR merges, not mine. **Hold all pushes from there**; #554 may be built in the working tree, local only, until he confirms #562 merged. Message him when every check has finished.
 
 ### The live-test trap this task cost me two runs to find (read before writing 16.2's consumer test)
 - Every live test that uses `createOpsConsumer` joins the REAL group (`engagement.ops`, and 16.2 will be `engagement.cdp`). Two live members of one group SHARE the topic's partitions, so a message published by test C can be delivered to test A's consumer — whose transport behaves differently — and the assertion then tests the wrong object. The dead-letter test passed alone (15/15) and failed in the full-suite run for exactly this reason. Rule: **each live test ensures its own topics under a sub-prefix and stops its consumer in a `finally` before the next starts** (`run(consumer, async () => {...})` helper in ops/consumer.test.ts).
@@ -41,8 +37,11 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - eslint allows only console.warn/error/info — a JSON log line goes through `console.info`.
 - vitest config must set DATABASE_URL/DATABASE_URL_APP in `test.env` (turbo strips DATABASE_URL* from the test environment) and `fileParallelism: false`, copied from apps/notifications.
 
+## In progress
+- #554 16.2 (CDP) — cleared by the manager to build in the working tree, **local commits only, no pushes until he confirms #562 merged**. Not started yet.
+
 ## Next — Phase 4 (issues, in order)
-- [ ] #553 16.1 apps/engagement service + ops alerts (group `engagement.ops`) — the window-wide decisions are on this issue
+- [x] #553 16.1 apps/engagement service + ops alerts (group `engagement.ops`) — PR #562, see Done
 - [ ] #554 16.2 CDP tracking plan + RudderStack mapper (group `engagement.cdp`)
 - [ ] #555 16.3 CRM sync, Twenty adapter (group `engagement.crm`; REQUEST a crm-sync service client)
 - [ ] #556 16.4 Support context API + Chatwoot webhook stub
