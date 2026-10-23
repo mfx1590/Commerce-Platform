@@ -59,6 +59,25 @@ interface StoreRow {
   default_currency: string;
 }
 
+/**
+ * Every id that reaches a path is validated as a uuid BEFORE any call is made (#573 review). Two reasons, and
+ * the second is the important one:
+ *   * a non-uuid cannot be one of our customers, so 404 is the honest answer and a round trip to the core is
+ *     wasted work;
+ *   * a path segment is not a place for unvalidated caller input. `%2F..%2F` decodes to `/../`, and an id that
+ *     reached the reader unvalidated could climb out of the resource and hit another Admin API route WITH THE
+ *     AGENT'S OWN TOKEN. The reader also encodes every segment, so this is the first of two lines rather than
+ *     the only one.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function requireUuid(value: string, what: string): string {
+  // 404, not 400: "that is not a customer of this store" is the same answer whether the id is malformed or
+  // simply not here, and the two must not be distinguishable.
+  if (!UUID.test(value)) throw new SupportError(404, 'not_found', `No such ${what}`);
+  return value;
+}
+
 function send(res: ServerResponse, status: number, body: unknown): void {
   const text = JSON.stringify(body);
   res.writeHead(status, {
@@ -115,7 +134,15 @@ export function createSupportServer(opts: SupportServerOptions): Server {
 
   async function storeOf(ref: string): Promise<StoreRow> {
     // By id or by code, because a Chatwoot dashboard app is configured with a code and an admin link has an id.
-    const byId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref);
+    // The value only ever reaches a parameterised query, never a path or a string-built SQL fragment.
+    //
+    // KNOWN LIMIT (#573 review): this lookup runs BEFORE the permission check, so an authenticated staff user
+    // who is not support for any store can still learn which store codes exist, by the difference between 404
+    // (no such store) and 403 (not yours). Narrowing that would mean checking a permission against a store we
+    // have not resolved yet, or answering 403 for an unknown store and so lying to an operator debugging a
+    // typo. It is recorded rather than fixed: the caller is already an active staff user of this
+    // organization, for whom the store list is not a secret.
+    const byId = UUID.test(ref);
     const r = await opts.hq.query<StoreRow>(
       `SELECT id, code, default_currency FROM store WHERE ${byId ? 'id = $1' : 'code = $1'}`,
       [ref],
@@ -152,7 +179,8 @@ export function createSupportServer(opts: SupportServerOptions): Server {
           // 2. WHAT — `support` on this store, server-side, before a single read.
           await opts.auth.requireSupport(principal, store.id);
 
-          const customerId = decodeURIComponent(context[1] as string);
+          // Decode once, then validate: the pattern below is what reaches the reader.
+          const customerId = requireUuid(decodeURIComponent(context[1] as string), 'customer');
           const built = await buildContext({
             reader: opts.reader,
             storeId: store.id,

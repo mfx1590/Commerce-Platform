@@ -7,8 +7,10 @@
 // need a principal it does not have, and inventing one would be exactly the thing the ruling forbids. It also
 // persists nothing, because a conversation→customer link is a table this service does not own.
 //
-// So it does three things and stops: it verifies the signature, it HASHES the contact's e-mail on arrival so
-// the raw address is never handled downstream, and it returns the link as (conversation id → `email_hash`).
+// So it does three things and stops: it verifies the signature (HMAC-SHA256 over the raw body — see
+// `signBody`; Chatwoot's own header format is NOT confirmed and is a launch-checklist item), it HASHES the
+// contact's e-mail on arrival so the raw address is never handled downstream, and it returns the link as
+// (conversation id → `email_hash`).
 // The resolution to a customer id happens on the DASHBOARD request, which does carry the agent's token — the
 // `/support/customers/:id/context` route. A link table and a principal are a later phase, not this one.
 //
@@ -24,7 +26,7 @@
 //     effect to replay: nothing is written and nothing is sent. The day it does something stateful, the guard
 //     has to become a table, and that is a REQUEST.
 
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { SupportError } from './types.js';
 
 export interface ChatwootLink {
@@ -74,8 +76,30 @@ function sameSignature(a: string, b: string): boolean {
   return timingSafeEqual(left, right);
 }
 
+/**
+ * HMAC-SHA256 over the RAW body, hex. A real keyed MAC: the first version of this computed
+ * `sha256(secret + '.' + body)`, which is a keyed hash and not an HMAC — it lacks HMAC's inner/outer padding
+ * and is the construction length-extension attacks are written about (#573 review). `createHmac` is the
+ * primitive; nothing here should hand-roll one.
+ */
 export function signBody(secret: string, body: string): string {
-  return createHash('sha256').update(`${secret}.${body}`).digest('hex');
+  return createHmac('sha256', secret).update(body, 'utf8').digest('hex');
+}
+
+/**
+ * Senders differ on whether the header is a bare hex digest or prefixed (`sha256=<hex>`, the GitHub style that
+ * `x-hub-signature-256` implies). Both are accepted, case-insensitively on the hex.
+ *
+ * CHATWOOT'S OWN FORMAT IS NOT CONFIRMED. I could not find its documented header name or signing scheme, so
+ * this verifies the standard construction and accepts both shapes rather than inventing a specific one. Before
+ * live use the exact header, prefix and encoding must be checked against a real delivery or the Chatwoot
+ * source — it is a launch-checklist item, next to "a real Chatwoot instance".
+ */
+function normaliseSignature(header: string): string {
+  const trimmed = header.trim();
+  const eq = trimmed.indexOf('=');
+  const value = eq === -1 ? trimmed : trimmed.slice(eq + 1);
+  return value.toLowerCase();
 }
 
 export function createChatwootReceiver(opts: ChatwootVerifierOptions): ChatwootReceiver {
@@ -91,7 +115,7 @@ export function createChatwootReceiver(opts: ChatwootVerifierOptions): ChatwootR
     receive(body, signature) {
       if (!signature) throw new SupportError(401, 'unauthorized', 'Missing signature');
       // 401 for a bad signature, as #556 asks — and the same message whatever was wrong with it.
-      if (!sameSignature(signature, signBody(secret, body))) {
+      if (!sameSignature(normaliseSignature(signature), signBody(secret, body))) {
         throw new SupportError(401, 'unauthorized', 'Bad signature');
       }
 

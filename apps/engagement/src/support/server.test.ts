@@ -6,10 +6,13 @@
 // call is made at all when a gate refuses.
 
 import { createOrganizationClient, SEED_IDS, seed, type ScopedClient } from '@platform/db';
+
+type Schemas = components['schemas'];
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import type { Server } from 'node:http';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { RawCustomer, RawOrderDetail, RawOrderSummary, SupportReader } from './admin-api.js';
+import type { components } from '@platform/contracts/admin';
+import type { SupportReader } from './admin-api.js';
 import { createAgentAuth, type PermissionChecker } from './auth.js';
 import { createChatwootReceiver, signBody } from './chatwoot.js';
 import { createSupportServer, type SupportLogLine } from './server.js';
@@ -31,45 +34,126 @@ let allow: boolean;
 let fgaThrows: boolean;
 let lines: SupportLogLine[];
 
-const customer: RawCustomer = {
+// Fixtures typed from the CONTRACT, so an Admin API drift breaks this file at compile time (#573 review).
+const customer: Schemas['Customer'] = {
   id: CUSTOMER,
+  identity_id: null,
   email: 'ada@example.test',
   first_name: 'Ada',
   last_name: 'Lovelace',
+  phone: null,
+  customer_group_id: null,
   status: 'registered',
+  consent: {},
   created_at: '2026-10-01T10:00:00.000Z',
 };
 
-const summary: RawOrderSummary = {
+const summary: Schemas['OrderSummary'] = {
   id: ORDER,
   display_id: 1001,
+  email: 'ada@example.test',
+  customer_id: CUSTOMER,
   status: 'completed',
   payment_status: 'captured',
   fulfillment_status: 'fulfilled',
-  total: 10994,
-  currency: 'EUR',
+  // Money, and the only currency a summary carries.
+  total: { amount_minor: 10994, currency: 'EUR' },
   placed_at: '2026-10-05T10:00:00.000Z',
 };
 
-const detail: RawOrderDetail = {
+const address: Schemas['Address'] = {
+  first_name: 'Ada',
+  last_name: 'Lovelace',
+  line1: '12 Example Street',
+  city: 'Berlin',
+  postal_code: '10115',
+  country: 'DE',
+};
+
+const detail: Schemas['Order'] = {
   ...summary,
+  sales_channel_id: '88888888-8888-4888-8888-888888888888',
+  currency: 'EUR',
+  locale: 'en-GB',
+  items: [],
+  shipping_address: address,
+  billing_address: address,
+  shipping_method: {
+    code: 'standard',
+    name: 'Standard',
+    carrier: 'dhl',
+    price: { amount_minor: 499, currency: 'EUR' },
+  },
+  promotion_codes: [],
+  totals: {
+    subtotal: { amount_minor: 9000, currency: 'EUR' },
+    discount: { amount_minor: 0, currency: 'EUR' },
+    shipping: { amount_minor: 499, currency: 'EUR' },
+    tax: { amount_minor: 1495, currency: 'EUR' },
+    total: { amount_minor: 10994, currency: 'EUR' },
+  },
   payments: [
-    { id: 'p1', provider: 'stripe', status: 'captured', amount_minor: 10994, currency: 'EUR' },
+    {
+      id: '22222222-2222-4222-8222-222222222222',
+      provider: 'stripe',
+      provider_payment_id: 'pi-alpha',
+      amount: { amount_minor: 10994, currency: 'EUR' },
+      status: 'captured',
+      fee_minor: 250,
+      captured_at: '2026-10-05T10:05:00.000Z',
+    },
   ],
   refunds: [
-    { id: 'r1', status: 'succeeded', amount_minor: 2500, currency: 'EUR', reason: 'return' },
+    {
+      id: '33333333-3333-4333-8333-333333333333',
+      order_id: ORDER,
+      payment_id: '22222222-2222-4222-8222-222222222222',
+      return_id: null,
+      amount: { amount_minor: 2500, currency: 'EUR' },
+      reason: 'return',
+      status: 'succeeded',
+      provider_refund_id: 're-alpha',
+      created_at: '2026-10-06T10:00:00.000Z',
+    },
   ],
   shipments: [
     {
-      id: 's1',
-      status: 'delivered',
+      id: '55555555-5555-4555-8555-555555555555',
+      order_id: ORDER,
+      warehouse_id: '00000000-0000-4000-8000-000000000021',
       carrier: 'dhl',
+      service: 'standard',
       tracking_number: 'TRACK-ALPHA-WORDS',
-      shipped_at: '2026-10-06T10:00:00.000Z',
-      delivered_at: '2026-10-08T10:00:00.000Z',
+      tracking_url: null,
+      label_url: null,
+      cost: { amount_minor: 499, currency: 'EUR' },
+      status: 'delivered',
+      items: [],
+      shipped_at: '2026-10-06T08:00:00.000Z',
+      delivered_at: '2026-10-08T08:00:00.000Z',
     },
   ],
-  returns: [{ id: 'rt1', status: 'received', requested_at: '2026-10-07T10:00:00.000Z' }],
+  returns: [
+    {
+      id: '44444444-4444-4444-8444-444444444444',
+      order_id: ORDER,
+      status: 'received',
+      reason: null,
+      warehouse_id: null,
+      refund_id: null,
+      items: [
+        {
+          order_line_item_id: '66666666-6666-4666-8666-666666666666',
+          quantity: 1,
+          condition: 'resellable',
+        },
+      ],
+      requested_at: '2026-10-07T10:00:00.000Z',
+      received_at: '2026-10-08T10:00:00.000Z',
+    },
+  ],
+  cancel_reason: null,
+  metadata: {},
 };
 
 /** Records every read and the header it carried, so "the agent's own token" is provable. */
@@ -91,10 +175,19 @@ function fakeReader(over: Partial<SupportReader> = {}): SupportReader {
   };
 }
 
+/**
+ * The fake records what it was ASKED, and answers only for the store it was told to allow — so the per-store
+ * tests prove the check is per store rather than global (#573 review: the first version returned a flat
+ * boolean, which would have passed even if the server checked `store:*`).
+ */
+let allowObject: string | null = null;
+const asked: { relation: string; object: string }[] = [];
 const fga: PermissionChecker = {
-  async can() {
+  async can(_staffUserId, relation, object) {
     if (fgaThrows) throw new Error('openfga is down');
-    return allow;
+    asked.push({ relation, object });
+    if (!allow) return false;
+    return allowObject === null || object === allowObject;
   },
 };
 
@@ -142,7 +235,9 @@ afterAll(async () => {
 beforeEach(async () => {
   calls = [];
   lines = [];
+  asked.length = 0;
   allow = true;
+  allowObject = null;
   fgaThrows = false;
   if (server) await new Promise<void>((r) => server.close(() => r()));
   server = build();
@@ -200,14 +295,27 @@ describe('GET /support/customers/:id/context — the gates', () => {
     expect(calls).toEqual([]);
   });
 
-  it('403s the same agent asking about ANOTHER store', async () => {
-    // The permission is per store, so the check is made against the store in the request.
-    allow = false;
+  it('403s the same agent asking about ANOTHER store, and asked about THAT store', async () => {
+    // Support for brand-a only. The agent asks about brand-b and is refused — and the fake proves the server
+    // asked about `store:<brand-b id>`, not about brand-a and not about `store:*`.
+    allowObject = `store:${STORE_A}`;
     const r = await req(`/support/customers/${CUSTOMER}/context?store=brand-b`, {
       headers: { authorization: AGENT_TOKEN },
     });
     expect(r.status).toBe(403);
     expect(calls).toEqual([]);
+
+    const storeB = (
+      await db.owner.query<{ id: string }>(`SELECT id FROM store WHERE code = 'brand-b'`)
+    ).rows[0]!.id;
+    expect(asked).toEqual([{ relation: 'support', object: `store:${storeB}` }]);
+
+    // ...and the same agent IS allowed for brand-a, through the same fake.
+    const ok = await req(`/support/customers/${CUSTOMER}/context?store=brand-a`, {
+      headers: { authorization: AGENT_TOKEN },
+    });
+    expect(ok.status).toBe(200);
+    expect(asked.at(-1)).toEqual({ relation: 'support', object: `store:${STORE_A}` });
   });
 
   it('503s, not 403, when the permission service is unreachable (fail closed, honestly)', async () => {
@@ -311,6 +419,53 @@ describe('GET /support/customers/:id/context — the answer', () => {
     expect(missing.status).toBe(404);
     // Identical to "no such customer", so the route cannot be used to learn an id exists in another store.
     expect(missing.body.message).toBe('No such customer in this store');
+  });
+
+  it('maps a core 403 for a FOREIGN customer to the same 404 as a missing one', async () => {
+    // Two different upstream answers, one indistinguishable result: the route must not reveal that an id
+    // exists in another store (#573 review).
+    await new Promise<void>((done) => server.close(() => done()));
+    server = build(fakeReader({ getCustomer: async () => null }));
+    base = await listen(server);
+    const missing = await req(`/support/customers/${CUSTOMER}/context?store=brand-a`, {
+      headers: { authorization: AGENT_TOKEN },
+    });
+
+    await new Promise<void>((done) => server.close(() => done()));
+    const { SupportError } = await import('./types.js');
+    server = build(
+      fakeReader({
+        getCustomer: async () => {
+          throw new SupportError(404, 'not_found', 'No such customer in this store');
+        },
+      }),
+    );
+    base = await listen(server);
+    const foreign = await req(`/support/customers/${CUSTOMER}/context?store=brand-a`, {
+      headers: { authorization: AGENT_TOKEN },
+    });
+
+    expect(foreign.status).toBe(missing.status);
+    expect(foreign.body).toEqual(missing.body);
+    expect(foreign.status).toBe(404);
+  });
+
+  it('404s a malformed customer id BEFORE any call to the core', async () => {
+    const r = await req(`/support/customers/not-a-uuid/context?store=brand-a`, {
+      headers: { authorization: AGENT_TOKEN },
+    });
+    expect(r.status).toBe(404);
+    expect(r.body).toEqual({ code: 'not_found', message: 'No such customer' });
+    // Nothing was read: a non-uuid cannot be one of our customers.
+    expect(calls).toEqual([]);
+  });
+
+  it('404s an encoded traversal attempt without ever calling the core', async () => {
+    const r = await req(`/support/customers/%2F..%2Fadmin%2Fstores/context?store=brand-a`, {
+      headers: { authorization: AGENT_TOKEN },
+    });
+    expect(r.status).toBe(404);
+    expect(calls).toEqual([]);
   });
 
   it('PASSES THROUGH a 403 from the core rather than hiding it', async () => {

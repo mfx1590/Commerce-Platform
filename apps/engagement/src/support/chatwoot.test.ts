@@ -2,6 +2,7 @@
 //
 // Test secrets are WORDS (the gitleaks rule).
 
+import { createHash, createHmac } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { createChatwootReceiver, hashEmail, signBody } from './chatwoot.js';
 import type { SupportError } from './types.js';
@@ -29,6 +30,39 @@ describe('hashEmail', () => {
     expect(hashEmail('  Ada@Example.test ')).toBe(hashEmail('ada@example.test'));
     expect(hashEmail('ada@example.test')).toMatch(/^[0-9a-f]{64}$/);
     expect(hashEmail('ada@example.test')).not.toContain('ada');
+  });
+});
+
+describe('the signature is a real HMAC', () => {
+  it('is HMAC-SHA256 over the raw body, hex', () => {
+    const body = payload();
+    expect(signBody(SECRET, body)).toBe(
+      createHmac('sha256', SECRET).update(body, 'utf8').digest('hex'),
+    );
+    expect(signBody(SECRET, body)).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('is NOT the keyed hash the first version used (#573 review)', () => {
+    // sha256(secret + '.' + body) is not an HMAC: no inner/outer padding, and it is the construction
+    // length-extension attacks are written about. This asserts the old value is rejected.
+    const body = payload();
+    const keyedHash = createHash('sha256').update(`${SECRET}.${body}`).digest('hex');
+    expect(signBody(SECRET, body)).not.toBe(keyedHash);
+    expect(() => receiver().receive(body, keyedHash)).toThrow(/Bad signature/);
+  });
+
+  it('depends on the key: another secret gives another digest', () => {
+    const body = payload();
+    expect(signBody(SECRET, body)).not.toBe(signBody('another-secret-in-words', body));
+  });
+
+  it('accepts a bare hex digest OR a `sha256=` prefixed one, case-insensitively', () => {
+    const body = payload();
+    const hex = signBody(SECRET, body);
+    expect(receiver().receive(body, hex).conversationId).toBe('4242');
+    expect(receiver().receive(body, `sha256=${hex}`).conversationId).toBe('4242');
+    expect(receiver().receive(body, hex.toUpperCase()).conversationId).toBe('4242');
+    expect(receiver().receive(body, `  sha256=${hex}  `).conversationId).toBe('4242');
   });
 });
 
