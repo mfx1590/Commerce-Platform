@@ -93,15 +93,15 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **Never commit a 64-hex email_hash fixture.** The `sha256` $def needs a real 64-hex value, so a word will not validate — compute it: `createHash('sha256').update('…').digest('hex')`, which is what apps/core does. I had three such literals before catching it; one would have reddened every open PR.
 - `pg` is deliberately NOT a dependency of this app: for a pool type use `Parameters<typeof createTenantClient>[0]`.
 
-## RESUME HERE if this window restarts (written 2026-10-23, usage pause at 80% of the 5h limit)
+## RESUME HERE if this window restarts (updated 2026-10-23: the PR is OPEN, so step 1 is done)
 
-Everything is built and verified. The ONLY thing left is opening #556's PR, and it is blocked on a merge.
+**ALL FOUR ISSUES ARE DELIVERED.** #553 merged (via #563), #554 merged (#564), #555 MERGED (#568 = 9d8915a), #556 is **PR #573, head c06a9a9, open with 3 checks running**. Nothing left but its review; HOLD all pushes from c06a9a9.
 
-**State:** branch `engagement/phase4`, local head `2144d0b`, **7 commits ahead of `origin/engagement/phase4` (0538129) and nothing pushed.** Verified `343/343` with the broker up (18 files, ~81 s) and `334/9` offline. Lint, typecheck, ownership, prettier clean.
+**State:** branch `engagement/phase4` pushed at **c06a9a9** = PR #573. Verified 343/343 with the broker up (18 files, ~81 s) before the main merge, and **334/9 offline re-run AFTER merging main** (e6c73e0, which brought db migration 0203 — every DB test applies the full set, so the re-run was warranted). Lint, typecheck, ownership, prettier clean.
 
-**Blocked on:** #570 (the integration PR for CONTRACT CHANGE #569, `listOrders customer_id`). #556's code calls that parameter at `src/support/admin-api.ts`, and it was not on `origin/main` as of this note. The manager (session "Manager session eight") says when it merges. **Do not push before that word.**
+**#570 MERGED = e6c73e0**: `customer_id` is on main's Admin API 0.4.24 (verified in packages/contracts/openapi/admin-api.yaml, with window 1's core predicate in 0e466dc). The blocker is gone.
 
-**Then, in this order:**
+**If review nits come back:** fold them in, re-run offline, ask the manager for the machine before any live run, and do NOT push until he confirms. Old steps, kept in case a new branch is ever needed:
 1. `git fetch origin main && git merge origin/main --no-edit`
 2. `pnpm install --frozen-lockfile && pnpm build --filter "./packages/*"`
 3. Re-run the suite ONLY if that merge touched `apps/engagement/**`, `packages/events`, `packages/db` or `packages/auth-sdk` — and ask the manager for the machine first if the live blocks are needed (ONE WINDOW MEASURES AT A TIME). Otherwise the 343/343 above stands.
