@@ -35,7 +35,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PROCESSED_TABLE } from '../ops/consumer.js';
 import { createStoreCodes } from '../ops/store-codes.js';
 import { MemoryCdpAdapter } from './adapter/memory.js';
-import { CONSENT_PURPOSE } from './consent.js';
+import { CONSENT_PURPOSE } from '../consent.js';
 import { CDP_GROUP_ID, createCdpConsumer, handleCdpEvent } from './consumer.js';
 import { CdpError } from './types.js';
 

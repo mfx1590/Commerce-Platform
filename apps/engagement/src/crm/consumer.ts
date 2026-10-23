@@ -22,7 +22,7 @@ import {
   type EventEnvelopeV1Base,
   type EventTopic,
 } from '@platform/events';
-import { gate, readCustomerFacts, type DropReason } from '../cdp/consent.js';
+import { gate, readCustomerFacts, type DropReason } from '../consent.js';
 import { PROCESSED_TABLE, type Kafka } from '../ops/consumer.js';
 import type { AppPool } from '../cdp/consumer.js';
 import { computeRollup } from './rollup.js';

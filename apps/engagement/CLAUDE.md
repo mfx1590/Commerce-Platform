@@ -6,10 +6,11 @@ The engagement service (window 16, Phase 4). Today: **ops alerts** (#553) — gr
 `payment.failed`, `refund.failed`, `return.requested` plus a dead-letter depth watch, through a transport
 (`dev` JSON-lines sink or a Slack webhook) — and the **CDP** (#554) — group `engagement.cdp`, 9 mapped
 topics driven by `data/cdp/tracking-plan.json`, consent-gated off the `customer.consent` projection, with a
-RudderStack adapter and an in-memory one — and **CRM sync** (#555) — group `engagement.crm`, one contact per
+RudderStack adapter and an in-memory one — **CRM sync** (#555) — group `engagement.crm`, one contact per
 customer per store with a recomputed order/LTV rollup, PII from the core Admin API with this service's own
-principal (#565), Twenty and in-memory adapters. Coming: the support-context API (#556, `src/support/`).
-README.md has the design and the guarantees.
+principal (#565), Twenty and in-memory adapters — and the **support-context API** (#556, `src/support/`): one
+HTTP server, the agent's OWN token, plus a Chatwoot webhook stub. README.md has the design and the
+guarantees.
 
 ## Owner
 
@@ -37,7 +38,7 @@ a file to edit; a change there is a `REQUEST:` to window 17.
 - `src/ops/store-codes.ts` — store_id → `store.code`, cached, uuid fallback
 - `src/transport/` — `types.ts` (`AlertTransport`, `TransportError`), `dev-sink.ts`, `slack.ts`
 - `src/cdp/mapper.ts` — pure `(envelope, identity + store code) -> CdpCall | null`; the plan's twin
-- `src/cdp/consent.ts` — the projection reads and the gate; the ONLY CDP file that touches a database
+- `src/consent.ts` — the projection reads and the gate. SERVICE-WIDE (the CDP and the CRM share one rule), and the only file in either path that touches a database
 - `src/cdp/consumer.ts` — group `engagement.cdp`, the two clients, post-then-mark, drop logging
 - `src/cdp/adapter/` — `memory.ts` (runs today), `rudderstack.ts` (data plane + regulations)
 - `src/crm/rollup.ts` — PURE orders/LTV rollup; recomputed, never accumulated (idempotency)
@@ -45,6 +46,13 @@ a file to edit; a change there is a `REQUEST:` to window 17.
 - `src/crm/admin-api.ts` — the ONLY PII read, via an injected `TokenProvider` (#565)
 - `src/crm/consumer.ts` — group `engagement.crm`; consent before PII, erasure before everything
 - `src/crm/adapter/` — `memory.ts` (runs today), `twenty.ts` (upsert by our id, never by e-mail)
+- `src/support/auth.ts` — the two gates: staff token + `staff_user` row, then `support` on the store via FGA
+- `src/support/admin-api.ts` — the three reads, each with the AGENT's header; nothing cached. Response types
+  come from `@platform/contracts/admin`, NEVER hand-written: `listOrders` is a `Page` of `items`, `total` is
+  `Money`, `getCustomer`/`getOrder` have no envelope
+- `src/support/context.ts` — pure normalisation + the glance summary; a gap becomes a `note`
+- `src/support/chatwoot.ts` — HMAC, freshness, seen-once; hashes the address on arrival
+- `src/support/server.ts` — node:http, three routes, `cache-control: no-store`
 - `src/config.ts` (env + production refusals), `src/main.ts`, `src/types.ts`, `src/index.ts`
 
 ## Public API
@@ -98,6 +106,24 @@ package yet.
 - Consent gates the whole CRM contact and is checked BEFORE the PII is fetched; `customer.erased` deletes
   before anything is read and `remove` is idempotent.
 - `ENGAGEMENT_CRM_TOKEN_PROVIDER=client_credentials` throws until #565 is built — never fall back to the mock.
+- **The support API uses the AGENT's own token, never a service principal** (#556). Authenticate, then check
+  `support` on the store server-side, THEN read — and forward the agent's header so the core checks them too.
+  OpenFGA unreachable is 503, not 403.
+- Nothing from a support answer is cached or stored, and every response is `cache-control: no-store`: it is
+  personal data and the agent's permission is only true at the moment the core says so.
+- A support log line carries ids, the store code and counts — never a name, address, e-mail or tracking number.
+- A customer of another store gets the SAME 404 as a non-existent one: the route must not reveal that an id
+  exists elsewhere.
+- The Chatwoot webhook resolves nothing and persists nothing, by ruling: it has no agent token and owns no
+  table. Do not add a lookup or a service principal to it — that is a later phase.
+- The webhook signature is a real **HMAC** (`createHmac('sha256', secret)`), never `sha256(secret + body)`.
+  Chatwoot's documented header format is UNCONFIRMED; both bare-hex and `sha256=` are accepted and the exact
+  shape is a launch-checklist check.
+- **Validate every path id as a uuid in the route before calling anything** (404, not 400 — malformed and
+  absent must look the same), and `encodeURIComponent` every path segment in the reader. An unvalidated id in
+  a path can reach another Admin API route with the agent's own token.
+- Known limit, recorded not fixed: the store lookup precedes the permission check, so store codes are
+  enumerable by an authenticated staff user.
 - **CDP consent is READ-ONLY, from the `customer.consent` PROJECTION, at processing time** (manager ruling
   2026-10-23). Never the `customer_consent` ledger rows (window 13's semantics — a `REQUEST:` if the
   projection is not enough), never a write to either, never an API hop. Ignore the `marketing_consent` field
