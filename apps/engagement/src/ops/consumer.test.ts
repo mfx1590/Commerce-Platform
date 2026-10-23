@@ -312,7 +312,19 @@ describe.runIf(brokerDown === null)(
       retention: { forever: [], days_30: ['payment.', 'refund.', 'return.'] },
       dlq: { prefix: 'dlq.', consumer_groups: [] },
     };
+    // Every test owns its consumer AND stops it before the next one starts. They all join the real group
+    // `engagement.ops`, so two live members share the topic's partitions: a message published by a later test
+    // could be delivered to an earlier test's consumer (whose transport behaves differently) and the
+    // assertion would be testing the wrong object. `started` is only the afterAll safety net.
     const started: { stop(): Promise<void> }[] = [];
+    const run = async (c: { stop(): Promise<void> }, body: () => Promise<void>) => {
+      started.push(c);
+      try {
+        await body();
+      } finally {
+        await c.stop();
+      }
+    };
 
     const until = async (cond: () => boolean, ms = 20_000, what = 'condition') => {
       const t0 = Date.now();
@@ -348,6 +360,21 @@ describe.runIf(brokerDown === null)(
       }
     }, 60_000);
 
+    // Each live test gets its OWN topics under the run's prefix, and stops its consumer before the next test
+    // starts, so no two members of the group ever share a partition in here.
+    const ensure = async (topicPrefix: string) => {
+      const admin = kafka.admin();
+      await admin.connect();
+      try {
+        await ensureTopics(
+          admin,
+          planTopics(policy, { environment: 't', prefix: topicPrefix, topics: [...topics] }),
+        );
+      } finally {
+        await admin.disconnect();
+      }
+    };
+
     it('alerts once per event and sends NOTHING for a redelivery of the same outbox id', async () => {
       const transport = new RecordingTransport();
       const consumer = createOpsConsumer({
@@ -357,92 +384,127 @@ describe.runIf(brokerDown === null)(
         topicPrefix: prefix,
         fromBeginning: true,
       });
-      started.push(consumer);
-      await consumer.start();
+      await run(consumer, async () => {
+        await consumer.start();
 
-      const first = paymentFailedEvent(STORE_A, 'card_declined');
-      const second = paymentFailedEvent(STORE_B, 'expired_card');
-      // The third message is the relay republishing `first` after a crash: at-least-once on the wire.
-      await publisher.send(
-        `${prefix}payment.failed`,
-        [first, second, first].map((e) => envelopeToMessage(e, 'test')),
-      );
+        const first = paymentFailedEvent(STORE_A, 'card_declined');
+        const second = paymentFailedEvent(STORE_B, 'expired_card');
+        // The third message is the relay republishing `first` after a crash: at-least-once on the wire.
+        await publisher.send(
+          `${prefix}payment.failed`,
+          [first, second, first].map((e) => envelopeToMessage(e, 'test')),
+        );
 
-      await until(() => transport.sent.length >= 2, 30_000, 'two alerts');
-      // Give the duplicate a chance to be (wrongly) handled before asserting it was not.
-      await new Promise((r) => setTimeout(r, 1500));
+        await until(() => transport.sent.length >= 2, 30_000, 'two alerts');
+        // Give the duplicate a chance to be (wrongly) handled before asserting it was not.
+        await new Promise((r) => setTimeout(r, 1500));
 
-      expect(transport.sent).toHaveLength(2);
-      expect(transport.sent.map((a) => a.storeCode).sort()).toEqual(['brand-a', 'brand-b']);
-      expect(transport.sent.map((a) => a.fields.reason).sort()).toEqual([
-        'card_declined',
-        'expired_card',
-      ]);
+        expect(transport.sent).toHaveLength(2);
+        expect(transport.sent.map((a) => a.storeCode).sort()).toEqual(['brand-a', 'brand-b']);
+        expect(transport.sent.map((a) => a.fields.reason).sort()).toEqual([
+          'card_declined',
+          'expired_card',
+        ]);
 
-      // The marks are in the shared table, one per (group, outbox id) — and the duplicate added none.
-      const marks = await hq.query(
-        `SELECT outbox_id FROM ${PROCESSED_TABLE} WHERE group_id = $1 ORDER BY outbox_id`,
-        [OPS_GROUP_ID],
-      );
-      expect(marks.rows).toHaveLength(2);
-      expect((marks.rows as { outbox_id: string }[]).map((r) => r.outbox_id).sort()).toEqual(
-        [first.event_id, second.event_id].sort(),
-      );
-      expect(consumer.dlqTopic).toBe(`${prefix}${dlqTopicName(OPS_GROUP_ID)}`);
+        // One mark per (group, outbox id) in the shared table — and the duplicate added none.
+        const marks = await hq.query(
+          `SELECT outbox_id FROM ${PROCESSED_TABLE} WHERE group_id = $1`,
+          [OPS_GROUP_ID],
+        );
+        expect(marks.rows).toHaveLength(2);
+        expect((marks.rows as { outbox_id: string }[]).map((r) => r.outbox_id).sort()).toEqual(
+          [first.event_id, second.event_id].sort(),
+        );
+        expect(consumer.dlqTopic).toBe(`${prefix}${dlqTopicName(OPS_GROUP_ID)}`);
+      });
     }, 90_000);
 
-    it('a restarted consumer replays the topic and sends nothing a second time', async () => {
+    it('sends nothing for events already marked for this group, however it reaches them', async () => {
+      // The dedupe guarantee on its own, with no committed offset in play: fresh topics (so the consumer
+      // really does read these messages from the beginning) and the marks written in advance, as a consumer
+      // that had already finished them would have left them. This is what makes a replay or a rebuilt
+      // consumer silent — distinct from an offset simply never being re-read.
+      const replayPrefix = `${prefix}replay.`;
+      await ensure(replayPrefix);
+
+      const done = paymentFailedEvent(STORE_A, 'card_declined');
+      const fresh = paymentFailedEvent(STORE_B, 'expired_card');
+      await hq.query(`INSERT INTO ${PROCESSED_TABLE} (group_id, outbox_id) VALUES ($1, $2)`, [
+        OPS_GROUP_ID,
+        done.event_id,
+      ]);
+
       const transport = new RecordingTransport();
-      const fresh = createOpsConsumer({
+      const consumer = createOpsConsumer({
         hq,
         transport,
         rateLimit: { max: 100, windowMs: 60_000 },
-        topicPrefix: prefix,
+        topicPrefix: replayPrefix,
         fromBeginning: true,
       });
-      started.push(fresh);
-      // The marks from the previous test are still in the table; this consumer reads the same messages again
-      // (new group member, offsets from the beginning) and the processed store makes every one a no-op.
-      await fresh.start();
-      await new Promise((r) => setTimeout(r, 3000));
-      expect(transport.sent).toEqual([]);
+      await run(consumer, async () => {
+        await consumer.start();
+        await publisher.send(
+          `${replayPrefix}payment.failed`,
+          [done, fresh].map((e) => envelopeToMessage(e, 'test')),
+        );
+        // The unmarked one proves the consumer really is reading this topic.
+        await until(() => transport.sent.length >= 1, 30_000, 'the unmarked alert');
+        await new Promise((r) => setTimeout(r, 1500));
+
+        expect(transport.sent).toHaveLength(1);
+        expect(transport.sent[0]!.outboxId).toBe(fresh.event_id);
+        expect(transport.sent[0]!.storeCode).toBe('brand-b');
+      });
     }, 90_000);
 
     it('a transport that keeps refusing dead-letters the message, with the error class and no payload', async () => {
+      // Its own topics as well: this consumer's transport refuses everything, and a message of this test
+      // reaching another test's consumer (or the reverse) would prove nothing.
+      const deadPrefix = `${prefix}dead.`;
+      await ensure(deadPrefix);
+
       const transport = new RecordingTransport();
       transport.failWith = new TransportError('slack: HTTP 500');
       const consumer = createOpsConsumer({
         hq,
         transport,
         rateLimit: { max: 100, windowMs: 60_000 },
-        topicPrefix: prefix,
+        topicPrefix: deadPrefix,
         retries: 2,
         fromBeginning: true,
       });
-      started.push(consumer);
-      await consumer.start();
+      await run(consumer, async () => {
+        await consumer.start();
 
-      const event = paymentFailedEvent(STORE_A, 'processing_error');
-      await publisher.send(`${prefix}payment.failed`, [envelopeToMessage(event, 'test')]);
+        const event = paymentFailedEvent(STORE_A, 'processing_error');
+        await publisher.send(`${deadPrefix}payment.failed`, [envelopeToMessage(event, 'test')]);
 
-      // The DLQ is read, not watched: poll it until the entry shows up (or give up with a clear message).
-      const deadline = Date.now() + 40_000;
-      let entry: Awaited<ReturnType<typeof readDeadLetters>>[number] | undefined;
-      while (!entry && Date.now() < deadline) {
-        const dead = await readDeadLetters(OPS_GROUP_ID, { kafka, topicPrefix: prefix });
-        entry = dead.find((d) => d.outbox_id === event.event_id);
-        if (!entry) await new Promise((r) => setTimeout(r, 1000));
-      }
-      expect(entry, 'the message was not dead-lettered within 40 s').toBeDefined();
-      expect(entry).toMatchObject({
-        group_id: OPS_GROUP_ID,
-        event_topic: 'payment.failed',
-        event_version: 1,
-        error_class: 'TransportError',
+        // The DLQ is read, not watched: poll it until the entry shows up (or give up with a clear message).
+        const deadline = Date.now() + 40_000;
+        let entry: Awaited<ReturnType<typeof readDeadLetters>>[number] | undefined;
+        while (!entry && Date.now() < deadline) {
+          const dead = await readDeadLetters(OPS_GROUP_ID, { kafka, topicPrefix: deadPrefix });
+          entry = dead.find((d) => d.outbox_id === event.event_id);
+          if (!entry) await new Promise((r) => setTimeout(r, 1000));
+        }
+        expect(entry, 'the message was not dead-lettered within 40 s').toBeDefined();
+        expect(entry).toMatchObject({
+          group_id: OPS_GROUP_ID,
+          event_topic: 'payment.failed',
+          event_version: 1,
+          error_class: 'TransportError',
+        });
+        // The DLQ record carries no payload: nothing of the event's content is in it.
+        expect(JSON.stringify(entry)).not.toContain('processing_error');
+        expect(transport.sent).toEqual([]);
+        // Nothing was marked: the handler never succeeded.
+        const marks = await hq.query(
+          `SELECT 1 FROM ${PROCESSED_TABLE} WHERE group_id = $1 AND outbox_id = $2`,
+          [OPS_GROUP_ID, event.event_id],
+        );
+        expect(marks.rows).toEqual([]);
       });
-      // The DLQ record carries no payload: nothing of the event's content is in it.
-      expect(JSON.stringify(entry)).not.toContain('processing_error');
-      expect(transport.sent).toEqual([]);
-    }, 90_000);
+    }, 120_000);
   },
 );

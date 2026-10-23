@@ -156,8 +156,15 @@ pnpm lint && pnpm typecheck && pnpm test --filter @platform/engagement
   on, from the consumer's side (the PK as replay guard, a store-scoped session reading and writing none,
   `UPDATE` revoked, the `organization_id` default), store-code resolution, and the
   decision path. Then a **live block** on prefixed, self-cleaning topics: one alert per event and nothing for a
-  redelivery, a restarted consumer replaying the topic silently, and a refusing transport dead-lettering with
-  the error class and no payload. It is skipped with a printed reason when the broker is down.
+  redelivery; an event already marked for this group staying silent while an unmarked one alerts (fresh topics,
+  so the mark is what silences it, not an offset that was never re-read); and a refusing transport
+  dead-lettering with the error class and no payload, marking nothing. It is skipped with a printed reason when
+  the broker is down.
+
+  Each live test ensures **its own** topics under the run's prefix and stops its consumer before the next one
+  starts. They all join the real group `engagement.ops`, so two live members would share the topic's partitions
+  and a message published by one test could be handled by another test's consumer — which is how the
+  dead-letter test first failed in a full-suite run after passing on its own.
 
 ## What is not here (and where it is tracked)
 

@@ -23,10 +23,13 @@ The service, and ops alerts.
 - **DLQ depth watch** over every configured consumer group with `readDeadLetters` against a threshold, counting
   error classes; an unreadable queue is depth 0 and a log line, never a throw.
 - **Store codes**: `store_id` → `store.code`, cached, falling back to the uuid rather than dropping an alert.
-- Tests: 68 — rules 16 (incl. the PII sweeps), rate limit 7, transports 13, config 12, DLQ watch 8, consumer 12
-  on a throwaway database (the `consumer_processed` guarantees, store codes, the decision path) plus a 3-test
-  live block against the local Redpanda on prefixed self-cleaning topics, skipped with a printed reason when
-  the broker is down.
+- Tests: **71** — rules 16 (incl. the PII sweeps), transports 13, config 12, DLQ watch 8, rate limit 7, and
+  consumer 15: 12 on a throwaway database (the `consumer_processed` guarantees from the consumer's side, store
+  codes, the decision path) plus a 3-test live block against the local Redpanda. Each live test owns its topics
+  under the run's prefix and stops its consumer before the next starts — they all join the real group
+  `engagement.ops`, so sharing a topic let one test's message reach another test's consumer. The live block is
+  skipped with a printed reason when the broker is down; with it up, 71/71 on three consecutive runs, ~26 s,
+  every prefixed topic deleted and asserted gone.
 - Built against `consumer_processed` while it was PR #557 (a copy of the file under `./migrations`, applied by
   the test to its own throwaway database — the #244 way). #557 merged on 2026-10-23 as packages/db 0.3.16, so
   the copy and its helper are gone and the tests run on the real migration.
