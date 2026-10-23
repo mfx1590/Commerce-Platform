@@ -387,6 +387,8 @@ export function adminRouter(opts: AdminRouterOptions = {}): Router {
       );
       const placedFrom = dateParam(req.query, 'placed_from', problems);
       const placedTo = dateParam(req.query, 'placed_to', problems);
+      const customerId = one(req.query.customer_id);
+      if (customerId !== undefined && !UUID_RE.test(customerId)) problems.customer_id = 'uuid';
       throwIfProblems(problems);
       res.json(
         await listAdminOrders(client, storeId, {
@@ -398,6 +400,7 @@ export function adminRouter(opts: AdminRouterOptions = {}): Router {
           q: one(req.query.q),
           placed_from: placedFrom,
           placed_to: placedTo,
+          customer_id: customerId,
         }),
       );
     }),

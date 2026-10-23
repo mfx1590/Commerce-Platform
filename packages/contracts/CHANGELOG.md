@@ -413,3 +413,14 @@
   paths, permissions and codes, `TaxRate` and the activation prerequisite; `test:contract` reads the list, creates
   (201, generated from the schema: the 201 documents no example) and drives the 409.
   Producer: window 1 (core registry module, readiness, #520). Consumers: the admin store settings (tax rates).
+
+## 0.4.27 — 2026-10-23 (Admin API 0.4.24; CONTRACT CHANGE #569, window 16 #556)
+
+- `listOrders` (`GET /admin/stores/{storeId}/orders`) gains an optional query parameter `customer_id` (uuid): only
+  the orders of that customer, combined with the other filters as they combine with each other. Additive; permission
+  unchanged (`viewer` on the store); no schema change (`OrderSummary.customer_id` already existed). Reason: the
+  support-context API lists one customer's orders by key, not by `q=<email>` (an e-mail in a URL, and a search that
+  can match another person with the same address).
+- Producer: window 1 (core orders module: one more predicate inside the tenant client, landed in the same integration
+  PR). Consumer: apps/engagement support context (#556).
+- Store API and events unchanged.

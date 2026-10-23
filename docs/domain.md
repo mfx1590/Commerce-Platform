@@ -184,8 +184,8 @@ Derived by the accounting service from events only (Phase 4). Frozen now so the 
 | id | uuid PK | |
 | organization_id | uuid FK | |
 | legal_entity_id | uuid FK legal_entity | |
-| store_id | uuid FK store | |
-| journal | text | `sales`, `psp_fees`, `refunds`, `cogs`, `tax`, `shipping` |
+| store_id | uuid FK store NULL | NULL = a legal-entity-level line (payout, bank), since 0203 |
+| journal | text | `sales`, `psp_fees`, `refunds`, `cogs`, `tax`, `shipping`, `bank` (0203) |
 | entry_date | date | |
 | account_code | text | chart of accounts code |
 | debit_minor | bigint | |
@@ -197,7 +197,7 @@ Derived by the accounting service from events only (Phase 4). Frozen now so the 
 | posted_to_erp_at | timestamptz NULL | |
 | erp_reference | text NULL | Odoo move id |
 
-Owner: window 15 (accounting).
+Owner: window 15 (accounting). Since 0203 (CONTRACT CHANGE #558): RLS `organization_only`; immutable for the app role except posted_to_erp_at / erp_reference / updated_at. The accounting service's other tables (ledger_account, accounting_order/_line, accounting_parked_event, accounting_payment/_refund, psp_payout/_line) are documented in apps/accounting/README.md; all `organization_only`.
 
 ---
 
