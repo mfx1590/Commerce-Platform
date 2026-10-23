@@ -27,7 +27,8 @@
     "evaluated": "at processing time, never from the event payload",
     "note": "customer.created and customer.updated carry a marketing_consent field; the mapper ignores it on purpose, so a decision here can contradict the event's own snapshot when consent changed in between. That is correct.",
     "without_consent": "no identify and no track",
-    "unresolvable_identity": "dropped — a guest event carrying only email_hash has no consent row to check"
+    "unresolvable_identity": "dropped — a guest event carrying only email_hash has no consent row to check",
+    "pending_legal": "Manager ruling 2026-10-23: whether analytics tracking needs consent, and whether pseudonymous guest tracking is allowed, are on the owner's lawyer list. Until they answer, this conservative gate is the Phase 4 rule and no cdp_analytics purpose is to be invented or filed."
   },
   "events": [
     {

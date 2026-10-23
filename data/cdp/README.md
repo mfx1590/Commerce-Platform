@@ -34,8 +34,14 @@ to justify.
 (`packages/db` 0005, maintained by the core's consent ledger alongside 0194), through a tenant client scoped to
 the event's own store, and **evaluated at processing time** — manager ruling, 2026-10-23. Never the
 `customer_consent` ledger rows, never a write, never an API hop. Purpose: `marketing_email`, the only one the
-0194 CHECK allows; a CDP-specific purpose would be a CONTRACT CHANGE to window 13's table, to be filed rather
-than invented.
+0194 CHECK allows.
+
+**The gate is a deliberate default, pending a legal answer.** Whether analytics tracking needs consent at all,
+and whether pseudonymous tracking of a guest is allowed, are legal questions, not engineering ones: the manager
+put them on the owner's lawyer list on 2026-10-23 and ruled that until they come back, Phase 4 takes the
+conservative route — nothing without granted `marketing_email` for that store, and guest events dropped. No
+`cdp_analytics` purpose is to be invented or filed meanwhile. When the answer arrives it may widen this, and
+this paragraph is where to start reading.
 
 `customer.created` and `customer.updated` carry a `marketing_consent` field in their payload and **the mapper
 ignores it on purpose.** A decision here can therefore contradict the event's own snapshot — the event says
@@ -50,8 +56,8 @@ five order-scoped topics (`order.cancelled`, `payment.captured`, `refund.issued`
 `return.requested`) carry neither, so the identity is read from the `order` row through the same store-scoped
 client, in the same query as the consent projection — one read per event, not a second source of truth. An
 event with no resolvable customer (a guest order carrying only `email_hash`) is **dropped**: there is no
-consent row to check, and tracking it pseudonymously would be a decision nobody made. This does mean guest
-orders do not reach the CDP; it is written down here so it is a known trade and not a surprise.
+consent row to check, and tracking it pseudonymously is one of the questions on the lawyer list above. This
+does mean guest orders do not reach the CDP — a known trade, written down rather than discovered.
 
 ## Changing it
 

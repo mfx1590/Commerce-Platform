@@ -2,11 +2,12 @@
 
 ## Purpose
 
-The engagement service (window 16, Phase 4). Today: **ops alerts** (#553) — consumer group `engagement.ops`
-over `payment.failed`, `refund.failed`, `return.requested`, plus a dead-letter depth watch over every consumer
-group, posted through a transport (`dev` JSON-lines sink or a Slack incoming webhook). Coming: the CDP mapper
-(#554, `src/cdp/`), CRM sync (#555, `src/crm/`), the support-context API (#556, `src/support/`).
-README.md has the design and the guarantees.
+The engagement service (window 16, Phase 4). Today: **ops alerts** (#553) — group `engagement.ops` over
+`payment.failed`, `refund.failed`, `return.requested` plus a dead-letter depth watch, through a transport
+(`dev` JSON-lines sink or a Slack webhook) — and the **CDP** (#554) — group `engagement.cdp`, 9 mapped
+topics driven by `data/cdp/tracking-plan.json`, consent-gated off the `customer.consent` projection, with a
+RudderStack adapter and an in-memory one. Coming: CRM sync (#555, `src/crm/`), the support-context API
+(#556, `src/support/`). README.md has the design and the guarantees.
 
 ## Owner
 
@@ -33,6 +34,10 @@ a file to edit; a change there is a `REQUEST:` to window 17.
 - `src/ops/dlq-watch.ts` — `readDeadLetters` per group against a threshold; a poll, not a consumer
 - `src/ops/store-codes.ts` — store_id → `store.code`, cached, uuid fallback
 - `src/transport/` — `types.ts` (`AlertTransport`, `TransportError`), `dev-sink.ts`, `slack.ts`
+- `src/cdp/mapper.ts` — pure `(envelope, identity + store code) -> CdpCall | null`; the plan's twin
+- `src/cdp/consent.ts` — the projection reads and the gate; the ONLY CDP file that touches a database
+- `src/cdp/consumer.ts` — group `engagement.cdp`, the two clients, post-then-mark, drop logging
+- `src/cdp/adapter/` — `memory.ts` (runs today), `rudderstack.ts` (data plane + regulations)
 - `src/config.ts` (env + production refusals), `src/main.ts`, `src/types.ts`, `src/index.ts`
 
 ## Public API
@@ -40,8 +45,12 @@ a file to edit; a change there is a `REQUEST:` to window 17.
 `src/index.ts`: `resolveConfig` / `buildTransport` / `main`; `createOpsConsumer` / `handleEvent` /
 `OPS_GROUP_ID` / `PROCESSED_TABLE`; `evaluateRules` / `ruleTopics` / `OPS_RULES` and the three rules;
 `createRateLimiter` / `rateLimitKey`; `createStoreCodes`; `pollDeadLetters` / `runDlqWatch` / `DLQ_RULE`;
-`DevSinkAlertTransport` / `SlackAlertTransport` / `slackPayload` / `escapeMrkdwn` / `TransportError`; and the
-types (`Alert`, `AlertSeverity`, `EngagementLogLine`, …). Nothing imports this package yet.
+`DevSinkAlertTransport` / `SlackAlertTransport` / `slackPayload` / `escapeMrkdwn` / `TransportError`;
+`createCdpConsumer` / `handleCdpEvent` / `CDP_GROUP_ID`, `mapEvent` / `cdpTopics` / `isMapped` /
+`isConsentGated` / `CDP_CALL_FOR` / `CDP_EVENT_NAME`, `gate` / `readCustomerFacts` /
+`readOrderCustomerFacts` / `CONSENT_PURPOSE`, `MemoryCdpAdapter` / `RudderStackCdpAdapter` / `sendCall` /
+`CdpError`; and the types (`Alert`, `CdpCall`, `CustomerFacts`, `DropReason`, …). Nothing imports this
+package yet.
 
 ## Constraints
 
@@ -59,5 +68,17 @@ types (`Alert`, `AlertSeverity`, `EngagementLogLine`, …). Nothing imports this
 - Post **then** mark, never the reverse: a duplicate ops alert is cheap, a missed one is an unseen incident.
   (The opposite of `apps/notifications`, which must never send twice.)
 - The DLQ watch never throws on an unreadable queue; it reports depth 0.
+- **CDP consent is READ-ONLY, from the `customer.consent` PROJECTION, at processing time** (manager ruling
+  2026-10-23). Never the `customer_consent` ledger rows (window 13's semantics — a `REQUEST:` if the
+  projection is not enough), never a write to either, never an API hop. Ignore the `marketing_consent` field
+  in the `customer.created` / `customer.updated` payloads: it is a snapshot, the projection is the truth.
+- The CDP consumer needs TWO clients: the organization one for the marks (`consumer_processed` is
+  `organization_only`), and a store-scoped one per event for the consent read (least privilege — consent is
+  never propagated across stores).
+- No identify or track without granted consent; `customer.erased` is the only ungated call; a guest (no
+  `customer_id`) is dropped, not tracked pseudonymously. That gate is the Phase 4 default pending the owner's
+  lawyer answer — do not widen it, and do not invent a consent purpose.
+- A new topic in `packages/events` must be added to `data/cdp/tracking-plan.json` as mapped or unmapped with a
+  reason; the suite fails until it is.
 - Never touch a Dockerfile: the manager lands this service's `COPY` lines as an integration commit.
 - Update README.md and CHANGELOG.md with every change, and the memory file before every commit.

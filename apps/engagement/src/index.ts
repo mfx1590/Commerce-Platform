@@ -36,6 +36,43 @@ export type { StoreCodes } from './ops/store-codes.js';
 export { pollDeadLetters, runDlqWatch, DLQ_RULE, DLQ_PSEUDO_TOPIC } from './ops/dlq-watch.js';
 export type { DeadLetterReader, DlqWatchOptions } from './ops/dlq-watch.js';
 
+// cdp (#554)
+export { createCdpConsumer, handleCdpEvent, CDP_GROUP_ID } from './cdp/consumer.js';
+export type {
+  AppPool,
+  CdpConsumer,
+  CdpConsumerOptions,
+  CdpHandlerDeps,
+  CdpLogLine,
+} from './cdp/consumer.js';
+
+export {
+  mapEvent,
+  cdpTopics,
+  isMapped,
+  isConsentGated,
+  CDP_CALL_FOR,
+  CDP_EVENT_NAME,
+} from './cdp/mapper.js';
+export type { MapContext } from './cdp/mapper.js';
+
+export { gate, readCustomerFacts, readOrderCustomerFacts, CONSENT_PURPOSE } from './cdp/consent.js';
+export type { ConsentState, CustomerFacts, DropReason, GateDecision } from './cdp/consent.js';
+
+export { MemoryCdpAdapter } from './cdp/adapter/memory.js';
+export { RudderStackCdpAdapter, identityOf } from './cdp/adapter/rudderstack.js';
+export type { RudderStackOptions } from './cdp/adapter/rudderstack.js';
+export { sendCall, CdpError } from './cdp/types.js';
+export type {
+  CdpAdapter,
+  CdpCall,
+  CdpCallKind,
+  CdpIdentifyCall,
+  CdpIdentity,
+  CdpSuppressCall,
+  CdpTrackCall,
+} from './cdp/types.js';
+
 // transports
 export { DevSinkAlertTransport } from './transport/dev-sink.js';
 export { SlackAlertTransport, slackPayload, escapeMrkdwn } from './transport/slack.js';

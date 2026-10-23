@@ -6,6 +6,10 @@
 import { pathToFileURL } from 'node:url';
 import { createOrganizationClient, createPool } from '@platform/db';
 import { resolveConfig, type EngagementConfig } from './config.js';
+import { createCdpConsumer } from './cdp/consumer.js';
+import { MemoryCdpAdapter } from './cdp/adapter/memory.js';
+import { RudderStackCdpAdapter } from './cdp/adapter/rudderstack.js';
+import type { CdpAdapter } from './cdp/types.js';
 import { createOpsConsumer } from './ops/consumer.js';
 import { createRateLimiter } from './ops/rate-limit.js';
 import { runDlqWatch } from './ops/dlq-watch.js';
@@ -19,6 +23,18 @@ export function buildTransport(config: EngagementConfig): AlertTransport {
     return new SlackAlertTransport({ webhookUrl: config.slackWebhookUrl as string });
   }
   return new DevSinkAlertTransport(config.dir);
+}
+
+/** The CDP adapter the config asks for. `memory` is what runs until a RudderStack account exists. */
+export function buildCdpAdapter(config: EngagementConfig): CdpAdapter {
+  if (config.cdp.adapter === 'rudderstack') {
+    return new RudderStackCdpAdapter({
+      writeKey: config.cdp.writeKey as string,
+      dataPlaneUrl: config.cdp.dataPlaneUrl as string,
+      ...(config.cdp.regulation ? { regulation: config.cdp.regulation } : {}),
+    });
+  }
+  return new MemoryCdpAdapter();
 }
 
 function logLine(line: EngagementLogLine): void {
@@ -70,6 +86,17 @@ async function main(): Promise<void> {
   const watchLimiter = createRateLimiter(config.rateLimit);
   await consumer.start();
 
+  // The CDP consumer is its own group and runs only when enabled (off until an account exists, #554).
+  const cdp = config.cdp.enabled
+    ? createCdpConsumer({
+        hq,
+        pool,
+        adapter: buildCdpAdapter(config),
+        log: (line) => console.info(JSON.stringify(line)),
+      })
+    : null;
+  if (cdp) await cdp.start();
+
   const timer = setInterval(() => {
     void runDlqWatch({
       groups: config.dlq.groups,
@@ -95,6 +122,7 @@ async function main(): Promise<void> {
     stopping = true;
     clearInterval(timer);
     await consumer.stop();
+    if (cdp) await cdp.stop();
     await pool.end();
   };
   process.on('SIGTERM', () => void stop());
