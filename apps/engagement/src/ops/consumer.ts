@@ -13,6 +13,11 @@
 //     would LOSE the alert on the same crash, and a duplicate ops alert is cheap while a missing one is the
 //     incident nobody hears about. This is the deliberate difference from apps/notifications, which must never
 //     send a second e-mail and therefore never retries a stuck row.
+//   * THE SDK WRITES THE MARK, not this handler. `createConsumer` marks through the processed store after a
+//     handler returns without throwing (`if (!marked) await processed.markProcessed(...)`), which is exactly
+//     post-then-mark. `ctx.markProcessed(tx)` exists for a handler whose side effects are DATABASE writes, so
+//     the mark commits with them; ours is an HTTP post, so there is no transaction for it to join and calling
+//     the store ourselves would only add a second INSERT of the same row (#562 review).
 //
 // The mark is written through the organization-scoped client: `consumer_processed` is RLS kind
 // `organization_only`, so a store-scoped session would read and write none of it, and `organization_id`
@@ -152,8 +157,7 @@ export function createOpsConsumer(opts: OpsConsumerOptions): OpsConsumer {
       });
       sent += r.sent.length;
       suppressed += r.suppressed;
-      // The mark comes AFTER the post, through the store (no transaction to join): see the file header.
-      await processed.markProcessed(OPS_GROUP_ID, outboxId);
+      // No mark here: the SDK writes it after this handler returns. See the file header.
     },
     log: (line) => {
       if (line.event === 'duplicate') {

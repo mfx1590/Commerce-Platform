@@ -1,0 +1,182 @@
+{
+  "$comment": "The CDP tracking plan (window 16, #554). One entry per event topic we map onto a CDP call, and every topic we do NOT map listed with the reason. Properties are ids, integer minor-unit amounts with their currency, countries, counts and email_hash — never a name, address, phone number or e-mail (ADR 0003 item 5). The mapper in apps/engagement/src/cdp is driven by this file and its tests assert the two agree, so a topic added here without a mapping, or mapped without an entry, fails the suite.",
+  "version": 1,
+  "updated": "2026-10-23",
+  "owner": "window 16 (engagement)",
+  "identity": {
+    "$comment": "How a CDP identity is resolved, in this order. `customer_id` is our own id and the only stable key; email_hash is a fallback that cannot be reversed and is never the upsert key for a known customer.",
+    "rule": "customer_id when known, else email_hash",
+    "userId": "customer_id",
+    "anonymousId": "email_hash",
+    "resolution": {
+      "from_payload": ["customer.created", "customer.updated", "customer.erased", "order.placed"],
+      "from_order_row": [
+        "order.cancelled",
+        "payment.captured",
+        "refund.issued",
+        "shipment.shipped",
+        "return.requested"
+      ],
+      "$comment": "The five order-scoped topics carry neither customer_id nor email_hash in their payload, so the identity is read from the `order` row through the same store-scoped tenant client (and in the same query) as the consent projection. One read per event, never a second source of truth."
+    }
+  },
+  "consent": {
+    "$comment": "Manager ruling 2026-10-23. Read-only, from the `customer.consent` projection (packages/db 0005, maintained by apps/core's consent ledger alongside 0194), through a tenant client scoped to the event's own store. Never the customer_consent ledger rows, never a write, never an API hop.",
+    "source": "customer.consent projection",
+    "purpose": "marketing_email",
+    "evaluated": "at processing time, never from the event payload",
+    "note": "customer.created and customer.updated carry a marketing_consent field; the mapper ignores it on purpose, so a decision here can contradict the event's own snapshot when consent changed in between. That is correct.",
+    "without_consent": "no identify and no track",
+    "unresolvable_identity": "dropped — a guest event carrying only email_hash has no consent row to check",
+    "pending_legal": "Manager ruling 2026-10-23: whether analytics tracking needs consent, and whether pseudonymous guest tracking is allowed, are on the owner's lawyer list. Until they answer, this conservative gate is the Phase 4 rule and no cdp_analytics purpose is to be invented or filed."
+  },
+  "events": [
+    {
+      "topic": "customer.created",
+      "version": 1,
+      "call": "identify",
+      "traits": ["customer_id", "email_hash", "status", "customer_group_id", "store_code"],
+      "consent_gated": true
+    },
+    {
+      "topic": "customer.updated",
+      "version": 1,
+      "call": "identify",
+      "traits": ["customer_id", "email_hash", "status", "customer_group_id", "store_code"],
+      "consent_gated": true
+    },
+    {
+      "topic": "customer.erased",
+      "version": 1,
+      "call": "suppress",
+      "traits": ["customer_id"],
+      "consent_gated": false,
+      "$comment": "An erasure is honoured whatever the consent said: it is the one call that must go out for a customer who has withdrawn everything."
+    },
+    {
+      "topic": "order.placed",
+      "version": 1,
+      "call": "track",
+      "name": "Order Completed",
+      "properties": [
+        "order_id",
+        "display_id",
+        "currency",
+        "total_minor",
+        "subtotal_minor",
+        "discount_minor",
+        "shipping_minor",
+        "tax_minor",
+        "line_item_count",
+        "unit_count",
+        "shipping_country",
+        "promotion_codes",
+        "store_code"
+      ],
+      "consent_gated": true,
+      "$comment": "Named for RudderStack's e-commerce spec. Line items are reduced to counts: the per-line titles and SKUs are not needed for a CDP audience and every property we send is one more thing to justify."
+    },
+    {
+      "topic": "order.cancelled",
+      "version": 1,
+      "call": "track",
+      "name": "Order Cancelled",
+      "properties": ["order_id", "display_id", "currency", "total_minor", "store_code"],
+      "consent_gated": true
+    },
+    {
+      "topic": "payment.captured",
+      "version": 1,
+      "call": "track",
+      "name": "Payment Captured",
+      "properties": ["order_id", "payment_id", "currency", "amount_minor", "store_code"],
+      "consent_gated": true
+    },
+    {
+      "topic": "refund.issued",
+      "version": 1,
+      "call": "track",
+      "name": "Order Refunded",
+      "properties": [
+        "order_id",
+        "refund_id",
+        "currency",
+        "amount_minor",
+        "return_id",
+        "store_code"
+      ],
+      "consent_gated": true
+    },
+    {
+      "topic": "shipment.shipped",
+      "version": 1,
+      "call": "track",
+      "name": "Order Shipped",
+      "properties": ["order_id", "shipment_id", "carrier", "item_count", "store_code"],
+      "consent_gated": true,
+      "$comment": "No tracking_number: it identifies a parcel at a carrier and reaches a third party with nothing gained for an audience."
+    },
+    {
+      "topic": "return.requested",
+      "version": 1,
+      "call": "track",
+      "name": "Product Returned",
+      "properties": ["order_id", "return_id", "line_count", "unit_count", "store_code"],
+      "consent_gated": true,
+      "$comment": "No reason: free text a customer or an agent typed, the same rule the ops alerts follow (#553)."
+    }
+  ],
+  "unmapped": [
+    {
+      "topics": ["store.created", "store.updated"],
+      "reason": "our own configuration, not customer behaviour"
+    },
+    {
+      "topics": ["product.published", "product.updated", "product.archived"],
+      "reason": "catalogue state; a CDP wants behaviour, and the product catalogue reaches it from the feeds (window 17)"
+    },
+    {
+      "topics": ["order.confirmed", "order.completed", "order.updated"],
+      "reason": "internal lifecycle steps between placed and shipped; they would add CDP events an audience cannot act on. Revisit if a lifecycle audience is ever asked for."
+    },
+    {
+      "topics": ["payment.authorized", "payment.failed", "refund.failed"],
+      "reason": "operational, not behavioural — these are the ops-alert topics (#553). A failed payment in a marketing audience would be a dark pattern."
+    },
+    {
+      "topics": [
+        "shipment.created",
+        "shipment.label_created",
+        "shipment.delivered",
+        "fulfillment.requested",
+        "fulfillment.picking",
+        "fulfillment.packed"
+      ],
+      "reason": "warehouse-side steps. shipment.delivered is the one worth revisiting (a review request audience); it is out until someone asks."
+    },
+    {
+      "topics": ["return.received"],
+      "reason": "the warehouse side of a return; return.requested is the customer's action and is mapped"
+    },
+    {
+      "topics": ["stock.moved", "stock_item.mapped"],
+      "reason": "inventory, no customer"
+    },
+    {
+      "topics": ["customer.export_requested", "customer.export_ready"],
+      "reason": "a privacy-request lifecycle; sending it to a third party would be the opposite of its purpose"
+    },
+    {
+      "topics": [
+        "campaign.launched",
+        "campaign.ended",
+        "feed.published",
+        "attribution.recorded",
+        "referral.converted",
+        "review.published",
+        "cart.abandoned"
+      ],
+      "reason": "window 17's marketing domain. cart.abandoned and attribution.recorded are the obvious CDP candidates, but they belong to marketing's own flows (Klaviyo, deferred until an account exists) and double-sending them would double-count an audience. A REQUEST to window 17 before any of these is mapped."
+    }
+  ]
+}
