@@ -56,8 +56,14 @@ export {
 } from './cdp/mapper.js';
 export type { MapContext } from './cdp/mapper.js';
 
-export { gate, readCustomerFacts, readOrderCustomerFacts, CONSENT_PURPOSE } from './cdp/consent.js';
-export type { ConsentState, CustomerFacts, DropReason, GateDecision } from './cdp/consent.js';
+export { gate, readCustomerFacts, readOrderCustomerFacts, CONSENT_PURPOSE } from './consent.js';
+export type {
+  ConsentState,
+  CustomerFacts,
+  DropReason,
+  GateDecision,
+  GateIdentity,
+} from './consent.js';
 
 export { MemoryCdpAdapter } from './cdp/adapter/memory.js';
 export { RudderStackCdpAdapter, identityOf } from './cdp/adapter/rudderstack.js';

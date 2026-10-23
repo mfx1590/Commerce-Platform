@@ -37,7 +37,7 @@ import {
   readCustomerFacts,
   readOrderCustomerFacts,
   type DropReason,
-} from './consent.js';
+} from '../consent.js';
 import { CDP_CALL_FOR, isConsentGated, isMapped, mapEvent, cdpTopics } from './mapper.js';
 import { sendCall, type CdpAdapter, type CdpCall } from './types.js';
 

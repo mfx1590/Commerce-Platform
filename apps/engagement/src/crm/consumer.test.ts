@@ -27,7 +27,7 @@ import {
   type TopicPolicy,
 } from '@platform/events';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { CONSENT_PURPOSE } from '../cdp/consent.js';
+import { CONSENT_PURPOSE } from '../consent.js';
 import { PROCESSED_TABLE } from '../ops/consumer.js';
 import { MemoryCrmAdapter } from './adapter/memory.js';
 import { CRM_GROUP_ID, createCrmConsumer, handleCrmEvent, type CrmLogLine } from './consumer.js';

@@ -455,7 +455,7 @@ pnpm lint && pnpm typecheck && pnpm test --filter @platform/engagement
 - `cdp/mapper.test.ts` — every mapped topic against schema-validated fixtures, the two-way agreement with
   the tracking plan, the deliberately dropped properties (tracking number, return reason, line titles and
   SKUs) and the PII sweeps.
-- `cdp/consent.test.ts` — the gate (pure) over every outcome, and the two projection reads on a throwaway
+- `consent.test.ts` — the gate (pure) over every outcome, and the two projection reads on a throwaway
   database: the shape the core actually writes, another purpose not granting ours, a malformed block reading
   as "never answered", per-store isolation, and that the read path writes nothing.
 - `cdp/adapter/adapter.test.ts` — the memory adapter, and RudderStack against an injected fetch (request

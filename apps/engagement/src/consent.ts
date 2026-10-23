@@ -1,4 +1,11 @@
-// Identity resolution and the consent gate — the only part of the CDP path that touches a database.
+// Identity resolution and the consent gate — SERVICE-WIDE, not the CDP's.
+//
+// It lived under `src/cdp/` when #554 built it, because the CDP was the only consumer with a consent question.
+// CRM sync (#555) then needed exactly the same gate against exactly the same projection, and two copies of a
+// consent rule is how a service ends up with two different answers to "may we contact this person". So it sits
+// at the top level and both consumers import it: one rule, one place, one set of tests.
+//
+// This is the only part of the CDP and CRM paths that touches a database.
 //
 // MANAGER RULING, 2026-10-23, and the reasons it is worth keeping exactly:
 //
@@ -22,7 +29,18 @@
 // clients: the organization one for the marks, and one of these per event for the consent read.
 
 import type { Queryable, ScopedClient } from '@platform/db';
-import type { CdpIdentity } from './types.js';
+
+/**
+ * Who the gate says may be contacted. Declared HERE rather than imported from `cdp/types.ts`: this module is
+ * service-wide, so it must not depend on one consumer's types. It is structurally identical to `GateIdentity`,
+ * so a `GateIdentity` is a `GateIdentity` wherever the CDP wants one, with no conversion.
+ */
+export interface GateIdentity {
+  /** Our customer id, when one is known. */
+  userId: string | null;
+  /** `email_hash` — never reversible, never the upsert key for a known customer. */
+  anonymousId: string | null;
+}
 
 /** The only purpose the 0194 CHECK allows today. */
 export const CONSENT_PURPOSE = 'marketing_email';
@@ -133,7 +151,7 @@ export type DropReason =
   | 'customer_erased';
 
 export type GateDecision =
-  { send: true; identity: CdpIdentity } | { send: false; reason: DropReason };
+  { send: true; identity: GateIdentity } | { send: false; reason: DropReason };
 
 /**
  * The gate. Consent-gated calls need a customer we can name AND a granted consent for that store; an erasure

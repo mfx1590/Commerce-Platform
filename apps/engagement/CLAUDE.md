@@ -38,7 +38,7 @@ a file to edit; a change there is a `REQUEST:` to window 17.
 - `src/ops/store-codes.ts` — store_id → `store.code`, cached, uuid fallback
 - `src/transport/` — `types.ts` (`AlertTransport`, `TransportError`), `dev-sink.ts`, `slack.ts`
 - `src/cdp/mapper.ts` — pure `(envelope, identity + store code) -> CdpCall | null`; the plan's twin
-- `src/cdp/consent.ts` — the projection reads and the gate; the ONLY CDP file that touches a database
+- `src/consent.ts` — the projection reads and the gate. SERVICE-WIDE (the CDP and the CRM share one rule), and the only file in either path that touches a database
 - `src/cdp/consumer.ts` — group `engagement.cdp`, the two clients, post-then-mark, drop logging
 - `src/cdp/adapter/` — `memory.ts` (runs today), `rudderstack.ts` (data plane + regulations)
 - `src/crm/rollup.ts` — PURE orders/LTV rollup; recomputed, never accumulated (idempotency)
