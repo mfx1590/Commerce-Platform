@@ -82,4 +82,4 @@ Redpanda config, outbox relay with idempotent delivery, schema registry, replay 
 ## How to run & test this package
 - Setup done 2026-10-20: `pnpm install --frozen-lockfile`, `pnpm --filter "./packages/*" --filter @platform/cms build`, `pnpm --filter @platform/auth-sdk fga:seed` (store reused, model written to .env). Worktree .env DATABASE_URL* pinned to 127.0.0.1.
 - Local Redpanda (compose stack, no docker commands from this window): Kafka 127.0.0.1:19092, schema registry 18081, HTTP proxy 18082, admin 9644 (`curl 127.0.0.1:9644/v1/cluster/health_overview`). Clean on 2026-10-20: no topics, no registry subjects.
-- Manager session: "Manager session seven handover" (local_484d7727-b945-48ba-bb27-0366bd2bbdcc).
+- Manager session since 2026-10-23: "Manager session eight" (local_875d6fa6-5b47-4924-80ba-464d535ee3d2); seven (local_484d7727-…) is finished.
