@@ -36,6 +36,7 @@ import type { CustomerReader } from './admin-api.js';
 
 const ORG = SEED_IDS.organization;
 const STORE_A = SEED_IDS.stores.brandA;
+const STORE_B = SEED_IDS.stores.brandB;
 const IDENTITY_ID = '99999999-9999-4999-8999-999999999999';
 
 const validator = createValidator();
@@ -183,10 +184,17 @@ async function makeCustomer(consent: boolean | null, storeId = STORE_A): Promise
 
 async function makeOrder(
   customerId: string | null,
-  over: { status?: string; total?: number; currency?: string; placedAt?: string } = {},
+  over: {
+    status?: string;
+    total?: number;
+    currency?: string;
+    placedAt?: string;
+    storeId?: string;
+  } = {},
 ): Promise<string> {
+  const storeId = over.storeId ?? STORE_A;
   const channel = await db.owner.query(`SELECT id FROM sales_channel WHERE store_id = $1 LIMIT 1`, [
-    STORE_A,
+    storeId,
   ]);
   const r = await db.owner.query(
     `INSERT INTO "order" (organization_id, store_id, display_id, sales_channel_id, customer_id, email,
@@ -197,7 +205,7 @@ async function makeOrder(
      RETURNING id`,
     [
       ORG,
-      STORE_A,
+      storeId,
       Math.floor(Math.random() * 1_000_000) + 1000,
       (channel.rows[0] as { id: string }).id,
       customerId,
@@ -255,10 +263,11 @@ beforeEach(async () => {
   reads = [];
   customers = recordingReader();
   await db.owner.query(`DELETE FROM ${PROCESSED_TABLE}`);
-  await db.owner.query(`DELETE FROM refund WHERE store_id = $1`, [STORE_A]);
-  await db.owner.query(`DELETE FROM payment WHERE store_id = $1`, [STORE_A]);
-  await db.owner.query(`DELETE FROM "order" WHERE store_id = $1`, [STORE_A]);
-  await db.owner.query(`DELETE FROM customer WHERE store_id = $1`, [STORE_A]);
+  const stores = [STORE_A, STORE_B];
+  await db.owner.query(`DELETE FROM refund WHERE store_id = ANY($1::uuid[])`, [stores]);
+  await db.owner.query(`DELETE FROM payment WHERE store_id = ANY($1::uuid[])`, [stores]);
+  await db.owner.query(`DELETE FROM "order" WHERE store_id = ANY($1::uuid[])`, [stores]);
+  await db.owner.query(`DELETE FROM customer WHERE store_id = ANY($1::uuid[])`, [stores]);
 });
 
 describe('handleCrmEvent — upsert', () => {
@@ -327,6 +336,49 @@ describe('handleCrmEvent — upsert', () => {
       netRevenueMinor: 0,
       lastOrderAt: null,
     });
+  });
+
+  it("NEVER lets another store's order into this customer's rollup (RLS, store-scoped read)", async () => {
+    // The read goes through a tenant client scoped to the EVENT's store, so a row belonging to brand-b is
+    // invisible to it — not filtered in our SQL, but unreachable. The fixture writes the anomaly deliberately:
+    // an order in store B carrying a store-A customer's id, which only the owner role could ever create.
+    const id = await makeCustomer(true);
+    await makeOrder(id, { total: 10000, placedAt: '2026-10-01T10:00:00.000Z' });
+    await makeOrder(id, { total: 99999, storeId: STORE_B, placedAt: '2026-10-09T10:00:00.000Z' });
+
+    await handleCrmEvent(customerUpdated(id), 'out-iso', deps());
+
+    // Store A's order only: one order, its total, and its date — the store-B order contributes nothing.
+    expect(adapter.get(id)).toMatchObject({
+      storeCode: 'brand-a',
+      ordersCount: 1,
+      netRevenueMinor: 10000,
+      lastOrderAt: '2026-10-01T10:00:00.000Z',
+    });
+    // The owner role can see both, so the anomaly really is in the database and the isolation is what hid it.
+    const all = await db.owner.query(
+      'SELECT count(*)::int AS n FROM "order" WHERE customer_id = $1',
+      [id],
+    );
+    expect((all.rows[0] as { n: number }).n).toBe(2);
+  });
+
+  it('reads order history READ-ONLY: the rollup path writes no order, refund or customer row', async () => {
+    const id = await makeCustomer(true);
+    const orderId = await makeOrder(id, { total: 10000 });
+    await makeRefund(orderId, 2500);
+    const before = await db.owner.query(
+      `SELECT (SELECT count(*) FROM "order") AS o, (SELECT count(*) FROM refund) AS r,
+              (SELECT max(updated_at) FROM "order") AS t, (SELECT max(updated_at) FROM customer) AS c`,
+    );
+
+    await handleCrmEvent(customerUpdated(id), 'out-ro', deps());
+
+    const after = await db.owner.query(
+      `SELECT (SELECT count(*) FROM "order") AS o, (SELECT count(*) FROM refund) AS r,
+              (SELECT max(updated_at) FROM "order") AS t, (SELECT max(updated_at) FROM customer) AS c`,
+    );
+    expect(after.rows[0]).toEqual(before.rows[0]);
   });
 
   it('resolves the customer from the ORDER for an order-scoped event', async () => {

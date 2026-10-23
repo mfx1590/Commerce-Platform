@@ -90,6 +90,11 @@ package yet.
   share one. A failed lookup must not fall through to a create.
 - **Recompute the rollup; never accumulate it.** A counter cannot tell a redelivery from a second order, and
   the bus is at-least-once and replayable. Recomputing is what makes the sync idempotent.
+- The rollup's order and refund reads are READ-ONLY through a store-scoped client on the event's own store
+  (the apps/notifications render-data precedent); two tests pin it — another store's order never enters the
+  rollup, and the path writes nothing.
+- The live broker blocks do NOT run in CI (no broker there): they skip with a printed reason, so a broker-up
+  run before finishing a task is how those guarantees get proven. Ask for the machine first.
 - Consent gates the whole CRM contact and is checked BEFORE the PII is fetched; `customer.erased` deletes
   before anything is read and `remove` is idempotent.
 - `ENGAGEMENT_CRM_TOKEN_PROVIDER=client_credentials` throws until #565 is built — never fall back to the mock.

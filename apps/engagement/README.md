@@ -251,6 +251,19 @@ What the rollup decides, with the reasons in `rollup.ts`:
 - currencies are **kept apart**, never summed. The headline is the store's `default_currency`; a customer with
   orders in another currency sets `mixed_currency`, which the log line carries, and `by_currency` has the rest.
 
+### The reads are read-only, and scoped to the event's store
+
+The order and refund rows the rollup is built from are read through a **tenant client scoped to the event's own
+store**, read-only — the `apps/notifications` render-data precedent: the numbers come from the database rather
+than from the payload, and the client that reads them can reach nothing else. Two tests hold the line: one
+writes an order in store B carrying a store-A customer's id (an anomaly only the owner role could create) and
+asserts it contributes **nothing** to that customer's rollup, because RLS makes it unreachable rather than
+because our SQL filters it; the other asserts the whole rollup path leaves every order, refund and customer row
+byte-identical, counts and `updated_at` included.
+
+The PII is the one thing NOT read from the tables, even though `customer.email` is right there: it comes from
+the Admin API with this service's own permission, so the permission check is never bypassed.
+
 ### Consent gates the whole contact
 
 A CRM contact is marketing-shaped, so without granted consent **nothing** is synced — not a name, not a
@@ -372,6 +385,16 @@ pnpm lint && pnpm typecheck && pnpm test --filter @platform/engagement
   starts. They all join the real group `engagement.ops`, so two live members would share the topic's partitions
   and a message published by one test could be handled by another test's consumer — which is how the
   dead-letter test first failed in a full-suite run after passing on its own.
+
+### The live blocks run locally, not in CI
+
+Every `*/consumer.test.ts` has a live block against the local Redpanda, and **CI has no broker for them**, so
+there they skip with a printed reason and the suite is the unit and database tests only. What that means
+honestly: the dedupe-off-the-real-bus and dead-letter guarantees are proven on a developer machine before a
+push and are **not** re-proven on every CI run. They are not skipped silently — the reason is printed, and a
+broker-up run is part of finishing a task here (and `ONE WINDOW MEASURES AT A TIME`, so it is asked for).
+Making CI run them would need a broker service in the workflow, which is window 5's file and a REQUEST, not
+something this package can arrange.
 
 ## What is not here (and where it is tracked)
 

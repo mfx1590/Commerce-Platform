@@ -28,7 +28,14 @@ CRM sync: one contact per customer per store, with a recomputed order/LTV rollup
 - **No PII in a log line**: the customer id, store code, counts and reason codes only, swept by a test.
 - `ENGAGEMENT_CRM_ENABLED` defaults to `0`; `KNOWN_GROUPS` now includes `engagement.crm`, so the DLQ watch
   covers it by default.
-- Tests: **241 passing, 9 live skipped** with the broker offline — rollup 20, CRM consumer 22 (19 + 3 live),
+- The rollup's reads are read-only through a store-scoped client on the event's own store, with two tests
+  pinning it: a store-B order carrying a store-A customer's id contributes nothing (RLS, not our filter), and
+  the whole path leaves every order, refund and customer row byte-identical.
+- **The three #564 review nits:** the `messageId` wording in `cdp/consumer.ts` now says what it is — the
+  envelope's `event_id`, which IS the outbox id by contract (ADR 0003 item 2) — rather than implying a second
+  source; the README states that the live broker blocks do not run in CI and what that costs; and the PR-body
+  test counts are taken from an actual run this time.
+- Tests: **243 passing, 9 live skipped** with the broker offline — rollup 20, CRM consumer 24 (21 + 3 live),
   CRM adapters 17, Admin API reader 13, plus the #553/#554 suites and the config tests.
 
 ## 0.2.0 — 2026-10-23 (#554, task 16.2)
