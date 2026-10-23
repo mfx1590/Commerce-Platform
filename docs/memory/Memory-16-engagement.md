@@ -1,6 +1,6 @@
 # Memory 16 — CRM, CDP, ops alerts & support
 Window: 16 · Key: `engagement` · Branch prefix: `engagement/` · Model: Sonnet
-Last updated: 2026-10-23 (window 16, session one) · Contracts: contracts-v0.4.26, events-v1 = 2abe310 · Last commit: (see Done) · Status: 16.1 code complete, 68/68 offline tests green; waiting on the machine for the 3-test live broker block before the PR
+Last updated: 2026-10-23 (window 16, session one) · Contracts: contracts-v0.4.26, events-v1 = 2abe310 · Last commit: 1e1a9d8 · Status: 16.1 code complete + main merged (653d817) + 0202 copy dropped; 68/68 offline tests green; waiting ONLY on the machine for the 3-test live broker block, then push + PR
 
 ## Identity (does not change)
 Owned paths (write):
@@ -22,7 +22,8 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **#553 16.1 apps/engagement + ops alerts — BUILT, plan approved by the manager 2026-10-23. Blocked only on the machine for the live broker block (asked 2026-10-23), then merge main → push → PR.**
   Delivered in apps/engagement (26 files): package `@platform/engagement` 0.1.0 (index.ts public API, README, CLAUDE.md, CHANGELOG, tsconfig + tsconfig.test + vitest.config), `src/ops/{rules,consumer,rate-limit,dlq-watch,store-codes}.ts`, `src/transport/{types,dev-sink,slack}.ts`, `src/{config,main,types,index}.ts`, and `migrations/0202_consumer_processed.sql` (the COPY, see Blocked).
   Test state: **68 passed, 3 skipped** with the broker deliberately offline (`KAFKA_BROKERS=127.0.0.1:19099`), which also proved the skip-with-a-printed-reason path. Per file: rules 16, transports 13, config 12, dlq-watch 8, rate-limit 7, consumer 15 (12 DB + 3 live skipped). Root `pnpm lint` and `pnpm typecheck` (24 tasks) green; `bash scripts/check-ownership.sh` → OK (engagement/phase4); prettier clean.
-  STILL TO DO: (1) live block with the machine — `pnpm --filter @platform/engagement exec vitest run src/ops/consumer.test.ts` with the broker up; (2) `git merge main`, rebuild packages, push, open the PR with the acceptance criteria; (3) message the manager with number + head sha, and again when every check finished.
+  Commits: 065d0a3 (the service + ops alerts), fe9f910 (merge main 653d817), 1e1a9d8 (drop the 0202 copy — #557 landed). After the merge: `pnpm install --frozen-lockfile`, packages rebuilt, 68 pass / 3 live skip, lint + typecheck green.
+  STILL TO DO: (1) live block with the machine — `pnpm --filter @platform/engagement exec vitest run src/ops/consumer.test.ts` with the broker up; (2) push, open the PR with the acceptance criteria; (3) message the manager with number + head sha, and again when every check finished.
 
 ### 16.1 design decisions worth not re-deriving
 - **post THEN mark**, the reverse of apps/notifications: a Slack post cannot join the mark's transaction, so a redelivery sends nothing (the SDK checks `consumer_processed` before the handler) but a crash in the gap can repeat ONE alert. Mark-first would lose it instead; for ops alerts a duplicate is cheap and a miss is an unseen incident. Flagged to the manager, who did not object. In the consumer header + README.
@@ -46,8 +47,8 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 
 ## Blocked / waiting
 - **The machine for the live broker block** (one window measures at a time; window 15 also active). Asked the manager 2026-10-23: 3 tests, prefixed `t-eng-<random>.` topics, self-cleaning, ~60-90 s. Note `pnpm test --filter @platform/engagement` AT ROOT runs the live block too whenever the broker is up — so that root command is itself the live run, not a safe pre-check.
-- **db 0202 `consumer_processed` = PR #557** (branch integration/consumer-processed), under review, not on main. The manager said to copy the REAL file: done, `git show origin/integration/consumer-processed:packages/db/migrations/0202_consumer_processed.sql` → apps/engagement/migrations/0202_consumer_processed.sql, applied by ops/consumer.test.ts (`applyProposedMigration`) to its throwaway database only. **Delete the copy AND that helper when the manager says #557 is on main** — `createTestDatabase` then applies the real one. Its real shape, now asserted in tests: RLS `organization_only` (a store-scoped client reads nothing and cannot insert → the consumer MUST use createOrganizationClient), `organization_id` DEFAULT app.current_organization_id() (the SDK's two-column INSERT works), PK (group_id, outbox_id), UPDATE revoked from platform_app, group_id CHECK `^[a-z][a-z0-9_.-]*$` (so `engagement.ops` is fine).
-- **.gitignore row for `.engagement/`**: the manager adds it on main himself, no REQUEST needed (he also chose the name and `ENGAGEMENT_DIR`).
+- ~~db 0202~~ **RESOLVED 2026-10-23: #557 merged** (main 653d817, packages/db 0.3.16); the landed file is byte-identical to the one I built against, so the copy and `applyProposedMigration` are deleted (1e1a9d8) and `createTestDatabase` applies the real migration. Its shape, asserted in my tests from the consumer's side: RLS `organization_only` (a store-scoped client reads nothing and cannot insert → the consumer MUST use createOrganizationClient), `organization_id` DEFAULT app.current_organization_id() (the SDK's two-column INSERT works), PK (group_id, outbox_id), UPDATE revoked from platform_app, group_id CHECK `^[a-z][a-z0-9_.-]*$` (so `engagement.ops` is fine).
+- ~~.gitignore row for `.engagement/`~~ **RESOLVED: on main in 653d817** (the manager added it; he also chose the name and `ENGAGEMENT_DIR`).
 - External accounts (Slack webhook, RudderStack, Twenty/HubSpot, Chatwoot): mocks until the owner provides them; live use on the launch checklist.
 
 ## Gotchas learned
