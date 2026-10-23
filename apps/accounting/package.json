@@ -1,8 +1,9 @@
 {
   "name": "@platform/accounting",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
+  "description": "Ledger service: consumes the five ledger events from the bus (group accounting.ledger) and writes balanced double-entry journal entries per legal entity (#548)",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -16,13 +17,22 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "dev": "tsx watch --clear-screen=false src/main.ts",
+    "start": "node dist/main.js",
+    "once": "node dist/main.js --once",
     "test": "vitest run --passWithNoTests",
+    "lint": "eslint . --max-warnings 0",
     "clean": "rm -rf dist .turbo"
   },
+  "dependencies": {
+    "@platform/db": "workspace:*",
+    "@platform/events": "workspace:*"
+  },
   "devDependencies": {
+    "@types/node": "^20.19.0",
+    "tsx": "^4.23.13",
     "typescript": "^5.8.0",
-    "vitest": "^3.2.0",
-    "@types/node": "^20.19.0"
+    "vitest": "^3.2.0"
   }
 }

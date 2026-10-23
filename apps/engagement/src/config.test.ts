@@ -1,7 +1,7 @@
 import { SEED_IDS } from '@platform/db';
 import { describe, expect, it } from 'vitest';
 import { KNOWN_GROUPS, resolveConfig } from './config.js';
-import { buildCdpAdapter, buildTransport } from './main.js';
+import { buildCdpAdapter, buildCrmAdapter, buildTokenProvider, buildTransport } from './main.js';
 
 const APP_URL = 'postgres://platform_app:platform_app@127.0.0.1:5433/platform';
 const WEBHOOK = 'https://hooks.slack.example/services/team-alpha/channel-ops/token-words-only';
@@ -20,11 +20,9 @@ describe('resolveConfig', () => {
     expect(c.rateLimit).toEqual({ max: 5, windowMs: 900_000 });
     // Every group this service knows about, not just its own: a group missing from the watch list is a group
     // whose dead letters nobody hears about (#562 review).
-    expect(c.dlq).toEqual({
-      groups: ['engagement.ops', 'engagement.cdp'],
-      threshold: 1,
-      pollMs: 60_000,
-    });
+    // Asserted against KNOWN_GROUPS rather than a literal: adding a consumer group should not need a test
+    // edit, only an entry there (and the test below pins what the list must contain).
+    expect(c.dlq).toEqual({ groups: [...KNOWN_GROUPS], threshold: 1, pollMs: 60_000 });
   });
 
   it('requires the app database URL', () => {
@@ -103,9 +101,10 @@ describe('resolveConfig', () => {
       }).dlq.groups,
     ).toEqual(['engagement.ops', 'accounting', 'engagement.cdp']);
     expect(resolveConfig({ env: { ...base, ENGAGEMENT_DLQ_GROUPS: ' ' } }).dlq.groups).toEqual([
-      'engagement.ops',
-      'engagement.cdp',
+      ...KNOWN_GROUPS,
     ]);
+    // Every group this service actually runs is in it — the point of the default.
+    expect([...KNOWN_GROUPS]).toEqual(['engagement.ops', 'engagement.cdp', 'engagement.crm']);
     // KNOWN_GROUPS is the default, and it can only know this service's own groups: production must list
     // every group on the bus, other windows' included.
     expect(resolveConfig({ env: base }).dlq.groups).toEqual([...KNOWN_GROUPS]);
@@ -234,6 +233,129 @@ describe('buildCdpAdapter', () => {
     );
     expect(a.name).toBe('rudderstack');
     expect(JSON.stringify(a)).not.toContain('write-key-words-only');
+  });
+});
+
+describe('resolveConfig — the CRM side (#555)', () => {
+  const prodBase = { ...base, ENGAGEMENT_TRANSPORT: 'slack', SLACK_OPS_WEBHOOK_URL: WEBHOOK };
+
+  it('is OFF by default, on the memory adapter and the mock token provider', () => {
+    const c = resolveConfig({ env: base });
+    expect(c.crm).toEqual({
+      enabled: false,
+      adapter: 'memory',
+      externalIdField: 'externalId',
+      adminApiUrl: 'http://localhost:9000',
+      tokenProvider: 'mock',
+    });
+  });
+
+  it('turns on with the memory adapter outside production', () => {
+    const c = resolveConfig({ env: { ...base, ENGAGEMENT_CRM_ENABLED: '1' } });
+    expect(c.crm).toMatchObject({ enabled: true, adapter: 'memory', tokenProvider: 'mock' });
+  });
+
+  it('refuses the memory adapter in production when enabled', () => {
+    expect(() =>
+      resolveConfig({
+        env: { ...prodBase, ENGAGEMENT_CRM_ENABLED: '1' },
+        nodeEnv: 'production',
+      }),
+    ).toThrow(/memory is refused in production/);
+  });
+
+  it('REFUSES the mock token provider in production: no real service principal', () => {
+    expect(() =>
+      resolveConfig({
+        env: {
+          ...prodBase,
+          ENGAGEMENT_CRM_ENABLED: '1',
+          ENGAGEMENT_CRM_ADAPTER: 'twenty',
+          TWENTY_BASE_URL: 'https://crm.example/rest',
+          TWENTY_API_KEY: 'twenty-api-key-words-only',
+          ENGAGEMENT_CRM_TOKEN_PROVIDER: 'mock',
+        },
+        nodeEnv: 'production',
+      }),
+    ).toThrow(/mock is refused in production/);
+  });
+
+  it('rejects unknown adapter and provider names', () => {
+    expect(() => resolveConfig({ env: { ...base, ENGAGEMENT_CRM_ADAPTER: 'hubspot' } })).toThrow(
+      /must be "memory" or "twenty"/,
+    );
+    expect(() =>
+      resolveConfig({ env: { ...base, ENGAGEMENT_CRM_TOKEN_PROVIDER: 'password' } }),
+    ).toThrow(/must be "mock" or "client_credentials"/);
+  });
+
+  it('requires a base URL and a key for twenty when enabled', () => {
+    expect(() =>
+      resolveConfig({
+        env: { ...base, ENGAGEMENT_CRM_ENABLED: '1', ENGAGEMENT_CRM_ADAPTER: 'twenty' },
+      }),
+    ).toThrow(/TWENTY_BASE_URL and TWENTY_API_KEY/);
+  });
+
+  it('reads the twenty settings, the external-id field and the Admin API URL', () => {
+    const c = resolveConfig({
+      env: {
+        ...base,
+        ENGAGEMENT_CRM_ENABLED: '1',
+        ENGAGEMENT_CRM_ADAPTER: 'twenty',
+        TWENTY_BASE_URL: 'https://crm.example/rest',
+        TWENTY_API_KEY: 'twenty-api-key-words-only',
+        TWENTY_EXTERNAL_ID_FIELD: 'platformCustomerId',
+        ADMIN_API_URL: 'http://core.internal:9000',
+      },
+    });
+    expect(c.crm).toMatchObject({
+      enabled: true,
+      adapter: 'twenty',
+      baseUrl: 'https://crm.example/rest',
+      apiKey: 'twenty-api-key-words-only',
+      externalIdField: 'platformCustomerId',
+      adminApiUrl: 'http://core.internal:9000',
+    });
+  });
+
+  it('never carries twenty credentials when the adapter is memory', () => {
+    const c = resolveConfig({ env: { ...base, TWENTY_API_KEY: 'twenty-api-key-words-only' } });
+    expect(JSON.stringify(c)).not.toContain('twenty-api-key-words-only');
+  });
+});
+
+describe('buildCrmAdapter / buildTokenProvider', () => {
+  it('builds the memory adapter by default', () => {
+    expect(buildCrmAdapter(resolveConfig({ env: base })).name).toBe('memory');
+  });
+
+  it('builds the twenty adapter, keeping the key out of the object', () => {
+    const a = buildCrmAdapter(
+      resolveConfig({
+        env: {
+          ...base,
+          ENGAGEMENT_CRM_ENABLED: '1',
+          ENGAGEMENT_CRM_ADAPTER: 'twenty',
+          TWENTY_BASE_URL: 'https://crm.example/rest',
+          TWENTY_API_KEY: 'twenty-api-key-words-only',
+        },
+      }),
+    );
+    expect(a.name).toBe('twenty');
+    expect(JSON.stringify(a)).not.toContain('twenty-api-key-words-only');
+  });
+
+  it('gives the mock token provider, named so nothing mistakes it for a principal', () => {
+    expect(buildTokenProvider(resolveConfig({ env: base })).name).toBe('mock');
+  });
+
+  it('THROWS for client_credentials rather than falling back to the mock (#565 is not built)', () => {
+    expect(() =>
+      buildTokenProvider(
+        resolveConfig({ env: { ...base, ENGAGEMENT_CRM_TOKEN_PROVIDER: 'client_credentials' } }),
+      ),
+    ).toThrow(/not implemented yet \(REQUEST #565\)/);
   });
 });
 
