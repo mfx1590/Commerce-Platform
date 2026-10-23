@@ -3,7 +3,10 @@
 // Group `engagement.cdp`, on the events-v1 SDK, with the shared `consumer_processed` marks — the same shape as
 // the ops consumer (#553), including post-then-mark: a CDP call is a network call and cannot join the mark's
 // transaction, so a redelivery sends nothing (the SDK checks the marks before the handler) while a crash in the
-// gap can repeat one call. The CDP's own `messageId` is the outbox id, so a repeat is de-duplicable downstream.
+// gap can repeat one call. The CDP's `messageId` is the envelope's `event_id`, which IS the outbox id by
+// contract (ADR 0003 item 2: `event_id` = the outbox row id, and it travels in the `outbox_id` header that the
+// SDK dedupes on), so a repeated call is de-duplicable downstream on the same key we dedupe on here. The
+// mapper reads it from the envelope because that is all a pure mapper is given; the two are the same value.
 //
 // The SDK writes the mark after this handler returns; `ctx.markProcessed(tx)` is for handlers whose side
 // effects are database writes, and a CDP call is not one (#562 review).

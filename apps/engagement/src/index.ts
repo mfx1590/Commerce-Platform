@@ -73,6 +73,32 @@ export type {
   CdpTrackCall,
 } from './cdp/types.js';
 
+// crm (#555)
+export { createCrmConsumer, handleCrmEvent, CRM_GROUP_ID, CRM_TOPICS } from './crm/consumer.js';
+export type {
+  CrmConsumer,
+  CrmConsumerOptions,
+  CrmHandlerDeps,
+  CrmLogLine,
+  CrmOutcome,
+  CrmSkipReason,
+} from './crm/consumer.js';
+
+export { computeRollup } from './crm/rollup.js';
+export type { Rollup, RollupOrder, RollupRefund, CurrencyTotals } from './crm/rollup.js';
+
+export { readOrderHistory, readStoreFacts } from './crm/read.js';
+export type { CustomerOrderHistory, StoreFacts } from './crm/read.js';
+
+export { createAdminApiReader, mockTokenProvider } from './crm/admin-api.js';
+export type { AdminApiOptions, CustomerReader } from './crm/admin-api.js';
+
+export { MemoryCrmAdapter } from './crm/adapter/memory.js';
+export { TwentyCrmAdapter } from './crm/adapter/twenty.js';
+export type { TwentyOptions } from './crm/adapter/twenty.js';
+export { CrmError } from './crm/types.js';
+export type { AdminCustomer, CrmAdapter, CrmContact, TokenProvider } from './crm/types.js';
+
 // transports
 export { DevSinkAlertTransport } from './transport/dev-sink.js';
 export { SlackAlertTransport, slackPayload, escapeMrkdwn } from './transport/slack.js';
