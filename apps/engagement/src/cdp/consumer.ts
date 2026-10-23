@@ -5,6 +5,9 @@
 // transaction, so a redelivery sends nothing (the SDK checks the marks before the handler) while a crash in the
 // gap can repeat one call. The CDP's own `messageId` is the outbox id, so a repeat is de-duplicable downstream.
 //
+// The SDK writes the mark after this handler returns; `ctx.markProcessed(tx)` is for handlers whose side
+// effects are database writes, and a CDP call is not one (#562 review).
+//
 // TWO CLIENTS, and the reason is structural (manager ruling 2026-10-23):
 //   * the ORGANIZATION client writes the marks — `consumer_processed` is RLS kind `organization_only`, so a
 //     store-scoped client can neither read nor write it;
@@ -232,8 +235,7 @@ export function createCdpConsumer(opts: CdpConsumerOptions): CdpConsumer {
       });
       if (r.sent) sent += 1;
       else dropped += 1;
-      // The mark comes AFTER the call, through the store: see the file header.
-      await processed.markProcessed(CDP_GROUP_ID, outboxId);
+      // No mark here: the SDK writes it after this handler returns. See the file header.
     },
   });
 

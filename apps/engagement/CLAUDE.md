@@ -68,6 +68,14 @@ package yet.
 - Post **then** mark, never the reverse: a duplicate ops alert is cheap, a missed one is an unseen incident.
   (The opposite of `apps/notifications`, which must never send twice.)
 - The DLQ watch never throws on an unreadable queue; it reports depth 0.
+- `ENGAGEMENT_DLQ_GROUPS` defaults to `KNOWN_GROUPS` (every group this service runs) and **must list every
+  group on the bus in production**, other windows' included - an unwatched group's dead letters are silent. A
+  new consumer group here is a new entry in `KNOWN_GROUPS`.
+- **Do not write the processed mark yourself.** The SDK marks after a handler returns without throwing;
+  `ctx.markProcessed(tx)` is only for a handler whose side effects are DATABASE writes, so the mark commits
+  with them. Ours are HTTP calls, so there is nothing to join and calling the store would double the INSERT.
+- A crash or error log carries the error CLASS only: a message or stack can hold a webhook URL, a write key or
+  the row it was handling.
 - **CDP consent is READ-ONLY, from the `customer.consent` PROJECTION, at processing time** (manager ruling
   2026-10-23). Never the `customer_consent` ledger rows (window 13's semantics — a `REQUEST:` if the
   projection is not enough), never a write to either, never an API hop. Ignore the `marketing_consent` field

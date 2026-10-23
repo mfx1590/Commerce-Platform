@@ -21,26 +21,26 @@ reads and writes none of it.
 
 ### Environment
 
-| Variable                          | Default           | Meaning                                                                            |
-| --------------------------------- | ----------------- | ---------------------------------------------------------------------------------- |
-| `DATABASE_URL_APP`                | —                 | the `platform_app` role (RLS applies); required                                    |
-| `ENGAGEMENT_ORGANIZATION_ID`      | the seeded HQ     | the organization this process serves                                               |
-| `ENGAGEMENT_TRANSPORT`            | `dev`             | `dev` (a local file) or `slack`; **`dev` is refused in production**                |
-| `ENGAGEMENT_DIR`                  | `.engagement`     | where the dev sink writes (git-ignored)                                            |
-| `SLACK_OPS_WEBHOOK_URL`           | —                 | the incoming-webhook URL, **environment only**; required for `slack`, never logged |
-| `ENGAGEMENT_ALERT_RATE_MAX`       | `5`               | alerts per (rule, store) per window                                                |
-| `ENGAGEMENT_ALERT_RATE_WINDOW_MS` | `900000` (15 min) | the window                                                                         |
-| `ENGAGEMENT_DLQ_GROUPS`           | `engagement.ops`  | comma-separated consumer groups whose DLQ depth is watched                         |
-| `ENGAGEMENT_DLQ_THRESHOLD`        | `1`               | alert when a group's live dead-letter count reaches this                           |
-| `ENGAGEMENT_DLQ_POLL_MS`          | `60000`           | poll interval for the depth watch                                                  |
-| `KAFKA_BROKERS`                   | `127.0.0.1:19092` | read by `@platform/events` (`createKafka`)                                         |
-| `ENGAGEMENT_CDP_ENABLED`          | `0`               | `1` starts the CDP consumer (off until an account exists)                          |
-| `ENGAGEMENT_CDP_ADAPTER`          | `memory`          | `memory` or `rudderstack`; **`memory` is refused in production when enabled**      |
-| `RUDDERSTACK_WRITE_KEY`           | —                 | the source write key, **environment only**, never logged                           |
-| `RUDDERSTACK_DATA_PLANE_URL`      | —                 | the data plane, e.g. `https://hosted.rudderlabs.example`                           |
-| `RUDDERSTACK_CONTROL_PLANE_URL`   | —                 | suppressions only (a different credential from the write key)                      |
-| `RUDDERSTACK_ACCESS_TOKEN`        | —                 | suppressions only; without it a suppression **throws** instead of doing nothing    |
-| `RUDDERSTACK_SOURCE_IDS`          | —                 | comma-separated source ids a suppression applies to                                |
+| Variable                          | Default            | Meaning                                                                            |
+| --------------------------------- | ------------------ | ---------------------------------------------------------------------------------- |
+| `DATABASE_URL_APP`                | —                  | the `platform_app` role (RLS applies); required                                    |
+| `ENGAGEMENT_ORGANIZATION_ID`      | the seeded HQ      | the organization this process serves                                               |
+| `ENGAGEMENT_TRANSPORT`            | `dev`              | `dev` (a local file) or `slack`; **`dev` is refused in production**                |
+| `ENGAGEMENT_DIR`                  | `.engagement`      | where the dev sink writes (git-ignored)                                            |
+| `SLACK_OPS_WEBHOOK_URL`           | —                  | the incoming-webhook URL, **environment only**; required for `slack`, never logged |
+| `ENGAGEMENT_ALERT_RATE_MAX`       | `5`                | alerts per (rule, store) per window                                                |
+| `ENGAGEMENT_ALERT_RATE_WINDOW_MS` | `900000` (15 min)  | the window                                                                         |
+| `ENGAGEMENT_DLQ_GROUPS`           | all `engagement.*` | groups whose DLQ depth is watched; **production must list every group on the bus** |
+| `ENGAGEMENT_DLQ_THRESHOLD`        | `1`                | alert when a group's live dead-letter count reaches this                           |
+| `ENGAGEMENT_DLQ_POLL_MS`          | `60000`            | poll interval for the depth watch                                                  |
+| `KAFKA_BROKERS`                   | `127.0.0.1:19092`  | read by `@platform/events` (`createKafka`)                                         |
+| `ENGAGEMENT_CDP_ENABLED`          | `0`                | `1` starts the CDP consumer (off until an account exists)                          |
+| `ENGAGEMENT_CDP_ADAPTER`          | `memory`           | `memory` or `rudderstack`; **`memory` is refused in production when enabled**      |
+| `RUDDERSTACK_WRITE_KEY`           | —                  | the source write key, **environment only**, never logged                           |
+| `RUDDERSTACK_DATA_PLANE_URL`      | —                  | the data plane, e.g. `https://hosted.rudderlabs.example`                           |
+| `RUDDERSTACK_CONTROL_PLANE_URL`   | —                  | suppressions only (a different credential from the write key)                      |
+| `RUDDERSTACK_ACCESS_TOKEN`        | —                  | suppressions only; without it a suppression **throws** instead of doing nothing    |
+| `RUDDERSTACK_SOURCE_IDS`          | —                  | comma-separated source ids a suppression applies to                                |
 
 Locally: `.env` with the DB rows (loopback **127.0.0.1**, not `localhost` — Memory-main's IPv6 trap), nothing
 else, then `pnpm --filter @platform/engagement dev`. Make a payment fail and
@@ -110,6 +110,13 @@ tombstoned), so its length is the depth. A poll, not a consumer: the DLQ is comp
 beginning, so there is no offset to keep and nothing to dedupe. The alert counts the error **classes** present
 and lists the event topics — all there is to say, since a dead letter carries no payload, and enough to tell
 "one poison message" from "the downstream API is down".
+
+**`ENGAGEMENT_DLQ_GROUPS` must name every group in production.** The default is every group this service runs
+(`engagement.ops`, `engagement.cdp`) — "all of mine" rather than "the one I am", because a group missing from
+the list is a group whose dead letters nobody is ever told about. But a default can only know its own groups:
+other windows' consumers (`accounting`, and whatever Phase 5 adds) are invisible to it, so in production the
+variable is set explicitly, and listing them all is the whole point of the watch. `KNOWN_GROUPS` in
+`src/config.ts` is the default's source, so a new consumer group here means a new entry there.
 
 A group whose DLQ cannot be read (the topic does not exist because the group never dead-lettered anything, or
 the broker is down) is reported as depth 0 and logged — never an alert, never a throw. The watch must not

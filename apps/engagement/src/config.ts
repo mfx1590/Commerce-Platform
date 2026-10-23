@@ -5,6 +5,7 @@
 // gitleaks rule in Memory-main): the fixtures use words.
 
 import { SEED_IDS } from '@platform/db';
+import { CDP_GROUP_ID } from './cdp/consumer.js';
 import { OPS_GROUP_ID } from './ops/consumer.js';
 
 export type TransportName = 'dev' | 'slack';
@@ -41,6 +42,14 @@ export interface ResolveOptions {
   /** Defaults to `env.NODE_ENV`. */
   nodeEnv?: string;
 }
+
+/**
+ * Every consumer group this service knows about, and the default for `ENGAGEMENT_DLQ_GROUPS`. A group missing
+ * from the watch list is a group whose dead letters nobody is told about, so the default is "all of mine"
+ * rather than "the one I am" (#562 review). IN PRODUCTION the variable must list EVERY group on the bus,
+ * including other windows' (`accounting`, …): this default can only know its own.
+ */
+export const KNOWN_GROUPS = [OPS_GROUP_ID, CDP_GROUP_ID] as const;
 
 const DEFAULTS = {
   dir: '.engagement',
@@ -89,7 +98,7 @@ export function resolveConfig(opts: ResolveOptions = {}): EngagementConfig {
 
   const cdp = resolveCdp(env, isProduction);
 
-  const groups = (env.ENGAGEMENT_DLQ_GROUPS?.trim() || OPS_GROUP_ID)
+  const groups = (env.ENGAGEMENT_DLQ_GROUPS?.trim() || KNOWN_GROUPS.join(','))
     .split(',')
     .map((g) => g.trim())
     .filter(Boolean);

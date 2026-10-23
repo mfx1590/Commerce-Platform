@@ -1,6 +1,6 @@
 import { SEED_IDS } from '@platform/db';
 import { describe, expect, it } from 'vitest';
-import { resolveConfig } from './config.js';
+import { KNOWN_GROUPS, resolveConfig } from './config.js';
 import { buildCdpAdapter, buildTransport } from './main.js';
 
 const APP_URL = 'postgres://platform_app:platform_app@127.0.0.1:5433/platform';
@@ -18,7 +18,13 @@ describe('resolveConfig', () => {
     });
     expect(c.slackWebhookUrl).toBeUndefined();
     expect(c.rateLimit).toEqual({ max: 5, windowMs: 900_000 });
-    expect(c.dlq).toEqual({ groups: ['engagement.ops'], threshold: 1, pollMs: 60_000 });
+    // Every group this service knows about, not just its own: a group missing from the watch list is a group
+    // whose dead letters nobody hears about (#562 review).
+    expect(c.dlq).toEqual({
+      groups: ['engagement.ops', 'engagement.cdp'],
+      threshold: 1,
+      pollMs: 60_000,
+    });
   });
 
   it('requires the app database URL', () => {
@@ -90,7 +96,7 @@ describe('resolveConfig', () => {
     }
   });
 
-  it('watches the groups it is given, trimmed, and its own group by default', () => {
+  it('watches the groups it is given, trimmed, and ALL of its own groups by default', () => {
     expect(
       resolveConfig({
         env: { ...base, ENGAGEMENT_DLQ_GROUPS: 'engagement.ops, accounting ,engagement.cdp' },
@@ -98,7 +104,11 @@ describe('resolveConfig', () => {
     ).toEqual(['engagement.ops', 'accounting', 'engagement.cdp']);
     expect(resolveConfig({ env: { ...base, ENGAGEMENT_DLQ_GROUPS: ' ' } }).dlq.groups).toEqual([
       'engagement.ops',
+      'engagement.cdp',
     ]);
+    // KNOWN_GROUPS is the default, and it can only know this service's own groups: production must list
+    // every group on the bus, other windows' included.
+    expect(resolveConfig({ env: base }).dlq.groups).toEqual([...KNOWN_GROUPS]);
   });
 
   it('takes an explicit organization and directory', () => {

@@ -37,7 +37,16 @@ The CDP: a tracking plan, a pure mapper, a consent gate and two adapters.
 - Config: `ENGAGEMENT_CDP_ENABLED` (default `0` — the consumer ships off), `ENGAGEMENT_CDP_ADAPTER`
   (`memory` refused in production when enabled), and the `RUDDERSTACK_*` credentials from the environment only.
 - Tests: **160 passing, 6 live skipped** with the broker offline — mapper 25, consent 25, adapters 18, CDP
-  consumer 16 (13 + 3 live), plus the #553 suites and 12 new config tests.
+  consumer 16 (13 + 3 live), plus the #553 suites and the config tests.
+- **The three #562 review nits**, folded in here rather than pushed onto the merged head:
+  - the handlers no longer write the processed mark themselves. The SDK marks after a handler returns without
+    throwing, so the explicit call was a redundant second INSERT of the same row. `ctx.markProcessed(tx)` is
+    for a handler whose side effects are database writes; a Slack post and a CDP call cannot join a
+    transaction, so there is nothing for it to commit with.
+  - `ENGAGEMENT_DLQ_GROUPS` now defaults to **every** group this service runs (`KNOWN_GROUPS`), and the README
+    says production must list every group on the bus - other windows' included, which a default cannot know.
+  - the crash handler logs the error **class** only: a message or stack can carry a webhook URL, a write key
+    or the row being handled.
 
 ## 0.1.0 — 2026-10-23 (#553, task 16.1)
 

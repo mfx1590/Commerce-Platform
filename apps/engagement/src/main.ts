@@ -133,8 +133,16 @@ async function main(): Promise<void> {
 // path (`C:\...`) is not a URL path.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((err: unknown) => {
-    console.error(JSON.stringify({ service: 'engagement', module: 'ops', event: 'crashed' }));
-    console.error(err);
+    // The CLASS only, never the error itself: a thrown error's message or stack can carry a webhook URL, a
+    // write key or a row it was handling (#562 review). The class is what a restart policy needs.
+    console.error(
+      JSON.stringify({
+        service: 'engagement',
+        module: 'ops',
+        event: 'crashed',
+        error_class: err instanceof Error ? err.name : 'Error',
+      }),
+    );
     process.exitCode = 1;
   });
 }
