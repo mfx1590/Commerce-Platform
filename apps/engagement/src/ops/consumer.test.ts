@@ -1,18 +1,15 @@
 // The ops consumer: the decision path on a real database, then a live block against the local Redpanda.
 //
-// The database part builds its own throwaway database through @platform/db/testing and applies the PROPOSED
-// `consumer_processed` migration from ../../migrations (packages/db 0202 is PR #557, not on main yet — the #244
-// way). The moment 0202 lands, that file and `applyProposedMigration` go and the tests run on the real
-// migration: `createTestDatabase` already applies everything in packages/db.
+// The database part builds its own throwaway database through @platform/db/testing, which applies every
+// packages/db migration — `consumer_processed` among them since db 0.3.16 (migration 0202, PR #557, merged
+// 2026-10-23). The `consumer_processed` block below asserts the guarantees this consumer depends on, from the
+// consumer's side: packages/db has its own RLS tests for the table itself.
 //
 // The live block publishes schema-valid envelopes to PREFIXED topics with the real wire format and runs the
 // real consumer, so the dedupe #553 asks for is proven against the broker rather than against a fake. It is
 // skipped with a printed reason when the broker is down.
 
 import net from 'node:net';
-import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 import {
   createOrganizationClient,
   createTenantClient,
@@ -87,20 +84,12 @@ function paymentFailedEvent(
   return e as EventEnvelopeV1Base;
 }
 
-/** The #244 way: the proposed migration, applied to this throwaway database only. Delete with 0202. */
-async function applyProposedMigration(db: TestDatabase): Promise<void> {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const file = join(here, '..', '..', 'migrations', '0202_consumer_processed.sql');
-  await db.owner.query(await readFile(file, 'utf8'));
-}
-
 let db: TestDatabase;
 let hq: ScopedClient;
 
 beforeAll(async () => {
   db = await createTestDatabase('platform_engagement');
   await seed(db.owner);
-  await applyProposedMigration(db);
   hq = createOrganizationClient(db.app, { organizationId: ORG });
 }, 120_000);
 
@@ -112,7 +101,7 @@ beforeEach(async () => {
   await db.owner.query(`DELETE FROM ${PROCESSED_TABLE}`);
 });
 
-describe('consumer_processed (the shared table, proposed as db 0202)', () => {
+describe('consumer_processed (the shared table, packages/db 0202)', () => {
   it('an organization-scoped client may insert and read its own marks', async () => {
     await hq.query(`INSERT INTO ${PROCESSED_TABLE} (group_id, outbox_id) VALUES ($1, $2)`, [
       OPS_GROUP_ID,

@@ -34,8 +34,6 @@ a file to edit; a change there is a `REQUEST:` to window 17.
 - `src/ops/store-codes.ts` — store_id → `store.code`, cached, uuid fallback
 - `src/transport/` — `types.ts` (`AlertTransport`, `TransportError`), `dev-sink.ts`, `slack.ts`
 - `src/config.ts` (env + production refusals), `src/main.ts`, `src/types.ts`, `src/index.ts`
-- `migrations/0202_consumer_processed.sql` — **a copy** of packages/db 0202 while PR #557 is open; delete it
-  and `applyProposedMigration` once 0202 is on main (the #244 way)
 
 ## Public API
 

@@ -126,14 +126,11 @@ e-mail; a provider nobody can run yet is one file and a config value.
 
 ## Schema
 
-`consumer_processed` is `packages/db/migrations/0202_consumer_processed.sql` — the shared processed store the
-manager lands for every Phase 4 bus consumer (`organization_id` DEFAULT the session's organization, PK
-`(group_id, outbox_id)`, RLS `organization_only`, `UPDATE` revoked from `platform_app`).
-
-**While PR #557 is open** a copy of that exact file lives in `./migrations/` and the test applies it to its own
-throwaway database — the #244 way `apps/notifications` used for 0180/0198. When 0202 is on main, that copy and
-`applyProposedMigration` in `ops/consumer.test.ts` are deleted and the tests run on the real migration;
-`createTestDatabase` already applies everything in `packages/db`.
+`consumer_processed` is `packages/db/migrations/0202_consumer_processed.sql` (db 0.3.16, #557, merged
+2026-10-23) — the shared processed store for every Phase 4 bus consumer: `organization_id` DEFAULT the
+session's organization (so the SDK's two-column INSERT is enough), PK `(group_id, outbox_id)` as the replay
+guard, RLS `organization_only`, `UPDATE` revoked from `platform_app`. `createTestDatabase` applies it like
+every other migration.
 
 This service owns **no table of its own**: the marks are the shared table's, the rate-limit window is in
 memory, and an alert is not stored anywhere but the transport.
@@ -155,8 +152,9 @@ pnpm lint && pnpm typecheck && pnpm test --filter @platform/engagement
   not use is not carried.
 - `ops/dlq-watch.test.ts` — thresholds, several groups, the error-class counting, an unreadable DLQ, and the
   rate limit over a standing backlog, with the reader injected.
-- `ops/consumer.test.ts` — on a throwaway database: the `consumer_processed` guarantees (the PK as replay
-  guard, a store-scoped session reading and writing none, `UPDATE` revoked), store-code resolution, and the
+- `ops/consumer.test.ts` — on a throwaway database: the `consumer_processed` guarantees this consumer depends
+  on, from the consumer's side (the PK as replay guard, a store-scoped session reading and writing none,
+  `UPDATE` revoked, the `organization_id` default), store-code resolution, and the
   decision path. Then a **live block** on prefixed, self-cleaning topics: one alert per event and nothing for a
   redelivery, a restarted consumer replaying the topic silently, and a refusing transport dead-lettering with
   the error class and no payload. It is skipped with a printed reason when the broker is down.

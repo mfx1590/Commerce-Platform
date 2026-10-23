@@ -27,5 +27,6 @@ The service, and ops alerts.
   on a throwaway database (the `consumer_processed` guarantees, store codes, the decision path) plus a 3-test
   live block against the local Redpanda on prefixed self-cleaning topics, skipped with a printed reason when
   the broker is down.
-- `migrations/0202_consumer_processed.sql` is a **copy** of the real file while PR #557 is open (the #244 way),
-  applied by the test to its own throwaway database. It goes once 0202 is on main.
+- Built against `consumer_processed` while it was PR #557 (a copy of the file under `./migrations`, applied by
+  the test to its own throwaway database — the #244 way). #557 merged on 2026-10-23 as packages/db 0.3.16, so
+  the copy and its helper are gone and the tests run on the real migration.
