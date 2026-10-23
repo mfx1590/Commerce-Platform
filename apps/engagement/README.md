@@ -1,7 +1,7 @@
 # @platform/engagement
 
 The engagement service (window 16, Phase 4): bus consumers for **ops alerts** (#553), the **CDP** (#554) and
-**CRM sync** (#555), with the support-context API (#556) to come. Owner: window 16.
+**CRM sync** (#555), plus the **support-context API** (#556). Owner: window 16.
 Run/test commands and the public API: [CLAUDE.md](./CLAUDE.md); the outbox/bus design: ADR 0003; the consumer
 SDK: `packages/events/README.md`.
 
@@ -11,9 +11,10 @@ file.
 
 ## How it runs
 
-`pnpm --filter @platform/engagement start` runs the ops consumer and polls the DLQs until SIGTERM.
+`pnpm --filter @platform/engagement start` runs the ops consumer and polls the DLQs until SIGTERM, plus any of
+the CDP consumer, the CRM consumer and the support HTTP server that are enabled.
 `pnpm --filter @platform/engagement once` runs **one DLQ poll** and exits — the way to drive the watch from a
-script or a CI job without a long-lived process. There is no HTTP server yet; #556 adds one.
+script or a CI job without a long-lived process. The support API (#556) is the one HTTP server here, and it is off unless asked for.
 
 One process serves one organization (`ENGAGEMENT_ORGANIZATION_ID`) and reads every store of it through an
 **organization-scoped** client: `consumer_processed` is RLS kind `organization_only`, so a store-scoped session
@@ -48,6 +49,11 @@ reads and writes none of it.
 | `TWENTY_API_KEY`                  | —                  | the Twenty key, **environment only**, never logged                                 |
 | `TWENTY_EXTERNAL_ID_FIELD`        | `externalId`       | the custom person field holding OUR customer id (the upsert key)                   |
 | `ADMIN_API_URL`                   | `localhost:9000`   | the core Admin API the contact's name and e-mail are read from                     |
+| `ENGAGEMENT_SUPPORT_ENABLED`      | `0`                | `1` starts the support HTTP server                                                 |
+| `ENGAGEMENT_SUPPORT_PORT`         | `4040`             | the port it listens on                                                             |
+| `ENGAGEMENT_SUPPORT_MAX_ORDERS`   | `25`               | how many of a customer's orders are detailed, newest first                         |
+| `CHATWOOT_WEBHOOK_SECRET`         | -                  | HMAC secret, **environment only**; without it the webhook route answers 503        |
+| `ENGAGEMENT_DEV_TOKENS`           | `0`                | `Bearer dev:<subject>` on the support routes; **refused in production**            |
 
 Locally: `.env` with the DB rows (loopback **127.0.0.1**, not `localhost` — Memory-main's IPv6 trap), nothing
 else, then `pnpm --filter @platform/engagement dev`. Make a payment fail and
@@ -249,7 +255,14 @@ What the rollup decides, with the reasons in `rollup.ts`:
   lifetime revenue is worse than one showing zero. `gross_revenue_minor` and `refunded_minor` keep the
   unclamped figures, so nothing is hidden;
 - currencies are **kept apart**, never summed. The headline is the store's `default_currency`; a customer with
-  orders in another currency sets `mixed_currency`, which the log line carries, and `by_currency` has the rest.
+  orders in another currency sets `mixed_currency`, and `by_currency` has the per-currency totals.
+
+**Where the breakdown stops.** `by_currency` and `mixed_currency` do **not** cross the `CrmContact` boundary: a
+CRM person has one revenue field, and inventing `netRevenueEur` / `netRevenueGbp` per workspace would be a
+schema this service does not own. So for a mixed-currency customer the contact's `ordersCount` (all currencies)
+and `netRevenueMinor` (the store's default only) disagree in scope, and **the only place that says so is the
+`mixed_currency` field on the consumer's log line.** If a workspace ever needs the breakdown it is a
+per-currency custom field and an adapter change, not a wider `CrmContact`.
 
 ### The reads are read-only, and scoped to the event's store
 
@@ -258,8 +271,10 @@ store**, read-only — the `apps/notifications` render-data precedent: the numbe
 than from the payload, and the client that reads them can reach nothing else. Two tests hold the line: one
 writes an order in store B carrying a store-A customer's id (an anomaly only the owner role could create) and
 asserts it contributes **nothing** to that customer's rollup, because RLS makes it unreachable rather than
-because our SQL filters it; the other asserts the whole rollup path leaves every order, refund and customer row
-byte-identical, counts and `updated_at` included.
+because our SQL filters it; the other asserts the whole rollup path leaves the order, refund and customer tables
+**unchanged down to the row contents** — an `md5` over every row of each table, ordered, so a changed column
+anywhere fails it and not merely a changed count or timestamp (#568 review: the first version checked counts
+plus `max(updated_at)`, which is weaker than the claim it was making).
 
 The PII is the one thing NOT read from the tables, even though `customer.email` is right there: it comes from
 the Admin API with this service's own permission, so the permission check is never bypassed.
@@ -304,6 +319,94 @@ The name and the e-mail exist in a `CrmContact` on its way to the adapter and no
 the customer **id**, the store code, the counts and a reason code — never a name, an address or an e-mail, and
 a test sweeps every line of the busiest path for all three. Nothing of the contact is in a dead letter, an
 error message or a row of ours, because we keep no rows.
+
+## Support context (#556)
+
+One HTTP server, three routes, for a Chatwoot dashboard app that needs to answer "who is this customer and what
+happened to their orders" without making six Admin API calls and joining them itself.
+
+| Route                                                         | Who       | What                                                                                           |
+| ------------------------------------------------------------- | --------- | ---------------------------------------------------------------------------------------------- |
+| `GET /health`                                                 | anyone    | liveness; no data                                                                              |
+| `GET /support/customers/:customerId/context?store=<code\|id>` | the agent | the customer, their orders with payments, refunds, shipments and returns, and a glance summary |
+| `POST /webhooks/chatwoot`                                     | Chatwoot  | HMAC verified, nothing persisted                                                               |
+
+### The agent's own token, not a service principal
+
+This is the deliberate difference from CRM sync (#555), which has no human in the request and therefore needs
+one. Here **the agent's own token does the reading** (manager decision on #556), so an agent sees exactly what
+their `support` role may see, and the core remains the authority on that.
+
+Two gates run before any read, in this order:
+
+1. **Who** — a staff-realm JWT through `@platform/auth-sdk`, then the subject looked up in `staff_user`: a
+   token is a claim, the row is the fact. Unknown or disabled is 401.
+2. **What** — `support` on `store:<id>` through OpenFGA, server-side. A staff user of this organization who is
+   not support for _this_ store gets 403, and so does one asking about another store.
+
+Then the agent's own `Authorization` header is forwarded to every Admin API call, so **the core checks the same
+agent again** with its own `x-permission` rules. That is defence in depth rather than redundancy: this check
+decides whether to make the call at all (and gives the agent a clean 403 instead of a leaked upstream error),
+and the core's check is the authority on the data. If they ever disagree, the core wins and nothing leaks. A
+test asserts every read carried the agent's header and that a refused gate makes **no** call at all.
+
+When OpenFGA is unreachable the answer is **503, not 403**: the agent is not forbidden, we cannot tell. Failing
+closed and saying which kind of closed it is.
+
+### What it reads, and the one contract change it needed
+
+Three read-only operations, all already in the contract: `getCustomer` (`support` on the store), `listOrders`
+and `getOrder` (`viewer`, which `support` implies in the model). `getOrder` already embeds payments, refunds,
+shipments and returns, so the whole history is one list call plus one detail call per order — no new endpoint
+and no join of ours.
+
+The one gap was listing a customer's orders: `listOrders` had no `customer_id` filter, though `OrderSummary`
+already returned the field. That is `CONTRACT CHANGE` **#569** — accepted, Admin API 0.4.24. The alternative,
+`q=<the customer's e-mail>`, was rejected for reasons worth keeping: it puts an address in a URL (every proxy
+and access log then holds it), and `q` is a _search_ rather than a key, so two customers sharing an address
+would see each other's orders.
+
+### Nothing is kept
+
+No cache and no copy: the answer is assembled per request and forgotten. A cache would be both a stale
+permission (the agent's rights are only true at the moment the core says so) and a copy of personal data, which
+#556 forbids. Every response carries `cache-control: no-store`, so a proxy or a browser does not keep one
+either.
+
+A log line carries the customer **id**, the store code, the staff user id and the order count — never a name,
+an address, an e-mail or a tracking number. A test sweeps for all four.
+
+### Partial answers are visible
+
+An order whose detail cannot be read still appears, built from its summary, with a line in `notes` saying what
+is missing. An agent told "3 orders" when there are 4 would give a customer wrong information, which is worse
+than a visible gap. A 401 or 403 from the core is **re-thrown**, not noted: that is a refusal, not a gap.
+
+A customer who is not in this store gets the same 404 as one who does not exist, so the route cannot be used to
+discover that an id exists elsewhere in the organization.
+
+### The Chatwoot webhook, and its documented limit
+
+The stub verifies the signature, hashes the contact's address on arrival, and returns the conversation →
+`email_hash` link. **It resolves nothing and persists nothing**, and that is a scope decision rather than
+unfinished work (manager ruling, 2026-10-23):
+
+- a Chatwoot webhook is a server-to-server call with **no agent token**, and #556 rules out a service-account
+  read here — so any customer lookup would need a principal this route does not have, and inventing one is the
+  thing the ruling forbids;
+- a conversation → customer link is a **table this service does not own**. The resolution happens on the
+  dashboard request instead, which does carry the agent's token.
+
+A link table and a principal are a later phase. The route answers **202**, not 200, because it is accepted and
+deliberately acted on by nobody, and the body says `persisted: false` so a caller cannot mistake it.
+
+**Replay safety** has two guards, both with limits worth stating. _Freshness_: the payload's own `created_at`
+must be within 5 minutes, so it depends on Chatwoot's clock and ours being roughly aligned — hence the wide
+window — and a payload with **no** usable timestamp is rejected rather than waved through, because for that
+delivery the guard would not exist at all. _Seen-once_: an in-memory LRU of recent (conversation, event,
+timestamp) digests, which a restart forgets and a second instance would not share — the same honest limit as
+the ops rate limiter. It is enough here precisely because the stub has no side effect to replay: nothing is
+written and nothing is sent. The day it does something stateful, that guard has to become a table.
 
 ## Transports
 
@@ -372,6 +475,15 @@ pnpm lint && pnpm typecheck && pnpm test --filter @platform/engagement
 - `crm/consumer.test.ts` — the decision path on a throwaway database: the rollup end to end, idempotency on
   redelivery, no consent meaning no PII fetch at all, erasure removing with the row already gone, the log-line
   PII sweep — plus its own live block.
+- `support/server.test.ts` — the whole 401 / 403 / 200 matrix end to end on a throwaway database: no token,
+  unknown subject, disabled staff user, not-support-for-this-store, another store, OpenFGA down (503), and the
+  200 — plus that the agent's own header reached every read, that a refused gate made no call, the `no-store`
+  header, the log-line PII sweep, and the webhook's 202 / 401 / 409 / 405 / 413 / 503.
+- `support/chatwoot.test.ts` — signature (missing, wrong, tampered, wrong length), the payload shape, the
+  freshness window in both directions, replay including a cosmetically re-serialised body, the bounded memory,
+  and that the address is hashed and never returned raw.
+- `support/context.test.ts` — the summary, and the shapes the contract allows: `total` as a number or a
+  bigint string, absent embedded arrays, a missing detail noted rather than dropped, and a 401/403 re-thrown.
 - `ops/consumer.test.ts` — on a throwaway database: the `consumer_processed` guarantees this consumer depends
   on, from the consumer's side (the PK as replay guard, a store-scoped session reading and writing none,
   `UPDATE` revoked, the `organization_id` default), store-code resolution, and the
@@ -403,7 +515,10 @@ something this package can arrange.
   (`ENGAGEMENT_CDP_ENABLED=0`) and the live use is on the launch checklist.
 - **A real CRM call, and a real service-account token.** Blocked on the owner's Twenty instance and on #565;
   both are launch-checklist items, and the consumer ships disabled (`ENGAGEMENT_CRM_ENABLED=0`).
-- The support-context API and Chatwoot webhook (#556).
+- **A real Chatwoot instance**, and therefore a real signed delivery: the HMAC, freshness and replay guards are
+  tested against generated signatures only. On the launch checklist.
+- **A conversation → customer link that persists**, and the principal a webhook would need to resolve one:
+  deliberately out of this phase (see "The Chatwoot webhook, and its documented limit").
 - SMS/WhatsApp (Twilio), Novu and Klaviyo flows — deferred until accounts exist (manager decision on #553).
 - The returns portal and refund limits by role — a later wave across core, auth, storefront and admin.
 - This service's `COPY` lines in the Dockerfiles: the manager lands them as an integration commit on the 16.1

@@ -220,6 +220,9 @@ importers:
 
   apps/engagement:
     dependencies:
+      '@platform/auth-sdk':
+        specifier: workspace:*
+        version: link:../../packages/auth-sdk
       '@platform/db':
         specifier: workspace:*
         version: link:../../packages/db

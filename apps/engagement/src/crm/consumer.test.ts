@@ -363,22 +363,35 @@ describe('handleCrmEvent — upsert', () => {
     expect((all.rows[0] as { n: number }).n).toBe(2);
   });
 
-  it('reads order history READ-ONLY: the rollup path writes no order, refund or customer row', async () => {
+  it('reads order history READ-ONLY: not one column of order, refund or customer changes', async () => {
     const id = await makeCustomer(true);
     const orderId = await makeOrder(id, { total: 10000 });
     await makeRefund(orderId, 2500);
-    const before = await db.owner.query(
-      `SELECT (SELECT count(*) FROM "order") AS o, (SELECT count(*) FROM refund) AS r,
-              (SELECT max(updated_at) FROM "order") AS t, (SELECT max(updated_at) FROM customer) AS c`,
-    );
 
+    // A checksum over every ROW of each table, not counts and a max(updated_at): the claim is that nothing
+    // changed, so the test has to be able to see a changed column anywhere (#568 review).
+    const checksum = async () =>
+      (
+        await db.owner.query(
+          `SELECT md5(coalesce(string_agg(x, '|' ORDER BY x), '')) AS h FROM (
+             SELECT t::text AS x FROM "order" t
+             UNION ALL SELECT t::text FROM refund t
+             UNION ALL SELECT t::text FROM customer t
+           ) rows`,
+        )
+      ).rows[0] as { h: string };
+
+    const before = await checksum();
     await handleCrmEvent(customerUpdated(id), 'out-ro', deps());
+    const after = await checksum();
+    expect(after.h).toBe(before.h);
 
-    const after = await db.owner.query(
-      `SELECT (SELECT count(*) FROM "order") AS o, (SELECT count(*) FROM refund) AS r,
-              (SELECT max(updated_at) FROM "order") AS t, (SELECT max(updated_at) FROM customer) AS c`,
-    );
-    expect(after.rows[0]).toEqual(before.rows[0]);
+    // ...and the checksum really does notice a change, so a passing assertion means something. One column on
+    // one row, nothing to do with counts or timestamps.
+    await db.owner.query(`UPDATE "order" SET total_minor = total_minor + 1 WHERE id = $1`, [
+      orderId,
+    ]);
+    expect((await checksum()).h).not.toBe(before.h);
   });
 
   it('resolves the customer from the ORDER for an order-scoped event', async () => {

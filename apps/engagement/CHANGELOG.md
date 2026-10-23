@@ -1,5 +1,48 @@
 # @platform/engagement
 
+## 0.4.0 — 2026-10-23 (#556, task 16.4)
+
+The support-context API and the Chatwoot webhook stub.
+
+- **One HTTP server** (`node:http`, no framework): `GET /health`, `GET /support/customers/:customerId/context`
+  and `POST /webhooks/chatwoot`. Off unless `ENGAGEMENT_SUPPORT_ENABLED=1`.
+- **The agent's OWN token does the reading**, not a service principal — the deliberate difference from CRM
+  sync. Two gates before any read: a staff-realm JWT plus an active `staff_user` row (401), then `support` on
+  `store:<id>` through OpenFGA server-side (403). The agent's header is then forwarded to every Admin API call
+  so the core checks the same agent again; a test asserts a refused gate makes no call at all. OpenFGA
+  unreachable answers **503, not 403** — the agent is not forbidden, we cannot tell.
+- **Three read-only operations**, all already in the contract: `getCustomer` (`support`), `listOrders` and
+  `getOrder` (`viewer`, which `support` implies). `getOrder` embeds payments, refunds, shipments and returns,
+  so the history is one list call plus one detail call per order. The `customer_id` filter on `listOrders` is
+  CONTRACT CHANGE #569 (accepted, Admin API 0.4.24); `q=<e-mail>` was rejected because it puts an address in a
+  URL and is a search rather than a key.
+- **Nothing is cached or stored**, and every response carries `cache-control: no-store`: a cache would be both
+  a stale permission and a copy of personal data. Log lines carry ids, the store code and counts only.
+- **A partial answer is never silently partial**: an order whose detail cannot be read still appears from its
+  summary with a line in `notes`; a 401/403 from the core is re-thrown rather than noted. A customer of another
+  store gets the same 404 as one who does not exist.
+- **The Chatwoot webhook stub** verifies the HMAC, hashes the contact's address on arrival and returns the
+  conversation → `email_hash` link. It resolves nothing and persists nothing, by ruling: it has no agent token
+  and owns no link table, so it answers 202 with `persisted: false`. Replay safety is a 5-minute freshness
+  window (a payload with no usable timestamp is rejected, not waved through) plus an in-memory seen-once LRU,
+  whose limits are documented — it is enough because the stub has no side effect to replay.
+- Tests: **317 passing, 9 live skipped** with the broker offline — support server 27, Chatwoot 23, support
+  context 14, plus the #553/#554/#555 suites and the config tests.
+
+### The three #568 review nits, folded in here:
+
+- a Twenty **DELETE that answers 404 after a successful lookup counts as already gone**, not a failure: the
+  lookup found the person, something deleted it before our DELETE landed, and the outcome we wanted has
+  happened. A 404 on the PATCH path is instead marked **retryable**, so the retry's lookup finds nothing and
+  POSTs; a 404 on a POST stays fatal, because that is a wrong base URL and not a race.
+- the read-only test is now a **checksum over every row** of `order`, `refund` and `customer` rather than
+  counts plus `max(updated_at)`, and it asserts the checksum notices a change — so the "nothing changed" claim
+  is as strong as its wording.
+- `by_currency` and `mixed_currency` **stop at the `CrmContact` boundary**, which is now documented on the type
+  and in the README: a CRM person has one revenue field, so for a mixed-currency customer `ordersCount` (all
+  currencies) and `netRevenueMinor` (the store default) disagree in scope, and the consumer's log line is the
+  only place that says so.
+
 ## 0.3.0 — 2026-10-23 (#555, task 16.3)
 
 CRM sync: one contact per customer per store, with a recomputed order/LTV rollup.

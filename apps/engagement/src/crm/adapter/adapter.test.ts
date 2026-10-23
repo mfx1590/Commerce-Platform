@@ -178,6 +178,42 @@ describe('twenty adapter', () => {
     expect(r.calls).toHaveLength(1);
   });
 
+  it('a DELETE that 404s after a successful lookup counts as ALREADY GONE, not a failure', async () => {
+    // The race: the lookup found the person, something deleted it before our DELETE landed. The outcome we
+    // wanted has happened, so an erasure must not fail (#568 review).
+    const r = recorder([onePerson, { ok: false, status: 404, body: { message: 'not found' } }]);
+    const a = new TwentyCrmAdapter({ baseUrl: BASE, apiKey: API_KEY, fetchImpl: r.fetchImpl });
+    await expect(a.remove(CUSTOMER)).resolves.toBeUndefined();
+    expect(r.calls[1]!.method).toBe('DELETE');
+  });
+
+  it('a DELETE that fails for any other reason still throws', async () => {
+    const r = recorder([onePerson, { ok: false, status: 500 }]);
+    const a = new TwentyCrmAdapter({ baseUrl: BASE, apiKey: API_KEY, fetchImpl: r.fetchImpl });
+    const err = (await a.remove(CUSTOMER).catch((e: unknown) => e)) as CrmError;
+    expect(err.message).toBe('twenty remove: HTTP 500');
+    expect(err.retryable).toBe(true);
+  });
+
+  it('a PATCH that 404s is RETRYABLE, so the retry creates instead of updating', async () => {
+    // Same race on the write path: the person vanished between the lookup and the PATCH. Retrying re-runs the
+    // lookup, finds nothing and POSTs — so the contact still ends up correct.
+    const r = recorder([onePerson, { ok: false, status: 404 }]);
+    const a = new TwentyCrmAdapter({ baseUrl: BASE, apiKey: API_KEY, fetchImpl: r.fetchImpl });
+    const err = (await a.upsert(contact()).catch((e: unknown) => e)) as CrmError;
+    expect(err).toBeInstanceOf(CrmError);
+    expect(err.message).toBe('twenty upsert: HTTP 404');
+    expect(err.retryable).toBe(true);
+  });
+
+  it('a POST that 404s is NOT treated as gone: it is a wrong base URL, not a race', async () => {
+    const r = recorder([noPeople, { ok: false, status: 404 }]);
+    const a = new TwentyCrmAdapter({ baseUrl: BASE, apiKey: API_KEY, fetchImpl: r.fetchImpl });
+    const err = (await a.upsert(contact()).catch((e: unknown) => e)) as CrmError;
+    expect(err.message).toBe('twenty upsert: HTTP 404');
+    expect(err.retryable).toBe(false);
+  });
+
   it('sends the key as a bearer header and nowhere else', async () => {
     const r = recorder([noPeople, written]);
     const a = new TwentyCrmAdapter({ baseUrl: BASE, apiKey: API_KEY, fetchImpl: r.fetchImpl });
