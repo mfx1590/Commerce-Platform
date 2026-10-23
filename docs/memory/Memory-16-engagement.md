@@ -38,7 +38,7 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - vitest config must set DATABASE_URL/DATABASE_URL_APP in `test.env` (turbo strips DATABASE_URL* from the test environment) and `fileParallelism: false`, copied from apps/notifications.
 
 ## In progress
-- **#555 16.3 (CRM sync) — BUILT, 241/9 offline, committed LOCALLY as 0e83b5c. Waiting for the machine for the live block, and for #564 to merge before its own PR (one PR per task, shared branch).**
+- **#555 16.3 (CRM sync) — BUILT and VERIFIED: 252/252 with the broker up (~78 s, three live blocks self-cleaning: ops 12 topics, cdp 30, crm 21); 243/9 offline. Main merged (efc11b2). Pushing + PR now.**
   Delivered: `src/crm/` = `rollup.ts` (pure), `read.ts`, `admin-api.ts` (the only PII read, injected `TokenProvider`), `consumer.ts` (group `engagement.crm`), `types.ts`, `adapter/{memory,twenty}.ts`; config + main wiring (`ENGAGEMENT_CRM_ENABLED` defaults 0, `KNOWN_GROUPS` gains `engagement.crm`); package 0.3.0; README + CHANGELOG + CLAUDE.md.
   **REQUEST #565 (crm-sync service client) ACCEPTED** and routed to window 2 (client export, generalised additive ensure-service-account, FGA via assignRole per store); the `staff_user` seed row is the manager's. NOT on #555's path: built against `mockTokenProvider`, and `ENGAGEMENT_CRM_TOKEN_PROVIDER=client_credentials` THROWS rather than falling back, so its absence cannot become a silent no-op. The live service-account call is a launch-checklist item for the PR body.
 
