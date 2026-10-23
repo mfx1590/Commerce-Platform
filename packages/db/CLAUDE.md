@@ -45,6 +45,7 @@ main window. Window 1 (core) may propose migrations via PR; main approves. Never
 - `customer_identity` (0196, 0.3.11) is RLS kind `organization_only` (a store-scoped client reads and writes none). Write it only through `app.link_customer_identity(customer_id, subject, email_hash)` / `app.unlink_customer_identity(customer_id)` inside the caller's transaction; they take the organization from the session and raise 42501 for a customer outside the caller's scope. The key is the subject; `email_hash` is not unique. Since 0197 (0.3.12) the guest merge locks the guest's customer rows (SKIP LOCKED) before the identity; a guest whose rows another transaction holds is not merged by this call.
 - The `rpt_*` reporting views (0200, 0.3.8) are `security_invoker = true` and SELECT-only for the app role: read them through a scoped client; never recreate one without `security_invoker`.
 - `consumer_processed` (0202, 0.3.16) is RLS kind `organization_only`: bus consumers run in organization scope and mark through the events SDK's pg store inside the handler's transaction; no UPDATE grant for the app role.
+- Accounting tables (0203, 0.3.17: ledger_account, ledger_entry, accounting_order/_line, accounting_parked_event, accounting_payment/_refund, psp_payout/_line) are RLS `organization_only` and written only by apps/accounting. `ledger_entry` is immutable for the app role except posted_to_erp_at / erp_reference / updated_at; `store_id` NULL = a legal-entity-level line.
 - Money is `*_minor bigint` + `currency char(3)`. Ids are uuid. See docs/domain.md.
 
 ## Constraints
