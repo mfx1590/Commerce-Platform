@@ -1256,6 +1256,46 @@ describe('row-level security (platform_app role)', () => {
       /row-level security/,
     );
   });
+
+  it('consumer_processed (0202): organization_only; the SDK insert takes the session organization; one mark per (group, event); never updated', async () => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    const a = createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] });
+    const other = createOrganizationClient(db.app, { organizationId: OTHER_ORG });
+    // exactly the statement packages/events createPgProcessedStore runs
+    const mark = `INSERT INTO consumer_processed (group_id, outbox_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`;
+    const has = `SELECT organization_id FROM consumer_processed WHERE group_id = $1 AND outbox_id = $2`;
+    const EVENT = '10000000-0000-4000-8000-000000000901';
+
+    const first = await hq.query(mark, ['accounting.ledger', EVENT]);
+    expect(first.rowCount).toBe(1);
+    expect((await hq.query(mark, ['accounting.ledger', EVENT])).rowCount).toBe(0);
+    // another group marks the same event independently
+    expect((await hq.query(mark, ['engagement.ops', EVENT])).rowCount).toBe(1);
+    expect((await hq.query(has, ['accounting.ledger', EVENT])).rows).toEqual([
+      { organization_id: ORG },
+    ]);
+
+    // a store session reads none and writes none
+    expect((await a.query('SELECT 1 FROM consumer_processed')).rows).toHaveLength(0);
+    await expect(
+      a.query(mark, ['accounting.ledger', '10000000-0000-4000-8000-000000000902']),
+    ).rejects.toThrow(/row-level security/);
+    // another organization sees none; no context sees none
+    expect((await other.query('SELECT 1 FROM consumer_processed')).rows).toHaveLength(0);
+    expect((await db.app.query('SELECT 1 FROM consumer_processed')).rows).toHaveLength(0);
+
+    // a mark is never changed by the application role; a bad group name is refused
+    await expect(
+      hq.query(`UPDATE consumer_processed SET processed_at = now() WHERE outbox_id = $1`, [EVENT]),
+    ).rejects.toThrow(/permission denied/);
+    await expect(hq.query(mark, ['Bad Group', EVENT])).rejects.toThrow(
+      /consumer_processed_group_id_check/,
+    );
+    // a rebuilt consumer clears its own group in organization scope
+    expect(
+      (await hq.query(`DELETE FROM consumer_processed WHERE group_id = 'engagement.ops'`)).rowCount,
+    ).toBe(1);
+  });
 });
 
 describe('customer_consent backfill (0194) on a database that already has projections', () => {
