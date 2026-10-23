@@ -25,7 +25,9 @@ test/                     throwaway database + local broker tests; src/posting/*
 
 1. validate the envelope and its payload against the published schema (`InvalidEvent` → DLQ);
 2. refuse an event of another organization (`ForeignOrganization`);
-3. lock and load the order projection (`accounting_order` + lines, `FOR UPDATE`);
+3. take a transaction-scoped advisory lock on the order (`pg_advisory_xact_lock(hashtext(order_id))`: two
+   instances of the group never interleave one order's events, parked or not), then lock and load the order
+   projection (`accounting_order` + lines, `FOR UPDATE`);
 4. the pure posting function returns the entries (aggregated per account, balanced per currency — or it throws) and the
    new projection state;
 5. seed the chart for the legal entity if needed (`ledger_account`, `ON CONFLICT DO NOTHING`), insert the
@@ -184,6 +186,91 @@ Partially shipped (2 × 50.00 at 20 %, shipping 10.00 + 2.00, one unit shipped):
 Placed → captured (fee 4.21) → shipped (cost 4.50) → returned in full leaves: 1100 −4.21 (the fee the PSP kept),
 6100 +4.21, 4000 −107.98, 4010 −4.95, 4090 +112.93, 6000 +4.50, 2100 −4.50 — and 1200, 2200, 2300, 2310 at zero.
 
+## Reconciliation (#549)
+
+`src/reconcile/`: a payout report is imported, matched against the ledger's own projections and, when it matches to
+the cent, posted; every difference is reported as a JSON line (ids and amounts only). One transaction per payout.
+
+- **Source** — `PayoutSource { listPayouts(legalEntityId), payout(legalEntityId, payoutId) }`. The fixture source
+  (`createFixtureSource`, `loadFixtureDir`) reads `fixtures/payouts/<set>/payouts*.json`: one report per legal entity
+  in the normalised shape of Stripe's itemized payout reconciliation report / `GET /v1/balance_transactions?payout=`
+  (`balance_transaction_id`, `reporting_category`, `gross_minor` / `fee_minor` / `net_minor` as integers,
+  `available_on`, `created`, `source_id`, `payment_intent_id`, `charge_id`, `refund_id`). No Stripe keys exist
+  (#361): the live source is WAIVED to the launch checklist and plugs into the same interface.
+- **Matching** (`matchPayout`, pure) — a charge row ↔ `accounting_payment` by `payment_intent_id` (what
+  `payment.captured` carries as `provider_payment_id`) or `charge_id`: gross must equal `amount_minor`, fee must equal
+  `fee_minor`; a refund row ↔ `accounting_refund` by `refund_id`: −gross must equal `amount_minor`; Σ net of the rows
+  must equal the payout amount. Only the payments of the report's provider count (one PSP account per legal entity
+  and provider).
+- **Discrepancies** — `unmatched_charge` (a row the ledger never saw: an unknown charge or refund, a fee or
+  adjustment row), `unmatched_ledger_line` (a capture or refund that fell in this payout's window — from the latest
+  ledger time an earlier payout of the same provider matched to the latest this one matched, per type — but no row
+  carries), `fee_difference`, `amount_difference` (a row's gross, or the payout total vs Σ net). Each line:
+  `{ reconcile: 'psp.payout', legal_entity_id, payout_id, kind, currency, balance_transaction_id?, provider_reference?,
+reference_type?, reference_id?, expected_minor?, actual_minor?, difference_minor }`.
+- **Posting** — only a payout with zero discrepancies posts, journal `bank`, `source_event_id` = `psp_payout.id`,
+  `source_topic` `psp.payout` (a local marker, not a bus topic), reference the payout, `store_id` NULL (a payout is a
+  legal-entity-level fact and spans stores):
+
+  | Account | Debit  | Credit |
+  | ------- | ------ | ------ |
+  | 1000    | amount |        |
+  | 1100    |        | amount |
+
+  After a clean reconciliation the PSP clearing account (1100) of the legal entity nets to exactly what the PSP
+  still holds: captures net of fees minus refunds not yet paid out (tested on the clean month).
+
+- **Order of imports** — `reconcileAll` imports a legal entity's payouts oldest first (by arrival date, then payout id)
+  whatever order the source lists them, and the window start of a payout only ever comes from payouts EARLIER by
+  that same order (a re-import of an older payout sees the window it saw the first time; later payouts never widen
+  it). Importing single payouts by hand out of order reports false `unmatched_ledger_line` findings for the gap —
+  import oldest first.
+- **Known limits** — fee / adjustment / other rows (a Stripe fee row, a dispute adjustment) have no ledger
+  counterpart yet and are reported as `unmatched_charge` for now (#560 adds disputes); re-importing a payout whose
+  report now has FEWER rows than before keeps the earlier rows in `psp_payout_line` (lines are upserted, never
+  deleted) — the stale lines stay with their old verdict until the report is corrected and the payout re-matched.
+- **Idempotency** — `psp_payout` is UNIQUE per (legal entity, provider, payout id): a reconciled payout imported
+  again is a no-op (`already_reconciled`), a discrepant one is re-matched (the ledger may have caught up) and posts
+  once it is clean; `psp_payout_line` is UNIQUE per (payout, balance transaction).
+- **Fixtures** — `pnpm fixtures:payouts` builds `fixtures/payouts/{clean-month,discrepant-month}/{events,payouts}.json`
+  from a deterministic 60-order month (seeded ids): the clean month's four weekly payouts per legal entity match to
+  the cent and leave the last days unpaid; the discrepant month carries exactly one difference kind on each of legal
+  entity A's four payouts. A test fails if a committed file drifts from the builder.
+- **CLI** — `pnpm --filter @platform/accounting reconcile -- --fixtures <dir> --legal-entity <uuid> [--payout <id>]`
+  (after `build`): exit 0 when every payout reconciled, 2 when any is discrepant.
+
+## ERP sync (#550)
+
+`src/erp/`: the ledger's journal entries become Odoo `account.move`s per legal entity (company =
+`legal_entity.odoo_company_id`), idempotently; the rows get `posted_to_erp_at` / `erp_reference` (the Odoo move id).
+
+- **Adapter** — `ErpAdapter { listCompanies, listAccounts, listJournals, findMoveByRef, createMove }`. Two
+  implementations: `OdooJsonRpcClient` (`POST /jsonrpc`: `common.authenticate` → uid, then `object.execute_kw` on
+  `res.company`, `account.account`, `account.journal`, `account.move` — `search_read`, `create`, `action_post`;
+  bounded timeouts, bounded retries on transport failures only, an Odoo fault is never retried and arrives as an
+  `ErpError` whose `name` is the class: `OdooUnbalancedMove`, `OdooAccountMissing`, `OdooJournalMissing`,
+  `OdooCompanyMismatch`, `OdooAccessDenied`, `OdooValidationError`, `OdooTransport`, `OdooTimeout`) and the in-memory
+  `createMockOdoo()` — a JSON-RPC server the real client talks to through its `fetch` seam, enforcing the rules the
+  sync relies on (balanced move, accounts and journal of the move's company, archived accounts refused, `action_post`).
+- **Mapping steps** (never by hand in SQL): `mapLegalEntityToCompany(client, legalEntityId, companyId)` fills
+  `legal_entity.odoo_company_id` (window 15's column, docs/domain.md); `mapChart(deps, legalEntityId)` fills
+  `ledger_account.erp_account_id` with the Odoo account of the same code — or of the code the optional
+  `accountCodeMap` names when the accountant's chart uses other codes — and lists the codes Odoo lacks.
+- **Sync** — `syncLegalEntity(deps, legalEntityId)`: one move per (`source_event_id`, `journal`), `ref` =
+  `<source_event_id>/<journal>` (the idempotency key on the Odoo side), journal by code (`sales` → SAL, `psp_fees` →
+  PSP, `refunds` → REF, `shipping` → SHP, `bank` → BNK, `cogs` → COGS, `tax` → TAX; `journalCodes` overrides), lines
+  = our account code + name, debit / credit in currency units (`toCurrencyUnits`, 2 decimals; 0 for JPY-like
+  currencies). Search before create: a crash between create and mark is recovered on the next run (`moves_found`),
+  never a second move. A refused move is reported (`erp_refused`: class, source event id, journal) and the rest of
+  the batch continues; its rows stay unposted. Skipped with a reason: `account_unmapped` (a code Odoo lacks),
+  `journal_missing`, `currency_unsupported` (a move not in the company's currency — no FX this phase).
+- **CLI** — `pnpm --filter @platform/accounting erp:sync -- --legal-entity <uuid> [--company <id>] [--mock]` (after
+  `build`): `--company` runs the mapping step first; `--mock` uses the in-memory Odoo (development). Credentials
+  only from `ODOO_URL`, `ODOO_DB`, `ODOO_USER`, `ODOO_API_KEY` — never in git, never in a log line.
+- **Live Odoo** — the instance is the owner's open question (asked 2026-10-23). `test/erp.test.ts` has a
+  `describe.runIf(odooUp)` block that authenticates and lists companies / accounts when `ODOO_URL` answers, skipped
+  with the reason otherwise; the live sync is waived to the launch checklist until then.
+
 ## Out of the Phase 4 gate (manager decision 4)
 
 - **COGS**: no event carries a unit cost (`shipment.shipped` has none, `stock.moved` has none). Journal `cogs` stays
@@ -207,7 +294,7 @@ creates `dlq.accounting.ledger` itself on first start.
 
 ## Tests
 
-`pnpm --filter @platform/accounting test` — 40 tests in four files:
+`pnpm --filter @platform/accounting test` — 64 tests in six files:
 
 - `src/posting/posting.test.ts` — pure: the arithmetic, the worked example of every topic above, partial shipments,
   proportional refunds and cancellations, every defect class, the netted life of one order.
@@ -220,6 +307,15 @@ creates `dlq.accounting.ledger` itself on first start.
   fact order, a 436-event month balanced in SQL with a second pass that changes nothing, the same month delivered in
   shuffled topic order (every order last) producing the identical ledger, RLS between stores and organizations, the
   processed table append-only for the app role.
+- `test/reconcile.test.ts` — the committed payout fixtures equal the builder's output; the pure matcher (every kind,
+  the window rule); the clean month on a seeded database: eight payouts reconciled with zero differences and posted,
+  the PSP clearing account equal to the open balance to the cent, books balanced, a re-import a no-op; the discrepant
+  month on its own database: each kind exactly once, nothing posted for those payouts, a re-import re-matched.
+- `test/erp.test.ts` — the JSON-RPC client against the mock (auth, retries with a bound, every refusal class), the sync
+  on the clean-month ledger: chart mapped, one posted balanced move per (event, journal), every row marked, a re-run
+  creates nothing, a refused move reported while the rest continue and posted on the next run, a crash between create
+  and mark recovered by ref, a code map with a missing Odoo account skipping only its entries; a live block for the
+  owner's Odoo (skipped with the reason).
 - `test/consumer-live.test.ts` — the consumer on the local Redpanda (prefixed topics and group, deleted afterwards):
   every event once, a redelivered `outbox_id` writes nothing, an unknown version is skipped, a shipment before its
   order is parked then applied, a genuinely bad shipment dead-letters with `ShipmentExceedsOrder` after the retries
