@@ -41,7 +41,8 @@ pnpm --filter @platform/events topics:create
 node infra/redpanda/create-topics.mjs --env local
 ```
 
-`--dry-run` prints what would change and touches nothing. The script prints one JSON summary line
+`--env production` refuses to run unless `--brokers` names a non-loopback cluster (against the local broker it would
+raise the shared topics to 12 partitions and then fail on the budget). `--dry-run` prints what would change and touches nothing. The script prints one JSON summary line
 (`created`, `altered`, `partitions_raised`, `unchanged`, `warnings`) and one line per change. A second run
 prints `created 0, altered 0, partitions_raised 0`. The script never deletes a topic.
 
@@ -148,3 +149,44 @@ redpanda`), `wait-for-auth-stack.sh` probes `127.0.0.1:9644/v1/cluster/health_ov
 (prefixed, self-cleaning)` so a probe that misses fails the step instead of skipping. Those files are
 window 5's and the manager's: filed as a REQUEST after the #530 PR. The relay tests (#531) and the 10k
 replay test (#534) will run in the same job.
+
+## Schema registry (#532)
+
+`register-schemas.mjs` registers every event schema in the registry on **18081** (`SCHEMA_REGISTRY_URL`),
+idempotently: `node infra/redpanda/register-schemas.mjs [--dry-run] [--url …]` or
+`pnpm --filter @platform/events schemas:register`. One JSON summary line; a second run prints `registered 0`.
+
+**Subjects: one per (topic, version), `<topic>-v<N>-value`, compatibility BACKWARD on each.** Measured on
+Redpanda 24.2.7: our existing v2 schemas are breaking against their v1 by design (`stock.moved` v2 requires
+`stock_item_id`, `customer.export_requested` v2 requires `requested_by_type`), so one subject per topic with
+BACKWARD across versions would refuse the next such version at registration. Per-version subjects make
+BACKWARD mean exactly our rule — a published version only evolves compatibly — while a new version is a new
+file, a new subject, free to break (consumers handle both, ADR 0003).
+
+**Registered schemas are inlined.** Every schema references `common/v1.json#/$defs/…`, and Redpanda 24.2's JSON
+compatibility checker rejects any schema containing `$ref` (`is_superset not fully implemented yet. unsupported
+keyword: $ref`). The registered copy has the common definitions substituted in (`inlineCommonRefs`), so the
+registry can judge it; `$id` is kept.
+
+**The registry is the second opinion, not the gate.** Measured with inlined schemas: it catches a removed
+property, a type change and a narrowed enum, but accepts an added required property (old data lacks it). The
+package's own checker (`backwardIncompatibilities`) and the published lock (`packages/events/schemas/published.lock.json`,
+compared in `pnpm --filter @platform/events test` with no registry) are what fail CI; the live registry test pins
+the registry's verdicts so a Redpanda upgrade that closes the gap shows up as a test to update.
+
+**On the wire:** the relay resolves every `topic@version` to its registry id at start (refuses to start when the
+registry is unreachable or lacks a schema; `--no-registry` for runbooks) and stamps it as the `schema_id` header.
+
+**CI:** after `create-topics.mjs --env ci` in the live job, `node infra/redpanda/register-schemas.mjs` (idempotent)
+— one more line for #536 / a REQUEST — and `test/registry.test.ts`'s live block under `require-live-tests.mjs`
+(`schema registry (live Redpanda, prefixed subjects, self-cleaning)`).
+
+**The consumer SDK (#533)** creates its group's `dlq.<groupId>` on first start with the same `ensureTopics`
+helper (1 partition, replication 1 by default; pass the production numbers through `dlq`), writes a record
+there after the last retry (key = outbox id, value = ids, offsets, attempts, error class — never the payload),
+and `replayFromDlq` writes a tombstone when a replay succeeds.
+
+**Replay (#534):** `pnpm --filter @platform/core outbox:replay --topic <t> [--from] [--to] [--store] [--dry-run]`
+republishes published outbox rows to the real topic with the same `outbox_id` (plus `replay: 1` /
+`replayed_at` headers). Consumers dedupe, so a replay is safe at any time; it is how a 30-day topic's history
+comes back for a consumer that fell behind, and how a new consumer group is fed what retention took.

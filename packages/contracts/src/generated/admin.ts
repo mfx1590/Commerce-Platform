@@ -5382,6 +5382,8 @@ export interface operations {
                 status?: "pending" | "confirmed" | "processing" | "completed" | "cancelled";
                 payment_status?: string;
                 fulfillment_status?: string;
+                /** @description only orders of this customer (exact; added 0.4.24 */
+                customer_id?: string;
                 /** @description display_id or email */
                 q?: string;
                 placed_from?: string;

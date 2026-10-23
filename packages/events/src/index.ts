@@ -149,3 +149,91 @@ export {
   type TopicPolicy,
   type TopicSpec,
 } from './topics.js';
+export type { TopicAdmin } from './topics.js';
+
+// The wire format and the producer side (#531): one definition of key / value / headers for the relay (apps/core),
+// the consumer SDK (#533) and the replay (#534).
+export {
+  decodeMessage,
+  envelopeToMessage,
+  HEADER_EVENT_ID,
+  HEADER_OCCURRED_AT,
+  HEADER_ORGANIZATION_ID,
+  HEADER_OUTBOX_ID,
+  HEADER_PRODUCER,
+  HEADER_SCHEMA_ID,
+  HEADER_STORE_ID,
+  HEADER_TOPIC,
+  HEADER_VERSION,
+  outboxRowToEnvelope,
+  type DecodedMessage,
+  type OutboxRow,
+  type RawMessage,
+  type RelayMessage,
+} from './relay-message.js';
+export {
+  assertTopicsPresent,
+  createKafkaPublisher,
+  type KafkaPublisherOptions,
+  type MessagePublisher,
+} from './publisher.js';
+
+// Schema registry + versioning (#532): the registry client, the offline BACKWARD checker and the published lock.
+export { canonicalJson, inlineCommonRefs, schemaDigest } from './schema-inline.js';
+export {
+  backwardIncompatibilities,
+  formatIncompatibilities,
+  isBackwardCompatible,
+  type Incompatibility,
+} from './schema-compat.js';
+export {
+  createRegistryClient,
+  DEFAULT_REGISTRY_URL,
+  registerAllSchemas,
+  RegistryError,
+  registrySchemas,
+  registryUrlFromEnv,
+  resolveSchemaIds,
+  schemaKey,
+  subjectFor,
+  type CompatibilityLevel,
+  type RegisterAllResult,
+  type RegisteredSchema,
+  type RegistryClient,
+} from './registry.js';
+export {
+  buildLock,
+  compareWithLock,
+  currentLockEntries,
+  explainVerdict,
+  LOCK_COMMENT,
+  type LockEntry,
+  type LockVerdict,
+  type SchemaLock,
+} from './schema-lock.js';
+
+// Consumer SDK + dead-letter queue (#533).
+export {
+  ConsumerConfigurationError,
+  createConsumer,
+  createMemoryProcessedStore,
+  createPgProcessedStore,
+  errorClassOf,
+  type ConsumerLogLine,
+  type ConsumerOptions,
+  type ConsumerStats,
+  type DeadLetter,
+  type EventConsumer,
+  type EventHandler,
+  type HandlerContext,
+  type ProcessedQueryable,
+  type ProcessedStore,
+} from './consumer.js';
+export {
+  readDeadLetters,
+  readTopicToEnd,
+  replayFromDlq,
+  type ReplayOptions,
+  type ReplayResult,
+  type TopicReaderClient,
+} from './dlq.js';

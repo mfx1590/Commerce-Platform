@@ -455,6 +455,8 @@ export async function listAdminOrders(
   if (q.fulfillment_status) add('o.fulfillment_status = ?', q.fulfillment_status);
   if (q.placed_from) add('o.placed_at >= ?', q.placed_from);
   if (q.placed_to) add('o.placed_at <= ?', q.placed_to);
+  // #569: one customer's orders — inside the same tenant-client query, so a customer of another store finds nothing
+  if (q.customer_id) add('o.customer_id = ?', q.customer_id);
   const term = q.q?.trim();
   if (term) {
     if (/^#?\d+$/.test(term)) add('o.display_id = ?', Number(term.replace('#', '')));

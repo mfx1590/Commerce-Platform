@@ -6,9 +6,9 @@ See [CLAUDE.md](./CLAUDE.md) for the public API and frozen conventions.
 | Spec                     | `info.version` | Operations | Areas                                                                                                           |
 | ------------------------ | -------------- | ---------- | --------------------------------------------------------------------------------------------------------------- |
 | `openapi/store-api.yaml` | 0.5.8          | 30         | store, catalog, cart, checkout, orders, customers                                                               |
-| `openapi/admin-api.yaml` | 0.4.23         | 135        | registry, catalog, pricing, orders, inventory, fulfillment, customers, roles, audit, marketing, search, reports |
+| `openapi/admin-api.yaml` | 0.4.24         | 135        | registry, catalog, pricing, orders, inventory, fulfillment, customers, roles, audit, marketing, search, reports |
 
-`CONTRACTS_VERSION` is `0.4.26` (tag contracts-v0.4.26); it ships with events 0.3.6 and db 0.3.15. 0.4.4 froze the `SegmentRules` grammar (#239); 0.4.5 added
+`CONTRACTS_VERSION` is `0.4.27`; it ships with events 0.3.6 and db 0.3.17. 0.4.27 (Admin API 0.4.24, #569) adds the optional `customer_id` filter to `listOrders`. 0.4.4 froze the `SegmentRules` grammar (#239); 0.4.5 added
 abandoned-cart recovery (#244/#245); 0.4.6 the pick/pack examples (#261); 0.4.7 the typed review shape (#270),
 the customers additions (#264) and the registry settings operations (#279); 0.4.8 makes `Store.currencies` / `Store.locales`
 required (#279), documents the customer self-service statuses (#303) and lets `createCart` / `completeCart` take an optional

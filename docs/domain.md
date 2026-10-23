@@ -184,8 +184,8 @@ Derived by the accounting service from events only (Phase 4). Frozen now so the 
 | id | uuid PK | |
 | organization_id | uuid FK | |
 | legal_entity_id | uuid FK legal_entity | |
-| store_id | uuid FK store | |
-| journal | text | `sales`, `psp_fees`, `refunds`, `cogs`, `tax`, `shipping` |
+| store_id | uuid FK store NULL | NULL = a legal-entity-level line (payout, bank), since 0203 |
+| journal | text | `sales`, `psp_fees`, `refunds`, `cogs`, `tax`, `shipping`, `bank` (0203) |
 | entry_date | date | |
 | account_code | text | chart of accounts code |
 | debit_minor | bigint | |
@@ -197,7 +197,7 @@ Derived by the accounting service from events only (Phase 4). Frozen now so the 
 | posted_to_erp_at | timestamptz NULL | |
 | erp_reference | text NULL | Odoo move id |
 
-Owner: window 15 (accounting).
+Owner: window 15 (accounting). Since 0203 (CONTRACT CHANGE #558): RLS `organization_only`; immutable for the app role except posted_to_erp_at / erp_reference / updated_at. The accounting service's other tables (ledger_account, accounting_order/_line, accounting_parked_event, accounting_payment/_refund, psp_payout/_line) are documented in apps/accounting/README.md; all `organization_only`.
 
 ---
 
@@ -996,6 +996,18 @@ Derived from `cart` with `status = 'active'` and no activity for the store's aba
 
 Owner: window 17 (marketing). Redemption surface: `POST /store/cart-recovery/{token}` (handler mounted by window 1,
 #246); no `recovery.*` events — window 16 reacts to `cart.abandoned`, a recovered cart is visible as an order.
+
+### consumer_processed (bus consumers; migration 0202)
+One row per (consumer group, outbox event) a consumer on the events-v1 SDK has finished, written in the handler's own transaction. RLS `organization_only`; never updated; no personal data.
+
+| Field | Type | Notes |
+|---|---|---|
+| organization_id | uuid FK | DEFAULT the session organization |
+| group_id | text | consumer group (`accounting.ledger`, `engagement.ops`, …); PK with outbox_id |
+| outbox_id | uuid | outbox.id (the `outbox_id` header) |
+| processed_at | timestamptz | |
+
+Owner: main window (schema); written by every bus consumer.
 
 ### marketing_cursor (marketing; migration 0170)
 

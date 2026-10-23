@@ -1,0 +1,410 @@
+# @platform/engagement
+
+The engagement service (window 16, Phase 4): bus consumers for **ops alerts** (#553), the **CDP** (#554) and
+**CRM sync** (#555), with the support-context API (#556) to come. Owner: window 16.
+Run/test commands and the public API: [CLAUDE.md](./CLAUDE.md); the outbox/bus design: ADR 0003; the consumer
+SDK: `packages/events/README.md`.
+
+Today it does one thing: it watches the bus for the three events an operator must not miss, and the dead-letter
+queues of every consumer group, and posts to Slack — or, with no Slack account in existence yet, to a local
+file.
+
+## How it runs
+
+`pnpm --filter @platform/engagement start` runs the ops consumer and polls the DLQs until SIGTERM.
+`pnpm --filter @platform/engagement once` runs **one DLQ poll** and exits — the way to drive the watch from a
+script or a CI job without a long-lived process. There is no HTTP server yet; #556 adds one.
+
+One process serves one organization (`ENGAGEMENT_ORGANIZATION_ID`) and reads every store of it through an
+**organization-scoped** client: `consumer_processed` is RLS kind `organization_only`, so a store-scoped session
+reads and writes none of it.
+
+### Environment
+
+| Variable                          | Default            | Meaning                                                                            |
+| --------------------------------- | ------------------ | ---------------------------------------------------------------------------------- |
+| `DATABASE_URL_APP`                | —                  | the `platform_app` role (RLS applies); required                                    |
+| `ENGAGEMENT_ORGANIZATION_ID`      | the seeded HQ      | the organization this process serves                                               |
+| `ENGAGEMENT_TRANSPORT`            | `dev`              | `dev` (a local file) or `slack`; **`dev` is refused in production**                |
+| `ENGAGEMENT_DIR`                  | `.engagement`      | where the dev sink writes (git-ignored)                                            |
+| `SLACK_OPS_WEBHOOK_URL`           | —                  | the incoming-webhook URL, **environment only**; required for `slack`, never logged |
+| `ENGAGEMENT_ALERT_RATE_MAX`       | `5`                | alerts per (rule, store) per window                                                |
+| `ENGAGEMENT_ALERT_RATE_WINDOW_MS` | `900000` (15 min)  | the window                                                                         |
+| `ENGAGEMENT_DLQ_GROUPS`           | all `engagement.*` | groups whose DLQ depth is watched; **production must list every group on the bus** |
+| `ENGAGEMENT_DLQ_THRESHOLD`        | `1`                | alert when a group's live dead-letter count reaches this                           |
+| `ENGAGEMENT_DLQ_POLL_MS`          | `60000`            | poll interval for the depth watch                                                  |
+| `KAFKA_BROKERS`                   | `127.0.0.1:19092`  | read by `@platform/events` (`createKafka`)                                         |
+| `ENGAGEMENT_CDP_ENABLED`          | `0`                | `1` starts the CDP consumer (off until an account exists)                          |
+| `ENGAGEMENT_CDP_ADAPTER`          | `memory`           | `memory` or `rudderstack`; **`memory` is refused in production when enabled**      |
+| `RUDDERSTACK_WRITE_KEY`           | —                  | the source write key, **environment only**, never logged                           |
+| `RUDDERSTACK_DATA_PLANE_URL`      | —                  | the data plane, e.g. `https://hosted.rudderlabs.example`                           |
+| `RUDDERSTACK_CONTROL_PLANE_URL`   | —                  | suppressions only (a different credential from the write key)                      |
+| `RUDDERSTACK_ACCESS_TOKEN`        | —                  | suppressions only; without it a suppression **throws** instead of doing nothing    |
+| `RUDDERSTACK_SOURCE_IDS`          | —                  | comma-separated source ids a suppression applies to                                |
+| `ENGAGEMENT_CRM_ENABLED`          | `0`                | `1` starts the CRM consumer (off until a CRM and #565 exist)                       |
+| `ENGAGEMENT_CRM_ADAPTER`          | `memory`           | `memory` or `twenty`; **`memory` is refused in production when enabled**           |
+| `ENGAGEMENT_CRM_TOKEN_PROVIDER`   | `mock`             | `mock` or `client_credentials`; **`mock` is refused in production**                |
+| `TWENTY_BASE_URL`                 | —                  | Twenty's REST base, e.g. `https://crm.example/rest`                                |
+| `TWENTY_API_KEY`                  | —                  | the Twenty key, **environment only**, never logged                                 |
+| `TWENTY_EXTERNAL_ID_FIELD`        | `externalId`       | the custom person field holding OUR customer id (the upsert key)                   |
+| `ADMIN_API_URL`                   | `localhost:9000`   | the core Admin API the contact's name and e-mail are read from                     |
+
+Locally: `.env` with the DB rows (loopback **127.0.0.1**, not `localhost` — Memory-main's IPv6 trap), nothing
+else, then `pnpm --filter @platform/engagement dev`. Make a payment fail and
+`.engagement/ops-alerts.jsonl` gains a line.
+
+## Ops alerts (#553)
+
+Consumer group **`engagement.ops`**, built on the events-v1 consumer SDK. Three rules, in `src/ops/rules.ts`:
+
+| Rule               | Topic                 | Severity   | What the message carries                                           |
+| ------------------ | --------------------- | ---------- | ------------------------------------------------------------------ |
+| `payment-failed`   | `payment.failed`      | `warn`     | order id, payment id, amount + currency, provider, provider reason |
+| `refund-failed`    | `refund.failed`       | `critical` | order id, refund id, payment id, amount + currency, reason         |
+| `return-requested` | `return.requested`    | `warn`     | order id, return id, line count, unit count                        |
+| `dlq-depth`        | (a poll, not a topic) | `critical` | group, depth, threshold, error classes counted, event topics       |
+
+Every rule is a **pure function** of `(envelope, store code) → Alert | null`, so the whole rule set is tested
+against schema-validated fixtures with no broker, database or transport. `refund-failed` is the critical one:
+we owe a customer money and the automatic path is exhausted, and unlike a failed payment nobody else finds out.
+
+### What is in a message, and what is not
+
+Events carry no personal data (ADR 0003 item 5), and an alert adds only the store **code**, looked up by id. So
+a message holds ids, integer minor-unit amounts with their currency, counts and provider reason codes. Two
+deliberate decisions:
+
+- **`failure_reason` is included** on the two payment/refund rules. It is the PSP's own reason code
+  (`insufficient_funds`, `card_declined`) and the first thing an operator needs.
+- **`return.requested.reason` is dropped**, although the schema has it. It is free text a customer or an agent
+  typed into a form — the one field in these three topics that can hold a phone number or an address. The alert
+  carries the ids and the counts; whoever opens the return in the admin reads the reason there, behind a
+  permission check.
+
+`ops/rules.test.ts` proves it: it fills every string the three payloads allow with personal data, renders every
+alert **and its Slack payload**, and sweeps them; a separate test asserts a clean alert matches no e-mail, phone
+or sha1/sha256 shape at all (uuids and timestamps are removed first — they are what an alert is made of).
+
+### Exactly what is guaranteed
+
+A Slack post is a network call and cannot join the transaction that writes the dedupe mark, so:
+
+- **A redelivery sends nothing.** The SDK checks the shared `consumer_processed` table (group
+  `engagement.ops`, key = the outbox id) _before_ it runs the handler, so a rebalance, a restart or a replay of
+  a message this group already finished is a no-op. Proven against the real broker in the live block.
+- **A crash between the post and the mark can repeat one alert.** The order is post, then mark. The other order
+  would _lose_ the alert on the same crash. For ops alerts that trade is the right way round — a duplicate is
+  cheap, a miss is the incident nobody hears about. This is the deliberate difference from
+  `apps/notifications`, which must never send a second e-mail and therefore never retries a stuck row.
+- A transport that keeps refusing is retried by the SDK and then **dead-lettered** to `dlq.engagement.ops` with
+  the error class and no payload — which the depth watch then reports.
+
+### Rate limit
+
+At most `ENGAGEMENT_ALERT_RATE_MAX` alerts per **(rule, store)** per window, a fixed window in memory. One
+noisy store cannot mute another, and one noisy rule cannot mute another rule on the same store.
+
+A burst is never silent: the count the limit dropped rides on the next alert that does go out
+(`Alert.suppressed` → "4 more of this rule suppressed by the rate limit"). The window is **in this process**:
+one worker per organization, so a restart forgets it and the first alerts after a restart always go out. A
+second worker would limit independently. If that is ever needed the window becomes a table keyed
+(rule, store, bucket) — not built, not needed for one worker, and a missed ops alert is worse than a duplicate.
+
+### DLQ depth watch
+
+`readDeadLetters(group)` returns the **live** entries of `dlq.<group>` (successfully replayed ones are already
+tombstoned), so its length is the depth. A poll, not a consumer: the DLQ is compacted and read from the
+beginning, so there is no offset to keep and nothing to dedupe. The alert counts the error **classes** present
+and lists the event topics — all there is to say, since a dead letter carries no payload, and enough to tell
+"one poison message" from "the downstream API is down".
+
+**`ENGAGEMENT_DLQ_GROUPS` must name every group in production.** The default is every group this service runs
+(`engagement.ops`, `engagement.cdp`) — "all of mine" rather than "the one I am", because a group missing from
+the list is a group whose dead letters nobody is ever told about. But a default can only know its own groups:
+other windows' consumers (`accounting`, and whatever Phase 5 adds) are invisible to it, so in production the
+variable is set explicitly, and listing them all is the whole point of the watch. `KNOWN_GROUPS` in
+`src/config.ts` is the default's source, so a new consumer group here means a new entry there.
+
+A group whose DLQ cannot be read (the topic does not exist because the group never dead-lettered anything, or
+the broker is down) is reported as depth 0 and logged — never an alert, never a throw. The watch must not
+become the thing that takes the service down. The rate limit keeps a standing backlog from paging every minute.
+
+## CDP (#554)
+
+Consumer group **`engagement.cdp`**, same SDK and same marks as the ops consumer. What goes where is
+`data/cdp/tracking-plan.json` — a reviewed artefact, not documentation written afterwards — and
+`src/cdp/mapper.ts` executes it. A test asserts the two agree **in both directions**, and that the plan's
+mapped and unmapped lists together cover every topic in the events contract exactly once: a new event in
+`packages/events` fails the suite until someone writes down which it is, so it can be neither silently
+forgotten nor silently sent to a third party.
+
+9 topics are mapped — `customer.created` / `customer.updated` to `identify`, `customer.erased` to
+`suppress`, and `order.placed`, `order.cancelled`, `payment.captured`, `refund.issued`, `shipment.shipped`,
+`return.requested` to `track`. The other 29 are listed as unmapped with a reason. `data/cdp/README.md` holds
+the rules and the reasoning; this section is how the code implements them.
+
+### Consent
+
+Read-only, from the **`customer.consent` projection** (packages/db 0005, which the core's consent ledger
+rewrites in the same transaction as each 0194 `customer_consent` row), **evaluated at processing time** —
+manager ruling, 2026-10-23. Never the ledger rows: window 13 owns their semantics, and "the newest row wins"
+is theirs to change. If the projection's shape is ever not enough, that is a `REQUEST:` to window 13, not a
+ledger read here. Purpose: `marketing_email`, the only one 0194 allows.
+
+`customer.created` and `customer.updated` carry a `marketing_consent` field in their payload and **the mapper
+ignores it on purpose.** A decision can therefore contradict the event's own snapshot — the event says
+granted, the customer revoked in between, nothing is sent. That is the ruling working, not a bug, and a test
+asserts the two events produce identical traits whatever that field says.
+
+`customer.erased` is the one call **not** consent-gated: a suppression must go out precisely for the customer
+who withdrew everything, and it still goes out when the customer row has already been deleted.
+
+**The gate is a deliberate default pending a legal answer.** Whether analytics tracking needs consent at all,
+and whether pseudonymous tracking of a guest is allowed, are on the owner's lawyer list (manager, 2026-10-23).
+Until they come back: nothing without granted `marketing_email` for that store, and a guest event — no
+`customer_id`, only an `email_hash` — is **dropped** rather than tracked pseudonymously. No CDP-specific
+consent purpose is to be invented meanwhile. So guest orders do not reach the CDP: that is known, not missed.
+
+### Two clients, for a structural reason
+
+The CDP consumer runs **two** database clients:
+
+- the **organization** client writes the marks — `consumer_processed` is RLS kind `organization_only`, so a
+  store-scoped client can neither read nor write it;
+- a **store-scoped** client, built per event for the **event's own store**, reads the consent projection and
+  resolves the order's customer.
+
+An organization client could do both (`app.can_access_store` is true for any store in organization scope), so
+the second one is least privilege by choice: consent is per (customer, store, purpose) and 0194 says it is
+never propagated across stores, so scoping that read to the event's store makes a cross-store consent read
+impossible rather than merely wrong. A test proves another store's consent cannot grant a send.
+
+### Identity
+
+`customer_id` when known, else `email_hash`. The five order-scoped topics (`order.cancelled`,
+`payment.captured`, `refund.issued`, `shipment.shipped`, `return.requested`) carry **neither** in their
+payload, so the customer is read from the `order` row — in the **same query** as the consent projection.
+One read per event, and never two sources of truth about who an event is about.
+
+### What a dropped event leaves behind
+
+Every drop is one log line with a reason code (`consent_absent`, `consent_revoked`, `customer_erased`,
+`no_identity`, `customer_not_found`, `order_not_found`) and no customer data at all, because "the CDP is
+empty" is otherwise an unanswerable question. A dropped event **is** marked as processed: it is finished, not
+retried forever.
+
+### Adapters
+
+`CdpAdapter` has one method per call kind, so an adapter cannot silently skip one and the in-memory mock is a
+complete implementation rather than a partial stub.
+
+- **`memory`** (`MemoryCdpAdapter`): records identifies, tracks and suppressions and answers
+  `isSuppressed(id)`. The only adapter that runs today, and what the tests assert on.
+- **`rudderstack`** (`RudderStackCdpAdapter`): `POST /v1/identify` and `/v1/track` on the data plane, the
+  write key as HTTP Basic with an empty password; the key never leaves the object and never reaches a body, a
+  log line or an error. A suppression is **not** a data-plane call — it is `POST /v2/regulations`
+  (`Suppress_With_Delete`) on the control plane, which needs a personal access token rather than the write
+  key. Without that token and the source ids the adapter **throws**: an erasure that quietly fails is the one
+  failure this service must never hide. Refusals become `CdpError` with the status only; 429 and 5xx are
+  marked retryable. **Not exercised against a real workspace** — no account exists, which is also why
+  `ENGAGEMENT_CDP_ENABLED` defaults to `0`; live use is on the launch checklist.
+
+## CRM sync (#555)
+
+Consumer group **`engagement.crm`** over `customer.created`, `customer.updated`, `customer.erased`,
+`order.placed`, `order.cancelled` and `refund.issued`. It keeps one CRM contact per customer per store, with
+the name, the e-mail and an order/LTV rollup, and deletes the contact on erasure. Twenty is the adapter
+(open-source, self-hostable); HubSpot would be a second file behind the same interface.
+
+**This is the only module in the service that handles personal data.** Everything else works from events,
+which carry none by contract (ADR 0003 item 5). The rules that follow from that are below.
+
+### The upsert key is our customer id, never the e-mail
+
+Twenty's REST API has no upsert verb, so the adapter looks up the person whose external-id field equals our
+`customer.id`, then PATCHes that one or POSTs a new one. The filter is on that field and never on the address,
+because an e-mail changes, two people share one, and a match on it would merge two strangers' purchase
+histories. A test asserts two customers sharing an address stay two contacts, and another asserts an
+unreadable lookup response **fails** rather than falling through to a create that would duplicate the person.
+
+### The rollup is recomputed, never accumulated
+
+`orders_count`, net revenue in minor units with its currency, and the last order date come from
+`computeRollup`, a pure function over the customer's own order and refund rows. The obvious alternative — `+1
+order` on `order.placed`, `-amount` on `refund.issued` against a stored counter — is wrong here for one reason
+that outweighs its convenience: **it is not idempotent.** The bus is at-least-once and replayable, so a
+redelivery, a DLQ replay or a consumer rebuilt from the beginning would double-count, and no counter can tell a
+second delivery from a second order. Recomputing makes the sync idempotent _by construction_: a test handles
+the same event twice and asserts the contact is identical and the numbers did not move. It also means this
+service still owns no state.
+
+What the rollup decides, with the reasons in `rollup.ts`:
+
+- a **cancelled** order is not counted at all, not even as an order netted to zero — "2 orders" in a CRM
+  should mean what a reader thinks it means;
+- only a **succeeded** refund reduces revenue: a `pending` one may never happen and a `failed` one did not
+  (and `refund.failed` is an ops alert, not a revenue event);
+- a refund against a cancelled order is **not** subtracted, because that revenue was never counted;
+- net is **floored at zero** — goodwill refunds and order edits can exceed a total, and a CRM showing negative
+  lifetime revenue is worse than one showing zero. `gross_revenue_minor` and `refunded_minor` keep the
+  unclamped figures, so nothing is hidden;
+- currencies are **kept apart**, never summed. The headline is the store's `default_currency`; a customer with
+  orders in another currency sets `mixed_currency`, which the log line carries, and `by_currency` has the rest.
+
+### The reads are read-only, and scoped to the event's store
+
+The order and refund rows the rollup is built from are read through a **tenant client scoped to the event's own
+store**, read-only — the `apps/notifications` render-data precedent: the numbers come from the database rather
+than from the payload, and the client that reads them can reach nothing else. Two tests hold the line: one
+writes an order in store B carrying a store-A customer's id (an anomaly only the owner role could create) and
+asserts it contributes **nothing** to that customer's rollup, because RLS makes it unreachable rather than
+because our SQL filters it; the other asserts the whole rollup path leaves every order, refund and customer row
+byte-identical, counts and `updated_at` included.
+
+The PII is the one thing NOT read from the tables, even though `customer.email` is right there: it comes from
+the Admin API with this service's own permission, so the permission check is never bypassed.
+
+### Consent gates the whole contact
+
+A CRM contact is marketing-shaped, so without granted consent **nothing** is synced — not a name, not a
+number (manager decision on #555). It is the same gate as the CDP, from the same `customer.consent` projection
+through the same store-scoped client, so there is one consent rule in this service and not two.
+
+The order matters: the gate runs **before** the Admin API call, so a customer without consent has their
+personal data fetched not at all, rather than fetched and discarded. A test asserts the reader was never
+called.
+
+`customer.erased` is the exception, and it deletes before anything is read: no consent lookup, no PII fetch,
+just `remove(customerId)`. It works when the customer row is already gone (erasure deletes it), because the
+identity comes from the payload there, and `remove` is idempotent by contract so a redelivered erasure is a
+second success rather than a failure.
+
+### Where the name and the e-mail come from
+
+The core Admin API, with **this service's own principal** and the least permission that does the job: two
+read-only operations, `listCustomers` and `getCustomer`, each `support` on `store:{storeId}`. The service
+account is `REQUEST: crm-sync service client` (#565 — accepted, routed to window 2): a confidential `staff`
+client with an audience mapper to `core-api`, a `staff_user` row for its subject, and `support` granted **per
+synced store** rather than on the organization.
+
+Until that exists the token comes from an injected `TokenProvider`, which is why `admin-api.ts` takes one
+rather than reading the environment: `mockTokenProvider` is what the tests and local runs use, and
+`ENGAGEMENT_CRM_TOKEN_PROVIDER=client_credentials` **throws** rather than silently falling back to the mock.
+The mock is refused in production outright. Nothing here caches a token — the provider is asked on every
+call, so a rotated secret needs no restart of ours.
+
+A 404 from the Admin API is an answer (the customer is gone), not a failure. A 401 or 403 is marked
+**retryable**, because the usual cause is the service principal not being seeded yet rather than a permanent
+refusal. No response body ever reaches an error message: it is the one payload in this service full of
+personal data.
+
+### What never leaves
+
+The name and the e-mail exist in a `CrmContact` on its way to the adapter and nowhere else. A log line carries
+the customer **id**, the store code, the counts and a reason code — never a name, an address or an e-mail, and
+a test sweeps every line of the busiest path for all three. Nothing of the contact is in a dead letter, an
+error message or a row of ours, because we keep no rows.
+
+## Transports
+
+`AlertTransport { name; send(alert) }` in `src/transport/types.ts` — the seam `apps/notifications` proved for
+e-mail; a provider nobody can run yet is one file and a config value.
+
+- **`dev`** (`DevSinkAlertTransport`): appends one JSON object per line to `<dir>/ops-alerts.jsonl`. JSON lines
+  rather than a file per alert, because alerts are read as a stream (`tail -f` while reproducing, `jq` in a
+  test). Refused in production.
+- **`slack`** (`SlackAlertTransport`): posts the mrkdwn payload to the incoming webhook. The URL **is** the
+  credential: environment only, never defaulted, never logged, not an enumerable property of the transport.
+  A refusal becomes `TransportError("slack: HTTP <status> <word>")` — the status and Slack's own short error
+  word (`invalid_payload`); any longer or HTML body is dropped, because a Slack error body can echo the payload
+  back. 429 and 5xx are marked retryable. Every field value is mrkdwn-escaped, so a value cannot inject a Slack
+  link. **Not exercised against a real workspace**: no Slack account exists (#553); live use is on the launch
+  checklist.
+
+## Schema
+
+`consumer_processed` is `packages/db/migrations/0202_consumer_processed.sql` (db 0.3.16, #557, merged
+2026-10-23) — the shared processed store for every Phase 4 bus consumer: `organization_id` DEFAULT the
+session's organization (so the SDK's two-column INSERT is enough), PK `(group_id, outbox_id)` as the replay
+guard, RLS `organization_only`, `UPDATE` revoked from `platform_app`. `createTestDatabase` applies it like
+every other migration.
+
+This service owns **no table of its own**: the marks are the shared table's, the rate-limit window is in
+memory, and an alert is not stored anywhere but the transport.
+
+## Tests
+
+```
+pnpm --filter @platform/engagement exec vitest run     # unit, plus a DB file and a live broker block
+pnpm --filter @platform/engagement typecheck           # src and tests
+pnpm lint && pnpm typecheck && pnpm test --filter @platform/engagement
+```
+
+- `ops/rules.test.ts` — every rule against envelopes validated by the real schemas, the null and
+  zero-decimal-currency cases, and the PII sweeps.
+- `ops/rate-limit.test.ts` — per-key windows, the window edge, the suppressed count, refusals.
+- `transport/transport.test.ts` — the dev sink on a temp dir; Slack against an injected fetch (payload, escape,
+  refusal → label only, retryable flags, and that the URL never reaches an error, an alert or the object).
+- `config.test.ts` — defaults, the production refusals, the numbers, and that a webhook URL the transport will
+  not use is not carried.
+- `ops/dlq-watch.test.ts` — thresholds, several groups, the error-class counting, an unreadable DLQ, and the
+  rate limit over a standing backlog, with the reader injected.
+- `cdp/mapper.test.ts` — every mapped topic against schema-validated fixtures, the two-way agreement with
+  the tracking plan, the deliberately dropped properties (tracking number, return reason, line titles and
+  SKUs) and the PII sweeps.
+- `cdp/consent.test.ts` — the gate (pure) over every outcome, and the two projection reads on a throwaway
+  database: the shape the core actually writes, another purpose not granting ours, a malformed block reading
+  as "never answered", per-store isolation, and that the read path writes nothing.
+- `cdp/adapter/adapter.test.ts` — the memory adapter, and RudderStack against an injected fetch (request
+  shape, Basic auth, the regulation call, the refusal to suppress without a control-plane token, and that the
+  write key never reaches a body, an error or the object).
+- `cdp/consumer.test.ts` — the decision path on a throwaway database (consent honoured over the payload's
+  snapshot, guest dropped, erasure suppressed even with the row gone, per-store consent) plus its own live
+  block.
+- `crm/rollup.test.ts` — 20 cases over placed / cancelled / refunded: exclusions, pending and failed refunds,
+  over-refunds, the newest-order date, bigint strings, zero-decimal currencies, mixed currencies, and that the
+  same rows always give the same answer.
+- `crm/adapter/adapter.test.ts` — the memory adapter, and Twenty against an injected fetch: create vs update
+  by external id, a custom field name, idempotent remove, and that the key never reaches a body, a URL, an
+  error or the object.
+- `crm/admin-api.test.ts` — the reader: the bearer header, a token asked for per call, 404 as `null`, 401/403
+  retryable, and no response body in any error.
+- `crm/consumer.test.ts` — the decision path on a throwaway database: the rollup end to end, idempotency on
+  redelivery, no consent meaning no PII fetch at all, erasure removing with the row already gone, the log-line
+  PII sweep — plus its own live block.
+- `ops/consumer.test.ts` — on a throwaway database: the `consumer_processed` guarantees this consumer depends
+  on, from the consumer's side (the PK as replay guard, a store-scoped session reading and writing none,
+  `UPDATE` revoked, the `organization_id` default), store-code resolution, and the
+  decision path. Then a **live block** on prefixed, self-cleaning topics: one alert per event and nothing for a
+  redelivery; an event already marked for this group staying silent while an unmarked one alerts (fresh topics,
+  so the mark is what silences it, not an offset that was never re-read); and a refusing transport
+  dead-lettering with the error class and no payload, marking nothing. It is skipped with a printed reason when
+  the broker is down.
+
+  Each live test ensures **its own** topics under the run's prefix and stops its consumer before the next one
+  starts. They all join the real group `engagement.ops`, so two live members would share the topic's partitions
+  and a message published by one test could be handled by another test's consumer — which is how the
+  dead-letter test first failed in a full-suite run after passing on its own.
+
+### The live blocks run locally, not in CI
+
+Every `*/consumer.test.ts` has a live block against the local Redpanda, and **CI has no broker for them**, so
+there they skip with a printed reason and the suite is the unit and database tests only. What that means
+honestly: the dedupe-off-the-real-bus and dead-letter guarantees are proven on a developer machine before a
+push and are **not** re-proven on every CI run. They are not skipped silently — the reason is printed, and a
+broker-up run is part of finishing a task here (and `ONE WINDOW MEASURES AT A TIME`, so it is asked for).
+Making CI run them would need a broker service in the workflow, which is window 5's file and a REQUEST, not
+something this package can arrange.
+
+## What is not here (and where it is tracked)
+
+- **A real Slack post.** Blocked on the owner's workspace; on the launch checklist.
+- **A real CDP call.** Blocked on the owner's RudderStack account; the consumer ships disabled
+  (`ENGAGEMENT_CDP_ENABLED=0`) and the live use is on the launch checklist.
+- **A real CRM call, and a real service-account token.** Blocked on the owner's Twenty instance and on #565;
+  both are launch-checklist items, and the consumer ships disabled (`ENGAGEMENT_CRM_ENABLED=0`).
+- The support-context API and Chatwoot webhook (#556).
+- SMS/WhatsApp (Twilio), Novu and Klaviyo flows — deferred until accounts exist (manager decision on #553).
+- The returns portal and refund limits by role — a later wave across core, auth, storefront and admin.
+- This service's `COPY` lines in the Dockerfiles: the manager lands them as an integration commit on the 16.1
+  head (a new workspace package reddens `app images` until every Dockerfile has them).

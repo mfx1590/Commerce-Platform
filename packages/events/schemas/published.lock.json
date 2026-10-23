@@ -1,0 +1,2462 @@
+{
+  "$comment": "Canonical inlined form of every PUBLISHED event schema version (packages/events, #532). Updated only by `pnpm --filter @platform/events schemas:lock`, which refuses a backward-incompatible change to a published version. Do not edit by hand.",
+  "schemas": {
+    "attribution.recorded@1": {
+      "sha256": "1ce9d1427285d4868eb122ab726c85fc0b0f255327b98464ffe0beb540a8ae32",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/attribution.recorded/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "The core stored one attribution touch (first or last) for an order at placement, from cart.metadata.attribution. Emitted once per touch, in the same transaction as order.placed (which stays at v1). `referrer` is an origin, never a full URL.",
+        "properties": {
+          "attribution_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "campaign_id": {
+            "oneOf": [
+              {
+                "format": "uuid",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "captured_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "cart_id": {
+            "oneOf": [
+              {
+                "format": "uuid",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "landing_path": {
+            "type": ["string", "null"]
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "recorded_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "referrer": {
+            "description": "Origin only (scheme + host), e.g. https://www.google.com",
+            "type": ["string", "null"]
+          },
+          "touch": {
+            "enum": ["first", "last"],
+            "type": "string"
+          },
+          "utm_campaign": {
+            "type": ["string", "null"]
+          },
+          "utm_content": {
+            "type": ["string", "null"]
+          },
+          "utm_medium": {
+            "type": ["string", "null"]
+          },
+          "utm_source": {
+            "type": ["string", "null"]
+          },
+          "utm_term": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "attribution_id",
+          "order_id",
+          "cart_id",
+          "touch",
+          "utm_source",
+          "utm_medium",
+          "utm_campaign",
+          "utm_term",
+          "utm_content",
+          "referrer",
+          "landing_path",
+          "campaign_id",
+          "captured_at",
+          "recorded_at"
+        ],
+        "title": "attribution.recorded v1",
+        "type": "object"
+      }
+    },
+    "campaign.ended@1": {
+      "sha256": "93ff5e038bec41c448c0698e1b6f80c3a82ebf6d0a6be0a1c499b5f4030d4e0c",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/campaign.ended/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "A marketing campaign ended (status -> ended), by schedule or by a staff action. Same shape as campaign.launched so consumers close what they opened.",
+        "properties": {
+          "budget": {
+            "additionalProperties": false,
+            "properties": {
+              "amount_minor": {
+                "description": "Amount in minor units (cents). Never a float.",
+                "type": "integer"
+              },
+              "currency": {
+                "pattern": "^[A-Z]{3}$",
+                "type": "string"
+              }
+            },
+            "required": ["amount_minor", "currency"],
+            "type": "object"
+          },
+          "campaign_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "promotion_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "segment_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "email",
+              "sms",
+              "paid_social",
+              "paid_search",
+              "affiliate",
+              "referral",
+              "landing"
+            ],
+            "type": "string"
+          },
+          "utm_campaign": {
+            "type": ["string", "null"]
+          },
+          "utm_medium": {
+            "type": ["string", "null"]
+          },
+          "utm_source": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["campaign_id", "name", "type", "utm_source", "utm_medium", "utm_campaign"],
+        "title": "campaign.ended v1",
+        "type": "object"
+      }
+    },
+    "campaign.launched@1": {
+      "sha256": "c37ed566b21589c81e077637a6dd29a27a1a63bc17c8310ef1f12ffe64e6d49c",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/campaign.launched/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "A marketing campaign went live (status -> active). Consumers: messaging (window 16) starts flows, marts (window 12), accounting (window 15) opens the spend line.",
+        "properties": {
+          "budget": {
+            "additionalProperties": false,
+            "properties": {
+              "amount_minor": {
+                "description": "Amount in minor units (cents). Never a float.",
+                "type": "integer"
+              },
+              "currency": {
+                "pattern": "^[A-Z]{3}$",
+                "type": "string"
+              }
+            },
+            "required": ["amount_minor", "currency"],
+            "type": "object"
+          },
+          "campaign_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "promotion_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "segment_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "email",
+              "sms",
+              "paid_social",
+              "paid_search",
+              "affiliate",
+              "referral",
+              "landing"
+            ],
+            "type": "string"
+          },
+          "utm_campaign": {
+            "type": ["string", "null"]
+          },
+          "utm_medium": {
+            "type": ["string", "null"]
+          },
+          "utm_source": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["campaign_id", "name", "type", "utm_source", "utm_medium", "utm_campaign"],
+        "title": "campaign.launched v1",
+        "type": "object"
+      }
+    },
+    "cart.abandoned@1": {
+      "sha256": "55c9660abb86470d6c736fb5ae32ed01dbf6595d433e04b903abb2c120be9e9d",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/cart.abandoned/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "An active cart with items saw no activity for the store's abandonment window (cart status -> abandoned). Emitted by the core's abandoned-cart job (window 1); consumed by messaging flows (window 16) and marketing (window 17). `email_hash` is sha256 of the lowercased email, never the email.",
+        "properties": {
+          "abandoned_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "cart_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "currency": {
+            "pattern": "^[A-Z]{3}$",
+            "type": "string"
+          },
+          "customer_id": {
+            "oneOf": [
+              {
+                "format": "uuid",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "email_hash": {
+            "oneOf": [
+              {
+                "description": "sha256 of the lowercased value; never the raw PII",
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "has_attribution": {
+            "description": "True when cart.metadata.attribution was captured, so the recovery flow can be attributed",
+            "type": "boolean"
+          },
+          "last_activity_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "line_item_count": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "total_minor": {
+            "description": "Amount in minor units (cents). Never a float.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cart_id",
+          "customer_id",
+          "email_hash",
+          "currency",
+          "total_minor",
+          "line_item_count",
+          "last_activity_at",
+          "abandoned_at",
+          "has_attribution"
+        ],
+        "title": "cart.abandoned v1",
+        "type": "object"
+      }
+    },
+    "customer.created@1": {
+      "sha256": "5cbc64d3c2c7e6b1f9e5650df257d41440e4c4fffc685d8cc11cc4666bcfd632",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/customer.created/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "A customer record was created for a store.",
+        "properties": {
+          "customer_group_id": {
+            "oneOf": [
+              {
+                "format": "uuid",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "customer_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "email_hash": {
+            "description": "sha256 of the lowercased value; never the raw PII",
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "identity_id": {
+            "oneOf": [
+              {
+                "format": "uuid",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "marketing_consent": {
+            "type": "boolean"
+          },
+          "status": {
+            "enum": ["guest", "registered", "disabled", "erased"],
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "identity_id",
+          "email_hash",
+          "status",
+          "customer_group_id",
+          "marketing_consent"
+        ],
+        "title": "customer.created v1",
+        "type": "object"
+      }
+    },
+    "customer.erased@1": {
+      "sha256": "7820f480918d4a5861e797453e4eeecb614662d69f71cf28cf0b39ba3f3b6681",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/customer.erased/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "GDPR erasure completed; consumers must delete their copies.",
+        "properties": {
+          "customer_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "erased_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "identity_id": {
+            "oneOf": [
+              {
+                "format": "uuid",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["customer_id", "identity_id", "erased_at"],
+        "title": "customer.erased v1",
+        "type": "object"
+      }
+    },
+    "customer.export_ready@1": {
+      "sha256": "9f3571332609f341171605d542583c5df7d7fa5a6e6fb187208e754a70fc45cd",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/customer.export_ready/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "A GDPR export bundle is built and downloadable by the customer (Store API getMyExport, signed in) and by store admins (Admin API getCustomerExport) until expires_at. Ids and timestamps only — never the bundle, never personal data. Consumers: the notifications app tells the customer by email (it reads the address from the customer row at send time; the mail carries no token and no link with credentials).",
+        "properties": {
+          "customer_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "export_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "requested_by": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "requested_by_type": {
+            "enum": ["staff", "customer"],
+            "type": "string"
+          }
+        },
+        "required": ["export_id", "customer_id", "requested_by", "requested_by_type", "expires_at"],
+        "title": "customer.export_ready v1",
+        "type": "object"
+      }
+    },
+    "customer.export_requested@1": {
+      "sha256": "57565b2f457db02c6e9ef546137d3dad3728d7f3c7d651ee5f0e416f6908279d",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/customer.export_requested/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "A GDPR data export was requested for one customer of one store (Admin API exportCustomer). The consumer builds the bundle through the core and delivers it; the payload carries ids only, never personal data.",
+        "properties": {
+          "customer_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "requested_by": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          }
+        },
+        "required": ["customer_id", "requested_by", "requested_at"],
+        "title": "customer.export_requested v1",
+        "type": "object"
+      }
+    },
+    "customer.export_requested@2": {
+      "sha256": "277d718b1841f354b6993333232834ae61610a2627f881a17ffd4e0f094a054f",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/customer.export_requested/v2.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "A GDPR data export was requested for one customer of one store — by staff (Admin API exportCustomer) or by the customer (Store API requestMyExport). The consumer builds the bundle through the core and delivers it; the payload carries ids only, never personal data. v2 adds requested_by_type; requested_by is the staff_user id or the customer id accordingly.",
+        "properties": {
+          "customer_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "requested_by": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "requested_by_type": {
+            "enum": ["staff", "customer"],
+            "type": "string"
+          }
+        },
+        "required": ["customer_id", "requested_by", "requested_by_type", "requested_at"],
+        "title": "customer.export_requested v2",
+        "type": "object"
+      }
+    },
+    "customer.updated@1": {
+      "sha256": "68f1b5c0c1a8efb53d0ecceb60015c0b2f0d08de5c7414bfc90e6542cc07b122",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/customer.updated/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "Customer profile, group, consent, or identity link changed.",
+        "properties": {
+          "changed_fields": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "customer_group_id": {
+            "oneOf": [
+              {
+                "format": "uuid",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "customer_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "email_hash": {
+            "description": "sha256 of the lowercased value; never the raw PII",
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "identity_id": {
+            "oneOf": [
+              {
+                "format": "uuid",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "marketing_consent": {
+            "type": "boolean"
+          },
+          "status": {
+            "enum": ["guest", "registered", "disabled", "erased"],
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "identity_id",
+          "email_hash",
+          "status",
+          "customer_group_id",
+          "marketing_consent",
+          "changed_fields"
+        ],
+        "title": "customer.updated v1",
+        "type": "object"
+      }
+    },
+    "feed.published@1": {
+      "sha256": "176695aa8c205add61a23c94156d820b7b53578ccc1f4ead5ec33278f6d14f1c",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/feed.published/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "A product feed was (re)generated and is available at `url` for the channel to fetch. Aggregate: product_feed.",
+        "properties": {
+          "channel": {
+            "enum": ["google_merchant", "meta", "tiktok", "pinterest"],
+            "type": "string"
+          },
+          "currency": {
+            "pattern": "^[A-Z]{3}$",
+            "type": "string"
+          },
+          "feed_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "item_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "locale": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "published_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "url": {
+            "format": "uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "feed_id",
+          "channel",
+          "locale",
+          "currency",
+          "item_count",
+          "url",
+          "published_at"
+        ],
+        "title": "feed.published v1",
+        "type": "object"
+      }
+    },
+    "fulfillment.packed@1": {
+      "sha256": "0658b62b5612dad8eef6b89406d569625ab37d2e1b6ceccc6b24ddfd249cc413",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/fulfillment.packed/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "A shipment was packed and is ready for the carrier.",
+        "properties": {
+          "items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "order_line_item_id": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                  "type": "string"
+                },
+                "quantity": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": ["order_line_item_id", "quantity"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "parcel_count": {
+            "minimum": 1,
+            "type": ["integer", "null"]
+          },
+          "shipment_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "warehouse_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          }
+        },
+        "required": ["shipment_id", "order_id", "warehouse_id", "items", "occurred_at"],
+        "title": "fulfillment.packed v1",
+        "type": "object"
+      }
+    },
+    "fulfillment.picking@1": {
+      "sha256": "737d449de54f2389710bb9b15b48e8023565a15df3bd8180a4a0813395654525",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/fulfillment.picking/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "Picking started for a shipment.",
+        "properties": {
+          "items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "order_line_item_id": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                  "type": "string"
+                },
+                "quantity": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": ["order_line_item_id", "quantity"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "shipment_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "warehouse_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          }
+        },
+        "required": ["shipment_id", "order_id", "warehouse_id", "items", "occurred_at"],
+        "title": "fulfillment.picking v1",
+        "type": "object"
+      }
+    },
+    "fulfillment.requested@1": {
+      "sha256": "30e480a6d1c51ab83724b8de1b744b3a9c2fc2bf37f09f8f6e8ab7dcae98a736",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/fulfillment.requested/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "A fulfilment request for a shipment was accepted by a warehouse or 3PL.",
+        "properties": {
+          "external_id": {
+            "type": ["string", "null"]
+          },
+          "items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "order_line_item_id": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                  "type": "string"
+                },
+                "quantity": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": ["order_line_item_id", "quantity"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "provider": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "shipment_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "warehouse_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "shipment_id",
+          "order_id",
+          "warehouse_id",
+          "provider",
+          "external_id",
+          "items",
+          "occurred_at"
+        ],
+        "title": "fulfillment.requested v1",
+        "type": "object"
+      }
+    },
+    "order.cancelled@1": {
+      "sha256": "770578d43eddadd588590d31c557926f20ab18333368cf376af3102bba0bb8b2",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/order.cancelled/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "Order cancelled before completion. Reverses sales accounting.",
+        "properties": {
+          "cancelled_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "currency": {
+            "pattern": "^[A-Z]{3}$",
+            "type": "string"
+          },
+          "display_id": {
+            "type": "integer"
+          },
+          "legal_entity_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "reason": {
+            "type": ["string", "null"]
+          },
+          "totals": {
+            "additionalProperties": false,
+            "properties": {
+              "discount_minor": {
+                "description": "Amount in minor units (cents). Never a float.",
+                "type": "integer"
+              },
+              "shipping_minor": {
+                "description": "Amount in minor units (cents). Never a float.",
+                "type": "integer"
+              },
+              "subtotal_minor": {
+                "description": "Amount in minor units (cents). Never a float.",
+                "type": "integer"
+              },
+              "tax_minor": {
+                "description": "Amount in minor units (cents). Never a float.",
+                "type": "integer"
+              },
+              "total_minor": {
+                "description": "Amount in minor units (cents). Never a float.",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "subtotal_minor",
+              "discount_minor",
+              "shipping_minor",
+              "tax_minor",
+              "total_minor"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "order_id",
+          "display_id",
+          "legal_entity_id",
+          "currency",
+          "totals",
+          "reason",
+          "cancelled_at"
+        ],
+        "title": "order.cancelled v1",
+        "type": "object"
+      }
+    },
+    "order.completed@1": {
+      "sha256": "1ec6516a29b286d50903f2cde9b757b96877de36cd28afb0cc6be4055d0efa5d",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/order.completed/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "All items delivered or returned; order closed.",
+        "properties": {
+          "completed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "display_id": {
+            "type": "integer"
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          }
+        },
+        "required": ["order_id", "display_id", "completed_at"],
+        "title": "order.completed v1",
+        "type": "object"
+      }
+    },
+    "order.confirmed@1": {
+      "sha256": "19e7daf17b8867e197d4affd304102b02fce93520d3f6ad6a6f3e2e77dfd7deb",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/order.confirmed/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "Payment secured; the order may be fulfilled.",
+        "properties": {
+          "confirmed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "display_id": {
+            "type": "integer"
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          }
+        },
+        "required": ["order_id", "display_id", "confirmed_at"],
+        "title": "order.confirmed v1",
+        "type": "object"
+      }
+    },
+    "order.placed@1": {
+      "sha256": "5ff79bf41d8f7ec33b28268022da3b9187dd3f3df3e678cea411304c795e2086",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/order.placed/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "Checkout completed: the order exists and is awaiting payment capture. Source of truth for sales accounting.",
+        "properties": {
+          "billing_country": {
+            "pattern": "^[A-Z]{2}$",
+            "type": "string"
+          },
+          "currency": {
+            "pattern": "^[A-Z]{3}$",
+            "type": "string"
+          },
+          "customer_id": {
+            "oneOf": [
+              {
+                "format": "uuid",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "display_id": {
+            "type": "integer"
+          },
+          "email_hash": {
+            "description": "sha256 of the lowercased value; never the raw PII",
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "legal_entity_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "line_items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "discount_minor": {
+                  "description": "Amount in minor units (cents). Never a float.",
+                  "type": "integer"
+                },
+                "order_line_item_id": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                  "type": "string"
+                },
+                "quantity": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "sku": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "tax_minor": {
+                  "description": "Amount in minor units (cents). Never a float.",
+                  "type": "integer"
+                },
+                "tax_rate_bp": {
+                  "type": "integer"
+                },
+                "title": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "total_minor": {
+                  "description": "Amount in minor units (cents). Never a float.",
+                  "type": "integer"
+                },
+                "unit_price_minor": {
+                  "description": "Amount in minor units (cents). Never a float.",
+                  "type": "integer"
+                },
+                "variant_id": {
+                  "oneOf": [
+                    {
+                      "format": "uuid",
+                      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "order_line_item_id",
+                "variant_id",
+                "sku",
+                "title",
+                "quantity",
+                "unit_price_minor",
+                "discount_minor",
+                "tax_rate_bp",
+                "tax_minor",
+                "total_minor"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "locale": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "placed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "promotion_codes": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "sales_channel_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "shipping": {
+            "additionalProperties": false,
+            "properties": {
+              "carrier": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "code": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "name": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "price_minor": {
+                "description": "Amount in minor units (cents). Never a float.",
+                "type": "integer"
+              },
+              "shipping_option_id": {
+                "oneOf": [
+                  {
+                    "format": "uuid",
+                    "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["code", "name", "carrier", "price_minor"],
+            "type": "object"
+          },
+          "shipping_country": {
+            "pattern": "^[A-Z]{2}$",
+            "type": "string"
+          },
+          "totals": {
+            "additionalProperties": false,
+            "properties": {
+              "discount_minor": {
+                "description": "Amount in minor units (cents). Never a float.",
+                "type": "integer"
+              },
+              "shipping_minor": {
+                "description": "Amount in minor units (cents). Never a float.",
+                "type": "integer"
+              },
+              "subtotal_minor": {
+                "description": "Amount in minor units (cents). Never a float.",
+                "type": "integer"
+              },
+              "tax_minor": {
+                "description": "Amount in minor units (cents). Never a float.",
+                "type": "integer"
+              },
+              "total_minor": {
+                "description": "Amount in minor units (cents). Never a float.",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "subtotal_minor",
+              "discount_minor",
+              "shipping_minor",
+              "tax_minor",
+              "total_minor"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "order_id",
+          "display_id",
+          "legal_entity_id",
+          "sales_channel_id",
+          "customer_id",
+          "email_hash",
+          "currency",
+          "locale",
+          "totals",
+          "line_items",
+          "shipping",
+          "shipping_country",
+          "billing_country",
+          "promotion_codes",
+          "placed_at"
+        ],
+        "title": "order.placed v1",
+        "type": "object"
+      }
+    },
+    "order.updated@1": {
+      "sha256": "5d2c5f313eff7ddbcad1f8771b9e6f89ca373ae3889dd4695cc3bf9a8fdf6312",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/order.updated/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "Status projection changed (status, payment_status, fulfillment_status, edits).",
+        "properties": {
+          "changed_fields": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "display_id": {
+            "type": "integer"
+          },
+          "fulfillment_status": {
+            "enum": [
+              "unfulfilled",
+              "partially_fulfilled",
+              "fulfilled",
+              "partially_returned",
+              "returned"
+            ],
+            "type": "string"
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "payment_status": {
+            "enum": [
+              "awaiting",
+              "authorized",
+              "captured",
+              "partially_refunded",
+              "refunded",
+              "failed",
+              "voided"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "enum": ["pending", "confirmed", "processing", "completed", "cancelled"],
+            "type": "string"
+          }
+        },
+        "required": [
+          "order_id",
+          "display_id",
+          "status",
+          "payment_status",
+          "fulfillment_status",
+          "changed_fields"
+        ],
+        "title": "order.updated v1",
+        "type": "object"
+      }
+    },
+    "payment.authorized@1": {
+      "sha256": "7ea2f67f1dffce95a6c39085c961214db7178d3cda6eeb362648ccbc03bb6306",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/payment.authorized/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "PSP authorized the amount.",
+        "properties": {
+          "amount_minor": {
+            "description": "Amount in minor units (cents). Never a float.",
+            "type": "integer"
+          },
+          "authorized_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "currency": {
+            "pattern": "^[A-Z]{3}$",
+            "type": "string"
+          },
+          "legal_entity_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "payment_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "provider": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "provider_payment_id": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "payment_id",
+          "order_id",
+          "legal_entity_id",
+          "provider",
+          "provider_payment_id",
+          "amount_minor",
+          "currency",
+          "authorized_at"
+        ],
+        "title": "payment.authorized v1",
+        "type": "object"
+      }
+    },
+    "payment.captured@1": {
+      "sha256": "e750f84b31e5c7f93d146de26f91dcaf8e757634b4bc3221be02ebf84a5635e6",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/payment.captured/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "Funds captured. Source of truth for cash and PSP-fee accounting.",
+        "properties": {
+          "amount_minor": {
+            "description": "Amount in minor units (cents). Never a float.",
+            "type": "integer"
+          },
+          "captured_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "currency": {
+            "pattern": "^[A-Z]{3}$",
+            "type": "string"
+          },
+          "fee_minor": {
+            "oneOf": [
+              {
+                "description": "Amount in minor units (cents). Never a float.",
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "legal_entity_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "payment_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "provider": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "provider_payment_id": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "payment_id",
+          "order_id",
+          "legal_entity_id",
+          "provider",
+          "provider_payment_id",
+          "amount_minor",
+          "fee_minor",
+          "currency",
+          "captured_at"
+        ],
+        "title": "payment.captured v1",
+        "type": "object"
+      }
+    },
+    "payment.failed@1": {
+      "sha256": "5dd4110d5268500d3a191ae16cfcc4ff3806c8885765d0abb57f0ebd69ec3287",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/payment.failed/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "Authorization or capture failed.",
+        "properties": {
+          "amount_minor": {
+            "description": "Amount in minor units (cents). Never a float.",
+            "type": "integer"
+          },
+          "currency": {
+            "pattern": "^[A-Z]{3}$",
+            "type": "string"
+          },
+          "failed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "failure_reason": {
+            "type": ["string", "null"]
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "payment_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "provider": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "provider_payment_id": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "payment_id",
+          "order_id",
+          "provider",
+          "provider_payment_id",
+          "amount_minor",
+          "currency",
+          "failure_reason",
+          "failed_at"
+        ],
+        "title": "payment.failed v1",
+        "type": "object"
+      }
+    },
+    "product.archived@1": {
+      "sha256": "1a9f0002ce8348b8b2f66bc48fa85e5d94b92f3f10f90033eaf8bf050ca36324",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/product.archived/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "A product was archived.",
+        "properties": {
+          "archived_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "handle": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "product_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          }
+        },
+        "required": ["product_id", "handle", "archived_at"],
+        "title": "product.archived v1",
+        "type": "object"
+      }
+    },
+    "product.published@1": {
+      "sha256": "654ee35cbf83d00064f7f34fd765c515c5edda4f4ff1832d48d86cac8d33e3f1",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/product.published/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "A product became visible on the storefront.",
+        "properties": {
+          "category_id": {
+            "oneOf": [
+              {
+                "format": "uuid",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "handle": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "product_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "published_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "title": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "variants": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "sku": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "title": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "variant_id": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                  "type": "string"
+                }
+              },
+              "required": ["variant_id", "sku", "title"],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": ["product_id", "handle", "title", "category_id", "variants", "published_at"],
+        "title": "product.published v1",
+        "type": "object"
+      }
+    },
+    "product.updated@1": {
+      "sha256": "217aa0bef013399197fc97991aca0ff9207fea34d48ebd9a13639dc63a3fa73c",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/product.updated/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "A product or its variants changed (any status).",
+        "properties": {
+          "changed_fields": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "handle": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "product_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "status": {
+            "enum": ["draft", "published", "archived"],
+            "type": "string"
+          },
+          "variants": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "sku": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "title": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "variant_id": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                  "type": "string"
+                }
+              },
+              "required": ["variant_id", "sku", "title"],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": ["product_id", "handle", "status", "changed_fields", "variants"],
+        "title": "product.updated v1",
+        "type": "object"
+      }
+    },
+    "referral.converted@1": {
+      "sha256": "2d32240716a6cf26d9e86861dd41b84275f482a6d6763f9656c3ce0615adb390",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/referral.converted/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "A referred customer placed an order with a referral code (referral status -> converted). Rewards are issued by the marketing module afterwards. `code_hash` is sha256 of the code, never the code itself.",
+        "properties": {
+          "code_hash": {
+            "description": "sha256 of the lowercased value; never the raw PII",
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "converted_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "program_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "referee_customer_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "referral_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "referrer_customer_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "referral_id",
+          "program_id",
+          "referrer_customer_id",
+          "referee_customer_id",
+          "order_id",
+          "code_hash",
+          "converted_at"
+        ],
+        "title": "referral.converted v1",
+        "type": "object"
+      }
+    },
+    "refund.failed@1": {
+      "sha256": "6c5fe469fe0ad235207494a101d1931cdf5a21e277b81dd005603b699b18ceff",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/refund.failed/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "Refund failed at the PSP; needs manual action.",
+        "properties": {
+          "amount_minor": {
+            "description": "Amount in minor units (cents). Never a float.",
+            "type": "integer"
+          },
+          "currency": {
+            "pattern": "^[A-Z]{3}$",
+            "type": "string"
+          },
+          "failed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "failure_reason": {
+            "type": ["string", "null"]
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "payment_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "refund_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "refund_id",
+          "payment_id",
+          "order_id",
+          "amount_minor",
+          "currency",
+          "failure_reason",
+          "failed_at"
+        ],
+        "title": "refund.failed v1",
+        "type": "object"
+      }
+    },
+    "refund.issued@1": {
+      "sha256": "8770f8eb93e588f5be1359487c1adef3acad5ed7d6d1fc41ee63347434be8e69",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/refund.issued/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "Refund succeeded at the PSP.",
+        "properties": {
+          "amount_minor": {
+            "description": "Amount in minor units (cents). Never a float.",
+            "type": "integer"
+          },
+          "currency": {
+            "pattern": "^[A-Z]{3}$",
+            "type": "string"
+          },
+          "issued_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "legal_entity_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "payment_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "provider_refund_id": {
+            "type": ["string", "null"]
+          },
+          "reason": {
+            "enum": ["return", "cancellation", "goodwill", "chargeback"],
+            "type": "string"
+          },
+          "refund_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "return_id": {
+            "oneOf": [
+              {
+                "format": "uuid",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "refund_id",
+          "payment_id",
+          "order_id",
+          "return_id",
+          "legal_entity_id",
+          "amount_minor",
+          "currency",
+          "reason",
+          "provider_refund_id",
+          "issued_at"
+        ],
+        "title": "refund.issued v1",
+        "type": "object"
+      }
+    },
+    "return.received@1": {
+      "sha256": "922165a527ee5e63afc5c0b97e7ceba354b5dc5097ca885aa3eb952118f6fa70",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/return.received/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "Warehouse received the returned goods.",
+        "properties": {
+          "items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "condition": {
+                  "oneOf": [
+                    {
+                      "enum": ["resellable", "damaged"],
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "order_line_item_id": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                  "type": "string"
+                },
+                "quantity": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": ["order_line_item_id", "quantity"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "return_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "warehouse_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          }
+        },
+        "required": ["return_id", "order_id", "warehouse_id", "items", "received_at"],
+        "title": "return.received v1",
+        "type": "object"
+      }
+    },
+    "return.requested@1": {
+      "sha256": "19b6390874d9343acee148ba61dc0e869a042bef1e1139ea6ec3c06c031186b1",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/return.requested/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "Customer or support opened a return.",
+        "properties": {
+          "items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "order_line_item_id": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                  "type": "string"
+                },
+                "quantity": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": ["order_line_item_id", "quantity"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "reason": {
+            "type": ["string", "null"]
+          },
+          "requested_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "return_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          }
+        },
+        "required": ["return_id", "order_id", "reason", "items", "requested_at"],
+        "title": "return.requested v1",
+        "type": "object"
+      }
+    },
+    "review.published@1": {
+      "sha256": "7d493501fbd77f8554a6e1e9952fe7767ddbfb10caa97a2e380f5bcebfec5f3e",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/review.published/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "A product review passed moderation (status -> published). Title and body are free text written by a customer and never travel on the bus; consumers read them through the API.",
+        "properties": {
+          "customer_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "order_line_item_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "product_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "published_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "rating": {
+            "maximum": 5,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "review_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          }
+        },
+        "required": ["review_id", "product_id", "rating", "published_at"],
+        "title": "review.published v1",
+        "type": "object"
+      }
+    },
+    "shipment.created@1": {
+      "sha256": "6c653dadfd97b74ea999fcefe00fcfb92352085c1024f54863048c37e8283dfd",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/shipment.created/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "A shipment was planned for part or all of an order.",
+        "properties": {
+          "carrier": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "currency": {
+            "pattern": "^[A-Z]{3}$",
+            "type": "string"
+          },
+          "destination_country": {
+            "pattern": "^[A-Z]{2}$",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "order_line_item_id": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                  "type": "string"
+                },
+                "quantity": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": ["order_line_item_id", "quantity"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "service": {
+            "type": ["string", "null"]
+          },
+          "shipment_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "warehouse_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "shipment_id",
+          "order_id",
+          "warehouse_id",
+          "carrier",
+          "service",
+          "items",
+          "destination_country",
+          "currency"
+        ],
+        "title": "shipment.created v1",
+        "type": "object"
+      }
+    },
+    "shipment.delivered@1": {
+      "sha256": "774c0c531c144c050966f2fe19ed7d96784243ee28137c7fe87f9a22133c5271",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/shipment.delivered/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "Carrier reported delivery.",
+        "properties": {
+          "delivered_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "shipment_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          }
+        },
+        "required": ["shipment_id", "order_id", "delivered_at"],
+        "title": "shipment.delivered v1",
+        "type": "object"
+      }
+    },
+    "shipment.label_created@1": {
+      "sha256": "29092ea3d5103b320de0a0d66911064c21ee317f3877a1a5a41f04d2f8858bc4",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/shipment.label_created/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "A carrier label was bought for a packed shipment (buyShipmentLabel). Carries the tracking number and the label URL, never an address or a name.",
+        "properties": {
+          "carrier": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "label_url": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "shipment_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "store_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "tracking_number": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "shipment_id",
+          "order_id",
+          "store_id",
+          "carrier",
+          "tracking_number",
+          "label_url",
+          "created_at"
+        ],
+        "title": "shipment.label_created v1",
+        "type": "object"
+      }
+    },
+    "shipment.shipped@1": {
+      "sha256": "6cc052f681bd49ac008dc8141d7dabc9e646ec689d5444221bad64f1ff00cced",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/shipment.shipped/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "Carrier picked up the parcel. Source of truth for shipping cost and COGS timing.",
+        "properties": {
+          "carrier": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "cost_minor": {
+            "oneOf": [
+              {
+                "description": "Amount in minor units (cents). Never a float.",
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "currency": {
+            "pattern": "^[A-Z]{3}$",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "order_line_item_id": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                  "type": "string"
+                },
+                "quantity": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": ["order_line_item_id", "quantity"],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "legal_entity_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "service": {
+            "type": ["string", "null"]
+          },
+          "shipment_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "shipped_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "tracking_number": {
+            "type": ["string", "null"]
+          },
+          "warehouse_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "shipment_id",
+          "order_id",
+          "legal_entity_id",
+          "warehouse_id",
+          "carrier",
+          "service",
+          "tracking_number",
+          "cost_minor",
+          "currency",
+          "items",
+          "shipped_at"
+        ],
+        "title": "shipment.shipped v1",
+        "type": "object"
+      }
+    },
+    "stock.moved@1": {
+      "sha256": "4468bac27e1841708894549272cb67ed1006409f43872c7d0b9d2d1c6c1861e1",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/stock.moved/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "Stock changed in a warehouse (one stock_movement row).",
+        "properties": {
+          "delta": {
+            "type": "integer"
+          },
+          "on_hand_after": {
+            "type": "integer"
+          },
+          "reason": {
+            "enum": [
+              "receipt",
+              "sale",
+              "return",
+              "adjustment",
+              "transfer_in",
+              "transfer_out",
+              "cycle_count"
+            ],
+            "type": "string"
+          },
+          "reference_id": {
+            "oneOf": [
+              {
+                "format": "uuid",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reference_type": {
+            "type": ["string", "null"]
+          },
+          "reserved_after": {
+            "type": "integer"
+          },
+          "sku": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "stock_movement_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "variant_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "warehouse_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stock_movement_id",
+          "variant_id",
+          "sku",
+          "warehouse_id",
+          "delta",
+          "reason",
+          "reference_type",
+          "reference_id",
+          "on_hand_after",
+          "reserved_after"
+        ],
+        "title": "stock.moved v1",
+        "type": "object"
+      }
+    },
+    "stock.moved@2": {
+      "sha256": "fed74814e89548bc47b389b1c24d3b2deb9e527c14830258b20e8fbbab46ab75",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/stock.moved/v2.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "dependentRequired": {
+          "store_id": ["variant_id"],
+          "variant_id": ["store_id"]
+        },
+        "description": "Stock of a stock item changed in a warehouse (one stock_movement row of the shared pool). `sku` is the stock item's. `variant_id` and `store_id` are present together, and only when a store caused the movement (a sale, a return, a shipment release); both are absent for a pool movement no store caused (receipt, transfer, cycle count), whose envelope `store_id` is null.",
+        "properties": {
+          "delta": {
+            "type": "integer"
+          },
+          "on_hand_after": {
+            "type": "integer"
+          },
+          "reason": {
+            "enum": [
+              "receipt",
+              "sale",
+              "return",
+              "adjustment",
+              "transfer_in",
+              "transfer_out",
+              "cycle_count"
+            ],
+            "type": "string"
+          },
+          "reference_id": {
+            "oneOf": [
+              {
+                "format": "uuid",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reference_type": {
+            "type": ["string", "null"]
+          },
+          "reserved_after": {
+            "type": "integer"
+          },
+          "sku": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "stock_item_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "stock_movement_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "store_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "variant_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "warehouse_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stock_movement_id",
+          "stock_item_id",
+          "sku",
+          "warehouse_id",
+          "delta",
+          "reason",
+          "reference_type",
+          "reference_id",
+          "on_hand_after",
+          "reserved_after"
+        ],
+        "title": "stock.moved v2",
+        "type": "object"
+      }
+    },
+    "stock_item.mapped@1": {
+      "sha256": "da4f4d00d105ec1ed68a799b6ef2989bc70323fb93c30dac23d4b3efe021bb01",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/stock_item.mapped/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "A store's variant was mapped to a stock item (Admin `mapVariantToStockItem`); from now on the variant sells from that item's pool. Ids only. The envelope's `store_id` is the variant's store, `aggregate_type` is `stock_item`, `aggregate_id` the item the variant is mapped to now.",
+        "properties": {
+          "previous_stock_item_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "stock_item_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "store_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "variant_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          }
+        },
+        "required": ["stock_item_id", "previous_stock_item_id", "variant_id", "store_id"],
+        "title": "stock_item.mapped v1",
+        "type": "object"
+      }
+    },
+    "store.created@1": {
+      "sha256": "4064ba0f79ca005f0915981ffab3e5a9496dc01cb9ee584fa32d9de682cd8c91",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/store.created/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "A store (brand) was created.",
+        "properties": {
+          "code": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "default_country": {
+            "pattern": "^[A-Z]{2}$",
+            "type": "string"
+          },
+          "default_currency": {
+            "pattern": "^[A-Z]{3}$",
+            "type": "string"
+          },
+          "default_locale": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "legal_entity_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "enum": ["draft", "active", "paused", "archived"],
+            "type": "string"
+          },
+          "store_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "store_id",
+          "legal_entity_id",
+          "code",
+          "name",
+          "status",
+          "default_currency",
+          "default_locale",
+          "default_country"
+        ],
+        "title": "store.created v1",
+        "type": "object"
+      }
+    },
+    "store.updated@1": {
+      "sha256": "b42f7961cf23bc6a0d4851a166473cb9d5660be9bb40ede9337b5616cb131266",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/store.updated/v1.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "Store settings changed.",
+        "properties": {
+          "changed_fields": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "code": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "enum": ["draft", "active", "paused", "archived"],
+            "type": "string"
+          },
+          "store_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          }
+        },
+        "required": ["store_id", "code", "status", "changed_fields"],
+        "title": "store.updated v1",
+        "type": "object"
+      }
+    }
+  }
+}

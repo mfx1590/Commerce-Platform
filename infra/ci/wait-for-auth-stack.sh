@@ -20,6 +20,9 @@ set -euo pipefail
 KEYCLOAK_URL="${KEYCLOAK_URL:-http://localhost:8180}"
 OPENFGA_API_URL="${OPENFGA_API_URL:-http://localhost:8081}"
 PGHOST_PORT="${PGHOST_PORT:-5433}"
+# Redpanda is checked only where the job boots it (WAIT_FOR_REDPANDA=1, the live auth + e2e job; #536).
+WAIT_FOR_REDPANDA="${WAIT_FOR_REDPANDA:-0}"
+REDPANDA_ADMIN_URL="${REDPANDA_ADMIN_URL:-http://127.0.0.1:9644}"
 TIMEOUT="${WAIT_TIMEOUT:-180}"
 
 wait_for() {
@@ -45,6 +48,16 @@ wait_for 'keycloak (customers realm)' "$KEYCLOAK_URL/realms/customers/.well-know
 # OpenFGA.
 wait_for 'openfga' "$OPENFGA_API_URL/healthz" || fail=1
 
+# Redpanda (#530, #536): the events live block, and from #531 the relay tests, need a healthy broker. The admin
+# API answers before the cluster is healthy, so the body is checked too.
+if [ "$WAIT_FOR_REDPANDA" = 1 ]; then
+  wait_for 'redpanda (admin api)' "$REDPANDA_ADMIN_URL/v1/cluster/health_overview" || fail=1
+  if ! curl -fsS --max-time 5 "$REDPANDA_ADMIN_URL/v1/cluster/health_overview" | grep -q '"is_healthy": *true'; then
+    echo "FAIL: redpanda answers at $REDPANDA_ADMIN_URL but reports unhealthy" >&2
+    fail=1
+  fi
+fi
+
 # Postgres: the live suites create throw-away databases through @platform/db/testing.
 waited=0
 printf 'waiting for %-28s localhost:%s\n' 'postgres' "$PGHOST_PORT"
@@ -64,7 +77,7 @@ if [ "$fail" -ne 0 ]; then
   echo '== the auth stack is not up. The live suites would have SKIPPED and this job would have'
   echo '== reported success while testing nothing, which is why this check exists.'
   docker compose -f infra/docker/docker-compose.yml ps 2>/dev/null || true
-  docker compose -f infra/docker/docker-compose.yml logs --tail=40 keycloak openfga 2>/dev/null || true
+  docker compose -f infra/docker/docker-compose.yml logs --tail=40 keycloak openfga $([ "$WAIT_FOR_REDPANDA" = 1 ] && echo redpanda) 2>/dev/null || true
   exit 1
 fi
 

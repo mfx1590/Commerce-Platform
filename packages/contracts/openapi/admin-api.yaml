@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.23
+  version: 0.4.24
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -1509,6 +1509,12 @@ paths:
           }
         - { name: payment_status, in: query, schema: { type: string } }
         - { name: fulfillment_status, in: query, schema: { type: string } }
+        - {
+            name: customer_id,
+            in: query,
+            schema: { type: string, format: uuid },
+            description: only orders of this customer (exact; added 0.4.24, #569),
+          }
         - { name: q, in: query, schema: { type: string }, description: display_id or email }
         - { name: placed_from, in: query, schema: { type: string, format: date-time } }
         - { name: placed_to, in: query, schema: { type: string, format: date-time } }

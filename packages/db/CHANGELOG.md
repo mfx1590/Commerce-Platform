@@ -1,5 +1,13 @@
 # Changelog — @platform/db
 
+## 0.3.17 — 2026-10-23
+
+- `0203_accounting_ledger.sql` (CONTRACT CHANGE #558, window 15 #548/#549; Fable review CHANGES on rev 2, rev 3 landed): `ledger_account` (chart per legal entity), `accounting_order` / `accounting_order_line` (the accounting service's own order projection), `accounting_parked_event` (out-of-order events parked until their order arrives), `accounting_payment` / `accounting_refund` (provider ids for payout matching), `psp_payout` / `psp_payout_line`; `ledger_entry` journal CHECK gains `bank`, trial-balance + unposted indexes, `store_id` NULLable (legal-entity-level lines: payouts, bank). Every accounting table incl. `ledger_entry` is RLS `organization_only` (store admins never see accounting). Immutability in SQL: `ledger_entry` no DELETE and UPDATE only on (posted_to_erp_at, erp_reference, updated_at); no DELETE on ledger_account, psp_payout_line, accounting_payment, accounting_refund. Manager landing.
+
+## 0.3.16 — 2026-10-23
+
+- `0202_consumer_processed.sql` (manager decision, Phase 4 wave 2 kickoff #548 / #553): the shared processed store of every bus consumer on the events-v1 SDK (`createPgProcessedStore(q, 'consumer_processed')`) — PK (group_id, outbox_id), `organization_id` DEFAULT `app.current_organization_id()` (the SDK insert names only the pair), `processed_at`, group_id CHECK `^[a-z][a-z0-9_.-]*; RLS kind `organization_only`; UPDATE revoked from platform_app (DELETE kept for a consumer rebuilt from scratch). No personal data. Manager landing.
+
 ## 0.3.15 — 2026-10-20
 
 - `0201_tax_rate_identity_unique.sql` (CONTRACT CHANGE #522, window 1 #520; contracts-v0.4.26): unique index `tax_rate_identity_key` on `tax_rate (store_id, country, region, product_category_id) NULLS NOT DISTINCT` — one row per (country, region, category) per store; `region` and `product_category_id` are nullable, so a plain UNIQUE would let two country-wide rows through. The core maps the 23505 on this index to 409 `conflict` (`details.tax_rate_id`). No data change (the dev data has no duplicates). Manager landing.

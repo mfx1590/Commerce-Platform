@@ -1,0 +1,377 @@
+import { SEED_IDS } from '@platform/db';
+import { describe, expect, it } from 'vitest';
+import { KNOWN_GROUPS, resolveConfig } from './config.js';
+import { buildCdpAdapter, buildCrmAdapter, buildTokenProvider, buildTransport } from './main.js';
+
+const APP_URL = 'postgres://platform_app:platform_app@127.0.0.1:5433/platform';
+const WEBHOOK = 'https://hooks.slack.example/services/team-alpha/channel-ops/token-words-only';
+const base = { DATABASE_URL_APP: APP_URL };
+
+describe('resolveConfig', () => {
+  it('defaults to the dev sink, the seeded organization and .engagement', () => {
+    const c = resolveConfig({ env: base });
+    expect(c).toMatchObject({
+      databaseUrlApp: APP_URL,
+      organizationId: SEED_IDS.organization,
+      transport: 'dev',
+      dir: '.engagement',
+    });
+    expect(c.slackWebhookUrl).toBeUndefined();
+    expect(c.rateLimit).toEqual({ max: 5, windowMs: 900_000 });
+    // Every group this service knows about, not just its own: a group missing from the watch list is a group
+    // whose dead letters nobody hears about (#562 review).
+    // Asserted against KNOWN_GROUPS rather than a literal: adding a consumer group should not need a test
+    // edit, only an entry there (and the test below pins what the list must contain).
+    expect(c.dlq).toEqual({ groups: [...KNOWN_GROUPS], threshold: 1, pollMs: 60_000 });
+  });
+
+  it('requires the app database URL', () => {
+    expect(() => resolveConfig({ env: {} })).toThrow(/DATABASE_URL_APP is required/);
+    expect(() => resolveConfig({ env: { DATABASE_URL_APP: '  ' } })).toThrow(
+      /DATABASE_URL_APP is required/,
+    );
+  });
+
+  it('refuses the dev sink in production: an alert in a local file is an alert nobody gets', () => {
+    expect(() => resolveConfig({ env: base, nodeEnv: 'production' })).toThrow(
+      /ENGAGEMENT_TRANSPORT=dev is refused in production/,
+    );
+    // ...and the same configuration is fine outside production.
+    expect(resolveConfig({ env: base, nodeEnv: 'development' }).transport).toBe('dev');
+  });
+
+  it('takes the Slack transport with a webhook URL, in production too', () => {
+    const c = resolveConfig({
+      env: { ...base, ENGAGEMENT_TRANSPORT: 'slack', SLACK_OPS_WEBHOOK_URL: WEBHOOK },
+      nodeEnv: 'production',
+    });
+    expect(c.transport).toBe('slack');
+    expect(c.slackWebhookUrl).toBe(WEBHOOK);
+  });
+
+  it('refuses the Slack transport without a webhook URL', () => {
+    expect(() => resolveConfig({ env: { ...base, ENGAGEMENT_TRANSPORT: 'slack' } })).toThrow(
+      /requires SLACK_OPS_WEBHOOK_URL/,
+    );
+    expect(() =>
+      resolveConfig({
+        env: { ...base, ENGAGEMENT_TRANSPORT: 'slack', SLACK_OPS_WEBHOOK_URL: ' ' },
+      }),
+    ).toThrow(/requires SLACK_OPS_WEBHOOK_URL/);
+  });
+
+  it('never carries a webhook URL that the transport would not use', () => {
+    // dev transport + a URL in the environment: the config does not pass it on.
+    const c = resolveConfig({ env: { ...base, SLACK_OPS_WEBHOOK_URL: WEBHOOK } });
+    expect(c.transport).toBe('dev');
+    expect(c.slackWebhookUrl).toBeUndefined();
+    expect(JSON.stringify(c)).not.toContain('hooks.slack.example');
+  });
+
+  it('rejects an unknown transport name', () => {
+    expect(() => resolveConfig({ env: { ...base, ENGAGEMENT_TRANSPORT: 'pagerduty' } })).toThrow(
+      /must be "dev" or "slack"/,
+    );
+  });
+
+  it('reads the numbers and rejects nonsense', () => {
+    const c = resolveConfig({
+      env: {
+        ...base,
+        ENGAGEMENT_ALERT_RATE_MAX: '2',
+        ENGAGEMENT_ALERT_RATE_WINDOW_MS: '30000',
+        ENGAGEMENT_DLQ_THRESHOLD: '10',
+        ENGAGEMENT_DLQ_POLL_MS: '5000',
+      },
+    });
+    expect(c.rateLimit).toEqual({ max: 2, windowMs: 30_000 });
+    expect(c.dlq).toMatchObject({ threshold: 10, pollMs: 5000 });
+
+    for (const bad of ['0', '-1', 'soon', '1.5']) {
+      expect(() => resolveConfig({ env: { ...base, ENGAGEMENT_ALERT_RATE_MAX: bad } })).toThrow(
+        /ENGAGEMENT_ALERT_RATE_MAX must be an integer/,
+      );
+    }
+  });
+
+  it('watches the groups it is given, trimmed, and ALL of its own groups by default', () => {
+    expect(
+      resolveConfig({
+        env: { ...base, ENGAGEMENT_DLQ_GROUPS: 'engagement.ops, accounting ,engagement.cdp' },
+      }).dlq.groups,
+    ).toEqual(['engagement.ops', 'accounting', 'engagement.cdp']);
+    expect(resolveConfig({ env: { ...base, ENGAGEMENT_DLQ_GROUPS: ' ' } }).dlq.groups).toEqual([
+      ...KNOWN_GROUPS,
+    ]);
+    // Every group this service actually runs is in it — the point of the default.
+    expect([...KNOWN_GROUPS]).toEqual(['engagement.ops', 'engagement.cdp', 'engagement.crm']);
+    // KNOWN_GROUPS is the default, and it can only know this service's own groups: production must list
+    // every group on the bus, other windows' included.
+    expect(resolveConfig({ env: base }).dlq.groups).toEqual([...KNOWN_GROUPS]);
+  });
+
+  it('takes an explicit organization and directory', () => {
+    const c = resolveConfig({
+      env: {
+        ...base,
+        ENGAGEMENT_ORGANIZATION_ID: '99999999-9999-4999-8999-999999999999',
+        ENGAGEMENT_DIR: '/var/tmp/alerts',
+      },
+    });
+    expect(c.organizationId).toBe('99999999-9999-4999-8999-999999999999');
+    expect(c.dir).toBe('/var/tmp/alerts');
+  });
+});
+
+describe('resolveConfig — the CDP side (#554)', () => {
+  it('is OFF by default, on the memory adapter', () => {
+    const c = resolveConfig({ env: base });
+    expect(c.cdp).toEqual({ enabled: false, adapter: 'memory' });
+  });
+
+  it('turns on with the memory adapter outside production', () => {
+    const c = resolveConfig({ env: { ...base, ENGAGEMENT_CDP_ENABLED: '1' } });
+    expect(c.cdp).toMatchObject({ enabled: true, adapter: 'memory' });
+  });
+
+  // In production the ops transport must be slack anyway (the dev sink is refused), so these set it: the
+  // point here is the CDP refusal, not the one the transport tests already cover.
+  const prodBase = { ...base, ENGAGEMENT_TRANSPORT: 'slack', SLACK_OPS_WEBHOOK_URL: WEBHOOK };
+
+  it('refuses the memory adapter in production when enabled: nothing would be sent', () => {
+    expect(() =>
+      resolveConfig({
+        env: { ...prodBase, ENGAGEMENT_CDP_ENABLED: '1', ENGAGEMENT_CDP_ADAPTER: 'memory' },
+        nodeEnv: 'production',
+      }),
+    ).toThrow(/memory is refused in production/);
+  });
+
+  it('allows the memory adapter in production while the consumer is OFF', () => {
+    const c = resolveConfig({ env: prodBase, nodeEnv: 'production' });
+    expect(c.cdp).toEqual({ enabled: false, adapter: 'memory' });
+  });
+
+  it('rejects an unknown adapter name', () => {
+    expect(() => resolveConfig({ env: { ...base, ENGAGEMENT_CDP_ADAPTER: 'segment' } })).toThrow(
+      /must be "memory" or "rudderstack"/,
+    );
+  });
+
+  it('requires a write key and a data plane for rudderstack when enabled', () => {
+    expect(() =>
+      resolveConfig({
+        env: { ...base, ENGAGEMENT_CDP_ENABLED: '1', ENGAGEMENT_CDP_ADAPTER: 'rudderstack' },
+      }),
+    ).toThrow(/RUDDERSTACK_WRITE_KEY and RUDDERSTACK_DATA_PLANE_URL/);
+  });
+
+  it('reads the rudderstack credentials and the regulation block', () => {
+    const c = resolveConfig({
+      env: {
+        ...base,
+        ENGAGEMENT_CDP_ENABLED: '1',
+        ENGAGEMENT_CDP_ADAPTER: 'rudderstack',
+        RUDDERSTACK_WRITE_KEY: 'write-key-words-only',
+        RUDDERSTACK_DATA_PLANE_URL: 'https://dataplane.rudderstack.example',
+        RUDDERSTACK_CONTROL_PLANE_URL: 'https://api.rudderstack.example',
+        RUDDERSTACK_ACCESS_TOKEN: 'control-plane-token-words-only',
+        RUDDERSTACK_SOURCE_IDS: 'source-alpha, source-beta',
+      },
+    });
+    expect(c.cdp).toEqual({
+      enabled: true,
+      adapter: 'rudderstack',
+      writeKey: 'write-key-words-only',
+      dataPlaneUrl: 'https://dataplane.rudderstack.example',
+      regulation: {
+        controlPlaneUrl: 'https://api.rudderstack.example',
+        accessToken: 'control-plane-token-words-only',
+        sourceIds: ['source-alpha', 'source-beta'],
+      },
+    });
+  });
+
+  it('leaves the regulation block out unless all three parts are set', () => {
+    const c = resolveConfig({
+      env: {
+        ...base,
+        ENGAGEMENT_CDP_ENABLED: '1',
+        ENGAGEMENT_CDP_ADAPTER: 'rudderstack',
+        RUDDERSTACK_WRITE_KEY: 'write-key-words-only',
+        RUDDERSTACK_DATA_PLANE_URL: 'https://dataplane.rudderstack.example',
+        RUDDERSTACK_CONTROL_PLANE_URL: 'https://api.rudderstack.example',
+      },
+    });
+    expect(c.cdp.regulation).toBeUndefined();
+  });
+
+  it('never carries rudderstack credentials when the adapter is memory', () => {
+    const c = resolveConfig({
+      env: { ...base, RUDDERSTACK_WRITE_KEY: 'write-key-words-only' },
+    });
+    expect(JSON.stringify(c)).not.toContain('write-key-words-only');
+  });
+});
+
+describe('buildCdpAdapter', () => {
+  it('builds the memory adapter by default', () => {
+    expect(buildCdpAdapter(resolveConfig({ env: base })).name).toBe('memory');
+  });
+
+  it('builds the rudderstack adapter from the config, keeping the key out of the object', () => {
+    const a = buildCdpAdapter(
+      resolveConfig({
+        env: {
+          ...base,
+          ENGAGEMENT_CDP_ENABLED: '1',
+          ENGAGEMENT_CDP_ADAPTER: 'rudderstack',
+          RUDDERSTACK_WRITE_KEY: 'write-key-words-only',
+          RUDDERSTACK_DATA_PLANE_URL: 'https://dataplane.rudderstack.example',
+        },
+      }),
+    );
+    expect(a.name).toBe('rudderstack');
+    expect(JSON.stringify(a)).not.toContain('write-key-words-only');
+  });
+});
+
+describe('resolveConfig — the CRM side (#555)', () => {
+  const prodBase = { ...base, ENGAGEMENT_TRANSPORT: 'slack', SLACK_OPS_WEBHOOK_URL: WEBHOOK };
+
+  it('is OFF by default, on the memory adapter and the mock token provider', () => {
+    const c = resolveConfig({ env: base });
+    expect(c.crm).toEqual({
+      enabled: false,
+      adapter: 'memory',
+      externalIdField: 'externalId',
+      adminApiUrl: 'http://localhost:9000',
+      tokenProvider: 'mock',
+    });
+  });
+
+  it('turns on with the memory adapter outside production', () => {
+    const c = resolveConfig({ env: { ...base, ENGAGEMENT_CRM_ENABLED: '1' } });
+    expect(c.crm).toMatchObject({ enabled: true, adapter: 'memory', tokenProvider: 'mock' });
+  });
+
+  it('refuses the memory adapter in production when enabled', () => {
+    expect(() =>
+      resolveConfig({
+        env: { ...prodBase, ENGAGEMENT_CRM_ENABLED: '1' },
+        nodeEnv: 'production',
+      }),
+    ).toThrow(/memory is refused in production/);
+  });
+
+  it('REFUSES the mock token provider in production: no real service principal', () => {
+    expect(() =>
+      resolveConfig({
+        env: {
+          ...prodBase,
+          ENGAGEMENT_CRM_ENABLED: '1',
+          ENGAGEMENT_CRM_ADAPTER: 'twenty',
+          TWENTY_BASE_URL: 'https://crm.example/rest',
+          TWENTY_API_KEY: 'twenty-api-key-words-only',
+          ENGAGEMENT_CRM_TOKEN_PROVIDER: 'mock',
+        },
+        nodeEnv: 'production',
+      }),
+    ).toThrow(/mock is refused in production/);
+  });
+
+  it('rejects unknown adapter and provider names', () => {
+    expect(() => resolveConfig({ env: { ...base, ENGAGEMENT_CRM_ADAPTER: 'hubspot' } })).toThrow(
+      /must be "memory" or "twenty"/,
+    );
+    expect(() =>
+      resolveConfig({ env: { ...base, ENGAGEMENT_CRM_TOKEN_PROVIDER: 'password' } }),
+    ).toThrow(/must be "mock" or "client_credentials"/);
+  });
+
+  it('requires a base URL and a key for twenty when enabled', () => {
+    expect(() =>
+      resolveConfig({
+        env: { ...base, ENGAGEMENT_CRM_ENABLED: '1', ENGAGEMENT_CRM_ADAPTER: 'twenty' },
+      }),
+    ).toThrow(/TWENTY_BASE_URL and TWENTY_API_KEY/);
+  });
+
+  it('reads the twenty settings, the external-id field and the Admin API URL', () => {
+    const c = resolveConfig({
+      env: {
+        ...base,
+        ENGAGEMENT_CRM_ENABLED: '1',
+        ENGAGEMENT_CRM_ADAPTER: 'twenty',
+        TWENTY_BASE_URL: 'https://crm.example/rest',
+        TWENTY_API_KEY: 'twenty-api-key-words-only',
+        TWENTY_EXTERNAL_ID_FIELD: 'platformCustomerId',
+        ADMIN_API_URL: 'http://core.internal:9000',
+      },
+    });
+    expect(c.crm).toMatchObject({
+      enabled: true,
+      adapter: 'twenty',
+      baseUrl: 'https://crm.example/rest',
+      apiKey: 'twenty-api-key-words-only',
+      externalIdField: 'platformCustomerId',
+      adminApiUrl: 'http://core.internal:9000',
+    });
+  });
+
+  it('never carries twenty credentials when the adapter is memory', () => {
+    const c = resolveConfig({ env: { ...base, TWENTY_API_KEY: 'twenty-api-key-words-only' } });
+    expect(JSON.stringify(c)).not.toContain('twenty-api-key-words-only');
+  });
+});
+
+describe('buildCrmAdapter / buildTokenProvider', () => {
+  it('builds the memory adapter by default', () => {
+    expect(buildCrmAdapter(resolveConfig({ env: base })).name).toBe('memory');
+  });
+
+  it('builds the twenty adapter, keeping the key out of the object', () => {
+    const a = buildCrmAdapter(
+      resolveConfig({
+        env: {
+          ...base,
+          ENGAGEMENT_CRM_ENABLED: '1',
+          ENGAGEMENT_CRM_ADAPTER: 'twenty',
+          TWENTY_BASE_URL: 'https://crm.example/rest',
+          TWENTY_API_KEY: 'twenty-api-key-words-only',
+        },
+      }),
+    );
+    expect(a.name).toBe('twenty');
+    expect(JSON.stringify(a)).not.toContain('twenty-api-key-words-only');
+  });
+
+  it('gives the mock token provider, named so nothing mistakes it for a principal', () => {
+    expect(buildTokenProvider(resolveConfig({ env: base })).name).toBe('mock');
+  });
+
+  it('THROWS for client_credentials rather than falling back to the mock (#565 is not built)', () => {
+    expect(() =>
+      buildTokenProvider(
+        resolveConfig({ env: { ...base, ENGAGEMENT_CRM_TOKEN_PROVIDER: 'client_credentials' } }),
+      ),
+    ).toThrow(/not implemented yet \(REQUEST #565\)/);
+  });
+});
+
+describe('buildTransport', () => {
+  it('builds the dev sink in the configured directory', () => {
+    const t = buildTransport(resolveConfig({ env: { ...base, ENGAGEMENT_DIR: 'alerts-here' } }));
+    expect(t.name).toBe('dev');
+  });
+
+  it('builds the Slack transport from the config', () => {
+    const t = buildTransport(
+      resolveConfig({
+        env: { ...base, ENGAGEMENT_TRANSPORT: 'slack', SLACK_OPS_WEBHOOK_URL: WEBHOOK },
+      }),
+    );
+    expect(t.name).toBe('slack');
+    expect(JSON.stringify(t)).not.toContain('hooks.slack.example');
+  });
+});

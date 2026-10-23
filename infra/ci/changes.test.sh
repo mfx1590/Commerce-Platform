@@ -74,6 +74,7 @@ check 'a keycloak realm'    'infra/keycloak/staff-realm.json'                   
 check 'the customers realm'  'infra/keycloak/customers-realm.json'              'code=false images=false terraform=false e2e=true helm=true observ=false perf=false'
 check 'the derived realm'    'infra/deploy/keycloak/derive-customers-realm.mjs' 'code=false images=false terraform=false e2e=false helm=true observ=false perf=false'
 check 'the openfga model'   'infra/openfga/model.fga'                           'code=false images=false terraform=false e2e=true helm=false observ=false perf=false'
+check 'the redpanda policy' 'infra/redpanda/topics.policy.json'                 'code=false images=false terraform=false e2e=true helm=false observ=false perf=false'
 # The charts and the ArgoCD manifests are their own group: nothing else needs re-checking for them.
 check 'the chart'           'infra/helm/platform-app/values.yaml'                'code=false images=false terraform=false e2e=false helm=true observ=false perf=false'
 check 'a chart template'    'infra/helm/platform-app/templates/deployment.yaml'  'code=false images=false terraform=false e2e=false helm=true observ=false perf=false'

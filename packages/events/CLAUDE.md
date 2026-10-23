@@ -12,7 +12,8 @@ since 0.3.0 fulfillment.{requested,picking,packed}, since 0.3.1 shipment.label_c
 since 0.3.3 stock_item.mapped plus stock.moved v2 (keyed by the stock item; `makeEvent` writes v2, v1 stays frozen),
 since 0.3.5 customer.export_requested v2 (`requested_by_type` staff | customer; v1 stays frozen),
 and since 0.3.6 customer.export_ready (ids and `expires_at` only). Since 0.4.0 (#530) also the Redpanda topic plan
-(`planTopics`, `ensureTopics`, `createKafka`; `src/topics.ts`) with the policy in infra/redpanda/topics.policy.json.
+(`planTopics`, `ensureTopics`, `createKafka`; `src/topics.ts`) with the policy in infra/redpanda/topics.policy.json, and since
+0.4.1 (#531) the wire format (`src/relay-message.ts`) and the producer side (`src/publisher.ts`) the relay, the consumer SDK and the replay share.
 
 ## Owner
 
@@ -25,6 +26,7 @@ changes via `CONTRACT CHANGE:` issue. Adding a field = new file `v<N+1>.json`, n
 - `pnpm --filter @platform/events test` — Vitest: every schema compiles, sample envelopes validate, PII/float/extra-field guards
 - `pnpm --filter @platform/events build | typecheck`
 - `pnpm db:migrate` applies `migrations/0100_outbox.sql` together with packages/db migrations.
+- `pnpm --filter @platform/events schemas:register [-- --dry-run]` — registers every schema in the registry idempotently (`infra/redpanda/register-schemas.mjs`; `SCHEMA_REGISTRY_URL`, default 127.0.0.1:18081); `schemas:lock` — accepts a compatible change or a new version into `schemas/published.lock.json` (refuses a breaking one). `test/schema-compat.test.ts` fails when a published version changed; `test/registry.test.ts` has a live block that skips with a printed reason when the registry is down.
 - `pnpm --filter @platform/events topics:create [-- --env ci --dry-run]` — creates every topic on the broker idempotently (`infra/redpanda/create-topics.mjs`; `KAFKA_BROKERS`, default 127.0.0.1:19092). `test/topics.test.ts` has a live block that skips with a printed reason when the broker is down.
 
 ## Public API (`@platform/events`)
@@ -34,7 +36,10 @@ changes via `CONTRACT CHANGE:` issue. Adding a field = new file `v<N+1>.json`, n
 - `createValidator()` → `{ validateEnvelope(event), validatePayload(topic, version, payload), ajv }`; one instance per process
 - `makeEvent({ topic, organizationId, storeId, aggregateType, aggregateId, payload, actor?, trace? })` → envelope for the latest version
 - `toOutboxRow(envelope)` → the column map for `INSERT INTO outbox`
-- Topics (0.4.0): `planTopics(policy, opts)`, `ensureTopics(admin, plan, { dryRun })`, `createKafka(opts)`, `brokersFromEnv()`, `dlqTopicName(groupId)`, `partitionKey(envelope)`, `retentionClassOf(topic, policy)`, `RETENTION_MS`, `DEFAULT_BROKERS`; types `TopicPolicy`, `TopicSpec`, `EnsureResult`
+- Topics (0.4.0): `planTopics(policy, opts)`, `ensureTopics(admin, plan, { dryRun })`, `createKafka(opts)`, `brokersFromEnv()`, `dlqTopicName(groupId)`, `partitionKey(envelope)`, `retentionClassOf(topic, policy)`, `RETENTION_MS`, `DEFAULT_BROKERS`; types `TopicPolicy`, `TopicSpec`, `EnsureResult`, `TopicAdmin` (the narrow admin slice `ensureTopics` takes)
+- Consumer SDK (0.6.0, per-batch commit + `onBatch` seam since 0.6.1): `createConsumer(opts)` → `{ start, stop, stats, dlqTopic }`, `createMemoryProcessedStore`, `createPgProcessedStore(db, table)`, `readDeadLetters(groupId)`, `replayFromDlq(opts)`, `errorClassOf`; types `ProcessedStore`, `EventHandler`, `HandlerContext`, `DeadLetter`, `ConsumerLogLine`
+- Registry (0.5.0): `createRegistryClient({ url })`, `subjectFor(topic, version)`, `registrySchemas()`, `registerAllSchemas(client, opts)`, `resolveSchemaIds(client)`, `schemaKey`; checker `backwardIncompatibilities(old, new)` / `isBackwardCompatible` / `formatIncompatibilities`; lock `currentLockEntries` / `compareWithLock` / `explainVerdict` / `buildLock`; `inlineCommonRefs` / `canonicalJson` / `schemaDigest`; `HEADER_SCHEMA_ID`
+- Bus (0.4.1): `outboxRowToEnvelope(row)`, `envelopeToMessage(envelope, producer)` → `{ key, value, headers }`, `decodeMessage(raw)` → `{ envelope, outboxId, headers }`, `HEADER_*` names; `createKafkaPublisher(kafka, opts)` → `MessagePublisher` (send / connect / disconnect), `assertTopicsPresent(admin, topics)`
 
 ## Rules for producers and consumers
 
@@ -43,6 +48,8 @@ changes via `CONTRACT CHANGE:` issue. Adding a field = new file `v<N+1>.json`, n
 - Money is integer minor units + ISO-4217 currency. Timestamps are RFC-3339 UTC.
 - `event_id` (= the outbox id) is the idempotency key for every consumer and travels as a message header; the Kafka _partition_ key is `store_id` (or `organization_id` for organization-scope events) so per-store order is kept (#530, `partitionKey`). Envelope `version` selects the payload schema.
 - Consumers accept unknown topics and higher versions gracefully (log and skip); they never crash on them.
+- Consumers use `createConsumer` (dedupe on `outbox_id`, retries, `dlq.<groupId>`, commit after the handler); the DLQ carries no payload. The three in-core outbox consumers stay in-process (Phase 4 decision).
+- A PUBLISHED schema version changes only backward-compatibly, and only through `schemas:lock` (#532); anything breaking is a new `v<N+1>.json`. Registry subjects are per (topic, version), BACKWARD each.
 
 ## Constraints
 

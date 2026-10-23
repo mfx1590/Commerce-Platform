@@ -138,7 +138,7 @@ Admin API 0.3.0 has **no order-edit operation**: these are module functions (tes
   (`GET /store/customers/me/orders`, newest first). Both use one rule for a signed-in customer: orders linked to
   the customer (`customer_id`), plus guest orders with the token's email **only when the token says the email is
   verified** (#303). The customer lookup itself lives in the customers module.
-- Admin API: `listAdminOrders(client, storeId, { status, payment_status, fulfillment_status, q, placed_from, placed_to, sort, order, page, limit })`
+- Admin API: `listAdminOrders(client, storeId, { status, payment_status, fulfillment_status, q, customer_id, placed_from, placed_to, sort, order, page, limit })` (`customer_id`: only that customer's orders, combined with the other filters — #569; a customer of another store finds nothing, because the query runs on the store-scoped client)
   (`q` = `#display_id` / display id exact, otherwise email substring; `sort` placed_at | display_id | total |
   status per 0.2.0), `getAdminOrder(client, id)` / `renderAdminOrder(tx, id)` (payments, refunds, shipments +
   items, returns + items, `cancel_reason`, metadata). Routes in `src/http/admin-routes.ts` with the spec's
