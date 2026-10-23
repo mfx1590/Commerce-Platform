@@ -271,6 +271,28 @@ reference_type?, reference_id?, expected_minor?, actual_minor?, difference_minor
   `describe.runIf(odooUp)` block that authenticates and lists companies / accounts when `ODOO_URL` answers, skipped
   with the reason otherwise; the live sync is waived to the launch checklist until then.
 
+## Finance read API (#551)
+
+`src/api/`: the accounting service's own HTTP surface under `/accounting/v1/…`, read-only, served next to `/health`
+by `src/main.ts`. The contract is `packages/contracts/openapi/accounting.yaml` (CONTRACT CHANGE #572, contracts 0.4.28),
+resolved through the `@platform/contracts` package at start (`ACCOUNTING_SPEC_PATH` overrides it). The server reads the operations, their query parameters and
+their `x-permission` from the yaml at construction (`loadApiSpec`), so the permission matrix it enforces is the
+contract's.
+
+- **Authentication** — a Keycloak staff-realm JWT through `@platform/auth-sdk` (`createStaffTokenVerifier`), the
+  subject must be an active `staff_user`; `Bearer dev:<keycloak_subject>` only with `ACCOUNTING_DEV_TOKENS=1` outside
+  production (the core's `CORE_DEV_TOKENS` shape). 401 `unauthorized` otherwise.
+- **Authorization** — every operation is `finance` on `organization:hq`, asked of OpenFGA for the `staff_user.id`
+  (`can`); a store admin, however many stores, is 403 `forbidden` with `details: { relation, object }`; OpenFGA
+  unreachable is 503, fail closed. UI gating is a convenience; this check is the boundary.
+- **Operations** — `listLegalEntityBooks`, `getTrialBalance` (per-currency totals whose `difference_minor` is the
+  #552 number), `listJournalLines` (paginated; filters `from`, `to`, `currency`, `journal`, `account_code`,
+  `reference_type`, `reference_id`, `source_event_id`, `erp=posted|unposted`), `listParkedEvents` (ids and times,
+  never the envelope), `listPayouts`, `getPayout` (lines with verdicts), `getErpSyncStatus`. Lists page with `page` / `limit` (default 20, max 100), `getPayout`'s lines too. Unknown or malformed query
+  parameters are a 400 `validation_error` naming them (the contract's shared `BadRequest`); a legal entity or payout outside the organization is a 404.
+  Money is integer minor with its currency; nothing is summed across currencies. Logs carry operation id, status and
+  duration — never a body.
+
 ## Out of the Phase 4 gate (manager decision 4)
 
 - **COGS**: no event carries a unit cost (`shipment.shipped` has none, `stock.moved` has none). Journal `cogs` stays
@@ -294,7 +316,7 @@ creates `dlq.accounting.ledger` itself on first start.
 
 ## Tests
 
-`pnpm --filter @platform/accounting test` — 64 tests in six files:
+`pnpm --filter @platform/accounting test` — 73 tests in eight files:
 
 - `src/posting/posting.test.ts` — pure: the arithmetic, the worked example of every topic above, partial shipments,
   proportional refunds and cancellations, every defect class, the netted life of one order.
@@ -316,6 +338,10 @@ creates `dlq.accounting.ledger` itself on first start.
   creates nothing, a refused move reported while the rest continue and posted on the next run, a crash between create
   and mark recovered by ref, a code map with a missing Odoo account skipping only its entries; a live block for the
   owner's Odoo (skipped with the reason).
+- `src/api/spec.test.ts` — the contract as loaded (seven reads, all finance, 401/403) and the route matcher.
+- `test/api.test.ts` — the API over HTTP on the clean-month ledger with its payouts: 401 / 403 (store admin, analyst)
+  / 200 (finance, owner) on every operation, bodies validated against the contract's schemas, filters and pagination,
+  trial balance totals at zero, 404 / 400 cases, a log sweep.
 - `test/consumer-live.test.ts` — the consumer on the local Redpanda (prefixed topics and group, deleted afterwards):
   every event once, a redelivered `outbox_id` writes nothing, an unknown version is skipped, a shipment before its
   order is parked then applied, a genuinely bad shipment dead-letters with `ShipmentExceedsOrder` after the retries

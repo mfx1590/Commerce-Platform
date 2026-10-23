@@ -9,6 +9,10 @@ export interface AccountingConfig {
   once: boolean;
   onceIdleMs: number;
   retries: number;
+  /** `Bearer dev:<subject>` accepted on the read API (never in production). */
+  devTokens: boolean;
+  keycloakUrl: string | undefined;
+  keycloakRealm: string | undefined;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -30,5 +34,8 @@ export function resolveConfig(env: NodeJS.ProcessEnv, argv: string[]): Accountin
     once: argv.includes('--once'),
     onceIdleMs: intOf(env.ACCOUNTING_ONCE_IDLE_MS, 5_000, 'ACCOUNTING_ONCE_IDLE_MS'),
     retries: intOf(env.ACCOUNTING_RETRIES, 5, 'ACCOUNTING_RETRIES'),
+    devTokens: env.ACCOUNTING_DEV_TOKENS === '1' && env.NODE_ENV !== 'production',
+    keycloakUrl: env.KEYCLOAK_URL,
+    keycloakRealm: env.KEYCLOAK_REALM_STAFF,
   };
 }
