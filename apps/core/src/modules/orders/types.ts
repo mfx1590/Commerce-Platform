@@ -52,6 +52,8 @@ export interface ListOrdersQuery {
   fulfillment_status?: FulfillmentStatus | undefined;
   /** display_id (exact) or email (substring, case-insensitive). */
   q?: string | undefined;
+  /** Only this customer's orders (#569); combined with the other filters. */
+  customer_id?: string | undefined;
   placed_from?: Date | undefined;
   placed_to?: Date | undefined;
   sort?: OrderSortField | undefined;

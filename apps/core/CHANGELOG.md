@@ -2,6 +2,14 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-23 · listOrders filters by customer (CONTRACT CHANGE #569, contracts 0.4.27)
+
+- `GET /admin/stores/{storeId}/orders?customer_id=<uuid>` (Admin API 0.4.24): only that customer's orders,
+  combined with `status` and the other filters; permission unchanged (viewer). A malformed value is the house
+  400 (`details.customer_id: 'uuid'`); an unknown customer is an empty page; a customer of another store finds
+  nothing — the predicate runs inside the store-scoped (RLS) query, tested with the WHERE pointed at the other
+  store on a client scoped to this one.
+
 ### 2026-10-20 · outbox scripts for window 14 (REQUEST #538)
 
 - `package.json`: `outbox:relay` (`tsx src/outbox/relay-cli.ts`, #531) and `outbox:replay`
