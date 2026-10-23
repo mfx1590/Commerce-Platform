@@ -5,9 +5,11 @@
 // gitleaks rule in Memory-main): the fixtures use words.
 
 import { SEED_IDS } from '@platform/db';
+import { CDP_GROUP_ID } from './cdp/consumer.js';
 import { OPS_GROUP_ID } from './ops/consumer.js';
 
 export type TransportName = 'dev' | 'slack';
+export type CdpAdapterName = 'memory' | 'rudderstack';
 
 export interface EngagementConfig {
   /** The `platform_app` role (RLS applies); the service runs an organization-scoped client. */
@@ -21,6 +23,18 @@ export interface EngagementConfig {
   slackWebhookUrl?: string;
   rateLimit: { max: number; windowMs: number };
   dlq: { groups: string[]; threshold: number; pollMs: number };
+  cdp: CdpConfig;
+}
+
+export interface CdpConfig {
+  /** `false` keeps the CDP consumer off entirely (the default until a RudderStack account exists). */
+  enabled: boolean;
+  adapter: CdpAdapterName;
+  /** Only when `adapter === 'rudderstack'`. */
+  writeKey?: string;
+  dataPlaneUrl?: string;
+  /** Only when all three are set: without them a suppression throws rather than silently doing nothing. */
+  regulation?: { controlPlaneUrl: string; accessToken: string; sourceIds: string[] };
 }
 
 export interface ResolveOptions {
@@ -28,6 +42,14 @@ export interface ResolveOptions {
   /** Defaults to `env.NODE_ENV`. */
   nodeEnv?: string;
 }
+
+/**
+ * Every consumer group this service knows about, and the default for `ENGAGEMENT_DLQ_GROUPS`. A group missing
+ * from the watch list is a group whose dead letters nobody is told about, so the default is "all of mine"
+ * rather than "the one I am" (#562 review). IN PRODUCTION the variable must list EVERY group on the bus,
+ * including other windows' (`accounting`, …): this default can only know its own.
+ */
+export const KNOWN_GROUPS = [OPS_GROUP_ID, CDP_GROUP_ID] as const;
 
 const DEFAULTS = {
   dir: '.engagement',
@@ -74,7 +96,9 @@ export function resolveConfig(opts: ResolveOptions = {}): EngagementConfig {
     throw new Error('ENGAGEMENT_TRANSPORT=slack requires SLACK_OPS_WEBHOOK_URL');
   }
 
-  const groups = (env.ENGAGEMENT_DLQ_GROUPS?.trim() || OPS_GROUP_ID)
+  const cdp = resolveCdp(env, isProduction);
+
+  const groups = (env.ENGAGEMENT_DLQ_GROUPS?.trim() || KNOWN_GROUPS.join(','))
     .split(',')
     .map((g) => g.trim())
     .filter(Boolean);
@@ -102,5 +126,53 @@ export function resolveConfig(opts: ResolveOptions = {}): EngagementConfig {
       ),
       pollMs: intFrom(env.ENGAGEMENT_DLQ_POLL_MS, DEFAULTS.dlqPollMs, 'ENGAGEMENT_DLQ_POLL_MS'),
     },
+    cdp,
+  };
+}
+
+/**
+ * The CDP side (#554). OFF by default: no RudderStack account exists, and a consumer group that reads the bus
+ * and sends nowhere is worse than one that is not running. `memory` is refused in production for the same
+ * reason the dev sink is — CDP calls into a process's memory are calls nobody receives.
+ */
+function resolveCdp(env: Record<string, string | undefined>, isProduction: boolean): CdpConfig {
+  const enabled = (env.ENGAGEMENT_CDP_ENABLED?.trim() || '0') === '1';
+  const adapter = (env.ENGAGEMENT_CDP_ADAPTER?.trim() || 'memory') as CdpAdapterName;
+  if (adapter !== 'memory' && adapter !== 'rudderstack') {
+    throw new Error(`ENGAGEMENT_CDP_ADAPTER must be "memory" or "rudderstack" (got "${adapter}")`);
+  }
+  if (enabled && isProduction && adapter === 'memory') {
+    throw new Error(
+      'ENGAGEMENT_CDP_ADAPTER=memory is refused in production (nothing would be sent)',
+    );
+  }
+
+  if (adapter === 'memory') return { enabled, adapter };
+
+  const writeKey = env.RUDDERSTACK_WRITE_KEY?.trim() || undefined;
+  const dataPlaneUrl = env.RUDDERSTACK_DATA_PLANE_URL?.trim() || undefined;
+  if (enabled && (!writeKey || !dataPlaneUrl)) {
+    throw new Error(
+      'ENGAGEMENT_CDP_ADAPTER=rudderstack requires RUDDERSTACK_WRITE_KEY and RUDDERSTACK_DATA_PLANE_URL',
+    );
+  }
+
+  const controlPlaneUrl = env.RUDDERSTACK_CONTROL_PLANE_URL?.trim();
+  const accessToken = env.RUDDERSTACK_ACCESS_TOKEN?.trim();
+  const sourceIds = (env.RUDDERSTACK_SOURCE_IDS?.trim() || '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const regulation =
+    controlPlaneUrl && accessToken && sourceIds.length
+      ? { controlPlaneUrl, accessToken, sourceIds }
+      : undefined;
+
+  return {
+    enabled,
+    adapter,
+    ...(writeKey ? { writeKey } : {}),
+    ...(dataPlaneUrl ? { dataPlaneUrl } : {}),
+    ...(regulation ? { regulation } : {}),
   };
 }

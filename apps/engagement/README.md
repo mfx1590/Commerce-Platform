@@ -1,7 +1,7 @@
 # @platform/engagement
 
-The engagement service (window 16, Phase 4): bus consumers for **ops alerts** (#553), and — as the following
-tasks land — the CDP mapper (#554), CRM sync (#555) and the support-context API (#556). Owner: window 16.
+The engagement service (window 16, Phase 4): bus consumers for **ops alerts** (#553) and the **CDP** (#554),
+and — as the following tasks land — CRM sync (#555) and the support-context API (#556). Owner: window 16.
 Run/test commands and the public API: [CLAUDE.md](./CLAUDE.md); the outbox/bus design: ADR 0003; the consumer
 SDK: `packages/events/README.md`.
 
@@ -21,19 +21,26 @@ reads and writes none of it.
 
 ### Environment
 
-| Variable                          | Default           | Meaning                                                                            |
-| --------------------------------- | ----------------- | ---------------------------------------------------------------------------------- |
-| `DATABASE_URL_APP`                | —                 | the `platform_app` role (RLS applies); required                                    |
-| `ENGAGEMENT_ORGANIZATION_ID`      | the seeded HQ     | the organization this process serves                                               |
-| `ENGAGEMENT_TRANSPORT`            | `dev`             | `dev` (a local file) or `slack`; **`dev` is refused in production**                |
-| `ENGAGEMENT_DIR`                  | `.engagement`     | where the dev sink writes (git-ignored)                                            |
-| `SLACK_OPS_WEBHOOK_URL`           | —                 | the incoming-webhook URL, **environment only**; required for `slack`, never logged |
-| `ENGAGEMENT_ALERT_RATE_MAX`       | `5`               | alerts per (rule, store) per window                                                |
-| `ENGAGEMENT_ALERT_RATE_WINDOW_MS` | `900000` (15 min) | the window                                                                         |
-| `ENGAGEMENT_DLQ_GROUPS`           | `engagement.ops`  | comma-separated consumer groups whose DLQ depth is watched                         |
-| `ENGAGEMENT_DLQ_THRESHOLD`        | `1`               | alert when a group's live dead-letter count reaches this                           |
-| `ENGAGEMENT_DLQ_POLL_MS`          | `60000`           | poll interval for the depth watch                                                  |
-| `KAFKA_BROKERS`                   | `127.0.0.1:19092` | read by `@platform/events` (`createKafka`)                                         |
+| Variable                          | Default            | Meaning                                                                            |
+| --------------------------------- | ------------------ | ---------------------------------------------------------------------------------- |
+| `DATABASE_URL_APP`                | —                  | the `platform_app` role (RLS applies); required                                    |
+| `ENGAGEMENT_ORGANIZATION_ID`      | the seeded HQ      | the organization this process serves                                               |
+| `ENGAGEMENT_TRANSPORT`            | `dev`              | `dev` (a local file) or `slack`; **`dev` is refused in production**                |
+| `ENGAGEMENT_DIR`                  | `.engagement`      | where the dev sink writes (git-ignored)                                            |
+| `SLACK_OPS_WEBHOOK_URL`           | —                  | the incoming-webhook URL, **environment only**; required for `slack`, never logged |
+| `ENGAGEMENT_ALERT_RATE_MAX`       | `5`                | alerts per (rule, store) per window                                                |
+| `ENGAGEMENT_ALERT_RATE_WINDOW_MS` | `900000` (15 min)  | the window                                                                         |
+| `ENGAGEMENT_DLQ_GROUPS`           | all `engagement.*` | groups whose DLQ depth is watched; **production must list every group on the bus** |
+| `ENGAGEMENT_DLQ_THRESHOLD`        | `1`                | alert when a group's live dead-letter count reaches this                           |
+| `ENGAGEMENT_DLQ_POLL_MS`          | `60000`            | poll interval for the depth watch                                                  |
+| `KAFKA_BROKERS`                   | `127.0.0.1:19092`  | read by `@platform/events` (`createKafka`)                                         |
+| `ENGAGEMENT_CDP_ENABLED`          | `0`                | `1` starts the CDP consumer (off until an account exists)                          |
+| `ENGAGEMENT_CDP_ADAPTER`          | `memory`           | `memory` or `rudderstack`; **`memory` is refused in production when enabled**      |
+| `RUDDERSTACK_WRITE_KEY`           | —                  | the source write key, **environment only**, never logged                           |
+| `RUDDERSTACK_DATA_PLANE_URL`      | —                  | the data plane, e.g. `https://hosted.rudderlabs.example`                           |
+| `RUDDERSTACK_CONTROL_PLANE_URL`   | —                  | suppressions only (a different credential from the write key)                      |
+| `RUDDERSTACK_ACCESS_TOKEN`        | —                  | suppressions only; without it a suppression **throws** instead of doing nothing    |
+| `RUDDERSTACK_SOURCE_IDS`          | —                  | comma-separated source ids a suppression applies to                                |
 
 Locally: `.env` with the DB rows (loopback **127.0.0.1**, not `localhost` — Memory-main's IPv6 trap), nothing
 else, then `pnpm --filter @platform/engagement dev`. Make a payment fail and
@@ -104,9 +111,96 @@ beginning, so there is no offset to keep and nothing to dedupe. The alert counts
 and lists the event topics — all there is to say, since a dead letter carries no payload, and enough to tell
 "one poison message" from "the downstream API is down".
 
+**`ENGAGEMENT_DLQ_GROUPS` must name every group in production.** The default is every group this service runs
+(`engagement.ops`, `engagement.cdp`) — "all of mine" rather than "the one I am", because a group missing from
+the list is a group whose dead letters nobody is ever told about. But a default can only know its own groups:
+other windows' consumers (`accounting`, and whatever Phase 5 adds) are invisible to it, so in production the
+variable is set explicitly, and listing them all is the whole point of the watch. `KNOWN_GROUPS` in
+`src/config.ts` is the default's source, so a new consumer group here means a new entry there.
+
 A group whose DLQ cannot be read (the topic does not exist because the group never dead-lettered anything, or
 the broker is down) is reported as depth 0 and logged — never an alert, never a throw. The watch must not
 become the thing that takes the service down. The rate limit keeps a standing backlog from paging every minute.
+
+## CDP (#554)
+
+Consumer group **`engagement.cdp`**, same SDK and same marks as the ops consumer. What goes where is
+`data/cdp/tracking-plan.json` — a reviewed artefact, not documentation written afterwards — and
+`src/cdp/mapper.ts` executes it. A test asserts the two agree **in both directions**, and that the plan's
+mapped and unmapped lists together cover every topic in the events contract exactly once: a new event in
+`packages/events` fails the suite until someone writes down which it is, so it can be neither silently
+forgotten nor silently sent to a third party.
+
+9 topics are mapped — `customer.created` / `customer.updated` to `identify`, `customer.erased` to
+`suppress`, and `order.placed`, `order.cancelled`, `payment.captured`, `refund.issued`, `shipment.shipped`,
+`return.requested` to `track`. The other 29 are listed as unmapped with a reason. `data/cdp/README.md` holds
+the rules and the reasoning; this section is how the code implements them.
+
+### Consent
+
+Read-only, from the **`customer.consent` projection** (packages/db 0005, which the core's consent ledger
+rewrites in the same transaction as each 0194 `customer_consent` row), **evaluated at processing time** —
+manager ruling, 2026-10-23. Never the ledger rows: window 13 owns their semantics, and "the newest row wins"
+is theirs to change. If the projection's shape is ever not enough, that is a `REQUEST:` to window 13, not a
+ledger read here. Purpose: `marketing_email`, the only one 0194 allows.
+
+`customer.created` and `customer.updated` carry a `marketing_consent` field in their payload and **the mapper
+ignores it on purpose.** A decision can therefore contradict the event's own snapshot — the event says
+granted, the customer revoked in between, nothing is sent. That is the ruling working, not a bug, and a test
+asserts the two events produce identical traits whatever that field says.
+
+`customer.erased` is the one call **not** consent-gated: a suppression must go out precisely for the customer
+who withdrew everything, and it still goes out when the customer row has already been deleted.
+
+**The gate is a deliberate default pending a legal answer.** Whether analytics tracking needs consent at all,
+and whether pseudonymous tracking of a guest is allowed, are on the owner's lawyer list (manager, 2026-10-23).
+Until they come back: nothing without granted `marketing_email` for that store, and a guest event — no
+`customer_id`, only an `email_hash` — is **dropped** rather than tracked pseudonymously. No CDP-specific
+consent purpose is to be invented meanwhile. So guest orders do not reach the CDP: that is known, not missed.
+
+### Two clients, for a structural reason
+
+The CDP consumer runs **two** database clients:
+
+- the **organization** client writes the marks — `consumer_processed` is RLS kind `organization_only`, so a
+  store-scoped client can neither read nor write it;
+- a **store-scoped** client, built per event for the **event's own store**, reads the consent projection and
+  resolves the order's customer.
+
+An organization client could do both (`app.can_access_store` is true for any store in organization scope), so
+the second one is least privilege by choice: consent is per (customer, store, purpose) and 0194 says it is
+never propagated across stores, so scoping that read to the event's store makes a cross-store consent read
+impossible rather than merely wrong. A test proves another store's consent cannot grant a send.
+
+### Identity
+
+`customer_id` when known, else `email_hash`. The five order-scoped topics (`order.cancelled`,
+`payment.captured`, `refund.issued`, `shipment.shipped`, `return.requested`) carry **neither** in their
+payload, so the customer is read from the `order` row — in the **same query** as the consent projection.
+One read per event, and never two sources of truth about who an event is about.
+
+### What a dropped event leaves behind
+
+Every drop is one log line with a reason code (`consent_absent`, `consent_revoked`, `customer_erased`,
+`no_identity`, `customer_not_found`, `order_not_found`) and no customer data at all, because "the CDP is
+empty" is otherwise an unanswerable question. A dropped event **is** marked as processed: it is finished, not
+retried forever.
+
+### Adapters
+
+`CdpAdapter` has one method per call kind, so an adapter cannot silently skip one and the in-memory mock is a
+complete implementation rather than a partial stub.
+
+- **`memory`** (`MemoryCdpAdapter`): records identifies, tracks and suppressions and answers
+  `isSuppressed(id)`. The only adapter that runs today, and what the tests assert on.
+- **`rudderstack`** (`RudderStackCdpAdapter`): `POST /v1/identify` and `/v1/track` on the data plane, the
+  write key as HTTP Basic with an empty password; the key never leaves the object and never reaches a body, a
+  log line or an error. A suppression is **not** a data-plane call — it is `POST /v2/regulations`
+  (`Suppress_With_Delete`) on the control plane, which needs a personal access token rather than the write
+  key. Without that token and the source ids the adapter **throws**: an erasure that quietly fails is the one
+  failure this service must never hide. Refusals become `CdpError` with the status only; 429 and 5xx are
+  marked retryable. **Not exercised against a real workspace** — no account exists, which is also why
+  `ENGAGEMENT_CDP_ENABLED` defaults to `0`; live use is on the launch checklist.
 
 ## Transports
 
@@ -152,6 +246,18 @@ pnpm lint && pnpm typecheck && pnpm test --filter @platform/engagement
   not use is not carried.
 - `ops/dlq-watch.test.ts` — thresholds, several groups, the error-class counting, an unreadable DLQ, and the
   rate limit over a standing backlog, with the reader injected.
+- `cdp/mapper.test.ts` — every mapped topic against schema-validated fixtures, the two-way agreement with
+  the tracking plan, the deliberately dropped properties (tracking number, return reason, line titles and
+  SKUs) and the PII sweeps.
+- `cdp/consent.test.ts` — the gate (pure) over every outcome, and the two projection reads on a throwaway
+  database: the shape the core actually writes, another purpose not granting ours, a malformed block reading
+  as "never answered", per-store isolation, and that the read path writes nothing.
+- `cdp/adapter/adapter.test.ts` — the memory adapter, and RudderStack against an injected fetch (request
+  shape, Basic auth, the regulation call, the refusal to suppress without a control-plane token, and that the
+  write key never reaches a body, an error or the object).
+- `cdp/consumer.test.ts` — the decision path on a throwaway database (consent honoured over the payload's
+  snapshot, guest dropped, erasure suppressed even with the row gone, per-store consent) plus its own live
+  block.
 - `ops/consumer.test.ts` — on a throwaway database: the `consumer_processed` guarantees this consumer depends
   on, from the consumer's side (the PK as replay guard, a store-scoped session reading and writing none,
   `UPDATE` revoked, the `organization_id` default), store-code resolution, and the
@@ -169,7 +275,9 @@ pnpm lint && pnpm typecheck && pnpm test --filter @platform/engagement
 ## What is not here (and where it is tracked)
 
 - **A real Slack post.** Blocked on the owner's workspace; on the launch checklist.
-- The CDP mapper and tracking plan (#554), CRM sync (#555), the support-context API and Chatwoot webhook (#556).
+- **A real CDP call.** Blocked on the owner's RudderStack account; the consumer ships disabled
+  (`ENGAGEMENT_CDP_ENABLED=0`) and the live use is on the launch checklist.
+- CRM sync (#555), the support-context API and Chatwoot webhook (#556).
 - SMS/WhatsApp (Twilio), Novu and Klaviyo flows — deferred until accounts exist (manager decision on #553).
 - The returns portal and refund limits by role — a later wave across core, auth, storefront and admin.
 - This service's `COPY` lines in the Dockerfiles: the manager lands them as an integration commit on the 16.1

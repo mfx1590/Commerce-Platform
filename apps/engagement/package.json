@@ -1,9 +1,9 @@
 {
   "name": "@platform/engagement",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Engagement service: bus consumers for ops alerts, CDP, CRM and support context (#553-#556)",
+  "description": "Engagement service: bus consumers for ops alerts and the CDP, with CRM and support context to come (#553-#556)",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
