@@ -3,7 +3,8 @@
 ## Purpose
 
 The frozen API contract (tag contracts-v0.1): OpenAPI 3.1 for the **Store API** (`openapi/store-api.yaml`, what
-storefronts call) and the **Admin API** (`openapi/admin-api.yaml`, what the admin app calls), generated TypeScript
+storefronts call) the **Admin API** (`openapi/admin-api.yaml`, what the admin app calls) and the **Accounting API**
+(`openapi/accounting.yaml`, the accounting service's Finance reads, #572), generated TypeScript
 types, shared constants (headers, error codes, relations), and a Prism mock server. Feature windows build against the
 mock; the Integrator replaces mocks with the real core.
 
@@ -14,8 +15,8 @@ with the exact YAML diff; the Integrator applies accepted changes, bumps `info.v
 
 ## Run / test
 
-- `pnpm mock` (root) — Store API mock on http://localhost:4010, Admin API mock on http://localhost:4011 (`MOCK_STORE_PORT`, `MOCK_ADMIN_PORT` to override). Send `X-Publishable-Key: anything` / `Authorization: Bearer anything`; the mock only checks presence. Prism validates requests (400 on bad bodies) and responses.
-- `pnpm --filter @platform/contracts generate` — regenerates `src/generated/{store,admin}.ts` (openapi-typescript); committed, CI checks they are current.
+- `pnpm mock` (root) — Store API mock on http://localhost:4010, Admin API mock on http://localhost:4011, Accounting API mock on http://localhost:4013 (`MOCK_STORE_PORT`, `MOCK_ADMIN_PORT`, `MOCK_ACCOUNTING_PORT` to override). Send `X-Publishable-Key: anything` / `Authorization: Bearer anything`; the mock only checks presence. Prism validates requests (400 on bad bodies) and responses.
+- `pnpm --filter @platform/contracts generate` — regenerates `src/generated/{store,admin,accounting}.ts` (openapi-typescript); committed, CI checks they are current.
 - `pnpm --filter @platform/contracts test` — static spec checks (every admin operation has `x-permission` and documents 401/403, money is integer, eleven areas covered incl. marketing and search, the marketing, merchandising, media and promotion permission matrices, the `ProductFeed` / `allOf` sweep, the Store API `currency` query).
 - `pnpm --filter @platform/contracts test:contract` — boots both mocks on :4110/:4111 and walks the storefront journey + admin surfaces + the marketing flow (campaign → launch → attribution report, feed publish, review moderation) + merchandising (create rule → publish → list) + 0.4.1 (media upload params → add → move → delete, promotion `buy_x_get_y` create → patch, feed in `error`) + `Prefer: code=403` refusals; fails if an example violates its schema.
 - `pnpm --filter @platform/contracts build | typecheck`
@@ -24,6 +25,7 @@ with the exact YAML diff; the Integrator applies accepted changes, bumps `info.v
 
 - `import type { StorePaths, StoreComponents, StoreOperations } from '@platform/contracts'` (or `@platform/contracts/store` → `paths`, `components`, `operations`)
 - `import type { AdminPaths, AdminComponents, AdminOperations } from '@platform/contracts'` (or `@platform/contracts/admin`)
+- `import type { AccountingPaths, AccountingComponents, AccountingOperations } from '@platform/contracts'` (or `@platform/contracts/accounting`)
 - `HEADERS` (`X-Publishable-Key`, `Idempotency-Key`, `X-Request-Id`), `MOCK_URLS`, `ERROR_CODES` / `ErrorCode`, `RELATIONS` / `Relation`, `CONTRACTS_VERSION`
 - Example: `type Product = StoreComponents['schemas']['Product']`; `type ListOrders = AdminOperations['listOrders']`
 
@@ -40,6 +42,7 @@ with the exact YAML diff; the Integrator applies accepted changes, bumps `info.v
 - 0.4.3 (CONTRACT CHANGE #225 + #228; 105 operations): shipment pick/pack — `POST /admin/shipments/{shipmentId}/pick|pack` + `GET /admin/stores/{storeId}/pick-lists` (`operations` on `organization:hq`), `Shipment.status` += `picking`/`packed` (db migration 0160, events 0.3.0 `fulfillment.*`); Store API 0.3.1 — `price_changed` machine code on completeCart's 409 (nothing placed, cart re-priced, same Idempotency-Key retries).
 - 0.4.2 (CONTRACT CHANGE #172; 102 operations): order line-item edits before fulfilment — `PATCH /admin/stores/{storeId}/orders/{orderId}/line-items/{lineItemId}` (`updateOrderLineItem`, lower the quantity; totals recomputed, difference recorded in `order.metadata.edits`, no money moved) and `DELETE` (`cancelOrderLineItem`; the last line cannot be cancelled — cancel the order). Both `store_admin` on the store. Ships with db 0.3.0 (migration 0140 `webhook_event`, #187).
 - 0.4.11 (CONTRACT CHANGE #354 + #350; Admin API 0.4.9, 113 admin / 22 store operations): `capturePayment` (`store_admin`, optional partial `amount_minor`, 409 not authorized / over the authorisation, 422 manual provider) and `buyShipmentLabel` (`operations` on `organization:hq`, 409 unless `packed`, 422 manual carrier); shared `Unprocessable` response, machine code `provider_unsupported`; the order lifecycle (`pending → confirmed → processing → completed`, `cancelled` explicit) is documented on `Order`. Events 0.3.1 `shipment.label_created`. Store API 0.5.4: optional `Store.payment.methods` (`card` | `invoice`), optional until the core returns it.
+- 0.4.28 (CONTRACT CHANGE #572; Accounting API 0.1.0, 7 operations): `openapi/accounting.yaml`, GET only, every operation `finance` on `organization:hq` with 401 / 403, 404 on a path id, shared `BadRequest` 400 on query params; `*_minor` integers plus `currency`, never summed across currencies; producer apps/accounting.
 - Money `{ amount_minor, currency }`; ids uuid; timestamps RFC-3339; lists `{ page, limit, total, items }`; errors `{ code, message, details }`.
 - Mutations that create money movements (`completeCart`, `createRefund`) require `Idempotency-Key`.
 - Seed ids in examples match `SEED_IDS` in `@platform/db` (brand-a store = `…0031`).
