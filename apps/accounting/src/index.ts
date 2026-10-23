@@ -50,5 +50,6 @@ export {
 export type { ParkedEvent } from './projection.js';
 export * from './errors.js';
 export * from './reconcile/index.js';
+export * from './erp/index.js';
 export { consoleLogger, silentLogger, errorClassOf } from './log.js';
 export type { Logger, LogLine } from './log.js';

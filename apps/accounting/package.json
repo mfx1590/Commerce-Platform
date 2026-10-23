@@ -26,7 +26,8 @@
     "lint": "eslint . --max-warnings 0",
     "clean": "rm -rf dist .turbo",
     "reconcile": "node dist/reconcile/cli.js",
-    "fixtures:payouts": "tsx src/reconcile/fixtures/write.ts"
+    "fixtures:payouts": "tsx src/reconcile/fixtures/write.ts",
+    "erp:sync": "node dist/erp/cli.js"
   },
   "dependencies": {
     "@platform/db": "workspace:*",
