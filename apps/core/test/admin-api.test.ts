@@ -24,6 +24,7 @@ import { addLineItem, createCart, taxOn, updateCart } from '../src/modules/cart'
 import { completeCart, createPaymentSession } from '../src/modules/checkout';
 import {
   confirmOrder,
+  listAdminOrders,
   markPaymentCaptured,
   markShipmentCreated,
   markShipped,
@@ -1658,5 +1659,133 @@ describe('readiness with tax rates (#520): the seeded stores stay ready', () => 
       expect(readiness.missing_tax_countries).toEqual([]);
       expect(readiness.markets.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('listOrders customer_id (CONTRACT CHANGE #569)', () => {
+  const guest = { id: null, type: 'customer' as const, requestId: 'req-admin-569' };
+  const C = {
+    a1: '00000000-0000-4000-8000-00000000a569',
+    a2: '00000000-0000-4000-8000-00000000b569',
+    b1: '00000000-0000-4000-8000-00000000c569',
+  };
+  const ids: Record<string, string[]> = { a1: [], a2: [], b1: [] };
+
+  /** One placed order in `storeId` (cart + checkout modules), then linked to `customerId` by the owner role. */
+  async function placeFor(storeId: string, currency: string, country: string, customerId: string) {
+    const client = tenantClient({ organizationId: SEED_IDS.organization, storeIds: [storeId] });
+    const channel = await client.query<{ id: string }>(
+      `SELECT id FROM sales_channel WHERE store_id = $1 AND code = 'web'`,
+      [storeId],
+    );
+    const cart = await createCart(client, {
+      organizationId: SEED_IDS.organization,
+      storeId,
+      salesChannelId: channel.rows[0]!.id,
+    });
+    const variant = await client.query<{ id: string }>(
+      `SELECT v.id FROM product_variant v JOIN product p ON p.id = v.product_id AND p.status = 'published'
+       JOIN price pr ON pr.variant_id = v.id AND pr.currency = $2 AND pr.min_quantity = 1
+       JOIN inventory_level il ON il.stock_item_id = v.stock_item_id AND il.available >= 5
+       WHERE v.store_id = $1 ORDER BY v.sku DESC LIMIT 1`,
+      [storeId, currency],
+    );
+    await addLineItem(client, cart.id, { variant_id: variant.rows[0]!.id, quantity: 1 });
+    const option = await client.query<{ id: string }>(
+      `SELECT id FROM shipping_option WHERE store_id = $1 AND code = 'standard'`,
+      [storeId],
+    );
+    const address = {
+      first_name: 'Order',
+      last_name: 'Filter',
+      line1: 'Main Street 1',
+      city: country === 'GB' ? 'London' : 'Amsterdam',
+      postal_code: country === 'GB' ? 'N1 9GU' : '1015 CJ',
+      country,
+    };
+    await updateCart(client, cart.id, {
+      email: `filter-569@example.com`,
+      shipping_address: address,
+      billing_address: address,
+      shipping_option_id: option.rows[0]!.id,
+    });
+    await createPaymentSession(client, cart.id, { provider: 'manual' });
+    const { order } = await completeCart(client, {
+      cartId: cart.id,
+      idempotencyKey: `admin-569-${cart.id}`,
+      actor: guest,
+    });
+    await db.owner.query(`UPDATE "order" SET customer_id = $2 WHERE id = $1`, [
+      order.id,
+      customerId,
+    ]);
+    return order.id;
+  }
+
+  beforeAll(async () => {
+    for (const [key, storeId] of [
+      ['a1', A],
+      ['a2', A],
+      ['b1', B],
+    ] as const) {
+      await db.owner.query(
+        `INSERT INTO customer (id, organization_id, store_id, email, status)
+         VALUES ($1, $2, $3, $4, 'registered')`,
+        [C[key], SEED_IDS.organization, storeId, `customer-569-${key}@example.com`],
+      );
+    }
+    ids.a1!.push(await placeFor(A, 'EUR', 'NL', C.a1), await placeFor(A, 'EUR', 'NL', C.a1));
+    ids.a2!.push(await placeFor(A, 'EUR', 'NL', C.a2));
+    ids.b1!.push(await placeFor(B, 'GBP', 'GB', C.b1));
+    // one of a1's two orders is cancelled, so the filter can be combined with `status`
+    await db.owner.query(`UPDATE "order" SET status = 'cancelled' WHERE id = $1`, [ids.a1![1]]);
+  }, 120_000);
+
+  const orderIds = (body: { items: { id: string }[] }) => body.items.map((o) => o.id).sort();
+
+  it('returns only that customer’s orders, combines with status, an unknown uuid is an empty page', async () => {
+    const mine = await storeStaff.get(`/admin/stores/${A}/orders?customer_id=${C.a1}&limit=100`);
+    expect(mine.status).toBe(200);
+    spec.assertPage('OrderSummary', mine.body);
+    expect(orderIds(mine.body)).toEqual([...ids.a1!].sort());
+    expect(mine.body.total).toBe(2);
+    expect(
+      orderIds((await storeStaff.get(`/admin/stores/${A}/orders?customer_id=${C.a2}`)).body),
+    ).toEqual(ids.a2);
+
+    const cancelled = await storeStaff.get(
+      `/admin/stores/${A}/orders?customer_id=${C.a1}&status=cancelled`,
+    );
+    expect(orderIds(cancelled.body)).toEqual([ids.a1![1]]);
+    const confirmed = await storeStaff.get(
+      `/admin/stores/${A}/orders?customer_id=${C.a1}&status=confirmed`,
+    );
+    expect(orderIds(confirmed.body)).toEqual([ids.a1![0]]);
+
+    const unknown = await storeStaff.get(
+      `/admin/stores/${A}/orders?customer_id=00000000-0000-4000-8000-00000000dead`,
+    );
+    expect(unknown.status).toBe(200);
+    expect(unknown.body).toMatchObject({ total: 0, items: [] });
+  });
+
+  it('a customer of another store finds nothing — RLS, not only the WHERE — and a malformed value is 400', async () => {
+    // through the HTTP route: brand A's path, brand B's customer
+    const foreign = await storeStaff.get(`/admin/stores/${A}/orders?customer_id=${C.b1}`);
+    expect(foreign.status).toBe(200);
+    expect(foreign.body).toMatchObject({ total: 0, items: [] });
+    // the same query with the WHERE pointed at brand B, on a client scoped to brand A only: row security hides it
+    const scopedToA = tenantClient({ organizationId: SEED_IDS.organization, storeIds: [A] });
+    expect((await listAdminOrders(scopedToA, B, { customer_id: C.b1 })).total).toBe(0);
+    // … while brand B's own scope sees it (the fixture is real)
+    const scopedToB = tenantClient({ organizationId: SEED_IDS.organization, storeIds: [B] });
+    expect(
+      (await listAdminOrders(scopedToB, B, { customer_id: C.b1 })).items.map((o) => o.id),
+    ).toEqual(ids.b1);
+
+    const bad = await storeStaff.get(`/admin/stores/${A}/orders?customer_id=not-a-uuid`);
+    expect(bad.status).toBe(400);
+    spec.assertSchema('Error', bad.body);
+    expect(bad.body).toMatchObject({ code: 'validation_error', details: { customer_id: 'uuid' } });
   });
 });
