@@ -93,6 +93,32 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **Never commit a 64-hex email_hash fixture.** The `sha256` $def needs a real 64-hex value, so a word will not validate — compute it: `createHash('sha256').update('…').digest('hex')`, which is what apps/core does. I had three such literals before catching it; one would have reddened every open PR.
 - `pg` is deliberately NOT a dependency of this app: for a pool type use `Parameters<typeof createTenantClient>[0]`.
 
+## RESUME HERE if this window restarts (written 2026-10-23, usage pause at 80% of the 5h limit)
+
+Everything is built and verified. The ONLY thing left is opening #556's PR, and it is blocked on a merge.
+
+**State:** branch `engagement/phase4`, local head `2144d0b`, **7 commits ahead of `origin/engagement/phase4` (0538129) and nothing pushed.** Verified `343/343` with the broker up (18 files, ~81 s) and `334/9` offline. Lint, typecheck, ownership, prettier clean.
+
+**Blocked on:** #570 (the integration PR for CONTRACT CHANGE #569, `listOrders customer_id`). #556's code calls that parameter at `src/support/admin-api.ts`, and it was not on `origin/main` as of this note. The manager (session "Manager session eight") says when it merges. **Do not push before that word.**
+
+**Then, in this order:**
+1. `git fetch origin main && git merge origin/main --no-edit`
+2. `pnpm install --frozen-lockfile && pnpm build --filter "./packages/*"`
+3. Re-run the suite ONLY if that merge touched `apps/engagement/**`, `packages/events`, `packages/db` or `packages/auth-sdk` — and ask the manager for the machine first if the live blocks are needed (ONE WINDOW MEASURES AT A TIME). Otherwise the 343/343 above stands.
+4. `bash scripts/check-ownership.sh`, then push, then `gh pr create` with `Closes #556` on exactly ONE line (grep the body before opening — that is a standing manager rule).
+5. Message the manager the PR number + head sha, then HOLD all pushes.
+
+**What #556's PR body must contain** (all of it is already in apps/engagement/README.md, so draft from there):
+- the acceptance criteria ticked: routes + tests (401, 403 for a non-support role and for another store, 200), the webhook stub (HMAC, bad signature 401, replay-safe), README "Support", CHANGELOG, memory;
+- the verification table: 343/343 broker up, 334/9 offline, the three live blocks' topic counts and the cleanup assertion, lint/typecheck/ownership/prettier, and that the machine was granted and released;
+- the decisions, each with its reason: the AGENT's own token rather than a service principal; the gate order (authenticate → store → `support` on that store → read) so 401 lands before a parameter is parsed; **503 not 403** when OpenFGA is unreachable; a customer of another store getting the **same 404** as a non-existent one; nothing cached and `cache-control: no-store`; a partial answer visible in `notes` while a 401/403 is re-thrown;
+- the webhook's **documented limit** (no agent token, no service principal by ruling, no link table — so 202 with `persisted: false`, resolution happens on the dashboard request) and its replay guards' limits (freshness window, no-timestamp rejected, in-memory seen-once LRU);
+- the two extra commits: `ede629f` (pins `customer_id` to the contract, and that no e-mail or `q` reaches the query string) and `7af93c7` (`consent.ts` lifted to the top level, **no behaviour change**, `GateIdentity` declared there so a service-wide module does not depend on one consumer's types) — the manager asked for the no-behaviour-change wording in the body;
+- **launch-checklist items:** a real Chatwoot instance (the HMAC/freshness/replay guards are tested against generated signatures only), and a persisting conversation→customer link plus the principal a webhook would need;
+- **Integration 4 item:** a live `customer_id` call against the core. The support tests drive a FAKE reader, so they prove the gate order, header forwarding, normalisation and notes — NOT that the core honours the filter. Do not claim otherwise.
+
+**Window 16 is otherwise done:** #553 merged (via #563), #554 merged (via #564), #555 is PR #568 (Fable MERGE, in the queue), #556 ready. Contract changes #565 and #569 both filed and accepted. The service owns no table.
+
 ## Next — Phase 4 (issues, in order)
 - [x] #553 16.1 apps/engagement service + ops alerts (group `engagement.ops`) — PR #562, see Done
 - [ ] #554 16.2 CDP tracking plan + RudderStack mapper (group `engagement.cdp`)
