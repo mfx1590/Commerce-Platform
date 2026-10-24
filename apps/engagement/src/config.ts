@@ -27,6 +27,21 @@ export interface EngagementConfig {
   dlq: { groups: string[]; threshold: number; pollMs: number };
   cdp: CdpConfig;
   crm: CrmConfig;
+  support: SupportConfig;
+}
+
+export interface SupportConfig {
+  /** `false` keeps the HTTP server off (the default: nothing calls it until a Chatwoot app is configured). */
+  enabled: boolean;
+  port: number;
+  /** The core Admin API the agent's reads go to. */
+  adminApiUrl: string;
+  /** How many of a customer's orders to detail, newest first. Bounds the fan-out per request. */
+  maxOrders: number;
+  /** `CHATWOOT_WEBHOOK_SECRET`; without it the webhook route answers 503 rather than accepting blindly. */
+  chatwootSecret?: string;
+  /** `Bearer dev:<subject>` on the support routes, like CORE_DEV_TOKENS. Refused in production. */
+  devTokens: boolean;
 }
 
 export interface CrmConfig {
@@ -120,6 +135,7 @@ export function resolveConfig(opts: ResolveOptions = {}): EngagementConfig {
 
   const cdp = resolveCdp(env, isProduction);
   const crm = resolveCrm(env, isProduction);
+  const support = resolveSupport(env, isProduction);
 
   const groups = (env.ENGAGEMENT_DLQ_GROUPS?.trim() || KNOWN_GROUPS.join(','))
     .split(',')
@@ -151,6 +167,32 @@ export function resolveConfig(opts: ResolveOptions = {}): EngagementConfig {
     },
     cdp,
     crm,
+    support,
+  };
+}
+
+/**
+ * The support API (#556). OFF by default: it is an HTTP server, and one listening with nothing configured to
+ * call it is a surface for no benefit. `ENGAGEMENT_DEV_TOKENS` is refused in production outright — the same
+ * rule as `CORE_DEV_TOKENS`, and here it would hand out a support agent's view of any customer.
+ */
+function resolveSupport(
+  env: Record<string, string | undefined>,
+  isProduction: boolean,
+): SupportConfig {
+  const enabled = (env.ENGAGEMENT_SUPPORT_ENABLED?.trim() || '0') === '1';
+  const devTokens = (env.ENGAGEMENT_DEV_TOKENS?.trim() || '0') === '1';
+  if (devTokens && isProduction) {
+    throw new Error('ENGAGEMENT_DEV_TOKENS=1 is refused in production');
+  }
+  const secret = env.CHATWOOT_WEBHOOK_SECRET?.trim() || undefined;
+  return {
+    enabled,
+    port: intFrom(env.ENGAGEMENT_SUPPORT_PORT, 4040, 'ENGAGEMENT_SUPPORT_PORT'),
+    adminApiUrl: env.ADMIN_API_URL?.trim() || 'http://localhost:9000',
+    maxOrders: intFrom(env.ENGAGEMENT_SUPPORT_MAX_ORDERS, 25, 'ENGAGEMENT_SUPPORT_MAX_ORDERS'),
+    ...(secret ? { chatwootSecret: secret } : {}),
+    devTokens,
   };
 }
 

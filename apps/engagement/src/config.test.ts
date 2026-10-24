@@ -359,6 +359,70 @@ describe('buildCrmAdapter / buildTokenProvider', () => {
   });
 });
 
+describe('resolveConfig — the support API (#556)', () => {
+  const prodBase = { ...base, ENGAGEMENT_TRANSPORT: 'slack', SLACK_OPS_WEBHOOK_URL: WEBHOOK };
+
+  it('is OFF by default, with no dev tokens and no webhook secret', () => {
+    const c = resolveConfig({ env: base });
+    expect(c.support).toEqual({
+      enabled: false,
+      port: 4040,
+      adminApiUrl: 'http://localhost:9000',
+      maxOrders: 25,
+      devTokens: false,
+    });
+    expect(c.support.chatwootSecret).toBeUndefined();
+  });
+
+  it('turns on with a port, an Admin API URL and an order cap', () => {
+    const c = resolveConfig({
+      env: {
+        ...base,
+        ENGAGEMENT_SUPPORT_ENABLED: '1',
+        ENGAGEMENT_SUPPORT_PORT: '5050',
+        ENGAGEMENT_SUPPORT_MAX_ORDERS: '10',
+        ADMIN_API_URL: 'http://core.internal:9000',
+      },
+    });
+    expect(c.support).toMatchObject({
+      enabled: true,
+      port: 5050,
+      maxOrders: 10,
+      adminApiUrl: 'http://core.internal:9000',
+    });
+  });
+
+  it('carries the Chatwoot secret when it is set', () => {
+    const c = resolveConfig({
+      env: { ...base, CHATWOOT_WEBHOOK_SECRET: 'chatwoot-webhook-secret-words-only' },
+    });
+    expect(c.support.chatwootSecret).toBe('chatwoot-webhook-secret-words-only');
+  });
+
+  it('REFUSES dev tokens in production: they would hand out an agent view of any customer', () => {
+    expect(() =>
+      resolveConfig({ env: { ...prodBase, ENGAGEMENT_DEV_TOKENS: '1' }, nodeEnv: 'production' }),
+    ).toThrow(/ENGAGEMENT_DEV_TOKENS=1 is refused in production/);
+  });
+
+  it('allows dev tokens outside production', () => {
+    expect(resolveConfig({ env: { ...base, ENGAGEMENT_DEV_TOKENS: '1' } }).support.devTokens).toBe(
+      true,
+    );
+  });
+
+  it('rejects a nonsense port or order cap', () => {
+    for (const bad of ['0', '-1', 'soon']) {
+      expect(() => resolveConfig({ env: { ...base, ENGAGEMENT_SUPPORT_PORT: bad } })).toThrow(
+        /ENGAGEMENT_SUPPORT_PORT must be an integer/,
+      );
+    }
+    expect(() => resolveConfig({ env: { ...base, ENGAGEMENT_SUPPORT_MAX_ORDERS: '0' } })).toThrow(
+      /ENGAGEMENT_SUPPORT_MAX_ORDERS must be an integer/,
+    );
+  });
+});
+
 describe('buildTransport', () => {
   it('builds the dev sink in the configured directory', () => {
     const t = buildTransport(resolveConfig({ env: { ...base, ENGAGEMENT_DIR: 'alerts-here' } }));
