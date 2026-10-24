@@ -8,6 +8,7 @@ import { createOrganizationClient, createTenantClient } from '@platform/db';
 import type { KeycloakAdmin } from '../keycloak/admin.js';
 import { isApiError } from '../types.js';
 import {
+  CUSTOMER_ERASED_VERSIONS,
   deleteErasedCustomerIdentity,
   type CustomerErasureOutcome,
   type CustomerErasureResult,
@@ -90,10 +91,10 @@ export function createCustomerErasureConsumer(
         `SELECT o.id, o.seq::text AS seq, o.store_id, o.payload
            FROM outbox o
            LEFT JOIN customer_erasure_claim c ON c.event_id = o.id
-          WHERE o.topic = 'customer.erased' AND o.version = 1 AND c.event_id IS NULL
+          WHERE o.topic = 'customer.erased' AND o.version = ANY($2::int[]) AND c.event_id IS NULL
           ORDER BY o.seq
           LIMIT $1`,
-        [limit],
+        [limit, [...CUSTOMER_ERASED_VERSIONS]],
       );
       for (const row of rows.rows) {
         const customerId =

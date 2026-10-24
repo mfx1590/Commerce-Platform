@@ -225,3 +225,12 @@ all`, `verifyEmail: true`, brute force on, no client secret, exact https callbac
   auth-sdk config, which defaults it). Fix: the two test files default the dev realm secret themselves (as
   invite.test.ts does) and print the error body on a failed status; the hq-rbac README names the two env
   lines as required for every role change. Not an OpenFGA problem: these tests seed their own store.
+
+## Unreleased — 2026-10-24 (auth/phase4-580)
+
+- #580 (CONTRACT CHANGE, events 0.6.2): the erasure consumer reads `customer.erased` v1 AND v2 (v2 = v1 + a
+  required `email_hash` this consumer does not use; `customer_id` / `identity_id` unchanged) —
+  `CUSTOMER_ERASED_VERSIONS = [1, 2]` drives both the outbox query (`version = ANY`) and `onCustomerErased`;
+  a version outside the list is still refused (`unsupported_version`). Without this, the producer switching to
+  v2 would have left every erasure unclaimed and the Keycloak user in place. Tests: a v2 event is handled and
+  claimed exactly like v1 (unit + live consumer), version 3 is refused.
