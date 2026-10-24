@@ -33,6 +33,7 @@ landed by the manager in `packages/db`.
   (after `build`); credentials from `ODOO_URL` / `ODOO_DB` / `ODOO_USER` / `ODOO_API_KEY`; `--mock` = in-memory Odoo.
 - `pnpm --filter @platform/accounting odoo:init` (after `build`) — prepares the dev-stack Odoo (database, account module,
   companies, accounts, journals, mapping; idempotent, slow the first time; env ODOO_URL/DB/USER/API_KEY + ODOO_MASTER_PASSWORD).
+  Loopback hosts only unless `--allow-remote`; never rewrites a company it finds.
 - `pnpm --filter @platform/accounting exec vitest run test/month-replay.test.ts` — the Integration 4 gate (#552) alone;
   `MONTH_REPLAY_ORDERS` scales it; needs the local broker, ask the manager for the machine before running it.
 - `pnpm --filter @platform/accounting typecheck | lint | build`.

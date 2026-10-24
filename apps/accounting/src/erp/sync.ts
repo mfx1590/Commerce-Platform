@@ -277,6 +277,13 @@ export async function syncLegalEntity(
       try {
         const existing = await deps.erp.findMoveByRef(companyId, ref);
         if (existing) {
+          // cancelled in Odoo by an accountant (and nothing else carries the ref): neither re-posted nor marked —
+          // reported like a refusal, the rest continue, and every run reports it until someone decides (#591)
+          if (existing.state === 'cancel')
+            throw new ErpError(
+              'OdooMoveCancelled',
+              `move ${existing.id} with ref ${ref} was cancelled in Odoo`,
+            );
           // a draft = a crash between create and action_post on an earlier run: post it, THEN mark (#575)
           if (existing.state !== 'posted') {
             await deps.erp.postMove(existing.id);

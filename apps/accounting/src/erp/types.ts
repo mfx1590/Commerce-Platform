@@ -44,7 +44,8 @@ export interface ErpMoveInput {
 
 export interface ErpMove extends ErpMoveInput {
   id: number;
-  state: 'draft' | 'posted';
+  /** Odoo's account.move state; `cancel` = an accountant cancelled it: never re-posted, never marked (#591). */
+  state: 'draft' | 'posted' | 'cancel';
 }
 
 /** What the sync needs from an ERP. Every method may throw an `ErpError` (class in `name`, no payload in the message). */

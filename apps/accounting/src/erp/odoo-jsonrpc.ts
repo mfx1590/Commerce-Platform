@@ -224,7 +224,11 @@ export class OdooJsonRpcClient implements ErpAdapter {
     return rows.map((r) => ({ id: r.id, code: r.code, name: r.name, company_id: r.company_id[0] }));
   }
 
-  /** The move with this ref in this company — draft or posted — if one exists (search before create). */
+  /**
+   * The move with this ref in this company, if one exists (search before create). Several moves can share a ref (an
+   * accountant cancelled ours and entered it again): a posted one wins, then a draft, then a cancelled one, oldest
+   * first within each state. A cancelled move is returned only when nothing else has the ref (#591).
+   */
   async findMoveByRef(companyId: number, ref: string): Promise<ErpMove | null> {
     const rows = (await this.executeKw(
       'account.move',
@@ -237,18 +241,18 @@ export class OdooJsonRpcClient implements ErpAdapter {
       ],
       {
         fields: ['id', 'ref', 'state', 'date', 'journal_id', 'company_id'],
-        limit: 1,
         order: 'id asc',
       },
     )) as {
       id: number;
       ref: string;
-      state: 'draft' | 'posted';
+      state: 'draft' | 'posted' | 'cancel';
       date: string;
       journal_id: [number, string];
       company_id: [number, string];
     }[];
-    const r = rows[0];
+    const rank = { posted: 0, draft: 1, cancel: 2 } as const;
+    const r = [...rows].sort((a, b) => rank[a.state] - rank[b.state] || a.id - b.id)[0];
     if (!r) return null;
     return {
       id: r.id,
@@ -261,20 +265,25 @@ export class OdooJsonRpcClient implements ErpAdapter {
     };
   }
 
-  /** Posts a draft move (idempotent: a posted move is left alone). */
+  /** Posts a draft move (idempotent: a posted move is left alone). A cancelled move is refused, never re-posted. */
   async postMove(moveId: number): Promise<ErpMove> {
     const rows = (await this.executeKw('account.move', 'search_read', [[['id', '=', moveId]]], {
       fields: ['id', 'ref', 'state', 'date', 'journal_id', 'company_id'],
     })) as {
       id: number;
       ref: string;
-      state: 'draft' | 'posted';
+      state: 'draft' | 'posted' | 'cancel';
       date: string;
       journal_id: [number, string];
       company_id: [number, string];
     }[];
     const r = rows[0];
     if (!r) throw new ErpError('OdooMoveMissing', `move ${moveId} does not exist`);
+    if (r.state === 'cancel')
+      throw new ErpError(
+        'OdooMoveCancelled',
+        `move ${moveId} was cancelled in Odoo; it is not re-posted`,
+      );
     if (r.state !== 'posted')
       await this.executeKw('account.move', 'action_post', [[moveId]], {}, { retry: false });
     return {

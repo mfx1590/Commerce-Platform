@@ -274,11 +274,18 @@ reference_type?, reference_id?, expected_minor?, actual_minor?, difference_minor
   never retried blindly (writes are sent once; only reads retry): the client searches by `ref`, uses the move it finds
   (draft → posted) and only rethrows the transport error when nothing was committed — one move per ref, always. Both
   tested with the mock (`commitThenFailNextCreate`, a draft left on purpose).
+- **A move cancelled in Odoo (#591)** — an accountant may cancel one of our moves. It is never re-posted and its rows
+  are never marked: the sync reports it like a refusal (`OdooMoveCancelled`), the rest continue, and every run reports
+  it again until someone decides. When several moves carry the same `ref` (cancelled, then entered again), a posted
+  move wins, then a draft, then the cancelled one; the re-entered move is found and the rows marked against it.
 - **`pnpm --filter @platform/accounting odoo:init`** (after `build`) — prepares the dev-stack Odoo Community 17
   (compose profile `erp`, http://127.0.0.1:8069) for the live sync: creates `ODOO_DB` (default `accounting_dev`) with
   the `account` module, one company per seeded legal entity in its currency (currencies activated), our 12 accounts and
   7 journals per company, and the mapping through the sync's own steps (`legal_entity.odoo_company_id`,
-  `ledger_account.erp_account_id`). Idempotent: every step searches before it creates. Env: `ODOO_URL`, `ODOO_DB`,
+  `ledger_account.erp_account_id`). Idempotent: every step searches before it creates. **Local only (#591):** it
+  refuses an `ODOO_URL` that is not a loopback host (localhost, 127.0.0.0/8, ::1, `*.localhost`) before any call
+  (`OdooInitRemoteRefused`) unless `--allow-remote` is passed, and it never writes to a company it finds: a same-named
+  company in another currency skips that legal entity (`companies_skipped`, log step `company_currency_mismatch`). Env: `ODOO_URL`, `ODOO_DB`,
   `ODOO_USER` (`admin`), `ODOO_API_KEY` (the admin password locally), `ODOO_MASTER_PASSWORD` (Odoo's `admin_passwd`,
   `admin` locally) — words in .env.example, never in git. The first run takes minutes (database + module install).
   Legal entities whose code starts with `e2e-` (one per admin e2e run in the shared dev database) are not books: `odoo:init`
@@ -371,7 +378,7 @@ creates `dlq.accounting.ledger` itself on first start.
 
 ## Tests
 
-`pnpm --filter @platform/accounting test` — 91 tests in ten files:
+`pnpm --filter @platform/accounting test` — 95 tests in ten files:
 
 - `src/posting/posting.test.ts` — pure: the arithmetic, the worked example of every topic above, partial shipments,
   proportional refunds and cancellations, every defect class, the netted life of one order, the late shipment, event
@@ -394,7 +401,10 @@ creates `dlq.accounting.ledger` itself on first start.
   creates nothing, a refused move reported while the rest continue and posted on the next run, a crash between create
   and mark recovered by ref, a code map with a missing Odoo account skipping only its entries, a draft left by a crash
   posted before marking, a create with a lost answer recovered by ref (never a second move), `e2e-` legal entities
-  refused by the mapping step and the sync; a live block for the dev-stack Odoo (skipped with the reason when it is down).
+  refused by the mapping step and the sync, a move cancelled in Odoo reported and never re-posted or marked (and a
+  re-entered one found), a create with nothing committed rethrowing; `odoo:init` against the mock (an existing company
+  in another currency left alone and skipped, a re-run creating and writing nothing, a remote host refused before any
+  call unless `--allow-remote`); a live block for the dev-stack Odoo (skipped with the reason when it is down).
 - `src/api/spec.test.ts` — the contract as loaded (seven reads, all finance, 401/403) and the route matcher.
 - `src/api/auth.test.ts` — dev tokens never accepted in production, refused without the flag, accepted with it; an
   unknown subject 401; the permission service unreachable → 503 fail closed; a refusal → the contract's 403.

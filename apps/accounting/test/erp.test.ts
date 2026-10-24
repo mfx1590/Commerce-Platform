@@ -10,6 +10,7 @@ import type { EventEnvelopeV1Base } from '@platform/events';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { handleLedgerEvent } from '../src/consumer.js';
 import { createMockOdoo, MOCK_ODOO_CREDENTIALS } from '../src/erp/mock.js';
+import { isLocalOdooUrl, odooInit } from '../src/erp/odoo-init.js';
 import { OdooJsonRpcClient, odooCredentialsFromEnv } from '../src/erp/odoo-jsonrpc.js';
 import {
   isSyncableLegalEntity,
@@ -64,6 +65,74 @@ describe('Odoo JSON-RPC client against the mock server', () => {
     });
     expect(await odoo.findMoveByRef(2, 'evt-1/sales')).toBeNull();
     expect(mock.state.calls.filter((c) => c === 'common.authenticate')).toHaveLength(1);
+  });
+
+  it('#591: a cancelled move is never re-posted; by ref a posted or draft move wins over a cancelled one; a create with nothing committed rethrows', async () => {
+    const mock = createMockOdoo();
+    const odoo = new OdooJsonRpcClient(MOCK_ODOO_CREDENTIALS, { fetch: mock.fetch, sleep: noWait });
+    const sal = (await odoo.listJournals(1)).find((j) => j.code === 'SAL')!;
+    const accounts = await odoo.listAccounts(1);
+    const ar = accounts.find((a) => a.code === '1200')!;
+    const cl = accounts.find((a) => a.code === '2300')!;
+    const input = (ref: string) => ({
+      company_id: 1,
+      journal_id: sal.id,
+      date: '2026-10-05',
+      ref,
+      lines: [
+        { account_id: ar.id, name: '1200 AR', debit: 10, credit: 0 },
+        { account_id: cl.id, name: '2300 CL', debit: 0, credit: 10 },
+      ],
+    });
+    const draft = async (ref: string) =>
+      (await odoo.executeKw('account.move', 'create', [
+        {
+          move_type: 'entry',
+          company_id: 1,
+          journal_id: sal.id,
+          date: '2026-10-05',
+          ref,
+          line_ids: input(ref).lines.map((l) => [0, 0, l]),
+        },
+      ])) as number;
+    const posts = () => mock.state.calls.filter((c) => c === 'account.move.action_post').length;
+
+    // cancelled and alone: returned as such, and postMove refuses it without calling action_post
+    const first = await odoo.createMove(input('evt-c/sales'));
+    mock.cancelMove(first.id);
+    expect(await odoo.findMoveByRef(1, 'evt-c/sales')).toMatchObject({
+      id: first.id,
+      state: 'cancel',
+    });
+    const p0 = posts();
+    await expect(odoo.postMove(first.id)).rejects.toMatchObject({ name: 'OdooMoveCancelled' });
+    expect(posts()).toBe(p0);
+    expect(mock.state.moves.find((m) => m.id === first.id)!.state).toBe('cancel');
+    // entered again by the accountant: the posted move wins over the older cancelled one
+    const again = await odoo.createMove(input('evt-c/sales'));
+    expect(again.id).toBeGreaterThan(first.id);
+    expect(await odoo.findMoveByRef(1, 'evt-c/sales')).toMatchObject({
+      id: again.id,
+      state: 'posted',
+    });
+    // a draft wins over a cancelled one too
+    const cancelledDraft = await draft('evt-d/sales');
+    mock.cancelMove(cancelledDraft);
+    const liveDraft = await draft('evt-d/sales');
+    expect(await odoo.findMoveByRef(1, 'evt-d/sales')).toMatchObject({
+      id: liveDraft,
+      state: 'draft',
+    });
+
+    // the create fails BEFORE Odoo commits anything: searched by ref, nothing found, the transport error rethrown
+    const before = mock.state.moves.length;
+    mock.failNextCreate();
+    await expect(odoo.createMove(input('evt-n/sales'))).rejects.toMatchObject({
+      name: 'OdooTransport',
+    });
+    expect(mock.state.moves.length).toBe(before);
+    expect(mock.state.calls.at(-1)).toBe('account.move.search_read');
+    expect(await odoo.findMoveByRef(1, 'evt-n/sales')).toBeNull();
   });
 
   it('wrong credentials fail with OdooAuthFailed; transport failures are retried with a bound', async () => {
@@ -439,6 +508,81 @@ describe('sync on a seeded database with the clean-month ledger', () => {
     await expect(flaky.listCompanies()).rejects.toMatchObject({ name: 'OdooTransport' });
   });
 
+  it('#591: a move an accountant CANCELLED in Odoo is reported OdooMoveCancelled, never re-posted or marked; the rest continue; a re-entered move is found', async () => {
+    const cancelledEvent = '00000000-0000-4000-8000-00000000d1a9';
+    const otherEvent = '00000000-0000-4000-8000-00000000d1aa';
+    for (const [eventId, amount] of [
+      [cancelledEvent, 500],
+      [otherEvent, 600],
+    ] as const)
+      await t.hq.query(
+        `INSERT INTO ledger_entry (organization_id, legal_entity_id, store_id, journal, entry_date, account_code, debit_minor, credit_minor, currency, source_event_id, source_topic, reference_type, reference_id)
+         SELECT organization_id, $1, NULL, 'bank', '2026-10-30', a, d, c, 'EUR', $2, 'psp.payout', 'payout', $2
+           FROM legal_entity, unnest(ARRAY['1000', '1100'], ARRAY[$3::bigint, 0], ARRAY[0, $3::bigint]) AS x(a, d, c)
+          WHERE legal_entity.id = $1`,
+        [LE_A, eventId, amount],
+      );
+    const bnk = (await odoo.listJournals(1)).find((j) => j.code === 'BNK')!;
+    const accounts = await odoo.listAccounts(1);
+    const moveInput = {
+      company_id: 1,
+      journal_id: bnk.id,
+      date: '2026-10-30',
+      ref: `${cancelledEvent}/bank`,
+      lines: [
+        {
+          account_id: accounts.find((a) => a.code === '1000')!.id,
+          name: '1000',
+          debit: 5,
+          credit: 0,
+        },
+        {
+          account_id: accounts.find((a) => a.code === '1100')!.id,
+          name: '1100',
+          debit: 0,
+          credit: 5,
+        },
+      ],
+    };
+    const cancelled = await odoo.createMove(moveInput);
+    mock.cancelMove(cancelled.id);
+    const posts = () => mock.state.calls.filter((c) => c === 'account.move.action_post').length;
+    const unmarked = async () =>
+      count('ledger_entry WHERE source_event_id = $1 AND posted_to_erp_at IS NULL', [
+        cancelledEvent,
+      ]);
+
+    const p0 = posts();
+    const r = await syncLegalEntity(deps(), LE_A);
+    expect(r.refused).toEqual([expect.objectContaining({ error_class: 'OdooMoveCancelled' })]);
+    expect(r).toMatchObject({
+      moves_created: 1,
+      moves_found: 0,
+      moves_posted_drafts: 0,
+      entries_marked: 2,
+    });
+    expect(posts()).toBe(p0 + 1); // the other event's new move only
+    expect(mock.state.moves.find((m) => m.id === cancelled.id)!.state).toBe('cancel');
+    expect(await unmarked()).toBe(2);
+    expect(LOG.some((l) => l.includes('"error_class":"OdooMoveCancelled"'))).toBe(true);
+
+    // every run reports it again until someone decides; nothing else changes
+    const r2 = await syncLegalEntity(deps(), LE_A);
+    expect(r2.refused).toEqual([expect.objectContaining({ error_class: 'OdooMoveCancelled' })]);
+    expect(r2).toMatchObject({ moves_created: 0, moves_found: 0, entries_marked: 0 });
+    expect(await unmarked()).toBe(2);
+
+    // the accountant enters it again: the posted move is found by ref (over the cancelled one) and the rows marked
+    const reentered = await odoo.createMove(moveInput);
+    const r3 = await syncLegalEntity(deps(), LE_A);
+    expect(r3).toMatchObject({ refused: [], moves_created: 0, moves_found: 1, entries_marked: 2 });
+    const marked = await t.hq.query<{ erp_reference: string }>(
+      'SELECT DISTINCT erp_reference FROM ledger_entry WHERE source_event_id = $1',
+      [cancelledEvent],
+    );
+    expect(marked.rows).toEqual([{ erp_reference: String(reentered.id) }]);
+  });
+
   it('a code map and a missing Odoo account: mapped through the map, the missing code skips only its entries', async () => {
     // a third company whose chart uses other codes and lacks our 6100 (PSP fees)
     const codes = [
@@ -516,6 +660,110 @@ async function probeOdoo(): Promise<string | null> {
 }
 const odooDown = await probeOdoo();
 if (odooDown) console.warn(`erp.test: live Odoo skipped — ${odooDown}`);
+
+describe('odoo:init against the mock (#591)', () => {
+  let t: AccountingTestDatabase;
+  const localCreds = { ...MOCK_ODOO_CREDENTIALS, url: 'http://127.0.0.1:8069' };
+
+  beforeAll(async () => {
+    t = await createAccountingTestDatabase();
+  }, 180_000);
+
+  afterAll(async () => {
+    await t?.drop();
+  });
+
+  it('never rewrites an existing company: a same-named company in another currency skips its legal entity; a re-run creates and writes nothing', async () => {
+    const mock = createMockOdoo({
+      companies: [
+        { id: 1, name: 'Brand A B.V.', currency: 'EUR' },
+        { id: 2, name: 'Brand B Ltd', currency: 'USD' },
+      ],
+      accounts: [],
+      journals: [],
+    });
+    const odoo = new OdooJsonRpcClient(localCreds, { fetch: mock.fetch, sleep: noWait });
+    const deps = { client: t.hq, odoo, masterPassword: 'master-word', log };
+    const r = await odooInit(deps);
+    expect(r).toMatchObject({ database_created: false, module_installed: false });
+    expect(r.companies.map((c) => [c.code, c.currency, c.created])).toEqual([
+      ['le-brand-a', 'EUR', false],
+      ['le-brand-c', 'USD', true],
+    ]);
+    expect(r.companies_skipped).toEqual([
+      {
+        legal_entity_id: LE_B,
+        code: 'le-brand-b',
+        company_id: 2,
+        reason: 'currency_mismatch',
+        currency: 'GBP',
+        company_currency: 'USD',
+      },
+    ]);
+    expect(mock.state.writes.filter((w) => w.model === 'res.company')).toEqual([]);
+    expect(mock.state.companies.find((c) => c.id === 2)!.currency).toBe('USD');
+    expect(mock.state.writes).toEqual([
+      { model: 'res.currency', ids: [903], values: { active: true } },
+    ]);
+    expect(r).toMatchObject({ accounts_created: 24, journals_created: 14 });
+    expect(r.chart.map((c) => c.missing)).toEqual([[], []]);
+    const b = await t.hq.query<{ odoo_company_id: number | null }>(
+      'SELECT odoo_company_id FROM legal_entity WHERE id = $1',
+      [LE_B],
+    );
+    expect(b.rows[0]!.odoo_company_id).toBeNull();
+    expect(LOG.some((l) => l.includes('"step":"company_currency_mismatch"'))).toBe(true);
+
+    const creates = () => mock.state.calls.filter((c) => c.endsWith('.create')).length;
+    const c0 = creates();
+    const r2 = await odooInit(deps);
+    expect(r2).toMatchObject({ accounts_created: 0, journals_created: 0 });
+    expect(r2.companies.every((c) => !c.created)).toBe(true);
+    expect(r2.companies_skipped).toEqual(r.companies_skipped);
+    expect(creates()).toBe(c0);
+    expect(mock.state.writes).toHaveLength(1);
+  });
+
+  it('refuses a non-loopback Odoo before any call unless --allow-remote is passed', async () => {
+    for (const url of [
+      'http://127.0.0.1:8069',
+      'http://localhost:8069',
+      'http://[::1]:8069',
+      'http://odoo.localhost',
+    ])
+      expect(isLocalOdooUrl(url)).toBe(true);
+    for (const url of [
+      'https://erp.example.com',
+      'http://10.0.0.5:8069',
+      'http://127.0.0.1.example.com',
+      'not a url',
+    ])
+      expect(isLocalOdooUrl(url)).toBe(false);
+    const mock = createMockOdoo();
+    let calls = 0;
+    const counting: typeof mock.fetch = (url, init) => {
+      calls += 1;
+      return mock.fetch(url, init);
+    };
+    const remote = new OdooJsonRpcClient(
+      { ...MOCK_ODOO_CREDENTIALS, url: 'https://erp.example.com' },
+      { fetch: counting, sleep: noWait },
+    );
+    await expect(
+      odooInit({ client: t.hq, odoo: remote, masterPassword: 'master-word', log }),
+    ).rejects.toMatchObject({ name: 'OdooInitRemoteRefused' });
+    expect(calls).toBe(0);
+    const ok = await odooInit({
+      client: t.hq,
+      odoo: remote,
+      masterPassword: 'master-word',
+      allowRemote: true,
+      log,
+    });
+    expect(calls).toBeGreaterThan(0);
+    expect(ok.companies.map((c) => c.code)).toEqual(['le-brand-a', 'le-brand-b', 'le-brand-c']);
+  });
+});
 
 describe.runIf(odooDown === null)(
   'live Odoo (ODOO_URL / ODOO_DB / ODOO_USER / ODOO_API_KEY)',

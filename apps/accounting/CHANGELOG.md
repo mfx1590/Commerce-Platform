@@ -1,5 +1,19 @@
 # Changelog — @platform/accounting
 
+## 0.6.3 — 2026-10-25 (#575 review fixes, Opus review of #591)
+
+- A move cancelled in Odoo is handled: `ErpMove.state` includes `cancel`; `postMove` refuses it
+  (`OdooMoveCancelled`) instead of calling `action_post`; the sync reports it like a refusal and never marks its rows
+  (the rest continue); `findMoveByRef` prefers a posted move, then a draft, then a cancelled one when several share
+  the ref. Mock seam `cancelMove`.
+- `odoo:init` is local only: a non-loopback `ODOO_URL` is refused before any call (`OdooInitRemoteRefused`) unless
+  `--allow-remote` is passed (`isLocalOdooUrl`); it no longer writes `currency_id` on a company it finds — a
+  same-named company in another currency skips that legal entity (`companies_skipped`). The mock answers what
+  `odoo:init` calls (db list, module, currencies, company / account / journal create, writes recorded).
+- Nits: createMove's "nothing committed, rethrow" path tested (mock seam `failNextCreate`); the `dateOf` comment back
+  on `dateOf`; `package.json` version follows this CHANGELOG (was 0.2.0 since #548).
+- Tests: 95 (+4).
+
 ## 0.6.2 — 2026-10-24 (#589, 15.5a)
 
 - Event times are compared as instants, never as strings (Opus review of #588): `instantOf` in `posting/balance.ts`;
