@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.commerce-platform.dev/events/customer.erased/v2.json",
+  "title": "customer.erased v2",
+  "description": "GDPR erasure completed; consumers must delete their copies. v2 adds email_hash so a consumer can suppress a profile keyed by the hash as well as by customer_id (#576): the value is computed before the delete and exists nowhere afterwards.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["customer_id", "identity_id", "email_hash", "erased_at"],
+  "properties": {
+    "customer_id": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+    },
+    "identity_id": {
+      "oneOf": [
+        {
+          "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "email_hash": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/sha256"
+    },
+    "erased_at": {
+      "$ref": "https://schemas.commerce-platform.dev/events/common/v1.json#/$defs/timestamp"
+    }
+  }
+}

@@ -424,3 +424,22 @@
 - Producer: window 1 (core orders module: one more predicate inside the tenant client, landed in the same integration
   PR). Consumer: apps/engagement support context (#556).
 - Store API and events unchanged.
+
+## 0.4.28 — 2026-10-23 (accounting 0.1.0; CONTRACT CHANGE #572, window 15 #551)
+
+- New spec `openapi/accounting.yaml` (Accounting API 0.1.0, 7 operations, tags books / journal / payouts / erp): the
+  Finance-only read API of the accounting service — `listLegalEntityBooks`, `getTrialBalance`, `listJournalLines`,
+  `listParkedEvents`, `listPayouts`, `getPayout`, `getErpSyncStatus` under `/accounting/v1/legal-entities`. GET only;
+  the ledger is derived from events (ADR 0003 item 6).
+- Decisions: every operation is `finance` on `organization:hq` (a store admin gets 403) and documents 401 / 403, 404
+  where a path id can miss, and the shared `BadRequest` (400 `validation_error`, `details` names each parameter) on
+  every operation with validatable query parameters. Money is integer minor units plus an explicit `currency`, never
+  summed across currencies; the trial balance is per (currency, account) with per-currency totals (difference 0 on
+  balanced books; an empty period is `rows: []`, `totals: []`). `Limit` as in the house (default 20, max 100);
+  `getPayout`'s lines are paginated (`PayoutLinePage`). No PII; parked events carry ids, topic and times only.
+- Wiring: generated `src/generated/accounting.ts`, `@platform/contracts/accounting` export, `AccountingPaths` /
+  `AccountingComponents` / `AccountingOperations` from the root, `MOCK_URLS.accounting`; `pnpm mock` starts a third Prism
+  server on :4013 (`MOCK_ACCOUNTING_PORT`; 4012 is the storefront perf scripts' `PERF_MOCK_PORT`); `test:contract`
+  boots it on :4112.
+- Producer: apps/accounting (window 15, #551). Consumer: later the admin app's Finance screens (window 4).
+- Store API (0.5.8), Admin API (0.4.24) and events unchanged.

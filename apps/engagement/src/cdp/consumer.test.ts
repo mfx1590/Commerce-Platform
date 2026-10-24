@@ -112,7 +112,13 @@ const customerCreated = (customerId: string, storeId: string = STORE_A) =>
 const customerErased = (customerId: string, storeId: string = STORE_A) =>
   envelopeFor(
     'customer.erased',
-    { customer_id: customerId, identity_id: IDENTITY_ID, erased_at: '2026-10-23T12:00:00.000Z' },
+    {
+      customer_id: customerId,
+      identity_id: IDENTITY_ID,
+      // Required since customer.erased v2 (#580).
+      email_hash: EMAIL_HASH,
+      erased_at: '2026-10-23T12:00:00.000Z',
+    },
     { type: 'customer', id: customerId },
     storeId,
   );

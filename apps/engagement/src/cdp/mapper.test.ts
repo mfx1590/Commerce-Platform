@@ -99,7 +99,14 @@ const fixtures: Record<string, () => EventEnvelopeV1Base> = {
   'customer.erased': () =>
     envelope(
       'customer.erased',
-      { customer_id: CUSTOMER, identity_id: IDENTITY_ID, erased_at: '2026-10-23T10:00:00.000Z' },
+      {
+        customer_id: CUSTOMER,
+        identity_id: IDENTITY_ID,
+        // Required since customer.erased v2 (#580): the core computes it before the delete, so a consumer can
+        // suppress a profile keyed by the hash as well as one keyed by our id.
+        email_hash: EMAIL_HASH,
+        erased_at: '2026-10-23T10:00:00.000Z',
+      },
       { type: 'customer', id: CUSTOMER },
     ),
   'order.placed': () =>

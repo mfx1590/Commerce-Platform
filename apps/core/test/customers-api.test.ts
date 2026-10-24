@@ -29,6 +29,7 @@ import { mountCustomerRoutes } from '../src/http/customer-routes';
 import { customerGateWith, getOrderRouteWith } from '../src/http/store-routes';
 import { paymentProvider } from '../src/modules/checkout';
 import { runCustomerErasure } from '../src/jobs/customer-erasure';
+import { customerEmailHash, erasedEmail } from '../src/modules/customers';
 import { runCustomerExports } from '../src/jobs/customer-export';
 import { closePool, initDb } from '../src/lib/db';
 import { mountCoreMiddleware } from '../src/server';
@@ -1105,11 +1106,19 @@ describe('account self-service (#470, Store API 0.5.6): edit / delete an address
     const erased = (await outboxOf(dora.id)).filter((e) => e.topic === 'customer.erased');
     expect(erased).toHaveLength(1);
     // dora's email is verified: she is linked (#473), and the erasure names the identity — an id, not a person
+    // v2 (#580): the hash of the e-mail as it was, never the tombstone's
     expect(erased[0]!.payload).toEqual({
       customer_id: dora.id,
       identity_id: expect.any(String),
+      email_hash: customerEmailHash('dora@example.test'),
       erased_at: expect.any(String),
     });
+    expect(erased[0]!.payload.email_hash).not.toBe(customerEmailHash(erasedEmail(dora.id)));
+    const version = await owner.query<{ version: number }>(
+      `SELECT version FROM outbox WHERE aggregate_id = $1 AND topic = 'customer.erased'`,
+      [dora.id],
+    );
+    expect(version.rows).toEqual([{ version: 2 }]);
     const docs = await owner.query<{ doc: string }>(
       `SELECT payload::text AS doc FROM outbox WHERE aggregate_id = $1
        UNION ALL SELECT coalesce(after::text, '') FROM audit_log WHERE entity_id = $1`,

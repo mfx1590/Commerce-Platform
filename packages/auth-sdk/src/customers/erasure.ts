@@ -105,7 +105,14 @@ export async function deleteErasedCustomerIdentity(
   return { customerId, outcome, liveRows };
 }
 
-/** The envelope fields this consumer reads (packages/events `customer.erased` v1). */
+/**
+ * The `customer.erased` versions this consumer handles (packages/events): v1, and v2 = v1 + a required
+ * `email_hash` (CONTRACT CHANGE #580, for window 16's suppression) that this consumer does not read —
+ * `customer_id` and `identity_id` are unchanged. A version outside this list is refused, never guessed.
+ */
+export const CUSTOMER_ERASED_VERSIONS: readonly number[] = [1, 2];
+
+/** The envelope fields this consumer reads (packages/events `customer.erased` v1 / v2). */
 export interface CustomerErasedEnvelope {
   event_id: string;
   topic: string;
@@ -119,7 +126,7 @@ export type CustomerErasedEventResult =
   | { handled: false; reason: 'wrong_topic' | 'unsupported_version' | 'wrong_organization' };
 
 /**
- * Bus-side entry for a `customer.erased` v1 event: ignores other topics/versions and events of another
+ * Bus-side entry for a `customer.erased` v1 or v2 event: ignores other topics/versions and events of another
  * organization (typed result, never a throw), otherwise runs `deleteErasedCustomerIdentity`. Idempotent per
  * event by construction, so no event_id store is needed.
  */
@@ -128,7 +135,9 @@ export async function onCustomerErased(
   envelope: CustomerErasedEnvelope,
 ): Promise<CustomerErasedEventResult> {
   if (envelope.topic !== 'customer.erased') return { handled: false, reason: 'wrong_topic' };
-  if (envelope.version !== 1) return { handled: false, reason: 'unsupported_version' };
+  if (!CUSTOMER_ERASED_VERSIONS.includes(envelope.version)) {
+    return { handled: false, reason: 'unsupported_version' };
+  }
   if (envelope.organization_id !== deps.db.context.organizationId) {
     return { handled: false, reason: 'wrong_organization' };
   }

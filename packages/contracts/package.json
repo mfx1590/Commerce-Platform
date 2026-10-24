@@ -20,6 +20,11 @@
       "types": "./dist/admin.d.ts",
       "import": "./dist/admin.js",
       "default": "./dist/admin.js"
+    },
+    "./accounting": {
+      "types": "./dist/accounting.d.ts",
+      "import": "./dist/accounting.js",
+      "default": "./dist/accounting.js"
     }
   },
   "files": [
@@ -27,7 +32,7 @@
     "openapi"
   ],
   "scripts": {
-    "generate": "openapi-typescript openapi/store-api.yaml -o src/generated/store.ts && openapi-typescript openapi/admin-api.yaml -o src/generated/admin.ts",
+    "generate": "openapi-typescript openapi/store-api.yaml -o src/generated/store.ts && openapi-typescript openapi/admin-api.yaml -o src/generated/admin.ts && openapi-typescript openapi/accounting.yaml -o src/generated/accounting.ts",
     "build": "pnpm generate && tsc -p tsconfig.json",
     "typecheck": "pnpm generate && tsc -p tsconfig.json --noEmit",
     "test": "vitest run --exclude test/contract.test.ts",

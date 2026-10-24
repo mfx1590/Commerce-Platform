@@ -1310,3 +1310,79 @@ describe('listOrders customer_id filter (contracts 0.4.27, Admin API 0.4.24, #56
     expect(body).not.toMatch(/name: customer_id,[^}]*required: true/);
   });
 });
+
+describe('accounting read API (contracts 0.4.28, accounting 0.1.0, #572 / #551)', () => {
+  const text = read('accounting.yaml');
+  const ops = operations(text);
+  const body = (id: string) => ops.find((o) => o.id === id)!.body;
+  const permission = (id: string) =>
+    body(id)
+      .match(/x-permission: \{ relation: (\w+), object: '([^']+)'/)!
+      .slice(1);
+  const withQuery = [
+    'getTrialBalance',
+    'listJournalLines',
+    'listParkedEvents',
+    'listPayouts',
+    'getPayout',
+  ];
+  const withPathId = [
+    'getTrialBalance',
+    'listJournalLines',
+    'listParkedEvents',
+    'listPayouts',
+    'getPayout',
+    'getErpSyncStatus',
+  ];
+
+  it('is OpenAPI 3.1, info.version 0.1.0, seven GET operations', () => {
+    expect(text.startsWith('openapi: 3.1.0')).toBe(true);
+    expect(text).toMatch(/^ {2}version: 0\.1\.0$/m);
+    expect(ops.map((o) => o.id).sort()).toEqual(
+      [
+        'listLegalEntityBooks',
+        'getTrialBalance',
+        'listJournalLines',
+        'listParkedEvents',
+        'listPayouts',
+        'getPayout',
+        'getErpSyncStatus',
+      ].sort(),
+    );
+    // every method key under a path item is `get:`; nothing writes (ADR 0003 item 6)
+    const methods = text.match(/^ {4}(get|put|post|patch|delete|head|options|trace):$/gm) ?? [];
+    expect(methods.length).toBe(7);
+    for (const m of methods) expect(m.trim()).toBe('get:');
+  });
+
+  it('every operation is finance on organization:hq and documents 401 / 403 (+400 with query, +404 with a path id)', () => {
+    for (const o of ops) {
+      expect(permission(o.id), o.id).toEqual(['finance', 'organization:hq']);
+      for (const code of ['200', '401', '403']) {
+        expect(o.body, `${o.id} ${code}`).toContain(`'${code}':`);
+      }
+      const has400 = o.body.includes(`'400': { $ref: '#/components/responses/BadRequest' }`);
+      expect(has400, `${o.id} 400`).toBe(withQuery.includes(o.id));
+      const has404 = o.body.includes(`'404':`);
+      expect(has404, `${o.id} 404`).toBe(withPathId.includes(o.id));
+    }
+    expect(text).toMatch(/\n {4}BadRequest:\n/);
+  });
+
+  it('money is integer minor units: no `type: number` anywhere, every *_minor property is an integer', () => {
+    expect(text).not.toMatch(/type: number/);
+    expect(text).not.toMatch(/type: \[number/);
+    const lines = text.split('\n');
+    let checked = 0;
+    lines.forEach((line, i) => {
+      const m = line.match(/^\s+(\w+_minor):\s*(.*)$/);
+      if (!m) return;
+      const value = m[2]!.trim();
+      if (/^-?\d+$/.test(value)) return; // an example value
+      const decl = value === '' ? (lines[i + 1] ?? '') : value;
+      expect(decl, `${m[1]} (line ${i + 1})`).toMatch(/type: integer\b/);
+      checked += 1;
+    });
+    expect(checked).toBe(13); // TrialBalanceRow 3, TrialBalanceTotal 3, JournalLine 2, Payout 1, PayoutLine 4
+  });
+});

@@ -71,7 +71,11 @@ export type {
 
 // customer.erased consumer (#483): delete the customers-realm user of an erased row unless a live row elsewhere
 // in the organization still carries the subject.
-export { deleteErasedCustomerIdentity, onCustomerErased } from './customers/erasure.js';
+export {
+  CUSTOMER_ERASED_VERSIONS,
+  deleteErasedCustomerIdentity,
+  onCustomerErased,
+} from './customers/erasure.js';
 export { createCustomerErasureConsumer } from './customers/consumer.js';
 export type {
   CustomerErasureConsumer,

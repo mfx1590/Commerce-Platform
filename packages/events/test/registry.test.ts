@@ -57,7 +57,7 @@ describe('registry client (fake transport)', () => {
       }
       if (m && method === 'POST' && m[2]) {
         const s = decodeURIComponent(m[1]!);
-        if (s.includes('customer.erased'))
+        if (s === 'customer.erased-v1-value')
           return json(409, { error_code: 409, message: 'incompatible' });
         const id = nextId++;
         known.set(s, id);
