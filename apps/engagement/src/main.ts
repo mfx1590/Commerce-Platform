@@ -142,6 +142,8 @@ async function main(): Promise<void> {
         adapter: buildCdpAdapter(config),
         // Per-store consent mode (#576): resolved per event from the store the event names.
         consentModeFor: config.cdp.consentModeFor,
+        // The keys behind it, so `start()` refuses an override that names no store (#586).
+        consentModeOverrides: config.cdp.consentModeOverrides,
         log: (line) => console.info(JSON.stringify(line)),
       })
     : null;

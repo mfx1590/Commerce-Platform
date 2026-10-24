@@ -1,5 +1,49 @@
 # @platform/engagement
 
+## 0.5.1 — 2026-10-24 (#586, task 16.2b)
+
+The #585 review's follow-up: a per-store consent-mode override that is silently ignored is now impossible.
+This had to land before any store or region is set to `strict`.
+
+- **The override KEY is normalised on both sides.** `ENGAGEMENT_CDP_CONSENT_MODE_<STORE>` was stored under the
+  RAW env suffix and looked up under the normalised store key, so `..._brand_a` (or any other spelling)
+  parsed, validated — and then matched nothing, leaving that store on `analytics` while the configuration
+  said `strict`. That is the exact failure 0.5.0's boot-failure rule promised not to have: loud about a bad
+  value, silent about a bad key. `storeEnvKey` now writes the key and reads it, in one place.
+- **Two spellings of one store that DISAGREE fail the boot** (`..._BRAND_A=strict` with
+  `..._brand-a=analytics`): there is no safe answer, and letting whichever `Object.entries` yielded last win
+  is how a region ends up on the open mode by accident. Two that agree are allowed — nothing to get wrong.
+- **An override that names no store fails `createCdpConsumer.start()`**, immediately after
+  `storeCodes.warm()`, naming the variable and listing the store codes that do exist. It cannot be checked
+  in `resolveConfig`, which has no database and cannot tell a typo from a store it has not heard of — so
+  `resolveConfig` keeps such a key rather than guessing, and a test pins that. ACCEPTED limit, commented
+  where it runs: the CDP ships off, so with `ENGAGEMENT_CDP_ENABLED=0` there is no store list and no boot to
+  fail — a consumer that is not running applies no mode to anything.
+- **`src/consent-mode.ts` is a new module** holding the env contract (`storeEnvKey`, `parseConsentMode`,
+  `readConsentModeOverrides`, `assertConsentModeOverridesKnown`). It is separate from `config.ts` for a
+  structural reason, not for tidiness: `config.ts` imports the three consumers for `KNOWN_GROUPS`, so a
+  consumer cannot import it back without a cycle. The alternative — a second copy of the normalisation
+  inside the consumer — is the bug class this release fixes. `config.ts` delegates and re-exports
+  `storeEnvKey`, so its public surface is unchanged.
+- **`StoreCodes.codes()`** returns the codes loaded so far (the whole organization after `warm()`), with a
+  test that it really answers the seeded codes: a `codes()` that answered nothing would make the check
+  vacuous and call every override unknown.
+- **`apps/engagement/CLAUDE.md`'s "no raw e-mail" rule named one exception and there are three.** It now
+  names CRM sync (#555), support context (#556 — which reads AND returns the address to the agent, because
+  that is the feature) and the Chatwoot webhook (handed one, hashes it on arrival). What the rule still
+  forbids is stated separately and unchanged: no address from one of our tables or from an event payload, and
+  none read to fill a missing `email_hash` (#584).
+- **The erasure wording was wrong in two places.** `data/cdp/README.md` and the `cdp/consumer.ts` comment
+  said the core deletes the customer row. It KEEPS it with `status = 'erased'`, listable and readable, with
+  every personal field already replaced — so the reason v1's missing `email_hash` cannot be recovered is that
+  the ADDRESS is gone, not the row. #584 is now cited in the guest-lifecycle section with its decision.
+- **A test that proved nothing now proves the claim.** The renamed 404-equivalence test built two identical
+  `getCustomer: async () => null` fakes, so it only showed that one fake is deterministic. The second reader
+  is now store-aware — it owns brand-B's customer and answers `null` under brand-a, as a row invisible to
+  that store's read does — plus an assertion that the same reader DOES find them under their own store.
+- Tests: **400 passing, 9 live skipped** with the broker offline (was 385/9) — config 61, CDP consumer 32
+  (29 + 3 live), support server 30, plus the rest.
+
 ## 0.5.0 — 2026-10-24 (#576, task 16.2a)
 
 The CDP consent mode: analytics tracking and pseudonymous guests, allowed by default, switchable per store.

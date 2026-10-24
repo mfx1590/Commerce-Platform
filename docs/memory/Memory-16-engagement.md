@@ -38,6 +38,39 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - vitest config must set DATABASE_URL/DATABASE_URL_APP in `test.env` (turbo strips DATABASE_URL* from the test environment) and `fileParallelism: false`, copied from apps/notifications.
 
 ## In progress
+- **#576 (16.2a, CDP consent mode) MERGED 2026-10-24 = 6897960**, PR #585, after one queue refusal that was
+  my own doing: #583 put `customer.erased` v2 on main, my fixture commit 38338ed had given the shared erasure
+  fixture an `email_hash`, and the "v1 suppresses by customer_id alone" test then asserted v1 behaviour on a
+  v2 payload. Fixed in `0561202` by making `envelopeFor` take an explicit `version` and adding
+  `customerErasedV1` (version 1, no hash, validated against the FROZEN v1 schema), with `expect(e.version)`
+  and the field's absence asserted BEFORE the suppression — see the gotcha below. Opus reviewed #585 as
+  MERGE; its follow-up is #586.
+- **#586 (16.2b, override-key validation) BUILT 2026-10-24** — the four points of the #585 review, all
+  approved before building. Verified **409/409 with the broker up** (18 files, 116 s; live blocks
+  self-cleaning: cdp 30 topics, crm 21, ops 12, each asserting none remains) and **400 passed / 9 skipped**
+  offline, up from 385/9. `fga:seed` re-run inside the machine grant (store reused, model written, 11 tuples
+  already present); machine returned. Package 0.5.1.
+  - **The bug:** `config.ts` stored the override under the RAW env suffix and looked it up normalised, so
+    `..._brand_a` parsed, validated and matched nothing — the store stayed on `analytics` while the config
+    said `strict`. 0.5.0 was loud about a bad VALUE and silent about a bad KEY.
+  - **New module `src/consent-mode.ts`** (ACCEPTED by the manager, keep the header note): `storeEnvKey`,
+    `parseConsentMode`, `readConsentModeOverrides`, `assertConsentModeOverridesKnown`. It exists because
+    `config.ts` imports all three consumers for `KNOWN_GROUPS`, so `cdp/consumer.ts` cannot import
+    `config.ts` back — and a second copy of the normalisation inside the consumer is the very bug class.
+    `config.ts` delegates and re-exports `storeEnvKey`, so its surface did not change.
+  - Disagreeing spellings of one store throw at config time; agreeing ones are allowed. An override naming
+    no store throws from `createCdpConsumer.start()` right after `warm()` (`StoreCodes.codes()` added), which
+    is the first moment the store list exists. ACCEPTED limit, commented: with the CDP disabled there is no
+    list and no boot to fail.
+  - CLAUDE.md's e-mail rule now names THREE exceptions (CRM sync, support context — which reads and returns
+    the address to the agent, that being the feature — and the Chatwoot webhook hashing on arrival); the
+    prohibitions are stated separately. The erasure wording in `data/cdp/README.md` and `cdp/consumer.ts` was
+    wrong in two places: the core KEEPS the row with `status = 'erased'`, personal fields already replaced
+    (checked in `apps/core/src/modules/customers/admin.ts`), so the hash is unrecoverable because the ADDRESS
+    is gone. #584 cited with its decision.
+  - The 404-equivalence test compared two identical `() => null` fakes; the second reader is now store-aware
+    (owns brand-B's customer, answers null under brand-a) with an assertion that it DOES find them under
+    their own store.
 - **#583 (customer.erased v2 integration) UNBLOCKED 2026-10-24** — side task, done and out of the way. `makeEvent` started writing v2, so 12 engagement tests built `customer.erased` without the now-required `email_hash`. One commit, **38338ed**, on branch `integration/customer-erased-v2-fixtures` (pushed; the manager fast-forwarded `integration/customer-erased-v2` to it and re-ran CI): one line per fixture in cdp/mapper.test.ts, cdp/consumer.test.ts, crm/consumer.test.ts, plus `data/cdp/tracking-plan.json`'s `customer.erased` version note (said 1, `makeEvent` emits 2). No production code. The CRM file uses its own `'f'.repeat(64)` convention rather than `createHash` — runtime, no committed literal; accepted.
 - **#556 16.4 (support context + Chatwoot webhook) — BUILT and VERIFIED: 326/326 with the broker up (~85 s, three live blocks self-cleaning: cdp 30 topics, crm 21, ops 12); 317/9 offline. Committed LOCALLY as 70f1118 + 92cdf74.** That is all four issues built.
   **PR BLOCKED ON TWO QUEUED MERGES, in this order: #568 (in the merge queue), then #570** — the integration PR for CONTRACT CHANGE #569. #556's code really does call the new parameter (`src/support/admin-api.ts:135`, `?customer_id=`) and it is NOT on origin/main yet, so the PR waits. The manager says when.
@@ -118,7 +151,28 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **Never commit a 64-hex email_hash fixture.** The `sha256` $def needs a real 64-hex value, so a word will not validate — compute it: `createHash('sha256').update('…').digest('hex')`, which is what apps/core does. I had three such literals before catching it; one would have reddened every open PR.
 - `pg` is deliberately NOT a dependency of this app: for a pool type use `Parameters<typeof createTenantClient>[0]`.
 
-## RESUME HERE — 2026-10-24: #585 fixed and pushed, #586 is next (do NOT start it until #585 merges)
+## RESUME HERE — 2026-10-24: #586 pushed, waiting on its review. Nothing else is assigned.
+
+**#576 merged (`6897960`); #586 is BUILT, verified 409/409 live, and its PR is open** (see Done above for the
+whole shape of it). Branch `engagement/phase4`. The machine was granted, used for `fga:seed` + the full run,
+and returned with the numbers reported.
+
+**When #586's review comes back:** read the review COMMENT itself, never a summary — on #568, #573 and #585 a
+"nit" was a real bug each time (a wrong contract shape, a keyed hash that was not an HMAC, a test asserting
+the right thing for the wrong reason). Fold the fixes in, re-run offline, ask for the machine before any live
+run, and push only on the manager's word.
+
+**Nothing else is assigned.** The later-wave items that exist but are NOT mine to start: `customer.erased` v2
+producer (window 13), a guest-erasure path keyed by e-mail with no customer behind it, **#584** (`email_hash`
+on the five order-scoped topics — the only way to close the guest-lifecycle asymmetry, since reading a raw
+address was refused), an Integration-4 live `customer_id` call against the core (the support tests drive a
+fake reader and cannot prove the core honours the filter), and the launch-checklist items: a real Slack
+workspace, a RudderStack account, a Twenty instance, a real Chatwoot delivery to confirm its header format,
+and the `crm-sync` service-account token (#565).
+
+<!-- The 2026-10-24 #585/#586 block below is kept for the record; both are done. -->
+
+## RESUME (superseded) — #585 fixed and pushed, #586 next
 
 **#585 (#576, CDP consent mode) was REFUSED by the merge queue** once #583 landed `customer.erased` v2 on
 main (738c34a). Real failure, not a flake: `cdp/consumer.test.ts`'s "suppresses by `customer_id` alone on a

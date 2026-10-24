@@ -24,6 +24,7 @@
 // question — and with a per-store mode (#576) "empty for which store, under which rule" is the real question.
 
 import { createTenantClient, type ScopedClient } from '@platform/db';
+import { assertConsentModeOverridesKnown } from '../consent-mode.js';
 import {
   createConsumer,
   createPgProcessedStore,
@@ -157,8 +158,9 @@ export async function handleCdpEvent(
       });
     } else {
       const facts = await readCustomerFacts(store, customerId, purpose);
-      // An erasure deletes the customer row, so `customer.erased` usually finds nothing: the payload's id is
-      // the identity to suppress either way.
+      // The core KEEPS the customer row and sets `status = 'erased'` (#586 review corrected this comment,
+      // which used to say the row is deleted); the consent projection row may be gone, though. Either
+      // way the payload's id is the identity to suppress, and `status = 'erased'` is refused in both modes.
       decision = gate({
         gated,
         facts: facts.found ? facts : { ...facts, customerId: gated ? null : customerId },
@@ -214,6 +216,13 @@ export interface CdpConsumerOptions {
   purpose?: string;
   /** Per-store consent mode (#576); `config.cdp.consentModeFor`. Defaults to `strict` when absent. */
   consentModeFor?: (storeCode: string) => ConsentMode;
+  /**
+   * The per-store overrides behind `consentModeFor`, keyed by the normalised store key
+   * (`config.cdp.consentModeOverrides`). Given, `start()` fails on a key that names no store of this
+   * organization (#586). Omitted, nothing is checked — a test that hands in a resolver directly does not
+   * have to describe where it came from.
+   */
+  consentModeOverrides?: ReadonlyMap<string, ConsentMode>;
   log?: (line: CdpLogLine) => void;
   /** Test seam: supply the store-scoped client instead of building one from the pool. */
   storeClientFor?: (storeId: string) => ScopedClient;
@@ -273,6 +282,13 @@ export function createCdpConsumer(opts: CdpConsumerOptions): CdpConsumer {
     },
     async start() {
       await storeCodes.warm();
+      // #586: an override naming no store fails the boot HERE, because this is the first moment the store
+      // list exists — `resolveConfig` has no database. It therefore only runs when the CDP is enabled, which
+      // is the accepted limit: a consumer that is not running applies no mode to anything, so there is
+      // nothing for a stray key to silently fail to do.
+      if (opts.consentModeOverrides) {
+        assertConsentModeOverridesKnown(opts.consentModeOverrides, storeCodes.codes());
+      }
       await consumer.start();
       opts.log?.({
         service: 'engagement',
