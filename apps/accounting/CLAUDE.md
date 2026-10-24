@@ -31,6 +31,8 @@ landed by the manager in `packages/db`.
 @platform/accounting fixtures:payouts` rebuilds the committed fixtures.
 - `pnpm --filter @platform/accounting erp:sync -- --legal-entity <uuid> [--company <id>] [--mock]` — Odoo sync
   (after `build`); credentials from `ODOO_URL` / `ODOO_DB` / `ODOO_USER` / `ODOO_API_KEY`; `--mock` = in-memory Odoo.
+- `pnpm --filter @platform/accounting exec vitest run test/month-replay.test.ts` — the Integration 4 gate (#552) alone;
+  `MONTH_REPLAY_ORDERS` scales it; needs the local broker, ask the manager for the machine before running it.
 - `pnpm --filter @platform/accounting typecheck | lint | build`.
 - Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/accounting` before finishing any task.
 

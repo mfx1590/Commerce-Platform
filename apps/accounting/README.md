@@ -293,6 +293,40 @@ contract's.
   Money is integer minor with its currency; nothing is summed across currencies. Logs carry operation id, status and
   duration — never a body.
 
+## Month replay gate (#552, the Integration 4 accounting gate)
+
+`test/month-replay.test.ts` proves the two numbers the phase is judged on: a generated month — three legal entities
+(EUR, GBP, USD), three stores, orders, captures with fees, partial and full refunds, cancellations, partial and full
+shipments — is written to the outbox table (the rows the core's `withEvents` writes), relayed onto the bus in seq order
+and consumed live by one `accounting.ledger` group (books balanced), then REPLAYED from the outbox — every topic at
+once, orders last — into a FRESH group and a FRESH database:
+
+1. the trial balance is zero per legal entity per currency, each expected currency is present, and the per-account
+   totals equal the live ledger's (not the row count: a cancel consumed before an earlier shipment posts a corrective
+   entry — more rows, same totals);
+2. the month's payout reports, built from the same events, reconcile with zero differences and the PSP clearing account
+   equals the open balance;
+3. a second replay into the same group changes nothing (duplicates only; entries, processed marks and payouts unchanged).
+
+Counts and balances are the assertions; durations are ceilings only, ≥ 5× the local medians (three runs of the final
+code, 150 orders = 556 events: relay 1.0 s, consume 14.8 s, replay 0.2 s, replay-consume 13.2 s, reconcile 0.4 s →
+30 / 120 / 30 / 120 / 30 s). `MONTH_REPLAY_ORDERS` scales the month. Skipped with a printed reason when the broker is
+down; prefixed topics and group, two throwaway databases, all deleted afterwards. CI runs it in the `live auth +
+end-to-end` job and requires its block (REQUEST #578, the #541 pattern); a new required step needs three
+consecutive green CI runs on one head before it merges.
+
+**Arrival order is not fact order.** The five topics are separate partitions, so a later `order.cancelled` can be
+consumed before an earlier `shipment.shipped` of the same order. The cancel reverses the then-unreleased remainder;
+the late shipment (dated before the cancellation) then recognises the shipped part against the receivable and gives back
+the VAT the cancel reversed for it — the same ledger as in fact order (tested). A shipment dated at or after the
+cancellation stays a defect.
+
+**Deviation, accepted for now.** The relay and the replay are reproduced through `@platform/events`' wire functions
+(`outboxRowToEnvelope` → `envelopeToMessage`, seq order, the replay headers) on prefixed topics: apps/core's
+`relay-cli` / `outbox:replay` publish to the real topic names of the shared dev broker, and apps/accounting cannot
+import apps/core internals. Once `--topic-prefix` lands on both CLIs (REQUEST #579, window 14) the test
+switches to them.
+
 ## Out of the Phase 4 gate (manager decision 4)
 
 - **COGS**: no event carries a unit cost (`shipment.shipped` has none, `stock.moved` has none). Journal `cogs` stays
@@ -316,7 +350,7 @@ creates `dlq.accounting.ledger` itself on first start.
 
 ## Tests
 
-`pnpm --filter @platform/accounting test` — 73 tests in eight files:
+`pnpm --filter @platform/accounting test` — 83 tests in ten files:
 
 - `src/posting/posting.test.ts` — pure: the arithmetic, the worked example of every topic above, partial shipments,
   proportional refunds and cancellations, every defect class, the netted life of one order.
@@ -339,9 +373,12 @@ creates `dlq.accounting.ledger` itself on first start.
   and mark recovered by ref, a code map with a missing Odoo account skipping only its entries; a live block for the
   owner's Odoo (skipped with the reason).
 - `src/api/spec.test.ts` — the contract as loaded (seven reads, all finance, 401/403) and the route matcher.
+- `src/api/auth.test.ts` — dev tokens never accepted in production, refused without the flag, accepted with it; an
+  unknown subject 401; the permission service unreachable → 503 fail closed; a refusal → the contract's 403.
 - `test/api.test.ts` — the API over HTTP on the clean-month ledger with its payouts: 401 / 403 (store admin, analyst)
   / 200 (finance, owner) on every operation, bodies validated against the contract's schemas, filters and pagination,
   trial balance totals at zero, 404 / 400 cases, a log sweep.
+- `test/month-replay.test.ts` — the Integration 4 gate above (4 tests; live broker, two throwaway databases).
 - `test/consumer-live.test.ts` — the consumer on the local Redpanda (prefixed topics and group, deleted afterwards):
   every event once, a redelivered `outbox_id` writes nothing, an unknown version is skipped, a shipment before its
   order is parked then applied, a genuinely bad shipment dead-letters with `ShipmentExceedsOrder` after the retries
