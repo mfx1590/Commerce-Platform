@@ -11,8 +11,9 @@
 //     Cr 2100 Carrier payable              cost_minor
 //
 // Amounts come from the ledger's own projection of the order (ADR 0003 item 6), never from core tables. Without a
-// projection the event is retried (OrderProjectionMissing) and dead-lettered after the SDK's retries; a shipment of
-// more than was ordered, of an unknown line, or of a cancelled order is a producer defect and dead-letters at once.
+// projection this function throws OrderProjectionMissing — the handler never lets that happen: it PARKS such an event
+// (accounting_parked_event) and applies it when the order.placed arrives. A shipment of more than was ordered, of an
+// unknown line, or of a cancelled order is a producer defect and dead-letters after the SDK's retries.
 import type { EventEnvelope } from '@platform/events';
 import { ACCOUNT } from '../chart.js';
 import {

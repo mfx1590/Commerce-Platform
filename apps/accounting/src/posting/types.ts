@@ -2,7 +2,7 @@
 import type { AccountCode } from '../chart.js';
 
 export type Journal = 'sales' | 'psp_fees' | 'refunds' | 'cogs' | 'tax' | 'shipping' | 'bank';
-export type ReferenceType = 'order' | 'payment' | 'refund' | 'shipment';
+export type ReferenceType = 'order' | 'payment' | 'refund' | 'shipment' | 'payout';
 
 export interface JournalLine {
   account_code: AccountCode;

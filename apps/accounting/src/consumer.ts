@@ -1,5 +1,6 @@
 // The ledger consumer (#548): group `accounting.ledger` on the events-v1 consumer SDK, five topics, one transaction
-// per event: load the order projection → pure posting → ledger rows + projection writes → ctx.markProcessed(tx).
+// per event: advisory lock on the order → load the order projection → pure posting → ledger rows + projection
+// writes → ctx.markProcessed(tx).
 // The processed row commits WITH the ledger rows (exactly once per group); UNIQUE (source_event_id, account_code)
 // on ledger_entry is the second guard.
 //
@@ -97,6 +98,10 @@ export async function handleLedgerEvent(
   const orderId = orderIdOf(envelope);
 
   return client.transaction(async (tx) => {
+    // FOR UPDATE on a MISSING projection row locks nothing: with two instances of the group a shipment could be parked
+    // at the same moment its order.placed applies the parked events, and stay parked. One transaction-scoped advisory
+    // lock per order serialises every event of that order across instances (Fable review of #567, follow-up a).
+    await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [orderId]);
     const order = await loadOrderProjection(tx, orderId);
     if (!order && needsOrderProjection(envelope)) {
       await parkEvent(tx, envelope, outboxId, orderId);
