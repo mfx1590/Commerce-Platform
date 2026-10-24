@@ -224,6 +224,41 @@ services:
       - loki
       - tempo
 
+  # Odoo Community 17 for the accounting service's ERP sync (#550 live block, #575), opt-in only:
+  #     docker compose -p commerce-platform -f infra/docker/docker-compose.yml --profile erp up -d --no-recreate odoo-db odoo
+  # Its own Postgres (never the platform database), no host port for it. Odoo on 8069 (free on this machine).
+  # Local-only word credentials, mirrored in .env.example; the accounting live block reads ODOO_URL/DB/USER/API_KEY.
+  # First start: scripts in apps/accounting create the database and install the accounting module (window 15).
+  odoo-db:
+    image: postgres:16-alpine
+    profiles: ['erp']
+    environment:
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+      POSTGRES_DB: postgres
+    volumes:
+      - odoo-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U odoo -d postgres']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  odoo:
+    image: odoo:17.0
+    profiles: ['erp']
+    environment:
+      HOST: odoo-db
+      USER: odoo
+      PASSWORD: odoo
+    ports:
+      - '8069:8069'
+    volumes:
+      - odoo-data:/var/lib/odoo
+    depends_on:
+      odoo-db:
+        condition: service_healthy
+
 volumes:
   postgres-data:
   redpanda-data:
@@ -232,3 +267,5 @@ volumes:
   loki-data:
   tempo-data:
   grafana-data:
+  odoo-db-data:
+  odoo-data:
