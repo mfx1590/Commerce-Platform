@@ -211,7 +211,7 @@ Six new worktrees over Phase 2 (6, 7, 8, 9, 10, 17): `./scripts/new-window.sh <n
 | # | Key | Title | First phase | Memory file | Model |
 |---|---|---|---|---|---|
 | 1 | core | Core commerce | 1 | docs/memory/Memory-1-core.md | Fable (owner decision 2026-09-04: budget not a constraint) |
-| 2 | auth | Auth & RBAC | 1 | docs/memory/Memory-2-auth.md | Fable |
+| 2 | auth | Auth & RBAC | 1 | docs/memory/Memory-2-auth.md | Opus since 2026-10-24 (was Fable) |
 | 3 | storefront | Storefront starter & UI kit | 1 | docs/memory/Memory-3-storefront.md | Opus |
 | 4 | admin | Admin application | 1 | docs/memory/Memory-4-admin.md | Opus |
 | 5 | infra | Infra & DevOps | 2 | docs/memory/Memory-5-infra.md | Opus |
@@ -222,7 +222,7 @@ Six new worktrees over Phase 2 (6, 7, 8, 9, 10, 17): `./scripts/new-window.sh <n
 | 10 | brands | Brand storefronts (A, B, C…) | 2 | docs/memory/Memory-10-brands.md | Sonnet |
 | 11 | warehouse | Shared warehouse / WMS | 3 | docs/memory/Memory-11-warehouse.md | Sonnet |
 | 12 | data | Data platform, BI & AI | 3 | docs/memory/Memory-12-data.md | Sonnet |
-| 13 | customers | Customer accounts & identity | 3 | docs/memory/Memory-13-customers.md | Sonnet |
+| 13 | customers | Customer accounts & identity | 3 | docs/memory/Memory-13-customers.md | Opus since 2026-10-24 (was Fable; the index had said Sonnet) |
 | 14 | events | Event bus & outbox relay | 4 | docs/memory/Memory-14-events.md | strongest |
 | 15 | accounting | Automatic accounting | 4 | docs/memory/Memory-15-accounting.md | Opus since 2026-10-24 (Fable weekly budget exhausted; was Fable) |
 | 16 | engagement | CRM, CDP, ops alerts & support (apps/notifications = window 17) | 4 | docs/memory/Memory-16-engagement.md | Sonnet |
