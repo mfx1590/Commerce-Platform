@@ -38,6 +38,38 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - vitest config must set DATABASE_URL/DATABASE_URL_APP in `test.env` (turbo strips DATABASE_URL* from the test environment) and `fileParallelism: false`, copied from apps/notifications.
 
 ## In progress
+- **#556 16.4 (support context + Chatwoot webhook) — BUILT and VERIFIED: 326/326 with the broker up (~85 s, three live blocks self-cleaning: cdp 30 topics, crm 21, ops 12); 317/9 offline. Committed LOCALLY as 70f1118 + 92cdf74.** That is all four issues built.
+  **PR BLOCKED ON TWO QUEUED MERGES, in this order: #568 (in the merge queue), then #570** — the integration PR for CONTRACT CHANGE #569. #556's code really does call the new parameter (`src/support/admin-api.ts:135`, `?customer_id=`) and it is NOT on origin/main yet, so the PR waits. The manager says when.
+  **Caveat recorded for Integration 4:** the support tests drive a FAKE reader, so they prove the gate order, the header forwarding, the normalisation and the notes — NOT that the core honours `customer_id`. The first genuine proof is a live call once #570 and window 1's predicate are both in; that spans two windows, so it belongs on the integration list rather than in my PR.
+  Both approved by the manager and DONE locally (2026-10-23), to ride in #556's PR:
+  - **ede629f** — `support/admin-api.test.ts` (17 tests) pins the request shape to the contract: the exact paths, `customer_id` with sort/order/limit, the id encoded so it cannot smuggle a second parameter, and NO e-mail and no `q` in the query string (the whole reason #569 exists). Also the first direct cover of the reader's answer mapping: 404 → null/[], 401/403 passed through unchanged (the core refused the AGENT), everything else a 502 carrying neither body nor URL nor token.
+  - **7af93c7** — `src/cdp/consent.ts` lifted to `src/consent.ts` with its test, as its own commit, no behaviour change. Both consumers now import one rule from one place. The one real change: the gate's identity type is declared there as `GateIdentity` instead of imported from `cdp/types.ts` — a service-wide module must not depend on one consumer's types, and the two are structurally identical so nothing converts or casts.
+  State: **334 passed / 9 skipped offline** (343 total; was 326 before the 17 new tests). Lint, typecheck, ownership, prettier clean.
+  **RE-RUN LIVE after those two commits (machine granted, then released): 343/343, 18 files, ~81 s**, all three live blocks self-cleaning (cdp 30 topics, crm 21, ops 12), each asserting none remains. So the current verified figure is 343/343 with the broker up and 334/9 offline; the earlier 326/326 is superseded and refers to the state before ede629f and 7af93c7.
+  Delivered: `src/support/` = `auth.ts` (the two gates), `admin-api.ts` (three reads, each with the AGENT's header), `context.ts` (pure normalisation + summary), `chatwoot.ts` (HMAC + freshness + seen-once), `server.ts` (node:http, three routes), `types.ts`; config + main wiring (`ENGAGEMENT_SUPPORT_ENABLED` defaults 0); `@platform/auth-sdk` added as a dependency; package 0.4.0; README + CHANGELOG + CLAUDE.md.
+  **CONTRACT CHANGE #569 ACCEPTED** (listOrders `customer_id`, Admin API 0.4.24, landed on integration/orders-customer-filter a2e6e98; window 1 adds the core predicate). Built against it.
+  **#568 = Fable MERGE**; its three nits folded in here (see below).
+
+### #573 BLOCK — three real fixes, worth not repeating
+- **The support reader did not match the contract.** It read `body.orders` where `listOrders` answers a `Page` of `items`, and treated `total` as a scalar where `OrderSummary.total` is `Money { amount_minor, currency }` (the ONLY place a summary carries a currency). Against the real core: zero orders, empty currency. **No test could catch it because they all drove a hand-written fake.** LESSON: when a reader talks to a contract, type its responses FROM the contract (`@platform/contracts/admin`) and type every fixture from the contract's schemas — then drift is a compile error. Typing the existing fixtures surfaced six more wrong fields. `getCustomer` and `getOrder` return their schema DIRECTLY (no envelope).
+- **Validate path ids as uuids in the route BEFORE any call** → 404 (not 400: malformed and absent must look the same), and `encodeURIComponent` every path segment in the reader. `%2F..%2F` decodes to `/../`, and an unvalidated id in a path could reach another Admin API route WITH THE AGENT'S OWN TOKEN.
+- **`sha256(secret + '.' + body)` is NOT an HMAC** — a keyed hash, no inner/outer padding, the length-extension construction. Use `createHmac('sha256', secret)`. Chatwoot's documented header format could not be confirmed by search, so both bare-hex and `sha256=` are accepted and the README says it is UNVERIFIED (launch-checklist check). Do not claim a compatibility nobody verified.
+- Test nits worth keeping as habits: a permission fake must record WHAT IT WAS ASKED (a flat boolean would pass a `store:*` check); two different upstream answers that must look identical should be asserted byte-identical, not just same-status.
+- Known limit recorded, not fixed: the store lookup precedes the permission check, so store codes are enumerable by authenticated staff (404 vs 403).
+
+### #556 decisions worth not re-deriving
+- **The agent's OWN token reads**, never a service principal — the opposite of #555, because #556 has a human in the request. Gate order: authenticate → resolve store → `support` on THAT store via OpenFGA → read. 401 lands before a query parameter is parsed, so the route cannot be probed for which stores/customers exist; a test asserts a refused gate makes NO Admin API call, another that every read carried the agent's header. The agent's header is forwarded so the CORE re-checks: defence in depth, and if they disagree the core wins.
+- **OpenFGA unreachable → 503, not 403.** "Forbidden" would be a lie; we cannot tell. Same choice auth-sdk's own guard makes.
+- **A customer of another store gets the SAME 404 as a non-existent one** — the route must never reveal that an id exists elsewhere in the organization.
+- **Nothing cached, `cache-control: no-store` on every response**: a cache is both a stale permission and a copy of PII.
+- `getOrder` already EMBEDS payments/refunds/shipments/returns, so the history is one list + one detail per order; `support` implies `viewer` in the model, so one grant covers all three reads.
+- **The webhook resolves and persists NOTHING by ruling**: a webhook has no agent token, #556 forbids a service principal here, and a link table is not ours. 202 + `persisted: false`. Replay = freshness window (no timestamp → REJECT, never wave through) + in-memory seen-once LRU, limits documented; it is enough only because the stub has no side effect to replay. Do not add a lookup here.
+- The contact address is hashed ON ARRIVAL in the webhook, so nothing downstream ever holds it.
+
+### #568's three nits (folded into #556)
+- A Twenty DELETE that 404s after a successful lookup is **already gone**, not a failure — a real race, and previously an erasure could fail for having already succeeded. Matching call on the write path: 404 on PATCH is RETRYABLE (the retry POSTs), 404 on POST stays fatal (wrong base URL, not a race).
+- The read-only claim is now an **md5 over every row** of order/refund/customer, and the test asserts the checksum notices a one-column change. Counts + max(updated_at) was weaker than the wording.
+- `by_currency`/`mixed_currency` stop at the `CrmContact` boundary — documented on the type and in the README; the log line is the only place that says the two contact fields differ in scope.
 - **#555 16.3 (CRM sync) — BUILT and VERIFIED: 252/252 with the broker up (~78 s, three live blocks self-cleaning: ops 12 topics, cdp 30, crm 21); 243/9 offline. Main merged (efc11b2). Pushing + PR now.**
   Delivered: `src/crm/` = `rollup.ts` (pure), `read.ts`, `admin-api.ts` (the only PII read, injected `TokenProvider`), `consumer.ts` (group `engagement.crm`), `types.ts`, `adapter/{memory,twenty}.ts`; config + main wiring (`ENGAGEMENT_CRM_ENABLED` defaults 0, `KNOWN_GROUPS` gains `engagement.crm`); package 0.3.0; README + CHANGELOG + CLAUDE.md.
   **REQUEST #565 (crm-sync service client) ACCEPTED** and routed to window 2 (client export, generalised additive ensure-service-account, FGA via assignRole per store); the `staff_user` seed row is the manager's. NOT on #555's path: built against `mockTokenProvider`, and `ENGAGEMENT_CRM_TOKEN_PROVIDER=client_credentials` THROWS rather than falling back, so its absence cannot become a silent no-op. The live service-account call is a launch-checklist item for the PR body.
@@ -67,6 +99,32 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **Fixture traps the schemas caught for me** (validate every fixture with `createValidator().validateEnvelope`, it pays for itself): `order.placed.shipping` is `{code,name,carrier,price_minor}`; `order.cancelled.totals` needs all five fields; `refund.issued.reason` is an ENUM (`return|cancellation|goodwill|chargeback`) while `order.cancelled.reason` is free text; `order.confirmed` needs `display_id`; `product.published` needs `category_id`/`variants`/`published_at`; `"order"` has NO `legal_entity_id` and needs `sales_channel_id` + both address jsonbs; `makeEvent`'s `storeId` is REQUIRED (`string | null`), not optional.
 - **Never commit a 64-hex email_hash fixture.** The `sha256` $def needs a real 64-hex value, so a word will not validate — compute it: `createHash('sha256').update('…').digest('hex')`, which is what apps/core does. I had three such literals before catching it; one would have reddened every open PR.
 - `pg` is deliberately NOT a dependency of this app: for a pool type use `Parameters<typeof createTenantClient>[0]`.
+
+## RESUME HERE if this window restarts (updated 2026-10-23: the PR is OPEN, so step 1 is done)
+
+**ALL FOUR ISSUES ARE DELIVERED.** #573 came back Fable BLOCK with three REAL fixes (see below), now folded in and pushed. #553 merged (via #563), #554 merged (#564), #555 MERGED (#568 = 9d8915a), #556 is **PR #573, head c06a9a9, open with 3 checks running**. Nothing left but its review; HOLD all pushes from c06a9a9.
+
+**State:** branch `engagement/phase4` pushed at **c06a9a9** = PR #573. Verified 343/343 with the broker up (18 files, ~81 s) before the main merge, and **334/9 offline re-run AFTER merging main** (e6c73e0, which brought db migration 0203 — every DB test applies the full set, so the re-run was warranted). Lint, typecheck, ownership, prettier clean.
+
+**#570 MERGED = e6c73e0**: `customer_id` is on main's Admin API 0.4.24 (verified in packages/contracts/openapi/admin-api.yaml, with window 1's core predicate in 0e466dc). The blocker is gone.
+
+**If review nits come back:** fold them in, re-run offline, ask the manager for the machine before any live run, and do NOT push until he confirms. Old steps, kept in case a new branch is ever needed:
+1. `git fetch origin main && git merge origin/main --no-edit`
+2. `pnpm install --frozen-lockfile && pnpm build --filter "./packages/*"`
+3. Re-run the suite ONLY if that merge touched `apps/engagement/**`, `packages/events`, `packages/db` or `packages/auth-sdk` — and ask the manager for the machine first if the live blocks are needed (ONE WINDOW MEASURES AT A TIME). Otherwise the 343/343 above stands.
+4. `bash scripts/check-ownership.sh`, then push, then `gh pr create` with `Closes #556` on exactly ONE line (grep the body before opening — that is a standing manager rule).
+5. Message the manager the PR number + head sha, then HOLD all pushes.
+
+**What #556's PR body must contain** (all of it is already in apps/engagement/README.md, so draft from there):
+- the acceptance criteria ticked: routes + tests (401, 403 for a non-support role and for another store, 200), the webhook stub (HMAC, bad signature 401, replay-safe), README "Support", CHANGELOG, memory;
+- the verification table: 343/343 broker up, 334/9 offline, the three live blocks' topic counts and the cleanup assertion, lint/typecheck/ownership/prettier, and that the machine was granted and released;
+- the decisions, each with its reason: the AGENT's own token rather than a service principal; the gate order (authenticate → store → `support` on that store → read) so 401 lands before a parameter is parsed; **503 not 403** when OpenFGA is unreachable; a customer of another store getting the **same 404** as a non-existent one; nothing cached and `cache-control: no-store`; a partial answer visible in `notes` while a 401/403 is re-thrown;
+- the webhook's **documented limit** (no agent token, no service principal by ruling, no link table — so 202 with `persisted: false`, resolution happens on the dashboard request) and its replay guards' limits (freshness window, no-timestamp rejected, in-memory seen-once LRU);
+- the two extra commits: `ede629f` (pins `customer_id` to the contract, and that no e-mail or `q` reaches the query string) and `7af93c7` (`consent.ts` lifted to the top level, **no behaviour change**, `GateIdentity` declared there so a service-wide module does not depend on one consumer's types) — the manager asked for the no-behaviour-change wording in the body;
+- **launch-checklist items:** a real Chatwoot instance (the HMAC/freshness/replay guards are tested against generated signatures only), and a persisting conversation→customer link plus the principal a webhook would need;
+- **Integration 4 item:** a live `customer_id` call against the core. The support tests drive a FAKE reader, so they prove the gate order, header forwarding, normalisation and notes — NOT that the core honours the filter. Do not claim otherwise.
+
+**Window 16 is otherwise done:** #553 merged (via #563), #554 merged (via #564), #555 is PR #568 (Fable MERGE, in the queue), #556 ready. Contract changes #565 and #569 both filed and accepted. The service owns no table.
 
 ## Next — Phase 4 (issues, in order)
 - [x] #553 16.1 apps/engagement service + ops alerts (group `engagement.ops`) — PR #562, see Done

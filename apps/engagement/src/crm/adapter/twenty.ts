@@ -55,7 +55,11 @@ export class TwentyCrmAdapter implements CrmAdapter {
     const existing = await this.#findByExternalId(contact.externalId);
     const body = JSON.stringify(this.#personBody(contact));
     if (existing) {
-      await this.#send(`${this.#baseUrl}/people/${existing.id}`, 'PATCH', body, 'upsert');
+      // A 404 here means the person was deleted between the lookup and the PATCH. Retryable, not fatal: the
+      // SDK re-runs the handler, the next lookup finds nothing and it POSTs instead (#568 review).
+      await this.#send(`${this.#baseUrl}/people/${existing.id}`, 'PATCH', body, 'upsert', {
+        on404: 'retryable',
+      });
       return;
     }
     await this.#send(`${this.#baseUrl}/people`, 'POST', body, 'upsert');
@@ -65,7 +69,11 @@ export class TwentyCrmAdapter implements CrmAdapter {
     const existing = await this.#findByExternalId(externalId);
     // Idempotent by contract: a contact already gone is a success. An erasure must not fail a second time.
     if (!existing) return;
-    await this.#send(`${this.#baseUrl}/people/${existing.id}`, 'DELETE', undefined, 'remove');
+    // ...and the same holds for the race: the lookup found a person, something deleted it before our DELETE
+    // landed, and the outcome we wanted has happened. A 404 is success, not an error (#568 review).
+    await this.#send(`${this.#baseUrl}/people/${existing.id}`, 'DELETE', undefined, 'remove', {
+      on404: 'success',
+    });
   }
 
   /** Twenty's person shape. `name` is a composite field; the rollup goes to custom number/date fields. */
@@ -101,13 +109,22 @@ export class TwentyCrmAdapter implements CrmAdapter {
     return Array.isArray(people) && people[0] ? people[0] : null;
   }
 
-  async #send(url: string, method: string, body: string | undefined, what: string): Promise<void> {
+  async #send(
+    url: string,
+    method: string,
+    body: string | undefined,
+    what: string,
+    opts: { on404?: 'success' | 'retryable' } = {},
+  ): Promise<void> {
     const res = await this.#request(url, method, body);
-    if (!res.ok) {
-      throw new CrmError(`twenty ${what}: HTTP ${res.status}`, {
-        retryable: res.status === 429 || res.status >= 500,
-      });
-    }
+    if (res.ok) return;
+    if (res.status === 404 && opts.on404 === 'success') return;
+    throw new CrmError(`twenty ${what}: HTTP ${res.status}`, {
+      retryable:
+        res.status === 429 ||
+        res.status >= 500 ||
+        (res.status === 404 && opts.on404 === 'retryable'),
+    });
   }
 
   async #request(
