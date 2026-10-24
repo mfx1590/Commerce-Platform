@@ -131,6 +131,20 @@ package yet.
 - The CDP consumer needs TWO clients: the organization one for the marks (`consumer_processed` is
   `organization_only`), and a store-scoped one per event for the consent read (least privilege — consent is
   never propagated across stores).
+- **Per-store config keys are normalised the same way on BOTH sides** (#586): `storeEnvKey` writes them and
+  reads them, in `consent-mode.ts`. A key stored raw and looked up normalised is what made
+  `ENGAGEMENT_CDP_CONSENT_MODE_brand_a` parse, validate and then apply to nothing. Two spellings of one store
+  that disagree fail the boot; an override naming no store is refused by `main()` BEFORE a single consumer
+  starts, from one warmed `StoreCodes` it then hands to the CDP consumer (`resolveConfig` has no database, so
+  the check cannot live there, and it is skipped entirely while the CDP is disabled).
+- **A startup refusal must stop the PROCESS, not just set an exit code** (#590 review, which found exactly
+  that bug): anything already started keeps the event loop alive, so `process.exitCode = 1` is a no-op and
+  the service stays up with a configuration it refused. Validate before starting, unwind what started on a
+  failure, write the crash line synchronously, and `process.exit(1)`.
+- **`ConsentModeConfigError` is the one error class whose MESSAGE the crash line prints** — a deliberate
+  exception to "the class only", and it holds only because `consent-mode.ts` builds those messages from env
+  variable names and store codes. Never put a payload, a secret or an address into one, and keep the test
+  that pins every consent-mode failure to this class.
 - **CDP consent mode (#576, owner decision 2026-10-23):** `analytics` is the DEFAULT — track and identify run
   without `marketing_email`, and a guest is tracked under their `email_hash`. `strict` is #554's behaviour. The
   mode **resolves PER STORE** (`ENGAGEMENT_CDP_CONSENT_MODE` plus `..._<STORE_CODE>`), is resolved per event
@@ -142,12 +156,21 @@ package yet.
   test pins it.
 - `identify` carries ids only — `customer_id`, `email_hash`, store code. Not `status`, not `customer_group_id`
   (a marketing segment id).
-- **This service reads no raw e-mail address, anywhere** (manager ruling 2026-10-24, refusing exactly that fix
-  for the guest-lifecycle gap). A hash is the only form an address takes here: it arrives hashed in an event,
-  or it is hashed on arrival at the Chatwoot webhook. The CRM path is the one exception and it is explicit —
-  it fetches a name and an e-mail from the Admin API for the contact it is about to write, holds them in a
-  `CrmContact`, and keeps nothing. Do not add a raw-address read to the CDP, ops or support paths, and do not
-  reach for one to fill a missing `email_hash`: the way to get a hash is a CONTRACT CHANGE on the event.
+- **No raw e-mail address is ever read from one of our TABLES or from an EVENT, and none is read to fill a
+  missing `email_hash`** (manager ruling 2026-10-24, refusing exactly that fix for the guest-lifecycle gap;
+  the way to get a hash is a CONTRACT CHANGE on the event — #584). An address exists in this service in
+  exactly three places, all explicit, all from the Admin API or the caller rather than our own rows (#586
+  review corrected an earlier version of this rule, which claimed the CRM path was the only one):
+  - **CRM sync (#555)** fetches a name and an e-mail for the contact it is about to write, holds them in a
+    `CrmContact` on the way to the adapter, and keeps nothing;
+  - **support context (#556)** reads the customer and RETURNS the address to the agent — that IS the feature:
+    an agent answering a ticket reads the person's own record, with the agent's own token, and nothing is
+    cached or stored;
+  - the **Chatwoot webhook** is handed one by Chatwoot and hashes it on arrival (`hashEmail`), so the raw
+    value never leaves `receive()`.
+    Everywhere else a hash is the only form an address takes. The CDP and ops paths read no address at all, and
+    no path may start reading one from a table of ours or from an event payload. A log line, an alert, an error
+    and a dead letter never carry one in any module, including the three above.
 - A new topic in `packages/events` must be added to `data/cdp/tracking-plan.json` as mapped or unmapped with a
   reason; the suite fails until it is.
 - Never touch a Dockerfile: the manager lands this service's `COPY` lines as an integration commit.
