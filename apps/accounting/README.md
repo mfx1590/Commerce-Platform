@@ -179,7 +179,9 @@ event's `totals` are not used. Unshipped example:
 | 1200    |        | 136.65 |
 
 Partially shipped (2 × 50.00 at 20 %, shipping 10.00 + 2.00, one unit shipped): Dr 2300 50.00, Dr 2200 10.00
-(= 22.00 × 50 / 110), Cr 1200 60.00. A second cancel posts nothing.
+(= 22.00 × 50 / 110), Cr 1200 60.00. A second cancel posts nothing. A zero-base order (every net 0, tax > 0) has no
+proportion: its cancel reverses the whole tax when nothing has shipped and none once anything has, in either arrival
+order.
 
 ### A whole life, netted
 
@@ -267,7 +269,24 @@ reference_type?, reference_id?, expected_minor?, actual_minor?, difference_minor
 - **CLI** — `pnpm --filter @platform/accounting erp:sync -- --legal-entity <uuid> [--company <id>] [--mock]` (after
   `build`): `--company` runs the mapping step first; `--mock` uses the in-memory Odoo (development). Credentials
   only from `ODOO_URL`, `ODOO_DB`, `ODOO_USER`, `ODOO_API_KEY` — never in git, never in a log line.
-- **Live Odoo** — the instance is the owner's open question (asked 2026-10-23). `test/erp.test.ts` has a
+- **Crash cases (#575)** — a crash between `create` and `action_post` leaves a DRAFT with our `ref`: the next run finds
+  it, POSTS it, then marks the rows (`moves_posted_drafts`). A create whose answer is lost after Odoo committed it is
+  never retried blindly (writes are sent once; only reads retry): the client searches by `ref`, uses the move it finds
+  (draft → posted) and only rethrows the transport error when nothing was committed — one move per ref, always. Both
+  tested with the mock (`commitThenFailNextCreate`, a draft left on purpose).
+- **`pnpm --filter @platform/accounting odoo:init`** (after `build`) — prepares the dev-stack Odoo Community 17
+  (compose profile `erp`, http://127.0.0.1:8069) for the live sync: creates `ODOO_DB` (default `accounting_dev`) with
+  the `account` module, one company per seeded legal entity in its currency (currencies activated), our 12 accounts and
+  7 journals per company, and the mapping through the sync's own steps (`legal_entity.odoo_company_id`,
+  `ledger_account.erp_account_id`). Idempotent: every step searches before it creates. Env: `ODOO_URL`, `ODOO_DB`,
+  `ODOO_USER` (`admin`), `ODOO_API_KEY` (the admin password locally), `ODOO_MASTER_PASSWORD` (Odoo's `admin_passwd`,
+  `admin` locally) — words in .env.example, never in git. The first run takes minutes (database + module install).
+  Legal entities whose code starts with `e2e-` (one per admin e2e run in the shared dev database) are not books: `odoo:init`
+  skips them (log step `skip_e2e_legal_entities`), and the mapping step and `syncLegalEntity` refuse them with
+  `LegalEntityExcluded` (`isSyncableLegalEntity`, `assertSyncable`).
+- **Live Odoo** — a local Odoo Community 17 runs in the dev stack since 2026-10-24 (owner decision); run `odoo:init`
+  once, then the live block runs with `ODOO_URL=http://127.0.0.1:8069`. Before that, the instance was the owner's open
+  question (asked 2026-10-23). `test/erp.test.ts` has a
   `describe.runIf(odooUp)` block that authenticates and lists companies / accounts when `ODOO_URL` answers, skipped
   with the reason otherwise; the live sync is waived to the launch checklist until then.
 
@@ -319,7 +338,9 @@ consecutive green CI runs on one head before it merges.
 consumed before an earlier `shipment.shipped` of the same order. The cancel reverses the then-unreleased remainder;
 the late shipment (dated before the cancellation) then recognises the shipped part against the receivable and gives back
 the VAT the cancel reversed for it — the same ledger as in fact order (tested). A shipment dated at or after the
-cancellation stays a defect.
+cancellation stays a defect. "Before" and "after" are compared as INSTANTS (`instantOf`, #589), never as strings: the
+events contract only promises `format: date-time`, so `09:00:00.500Z`, `09:00:00Z` and `11:00:00+02:00` do not sort
+by time as text. The reconciliation window compares instants the same way.
 
 **Deviation, accepted for now.** The relay and the replay are reproduced through `@platform/events`' wire functions
 (`outboxRowToEnvelope` → `envelopeToMessage`, seq order, the replay headers) on prefixed topics: apps/core's
@@ -350,10 +371,11 @@ creates `dlq.accounting.ledger` itself on first start.
 
 ## Tests
 
-`pnpm --filter @platform/accounting test` — 83 tests in ten files:
+`pnpm --filter @platform/accounting test` — 91 tests in ten files:
 
 - `src/posting/posting.test.ts` — pure: the arithmetic, the worked example of every topic above, partial shipments,
-  proportional refunds and cancellations, every defect class, the netted life of one order.
+  proportional refunds and cancellations, every defect class, the netted life of one order, the late shipment, event
+  times as instants (fractional seconds, a +02:00 offset, equal instants written differently), the zero-base cancel.
 - `src/posting/stream.test.ts` — pure: a generated month (seeded PRNG, 400 orders → 1,464 events over two legal
   entities and two currencies, partial / full shipments, every refund reason, cancellations before and mid-shipment)
   balances per legal entity per currency; the contract liability equals the unreleased part of the open orders.
@@ -364,14 +386,15 @@ creates `dlq.accounting.ledger` itself on first start.
   shuffled topic order (every order last) producing the identical ledger, RLS between stores and organizations, the
   processed table append-only for the app role.
 - `test/reconcile.test.ts` — the committed payout fixtures equal the builder's output; the pure matcher (every kind,
-  the window rule); the clean month on a seeded database: eight payouts reconciled with zero differences and posted,
+  the window rule, the window as instants); the clean month on a seeded database: eight payouts reconciled with zero differences and posted,
   the PSP clearing account equal to the open balance to the cent, books balanced, a re-import a no-op; the discrepant
   month on its own database: each kind exactly once, nothing posted for those payouts, a re-import re-matched.
 - `test/erp.test.ts` — the JSON-RPC client against the mock (auth, retries with a bound, every refusal class), the sync
   on the clean-month ledger: chart mapped, one posted balanced move per (event, journal), every row marked, a re-run
   creates nothing, a refused move reported while the rest continue and posted on the next run, a crash between create
-  and mark recovered by ref, a code map with a missing Odoo account skipping only its entries; a live block for the
-  owner's Odoo (skipped with the reason).
+  and mark recovered by ref, a code map with a missing Odoo account skipping only its entries, a draft left by a crash
+  posted before marking, a create with a lost answer recovered by ref (never a second move), `e2e-` legal entities
+  refused by the mapping step and the sync; a live block for the dev-stack Odoo (skipped with the reason when it is down).
 - `src/api/spec.test.ts` — the contract as loaded (seven reads, all finance, 401/403) and the route matcher.
 - `src/api/auth.test.ts` — dev tokens never accepted in production, refused without the flag, accepted with it; an
   unknown subject 401; the permission service unreachable → 503 fail closed; a refusal → the contract's 403.

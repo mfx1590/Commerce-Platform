@@ -18,13 +18,20 @@ import { OrderProjectionMissingError } from '../errors.js';
 import { dateOf, finalizeEntry, line, roundShare } from './balance.js';
 import type { OrderProjection, PostingResult } from './types.js';
 
-/** The VAT a cancellation reverses for a given unreleased remainder: the order's tax in that proportion. */
-export function cancellationVat(order: OrderProjection, remaining: number): number {
+/**
+ * The VAT a cancellation reverses for a given unreleased remainder: the order's tax in that proportion. With a zero
+ * base (every net 0, tax > 0) there is no proportion: the tax is reversed when nothing has shipped and kept once
+ * anything has. `shipped` defaults to the projection's state (the first shipment sets `shipping_released`); the late
+ * shipment passes `true` for the after-state, so both arrival orders net the same VAT (#589 nit).
+ */
+export function cancellationVat(
+  order: OrderProjection,
+  remaining: number,
+  shipped: boolean = order.shipping_released,
+): number {
   const base = order.goods_net_minor + order.shipping_net_minor;
   if (base > 0) return roundShare(order.tax_minor, remaining, base);
-  return remaining === 0 && (order.goods_released_minor > 0 || order.shipping_released)
-    ? 0
-    : order.tax_minor;
+  return shipped ? 0 : order.tax_minor;
 }
 
 export function postOrderCancelled(

@@ -9,6 +9,7 @@
 //   a ledger capture / refund in the payout's WINDOW with no row in it is an unmatched ledger line; the window runs
 //   from the latest ledger time an earlier payout matched (exclusive) to the latest ledger time this payout matched,
 //   so every missing line is reported exactly once, by the payout that should have carried it
+import { instantOf } from '../posting/balance.js';
 import type {
   BalanceTransactionRow,
   Discrepancy,
@@ -83,7 +84,7 @@ export function matchPayout(input: MatchInput): MatchOutput {
   let sumNet = 0;
   const seen = (type: keyof LedgerWindow, at: string) => {
     const cur = windowEnd[type];
-    if (!cur || at > cur) windowEnd[type] = at;
+    if (!cur || instantOf(at) > instantOf(cur)) windowEnd[type] = at;
   };
 
   for (const row of report.balance_transactions) {
@@ -281,7 +282,8 @@ export function matchPayout(input: MatchInput): MatchOutput {
   const inWindow = (type: keyof LedgerWindow, at: string): boolean => {
     const end = windowEnd[type];
     const start = input.windowStart[type];
-    return end !== null && at <= end && (start === null || at > start);
+    const t = instantOf(at);
+    return end !== null && t <= instantOf(end) && (start === null || t > instantOf(start));
   };
   {
     for (const p of input.payments) {

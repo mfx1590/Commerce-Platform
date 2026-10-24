@@ -27,7 +27,8 @@
     "clean": "rm -rf dist .turbo",
     "reconcile": "node dist/reconcile/cli.js",
     "fixtures:payouts": "tsx src/reconcile/fixtures/write.ts",
-    "erp:sync": "node dist/erp/cli.js"
+    "erp:sync": "node dist/erp/cli.js",
+    "odoo:init": "node dist/erp/odoo-init.js"
   },
   "dependencies": {
     "@platform/db": "workspace:*",

@@ -2,7 +2,7 @@
 // rules on partial shipments / refunds / cancellations, and the producer defects that must dead-letter.
 import { describe, expect, it } from 'vitest';
 import { ACCOUNT } from '../chart.js';
-import { aggregateLines, dateOf, line, proportion, roundShare } from './balance.js';
+import { aggregateLines, dateOf, instantOf, line, proportion, roundShare } from './balance.js';
 import {
   allItems,
   LE_A,
@@ -538,5 +538,88 @@ describe('a shipment that happened before the cancellation but arrives after it 
       shipped_at: '2026-10-09T08:00:00.000Z',
     });
     expect(() => postEvent(after, cancelled)).toThrow(/cancelled order/);
+  });
+});
+
+// #589 (Opus review of #588): "before or after the cancellation" compared the strings. The contract only promises
+// `format: date-time`, so `09:00:00.500Z` sorted before `09:00:00Z` and an offset broke the order entirely: a shipment
+// AFTER the cancel could be booked as revenue instead of dead-lettering.
+describe('event times are compared as instants, not strings (#589)', () => {
+  const placed = () =>
+    orderPlaced({
+      lines: [{ quantity: 2, unit_price_minor: 5_000, tax_rate_bp: 2000 }],
+      shipping_minor: 1_000,
+      shipping_tax_minor: 200,
+    });
+  /** the outcome of a shipment at `shippedAt` consumed after a cancellation at `cancelledAt` */
+  const lateShipment = (shippedAt: string, cancelledAt: string) => {
+    const e = placed();
+    const lineId = e.payload.line_items[0]!.order_line_item_id;
+    const cancelled = postEvent(
+      orderCancelled(e, { cancelled_at: cancelledAt }),
+      postEvent(e, null).order!,
+    ).order!;
+    const ship = shipmentShipped(e, [{ order_line_item_id: lineId, quantity: 1 }], {
+      cost_minor: 0,
+      shipped_at: shippedAt,
+    });
+    return () => postEvent(ship, cancelled);
+  };
+  const recognised = (run: () => ReturnType<typeof postEvent>) =>
+    expect(sorted(run().entries[0]!.lines)).toEqual(
+      sorted([dr('1200', 7_200), cr('4000', 5_000), cr('4010', 1_000), cr('2200', 1_200)]),
+    );
+
+  it('fractional seconds: half a second after a whole-second cancellation is AFTER it', () => {
+    expect(lateShipment('2026-10-08T09:00:00.500Z', '2026-10-08T09:00:00Z')).toThrow(
+      /cancelled order/,
+    );
+    recognised(lateShipment('2026-10-08T08:59:59.999Z', '2026-10-08T09:00:00Z'));
+  });
+
+  it('a +02:00 offset: 09:00Z is after 10:00+02:00 (= 08:00Z), 07:30Z before it', () => {
+    expect(lateShipment('2026-10-08T09:00:00.000Z', '2026-10-08T10:00:00+02:00')).toThrow(
+      /cancelled order/,
+    );
+    recognised(lateShipment('2026-10-08T07:30:00.000Z', '2026-10-08T10:00:00+02:00'));
+  });
+
+  it('equal instants written differently are equal: a shipment AT the cancellation stays a defect', () => {
+    expect(instantOf('2026-10-08T09:00:00.000Z')).toBe(instantOf('2026-10-08T11:00:00+02:00'));
+    expect(instantOf('2026-10-08T09:00:00Z')).toBe(instantOf('2026-10-08T09:00:00.000Z'));
+    expect(lateShipment('2026-10-08T09:00:00.000Z', '2026-10-08T11:00:00+02:00')).toThrow(
+      /cancelled order/,
+    );
+    expect(() => instantOf('not a time')).toThrow(TypeError);
+  });
+});
+
+describe('a zero-base order (every net 0, tax > 0) cancelled: the VAT does not depend on arrival order (#589 nit)', () => {
+  it('shipped then cancelled keeps the tax in either arrival order; cancelled unshipped reverses it', () => {
+    // one free item with 3.00 of tax charged anyway: total 3.00, goods net 0, shipping net 0
+    const e = orderPlaced({
+      lines: [{ quantity: 1, unit_price_minor: 0, tax_rate_bp: 2000, tax_minor: 300 }],
+    });
+    const lineId = e.payload.line_items[0]!.order_line_item_id;
+    const ship = shipmentShipped(e, [{ order_line_item_id: lineId, quantity: 1 }], {
+      cost_minor: 0,
+      shipped_at: '2026-10-07T08:00:00.000Z',
+    });
+    const cancel = orderCancelled(e, { cancelled_at: '2026-10-08T09:00:00.000Z' });
+    const net = (events: Parameters<typeof postEvent>[0][]) => {
+      let order: OrderProjection | null = null;
+      const lines: JournalLine[] = [];
+      for (const ev of events) {
+        const r = postEvent(ev, order);
+        if (r.order) order = r.order;
+        for (const en of r.entries) lines.push(...en.lines);
+      }
+      return Object.fromEntries(
+        aggregateLines(lines).map((l) => [l.account_code, l.debit_minor - l.credit_minor]),
+      );
+    };
+    expect(net([e, ship, cancel])).toEqual({ '1200': 300, '2200': -300 });
+    expect(net([e, cancel, ship])).toEqual(net([e, ship, cancel]));
+    expect(net([e, cancel])).toEqual({});
   });
 });
