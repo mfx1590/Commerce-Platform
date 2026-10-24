@@ -473,6 +473,28 @@ describe('handleCrmEvent — consent', () => {
   });
 });
 
+describe('handleCrmEvent — the CDP consent mode does NOT reach the CRM (#576)', () => {
+  it('stays consent-gated whatever the CDP mode is, because it fetches and stores PII', async () => {
+    // #576 opened the CDP to analytics tracking without marketing consent. The CRM is a different act: it
+    // puts a name and an e-mail into a third-party system. So it keeps #555's gate, and this test exists so
+    // the two cannot drift — handleCrmEvent takes no mode, and there is nothing to pass it.
+    const revoked = await makeCustomer(false);
+    const r = await handleCrmEvent(customerUpdated(revoked), 'out-mode-1', deps());
+    expect(r).toEqual({ action: 'skipped', reason: 'consent_revoked' });
+    expect(adapter.contacts.size).toBe(0);
+    // And no PII was fetched for them either.
+    expect(reads).toEqual([]);
+  });
+
+  it('its handler signature carries no consent mode at all', () => {
+    // A structural assertion, so adding a mode here would have to be deliberate: the deps object the CRM
+    // handler accepts has no mode field, unlike the CDP's.
+    const d = deps() as Record<string, unknown>;
+    expect(Object.keys(d)).not.toContain('consentModeFor');
+    expect(Object.keys(d)).not.toContain('mode');
+  });
+});
+
 describe('handleCrmEvent — erasure', () => {
   it('REMOVES the contact on customer.erased, whatever consent said', async () => {
     const id = await makeCustomer(true);

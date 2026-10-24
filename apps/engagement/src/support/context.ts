@@ -171,8 +171,14 @@ export interface BuildContextOptions {
 }
 
 /**
- * The whole answer. Throws `SupportError(404)` when the customer is not in this store — which is also what a
- * core 403 for a foreign customer becomes, so the API cannot be used to discover that an id exists elsewhere.
+ * The whole answer. Throws `SupportError(404)` when the customer is not in this store.
+ *
+ * A customer of ANOTHER store reaches the same 404, and the reason is worth being exact about (#573 review:
+ * the earlier wording here claimed a core 403 "becomes" a 404, which is wrong). The core's read runs through a
+ * store-scoped client, so a customer outside this store is INVISIBLE to it and it answers 404 — nothing maps
+ * anything. A core 401 or 403 means something different: our gate and the core's permissions disagree, and
+ * that is passed through unchanged rather than masked as a 404, because masking it would hide a real
+ * misconfiguration behind a plausible answer.
  */
 export async function buildContext(opts: BuildContextOptions): Promise<SupportContext> {
   const raw = await opts.reader.getCustomer(opts.storeId, opts.customerId, opts.authorization);

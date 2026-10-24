@@ -140,6 +140,8 @@ async function main(): Promise<void> {
         hq,
         pool,
         adapter: buildCdpAdapter(config),
+        // Per-store consent mode (#576): resolved per event from the store the event names.
+        consentModeFor: config.cdp.consentModeFor,
         log: (line) => console.info(JSON.stringify(line)),
       })
     : null;

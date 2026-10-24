@@ -100,14 +100,17 @@ export function mapEvent(envelope: EventEnvelopeV1Base, ctx: MapContext): CdpCal
       // `marketing_consent` is in this payload and is NOT read: the consent that counts is the current
       // projection at processing time (manager ruling 2026-10-23). A send can therefore contradict the
       // event's own snapshot — correct, and documented in data/cdp/README.md.
+      //
+      // IDS ONLY, in BOTH consent modes (#576 ruling): `customer_id`, `email_hash`, store code. `status` and
+      // `customer_group_id` were here and are deliberately gone — `status` is not an id, and a customer group
+      // is a marketing SEGMENT id, which is exactly the kind of trait an identify must not carry. The CDP can
+      // build its own audiences from the tracked events; it does not need our segmentation.
       return {
         kind: 'identify',
         ...base,
         traits: defined({
           customer_id: p.customer_id,
           email_hash: p.email_hash,
-          status: p.status,
-          customer_group_id: p.customer_group_id,
           ...store,
         }),
       };

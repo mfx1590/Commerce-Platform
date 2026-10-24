@@ -20,7 +20,8 @@
 //     merely wrong.
 //
 // A dropped event is never silent: every drop is one log line with a reason (`consent_revoked`, `no_identity`,
-// …), because "the CDP is empty" is otherwise an unanswerable question.
+// …) AND the consent mode it was judged under, because "the CDP is empty" is otherwise an unanswerable
+// question — and with a per-store mode (#576) "empty for which store, under which rule" is the real question.
 
 import { createTenantClient, type ScopedClient } from '@platform/db';
 import {
@@ -36,6 +37,7 @@ import {
   gate,
   readCustomerFacts,
   readOrderCustomerFacts,
+  type ConsentMode,
   type DropReason,
 } from '../consent.js';
 import { CDP_CALL_FOR, isConsentGated, isMapped, mapEvent, cdpTopics } from './mapper.js';
@@ -66,6 +68,9 @@ export interface CdpLogLine {
   store_code?: string;
   /** Why nothing was sent. Never any customer data — a reason code only. */
   reason?: DropReason;
+  /** The consent mode this event was judged under (#576). On every per-event line, so a send or a drop is
+   *  explainable without a debugger — and so a per-store override is visible in the log rather than guessed. */
+  consent_mode?: ConsentMode;
   adapter?: string;
   group_id?: string;
 }
@@ -73,6 +78,12 @@ export interface CdpLogLine {
 export interface CdpHandlerDeps {
   /** Organization-scoped client (the marks) — also used to resolve store codes. */
   hq: ScopedClient;
+  /**
+   * The effective consent mode for a store code (#576). Resolved PER EVENT rather than once at startup,
+   * because it is per store and one process serves every store of the organization. Defaults to `strict` when
+   * absent: a caller that forgets to pass it gets the cautious behaviour.
+   */
+  consentModeFor?: (storeCode: string) => ConsentMode;
   /** Builds the store-scoped client for one store; injectable so a test can pass a fixed one. */
   storeClientFor: (storeId: string) => ScopedClient;
   storeCodes: StoreCodes;
@@ -120,12 +131,16 @@ export async function handleCdpEvent(
     return { sent: null, reason: 'no_identity' };
   }
 
+  // The store code is resolved FIRST now, because the consent mode is per store (#576) and the gate needs it.
+  const storeCode = await deps.storeCodes.codeFor(envelope.store_id);
+  const mode: ConsentMode = deps.consentModeFor?.(storeCode) ?? 'strict';
+
   const store = deps.storeClientFor(envelope.store_id);
   let decision;
   if (FROM_ORDER_ROW.has(topic)) {
     const orderId = payload.order_id as string;
     const facts = await readOrderCustomerFacts(store, orderId, purpose);
-    decision = gate({ gated, facts, emailHash, orderFound: facts.orderFound });
+    decision = gate({ gated, facts, emailHash, orderFound: facts.orderFound, mode });
   } else {
     const customerId = payload.customer_id as string | null;
     if (!customerId) {
@@ -138,6 +153,7 @@ export async function handleCdpEvent(
           consent: { granted: null, at: null },
         },
         emailHash,
+        mode,
       });
     } else {
       const facts = await readCustomerFacts(store, customerId, purpose);
@@ -147,11 +163,10 @@ export async function handleCdpEvent(
         gated,
         facts: facts.found ? facts : { ...facts, customerId: gated ? null : customerId },
         emailHash,
+        mode,
       });
     }
   }
-
-  const storeCode = await deps.storeCodes.codeFor(envelope.store_id);
 
   if (!decision.send) {
     deps.log?.({
@@ -162,6 +177,7 @@ export async function handleCdpEvent(
       outbox_id: outboxId,
       ...(CDP_CALL_FOR[topic] ? { call: CDP_CALL_FOR[topic] } : {}),
       store_code: storeCode,
+      consent_mode: mode,
       reason: decision.reason,
     });
     return { sent: null, reason: decision.reason };
@@ -180,6 +196,7 @@ export async function handleCdpEvent(
     call: call.kind,
     ...(call.kind === 'track' ? { cdp_event: call.event } : {}),
     store_code: storeCode,
+    consent_mode: mode,
     adapter: deps.adapter.name,
   });
   return { sent: call };
@@ -195,6 +212,8 @@ export interface CdpConsumerOptions {
   retries?: number;
   fromBeginning?: boolean;
   purpose?: string;
+  /** Per-store consent mode (#576); `config.cdp.consentModeFor`. Defaults to `strict` when absent. */
+  consentModeFor?: (storeCode: string) => ConsentMode;
   log?: (line: CdpLogLine) => void;
   /** Test seam: supply the store-scoped client instead of building one from the pool. */
   storeClientFor?: (storeId: string) => ScopedClient;
@@ -234,6 +253,7 @@ export function createCdpConsumer(opts: CdpConsumerOptions): CdpConsumer {
         storeCodes,
         adapter: opts.adapter,
         ...(opts.purpose === undefined ? {} : { purpose: opts.purpose }),
+        ...(opts.consentModeFor ? { consentModeFor: opts.consentModeFor } : {}),
         ...(opts.log ? { log: opts.log } : {}),
       });
       if (r.sent) sent += 1;

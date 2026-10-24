@@ -98,6 +98,113 @@ describe('gate — consent-gated calls', () => {
   });
 });
 
+describe('gate — `analytics` mode (#576, the owner default)', () => {
+  it('sends a consenting customer, as strict would', () => {
+    expect(gate({ gated: true, facts: facts(), mode: 'analytics' })).toEqual({
+      send: true,
+      identity: { userId: 'cust-1', anonymousId: null },
+    });
+  });
+
+  it('SENDS a customer who never answered — consent is not consulted', () => {
+    const d = gate({
+      gated: true,
+      facts: facts({ consent: { granted: null, at: null } }),
+      mode: 'analytics',
+    });
+    expect(d).toEqual({ send: true, identity: { userId: 'cust-1', anonymousId: null } });
+  });
+
+  it('SENDS a customer who REVOKED marketing consent — this is the whole change', () => {
+    // The owner's position: counting our own commerce events is analytics, not marketing. A revoked
+    // marketing_email no longer stops a track. `strict` is one env variable away for a region that differs.
+    const d = gate({
+      gated: true,
+      facts: facts({ consent: { granted: false, at: '2026-10-21T10:00:00.000Z' } }),
+      mode: 'analytics',
+    });
+    expect(d.send).toBe(true);
+  });
+
+  it('SENDS A GUEST under their email_hash', () => {
+    const d = gate({
+      gated: true,
+      facts: facts({ found: false, customerId: null }),
+      emailHash: EMAIL_HASH,
+      mode: 'analytics',
+    });
+    expect(d).toEqual({ send: true, identity: { userId: null, anonymousId: EMAIL_HASH } });
+  });
+
+  it('still drops a guest with NO hash either: an identity is required even here', () => {
+    expect(
+      gate({ gated: true, facts: facts({ found: false, customerId: null }), mode: 'analytics' }),
+    ).toEqual({ send: false, reason: 'no_identity' });
+  });
+
+  it('STILL REFUSES AN ERASED CUSTOMER — in this mode too', () => {
+    // The erasure already told every consumer to delete its copies; tracking them again would undo it.
+    expect(gate({ gated: true, facts: facts({ status: 'erased' }), mode: 'analytics' })).toEqual({
+      send: false,
+      reason: 'customer_erased',
+    });
+  });
+
+  it('still reports a vanished customer row and a vanished order as such', () => {
+    expect(
+      gate({ gated: true, facts: facts({ found: true, customerId: null }), mode: 'analytics' }),
+    ).toEqual({ send: false, reason: 'customer_not_found' });
+    expect(gate({ gated: true, facts: facts(), orderFound: false, mode: 'analytics' })).toEqual({
+      send: false,
+      reason: 'order_not_found',
+    });
+  });
+
+  it('carries the hash alongside the customer id when both are known', () => {
+    const d = gate({ gated: true, facts: facts(), emailHash: EMAIL_HASH, mode: 'analytics' });
+    expect(d).toEqual({ send: true, identity: { userId: 'cust-1', anonymousId: EMAIL_HASH } });
+  });
+});
+
+describe('gate — the mode default is the CAUTIOUS one', () => {
+  it('omitting the mode behaves as `strict`, not as the configured default', () => {
+    // A caller that forgets to pass a mode must not accidentally get the open behaviour.
+    const revoked = facts({ consent: { granted: false, at: null } });
+    expect(gate({ gated: true, facts: revoked })).toEqual({
+      send: false,
+      reason: 'consent_revoked',
+    });
+    expect(gate({ gated: true, facts: revoked, mode: 'strict' })).toEqual({
+      send: false,
+      reason: 'consent_revoked',
+    });
+  });
+});
+
+describe('gate — `strict` mode is exactly what #554 shipped', () => {
+  it('drops revoked, absent and guest, and sends a consenting customer', () => {
+    expect(gate({ gated: true, facts: facts(), mode: 'strict' }).send).toBe(true);
+    expect(
+      gate({
+        gated: true,
+        facts: facts({ consent: { granted: false, at: null } }),
+        mode: 'strict',
+      }),
+    ).toEqual({ send: false, reason: 'consent_revoked' });
+    expect(
+      gate({ gated: true, facts: facts({ consent: { granted: null, at: null } }), mode: 'strict' }),
+    ).toEqual({ send: false, reason: 'consent_absent' });
+    expect(
+      gate({
+        gated: true,
+        facts: facts({ found: false, customerId: null }),
+        emailHash: EMAIL_HASH,
+        mode: 'strict',
+      }),
+    ).toEqual({ send: false, reason: 'no_identity' });
+  });
+});
+
 describe('gate — an erasure is not consent-gated', () => {
   it('sends a suppression for a customer who revoked everything', () => {
     const d = gate({ gated: false, facts: facts({ consent: { granted: false, at: null } }) });
@@ -109,6 +216,21 @@ describe('gate — an erasure is not consent-gated', () => {
       gate({ gated: false, facts: facts({ consent: { granted: null, at: null } }) }).send,
     ).toBe(true);
     expect(gate({ gated: false, facts: facts({ status: 'erased' }) }).send).toBe(true);
+  });
+
+  it('carries BOTH ids when both are known, so a hash-keyed profile is suppressed too (#576)', () => {
+    // customer.erased v1 has no hash; v2 does (#580). When it is there, it travels.
+    const d = gate({ gated: false, facts: facts(), emailHash: EMAIL_HASH });
+    expect(d).toEqual({ send: true, identity: { userId: 'cust-1', anonymousId: EMAIL_HASH } });
+  });
+
+  it('is ungated in BOTH modes', () => {
+    for (const mode of ['analytics', 'strict'] as const) {
+      expect(
+        gate({ gated: false, facts: facts({ consent: { granted: false, at: null } }), mode }).send,
+      ).toBe(true);
+      expect(gate({ gated: false, facts: facts({ status: 'erased' }), mode }).send).toBe(true);
+    }
   });
 
   it('suppresses by email_hash when the customer row is already gone', () => {
