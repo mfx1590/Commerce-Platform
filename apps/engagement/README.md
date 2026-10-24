@@ -179,7 +179,9 @@ from counting an order. A test asserts the mode cannot reach it.
 
 A guest is only trackable where an identity exists: of the six mapped commerce topics only `order.placed`
 carries an `email_hash`, so a guest's _Order Completed_ reaches the CDP while their later _Order Shipped_ does
-not. `data/cdp/README.md` records that asymmetry and what closing it would cost.
+not. `data/cdp/README.md` records that asymmetry; closing it by reading the order's raw e-mail was refused
+(manager ruling 2026-10-24), and the way in, if guest analytics ever matters, is a contract change adding
+`email_hash` to those five topics.
 
 ### Consent
 

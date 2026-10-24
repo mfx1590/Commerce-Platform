@@ -97,9 +97,11 @@ client, in the same query as the consent projection — one read per event, not 
 `order.placed` carries an `email_hash`; `order.cancelled`, `payment.captured`, `refund.issued`,
 `shipment.shipped` and `return.requested` carry neither a hash nor a `customer_id`, so for a GUEST there is no
 identity available and the event is dropped even in `analytics` mode. The consequence: a guest's
-_Order Completed_ reaches the CDP while their later _Order Shipped_ does not. Closing it would mean hashing the
-order row's raw e-mail inside the CDP path, which would widen what this service reads — so it is recorded here
-rather than done quietly. A test pins the behaviour in both directions.
+_Order Completed_ reaches the CDP while their later _Order Shipped_ does not. Closing it by hashing the order row's raw e-mail inside the CDP
+path was **considered and REFUSED** (manager ruling 2026-10-24: this service reads no raw e-mail, anywhere) —
+so the asymmetry stands, recorded here rather than closed by widening what we read. If guest analytics ever
+matters, the way in is a CONTRACT CHANGE adding `email_hash` to those five topics, which the manager has
+recorded as a later wave. A test pins the behaviour in both directions.
 
 ## Changing it
 

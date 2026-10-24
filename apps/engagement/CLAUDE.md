@@ -142,6 +142,12 @@ package yet.
   test pins it.
 - `identify` carries ids only — `customer_id`, `email_hash`, store code. Not `status`, not `customer_group_id`
   (a marketing segment id).
+- **This service reads no raw e-mail address, anywhere** (manager ruling 2026-10-24, refusing exactly that fix
+  for the guest-lifecycle gap). A hash is the only form an address takes here: it arrives hashed in an event,
+  or it is hashed on arrival at the Chatwoot webhook. The CRM path is the one exception and it is explicit —
+  it fetches a name and an e-mail from the Admin API for the contact it is about to write, holds them in a
+  `CrmContact`, and keeps nothing. Do not add a raw-address read to the CDP, ops or support paths, and do not
+  reach for one to fill a missing `email_hash`: the way to get a hash is a CONTRACT CHANGE on the event.
 - A new topic in `packages/events` must be added to `data/cdp/tracking-plan.json` as mapped or unmapped with a
   reason; the suite fails until it is.
 - Never touch a Dockerfile: the manager lands this service's `COPY` lines as an integration commit.
