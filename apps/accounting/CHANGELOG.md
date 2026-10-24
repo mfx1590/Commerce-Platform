@@ -1,5 +1,20 @@
 # Changelog — @platform/accounting
 
+## 0.5.0 — 2026-10-23 (#551, 15.4)
+
+- Finance read API (`src/api`) under `/accounting/v1`, mounted next to `/health`: routes, query parameters and
+  `x-permission`s read from the landed contract (`packages/contracts/openapi/accounting.yaml`, CONTRACT CHANGE #572,
+  contracts 0.4.28, resolved through `@platform/contracts`); staff JWT through @platform/auth-sdk + `finance` on
+  `organization:hq` via OpenFGA (dev tokens with `ACCOUNTING_DEV_TOKENS=1`); seven reads: books, trial balance,
+  journal lines, parked events, payouts, payout detail, ERP status. Dependencies: `@platform/auth-sdk`, `yaml`;
+  dev `ajv`, `ajv-formats` (response validation in tests).
+- Contract revision 2 (Fable review of #572): shared `BadRequest` (400 `validation_error`) on every operation with
+  validatable query parameters, `Limit` aligned with the house (default 20, max 100), `getPayout`'s lines paginated
+  (`PayoutLinePage`), `minimum: 0` on debit / credit, reference fields documented as always set, the empty-period
+  shape documented, `legal_entity_id` = the admin API's `LegalEntity.id`, mock port 4013. The server follows (limit
+  bounds, paginated payout lines).
+- Tests: 73 (+9: the contract as loaded + route matcher; the API over HTTP with 401 / 403 / 200 per role).
+
 ## 0.4.0 — 2026-10-23 (#550, 15.3)
 
 - ERP sync (`src/erp`): `ErpAdapter` with the Odoo JSON-RPC client (`/jsonrpc`, `execute_kw` on `account.move` /

@@ -16,8 +16,10 @@ const prism = resolve(
 
 const STORE_PORT = 4110;
 const ADMIN_PORT = 4111;
+const ACCOUNTING_PORT = 4112;
 const STORE = `http://127.0.0.1:${STORE_PORT}`;
 const ADMIN = `http://127.0.0.1:${ADMIN_PORT}`;
+const ACCOUNTING = `http://127.0.0.1:${ACCOUNTING_PORT}`;
 const STORE_ID = '00000000-0000-4000-8000-000000000031';
 const storeHeaders = { [HEADERS.publishableKey]: 'pk_test', 'content-type': 'application/json' };
 const adminHeaders = { authorization: 'Bearer test', 'content-type': 'application/json' };
@@ -56,7 +58,11 @@ function start(spec: string, port: number): Promise<void> {
 }
 
 beforeAll(async () => {
-  await Promise.all([start('store-api.yaml', STORE_PORT), start('admin-api.yaml', ADMIN_PORT)]);
+  await Promise.all([
+    start('store-api.yaml', STORE_PORT),
+    start('admin-api.yaml', ADMIN_PORT),
+    start('accounting.yaml', ACCOUNTING_PORT),
+  ]);
 }, 60_000);
 
 afterAll(() => {
@@ -980,5 +986,45 @@ describe('Admin API mock (0.4.23 store tax rates, #522)', () => {
     });
     expect(conflict.status).toBe(409);
     expect((await json(conflict)).code).toBe('conflict');
+  });
+});
+
+describe('Accounting API mock (contracts 0.4.28, accounting 0.1.0, #572)', () => {
+  const LE = '00000000-0000-4000-8000-000000000011';
+  const base = `${ACCOUNTING}/accounting/v1/legal-entities`;
+  const paths = [
+    base,
+    `${base}/${LE}/trial-balance?from=2026-10-01&to=2026-10-31&currency=EUR`,
+    `${base}/${LE}/journal-lines?journal=sales&page=1&limit=20`,
+    `${base}/${LE}/parked-events`,
+    `${base}/${LE}/payouts?status=reconciled`,
+    `${base}/${LE}/payouts/00000000-0000-4000-8000-00000000d001`,
+    `${base}/${LE}/erp-status`,
+  ];
+
+  it('each of the seven reads answers its example (Prism validates it against the schema)', async () => {
+    for (const path of paths) {
+      const res = await fetch(path, { headers: adminHeaders });
+      expect(res.status, path).toBe(200);
+      await json(res);
+    }
+    const tb = await json(await fetch(paths[1]!, { headers: adminHeaders }));
+    expect(tb.totals).toEqual([
+      { currency: 'EUR', debit_minor: 4512300, credit_minor: 4512300, difference_minor: 0 },
+    ]);
+    const payout = await json(await fetch(paths[5]!, { headers: adminHeaders }));
+    expect((payout.lines as { items: unknown[] }).items.length).toBeGreaterThan(0);
+  });
+
+  it('refusals: 401 without a token, 403 finance on organization:hq on every operation', async () => {
+    const anonymous = await fetch(base);
+    expect(anonymous.status).toBe(401);
+    for (const path of paths) {
+      const forbidden = await fetch(path, { headers: { ...adminHeaders, prefer: 'code=403' } });
+      expect(forbidden.status, path).toBe(403);
+      const err = await json(forbidden);
+      expect(err.code).toBe('forbidden');
+      expect(err.details).toEqual({ relation: 'finance', object: 'organization:hq' });
+    }
   });
 });

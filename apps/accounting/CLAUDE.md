@@ -54,6 +54,9 @@ discrepant, already_reconciled, lines, matched, discrepancies[], posted }`; `mat
   `odooCredentialsFromEnv()`; `createMockOdoo(opts)` (JSON-RPC server in memory: `fetch`, `state`, `refuseNextCreate`,
   `archiveAccount`); `mapLegalEntityToCompany`, `mapChart`, `syncLegalEntity(deps, legalEntityId)` → `ErpSyncResult`;
   `DEFAULT_JOURNAL_CODES`, `toCurrencyUnits`, `ErpError`.
+- Finance read API (#551, `src/api`): `createAccountingApi({ client, auth, spec?, log? })` → a `(req, res) => Promise<boolean>`
+  handler for `/accounting/…` (mounted by `createHealthServer(status, api)`); `createFinanceAuth({ client, devTokens,
+keycloakUrl?, keycloakRealm?, verifier?, permission? })`; `loadApiSpec(path?)` / `matchRoute`; `financeQueries`.
 - `ACCOUNT` (codes), `DEFAULT_CHART`; `ensureChart`, `insertJournalEntry`, `trialBalance`, `balanceByCurrency`;
   the projection readers/writers.
 - Tables (0008 + 0203, landed as db 0.3.17 from CONTRACT CHANGE #558): `ledger_entry` (journals `sales`, `psp_fees`, `refunds`,
@@ -65,6 +68,8 @@ discrepant, already_reconciled, lines, matched, discrepancies[], posted }`; `mat
   store-scoped session reads and writes none — the service runs in organization scope.
 
 ## Constraints
+
+- The read API never writes; every operation is `finance` on `organization:hq`, checked server-side before any query.
 
 - Import other packages only through their public API (`@platform/<name>`), never `src/*`.
 - No secrets in code. No PII in logs (JSON lines: ids, counts, amounts, error classes). Every DB access through the

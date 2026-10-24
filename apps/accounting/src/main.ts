@@ -6,6 +6,8 @@ import {
   createPool,
   loadDotenv,
 } from '@platform/db';
+import { createFinanceAuth } from './api/auth.js';
+import { createAccountingApi } from './api/server.js';
 import { resolveConfig } from './config.js';
 import { createLedgerConsumer, LEDGER_GROUP } from './consumer.js';
 import { consoleLogger, errorClassOf } from './log.js';
@@ -32,11 +34,24 @@ async function main(): Promise<void> {
     },
   });
 
-  const server = createHealthServer(() => ({
-    group: LEDGER_GROUP,
-    organization_id: config.organizationId,
-    stats: consumer.stats,
-  }));
+  const api = createAccountingApi({
+    client,
+    log,
+    auth: createFinanceAuth({
+      client,
+      devTokens: config.devTokens,
+      ...(config.keycloakUrl ? { keycloakUrl: config.keycloakUrl } : {}),
+      ...(config.keycloakRealm ? { keycloakRealm: config.keycloakRealm } : {}),
+    }),
+  });
+  const server = createHealthServer(
+    () => ({
+      group: LEDGER_GROUP,
+      organization_id: config.organizationId,
+      stats: consumer.stats,
+    }),
+    api,
+  );
   await new Promise<void>((resolve) => server.listen(config.port, resolve));
   await consumer.start();
   log.info({

@@ -16,6 +16,11 @@ import { MemoryCrmAdapter } from './crm/adapter/memory.js';
 import { TwentyCrmAdapter } from './crm/adapter/twenty.js';
 import type { CrmAdapter, TokenProvider } from './crm/types.js';
 import { createOpsConsumer } from './ops/consumer.js';
+import { can } from '@platform/auth-sdk';
+import { createAgentAuth, type PermissionChecker } from './support/auth.js';
+import { createSupportReader } from './support/admin-api.js';
+import { createChatwootReceiver } from './support/chatwoot.js';
+import { createSupportServer } from './support/server.js';
 import { createRateLimiter } from './ops/rate-limit.js';
 import { runDlqWatch } from './ops/dlq-watch.js';
 import { DevSinkAlertTransport } from './transport/dev-sink.js';
@@ -66,6 +71,18 @@ export function buildTokenProvider(config: EngagementConfig): TokenProvider {
     );
   }
   return mockTokenProvider();
+}
+
+/**
+ * The real permission check: auth-sdk's `can` over OpenFGA, keyed on `staff_user.id` (the OpenFGA subject, not
+ * the Keycloak `sub`). `can` fails closed by throwing when OpenFGA is unreachable, which `requireSupport`
+ * turns into a 503 rather than a 403 — an agent is not forbidden, we cannot tell.
+ */
+export function openFgaChecker(): PermissionChecker {
+  return {
+    can: (staffUserId, relation, object) =>
+      can(staffUserId, relation as Parameters<typeof can>[1], object),
+  };
 }
 
 function logLine(line: EngagementLogLine): void {
@@ -143,6 +160,39 @@ async function main(): Promise<void> {
     : null;
   if (crm) await crm.start();
 
+  // The support API (#556): an HTTP server, off unless asked for. The agent's own token authenticates every
+  // request; there is no service principal anywhere in this route.
+  const support = config.support.enabled
+    ? createSupportServer({
+        hq,
+        auth: createAgentAuth({
+          client: hq,
+          fga: openFgaChecker(),
+          devTokens: config.support.devTokens,
+        }),
+        reader: createSupportReader({
+          baseUrl: config.support.adminApiUrl,
+          maxOrders: config.support.maxOrders,
+        }),
+        ...(config.support.chatwootSecret
+          ? { chatwoot: createChatwootReceiver({ secret: config.support.chatwootSecret }) }
+          : {}),
+        log: (line) => console.info(JSON.stringify(line)),
+      })
+    : null;
+  if (support) {
+    await new Promise<void>((r) => support.listen(config.support.port, r));
+    console.info(
+      JSON.stringify({
+        service: 'engagement',
+        module: 'support',
+        event: 'started',
+        port: config.support.port,
+        chatwoot: Boolean(config.support.chatwootSecret),
+      }),
+    );
+  }
+
   const timer = setInterval(() => {
     void runDlqWatch({
       groups: config.dlq.groups,
@@ -170,6 +220,7 @@ async function main(): Promise<void> {
     await consumer.stop();
     if (cdp) await cdp.stop();
     if (crm) await crm.stop();
+    if (support) await new Promise<void>((r) => support.close(() => r()));
     await pool.end();
   };
   process.on('SIGTERM', () => void stop());

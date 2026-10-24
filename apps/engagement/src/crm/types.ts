@@ -19,7 +19,17 @@ export interface CrmContact {
   email: string;
   firstName: string | null;
   lastName: string | null;
-  /** The order/LTV numbers from `computeRollup`, flattened for the CRM's own fields. */
+  /**
+   * The order/LTV numbers from `computeRollup`, flattened for the CRM's own fields.
+   *
+   * `ordersCount` is every counting order across all currencies, while `netRevenueMinor` is the store's
+   * DEFAULT currency only. The rollup's `by_currency` breakdown and its `mixed_currency` flag stop here
+   * deliberately (#568 review): a CRM person has one revenue field, and inventing `netRevenueEur`,
+   * `netRevenueGbp`, ... per workspace would be a schema this service does not own. So for a customer with
+   * orders in more than one currency these two fields disagree in scope, and the only place that says so is
+   * the `mixed_currency` field on the consumer's log line. If a workspace ever needs the breakdown, it is a
+   * per-currency custom field and an adapter change, not a wider `CrmContact`.
+   */
   ordersCount: number;
   netRevenueMinor: number;
   currency: string;

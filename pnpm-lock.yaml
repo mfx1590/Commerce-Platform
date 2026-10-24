@@ -38,16 +38,31 @@ importers:
 
   apps/accounting:
     dependencies:
+      '@platform/auth-sdk':
+        specifier: workspace:*
+        version: link:../../packages/auth-sdk
+      '@platform/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@platform/db':
         specifier: workspace:*
         version: link:../../packages/db
       '@platform/events':
         specifier: workspace:*
         version: link:../../packages/events
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
     devDependencies:
       '@types/node':
         specifier: ^20.19.0
         version: 20.19.43
+      ajv:
+        specifier: ^8.17.0
+        version: 8.20.0
+      ajv-formats:
+        specifier: ^3.0.1
+        version: 3.0.1(ajv@8.20.0)
       tsx:
         specifier: ^4.23.13
         version: 4.23.13
@@ -230,6 +245,12 @@ importers:
 
   apps/engagement:
     dependencies:
+      '@platform/auth-sdk':
+        specifier: workspace:*
+        version: link:../../packages/auth-sdk
+      '@platform/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@platform/db':
         specifier: workspace:*
         version: link:../../packages/db

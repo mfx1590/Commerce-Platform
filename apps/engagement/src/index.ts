@@ -56,8 +56,14 @@ export {
 } from './cdp/mapper.js';
 export type { MapContext } from './cdp/mapper.js';
 
-export { gate, readCustomerFacts, readOrderCustomerFacts, CONSENT_PURPOSE } from './cdp/consent.js';
-export type { ConsentState, CustomerFacts, DropReason, GateDecision } from './cdp/consent.js';
+export { gate, readCustomerFacts, readOrderCustomerFacts, CONSENT_PURPOSE } from './consent.js';
+export type {
+  ConsentState,
+  CustomerFacts,
+  DropReason,
+  GateDecision,
+  GateIdentity,
+} from './consent.js';
 
 export { MemoryCdpAdapter } from './cdp/adapter/memory.js';
 export { RudderStackCdpAdapter, identityOf } from './cdp/adapter/rudderstack.js';
@@ -98,6 +104,44 @@ export { TwentyCrmAdapter } from './crm/adapter/twenty.js';
 export type { TwentyOptions } from './crm/adapter/twenty.js';
 export { CrmError } from './crm/types.js';
 export type { AdminCustomer, CrmAdapter, CrmContact, TokenProvider } from './crm/types.js';
+
+// support (#556)
+export { createSupportServer } from './support/server.js';
+export type { SupportServerOptions, SupportLogLine } from './support/server.js';
+
+export { createAgentAuth, DEV_TOKENS_FLAG } from './support/auth.js';
+export type { AgentAuth, AgentAuthOptions, PermissionChecker } from './support/auth.js';
+
+export { createSupportReader } from './support/admin-api.js';
+export type {
+  SupportReader,
+  SupportReaderOptions,
+  RawCustomer,
+  RawOrderDetail,
+  RawOrderSummary,
+} from './support/admin-api.js';
+
+export { buildContext, summarise } from './support/context.js';
+export type { BuildContextOptions } from './support/context.js';
+
+export { createChatwootReceiver, hashEmail, signBody } from './support/chatwoot.js';
+export type {
+  ChatwootLink,
+  ChatwootReceiver,
+  ChatwootVerifierOptions,
+} from './support/chatwoot.js';
+
+export { SupportError } from './support/types.js';
+export type {
+  AgentPrincipal,
+  SupportContext,
+  SupportCustomer,
+  SupportOrder,
+  SupportPayment,
+  SupportRefund,
+  SupportReturn,
+  SupportShipment,
+} from './support/types.js';
 
 // transports
 export { DevSinkAlertTransport } from './transport/dev-sink.js';
