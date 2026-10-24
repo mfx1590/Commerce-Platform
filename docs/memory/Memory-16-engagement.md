@@ -118,7 +118,42 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **Never commit a 64-hex email_hash fixture.** The `sha256` $def needs a real 64-hex value, so a word will not validate — compute it: `createHash('sha256').update('…').digest('hex')`, which is what apps/core does. I had three such literals before catching it; one would have reddened every open PR.
 - `pg` is deliberately NOT a dependency of this app: for a pool type use `Parameters<typeof createTenantClient>[0]`.
 
-## RESUME HERE — owner break until tomorrow (2026-10-23 evening). Next task is #576; see below.
+## RESUME HERE — 2026-10-24: #585 fixed and pushed, #586 is next (do NOT start it until #585 merges)
+
+**#585 (#576, CDP consent mode) was REFUSED by the merge queue** once #583 landed `customer.erased` v2 on
+main (738c34a). Real failure, not a flake: `cdp/consumer.test.ts`'s "suppresses by `customer_id` alone on a
+v1 payload" reused the shared erasure fixture, which my own #583 commit (38338ed) gave an `email_hash`, so
+the v1 assertion ran on a v2 payload and got the hash where it expected `null`. (The first red, a storefront
+perf-store-example timeout, WAS a flake and was gone on the rerun.) Fixed by building a genuine v1 envelope
+— `envelopeFor` now takes an explicit `version`, the fixture omits `email_hash`, and the test asserts
+`version === 1` and the field's absence before asserting the suppression. Offline suite re-run: **385 passed
+/ 9 live skipped**, 18 files, ~51 s; typecheck, lint, prettier, ownership clean.
+
+**#586 (16.2b) is next and the plan is APPROVED** — build it only after the manager confirms #585 merged:
+1. `config.ts:303` stores the RAW env suffix in the overrides map while `consentModeFor` looks up
+   `storeEnvKey(code)`, so `..._brand_a` or `..._BRANDA` is parsed, validated and then never matched: the
+   store silently stays on `analytics`. Normalise the key the same way as the lookup; **throw** when two keys
+   normalise to the same code with DIFFERENT values (identical ones are fine); add `codes()` to
+   `src/ops/store-codes.ts`, expose the normalised override keys on `config.cdp`, and validate them in
+   `createCdpConsumer.start()` right after `warm()`, throwing with the unknown keys and the known codes.
+   ACCEPTED limit, to be commented: the CDP ships off, so with `ENGAGEMENT_CDP_ENABLED=0` there is no store
+   list and no boot to fail — `resolveConfig` must not reach a database.
+2. `apps/engagement/CLAUDE.md`'s "no raw e-mail reads" rule must name BOTH real exceptions: the #556 support
+   path reads and returns the address to the agent, and the Chatwoot receiver hashes one on arrival. (The
+   manager confirmed the edit is in scope — my package, a factual fix that loosens nothing — and told the
+   owner; the owner was told here too.)
+3. `data/cdp/README.md` gap 1 and the `cdp/consumer.ts` comment wrongly say the core DELETES the customer
+   row; it keeps it with `status = 'erased'`. Correct both and cite **#584** in the guest-lifecycle section.
+4. `support/server.test.ts`'s renamed 404-equivalence test builds two IDENTICAL `getCustomer: async () =>
+   null` fakes, so it proves determinism only. Make the second fake hold a brand-b customer and return null
+   for a brand-a read, so it exercises the invisible row.
+Tests to add: lowercase key honoured, typo key fails, override naming no known store fails after warm,
+colliding keys that disagree fail, consumer start both ways. ~30 tool calls, size approved.
+
+**Before the next live run:** re-seed FGA (see Blocked / waiting) and ask for the machine.
+
+<!-- The block below is from 2026-10-23 and is kept for the #556/#573 record; its "tomorrow" steps are done. -->
+
 
 **ALL FOUR ISSUES ARE DELIVERED.** #553 merged (via #563), #554 merged (#564), #555 merged (#568 = 9d8915a), #556 is **PR #573 — Fable MERGE after a re-review, in the merge queue**; the manager confirms tomorrow. Window 16's Phase 4 scope is complete.
 
@@ -159,12 +194,14 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - 2026-10-23 (manager, kickoff — full text on #553): apps/notifications stays with window 17 (it built transactional email there since #360); your row is apps/engagement, apps/support, data/cdp. One new service apps/engagement; the manager lands its Dockerfile manifest lines as an integration commit on your 16.1 head. Shared `consumer_processed` (db 0202) via the SDK's pg store. SMS/WhatsApp (Twilio), Novu, Klaviyo flows DEFERRED until accounts exist; returns portal + refund limits by role are a later wave (core/auth/storefront/admin), not yours.
 
 ## Blocked / waiting
+- **Before the NEXT live run: re-run `pnpm --filter @platform/auth-sdk fga:seed` in this worktree.** Docker had stopped and was restarted on 2026-10-24 (manager; compose start, nothing recreated, DB intact). Not run yet, deliberately: the seed writes SHARED OpenFGA state and rewrites this worktree's `.env` fga ids, so it belongs inside the machine grant, together with the live run — not while another window may be measuring.
 - **The machine for the live broker block** (one window measures at a time; window 15 also active). Asked the manager 2026-10-23: 3 tests, prefixed `t-eng-<random>.` topics, self-cleaning, ~60-90 s. Note `pnpm test --filter @platform/engagement` AT ROOT runs the live block too whenever the broker is up — so that root command is itself the live run, not a safe pre-check.
 - ~~db 0202~~ **RESOLVED 2026-10-23: #557 merged** (main 653d817, packages/db 0.3.16); the landed file is byte-identical to the one I built against, so the copy and `applyProposedMigration` are deleted (1e1a9d8) and `createTestDatabase` applies the real migration. Its shape, asserted in my tests from the consumer's side: RLS `organization_only` (a store-scoped client reads nothing and cannot insert → the consumer MUST use createOrganizationClient), `organization_id` DEFAULT app.current_organization_id() (the SDK's two-column INSERT works), PK (group_id, outbox_id), UPDATE revoked from platform_app, group_id CHECK `^[a-z][a-z0-9_.-]*$` (so `engagement.ops` is fine).
 - ~~.gitignore row for `.engagement/`~~ **RESOLVED: on main in 653d817** (the manager added it; he also chose the name and `ENGAGEMENT_DIR`).
 - External accounts (Slack webhook, RudderStack, Twenty/HubSpot, Chatwoot): mocks until the owner provides them; live use on the launch checklist.
 
 ## Gotchas learned
+- **A shared fixture and a version-pinned test are a trap.** Bumping the shared `customer.erased` fixture to v2 (#583) silently turned the "v1 carries no hash" test into a v2 test that asserted the wrong thing — and it only went red when #583 reached main, i.e. in the MERGE QUEUE, not on my branch. A test that is about one schema version must build its own envelope with an explicit `version` and assert that version, because `makeEvent` always stamps `LATEST_VERSION`. The same applies to any frozen-version path (stock.moved v1, customer.export_requested v1).
 - **A window-prefixed branch cut from an INTEGRATION branch always fails the ownership job.** `scripts/check-ownership.sh` diffs `merge-base(main, HEAD)...HEAD`, so it judges the integration branch's OWN commits under your prefix too. Cutting `engagement/phase4-580-fixtures` from `integration/customer-erased-v2` was flagged for `packages/events/test/registry.test.ts` — the manager's own events landing, a file not in my diff. Name such a branch `integration/…` (it may write anywhere, and the prefix is honest: it IS the integration branch plus a commit). Accepted by the manager 2026-10-24.
 - (from Memory-main, read its Global gotchas) loopback 127.0.0.1 for DB and broker; rebuild workspace packages after every merge of main (stale dist); a new workspace package breaks `app images` until every Dockerfile COPYs its manifest — the manager lands mine, I never touch a Dockerfile.
 - The `app images` manifest rule bit nobody yet because I did not add the COPY lines; do not "help" by editing infra.

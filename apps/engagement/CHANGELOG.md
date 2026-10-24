@@ -37,6 +37,7 @@ The CDP consent mode: analytics tracking and pseudonymous guests, allowed by def
   the same 404 because the core's store-scoped read cannot SEE them, not because anything is mapped; a core
   401/403 means our gate and the core disagree and is passed through, because masking it would hide a real
   misconfiguration. The test is renamed to what it proves.
+- **The #585 queue failure, once #583 put `customer.erased` v2 on main.** The "suppresses by `customer_id` alone" test reused the shared erasure fixture, which carries an `email_hash` since #583 — so it asserted v1 behaviour on a v2 payload and received the hash where it expected none. It now builds a GENUINE v1 envelope (version 1, no `email_hash`, validated against the frozen v1 schema) through an explicit `version` on the test's envelope helper, and guards both facts before asserting. The v2 test no longer mutates a hash onto a payload that already has one.
 - Tests: **385 passing, 9 live skipped** with the broker offline — consent 37, config 41, CDP consumer 29
   (26 + 3 live), plus the rest.
 

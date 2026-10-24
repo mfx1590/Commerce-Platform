@@ -79,8 +79,9 @@ function envelopeFor(
   payload: Record<string, unknown>,
   aggregate: { type: EventEnvelopeV1Base['aggregate_type']; id: string },
   storeId: string | null = STORE_A,
+  version?: number,
 ): EventEnvelopeV1Base {
-  const e = makeEvent({
+  const base = makeEvent({
     topic,
     organizationId: ORG,
     storeId,
@@ -88,9 +89,13 @@ function envelopeFor(
     aggregateId: aggregate.id,
     payload: payload as never,
   });
+  // `makeEvent` always stamps LATEST_VERSION, so an explicit `version` is the only way to build a FROZEN
+  // older payload. The validator then checks against `schemas/<topic>/v<version>.json`, which is what makes
+  // such a fixture honest rather than a v2 envelope with a field removed.
+  const e = (version === undefined ? base : { ...base, version }) as EventEnvelopeV1Base;
   const check = validator.validateEnvelope(e);
   expect(check.ok, `${topic}: ${check.errors?.join('; ')}`).toBe(true);
-  return e as EventEnvelopeV1Base;
+  return e;
 }
 
 const customerCreated = (customerId: string, storeId: string = STORE_A) =>
@@ -121,6 +126,25 @@ const customerErased = (customerId: string, storeId: string = STORE_A) =>
     },
     { type: 'customer', id: customerId },
     storeId,
+  );
+
+/**
+ * A GENUINE v1 erasure: version 1 and NO `email_hash` — the field does not exist in that schema (v1 is
+ * frozen; #580 added it in v2, and `customerErased` above is the v2 shape since #583). A v1 test must build
+ * its own envelope: reusing the shared fixture is exactly how the v1 assertion below started receiving a hash
+ * it claims cannot be there, which is the #585 queue failure.
+ */
+const customerErasedV1 = (customerId: string, storeId: string = STORE_A) =>
+  envelopeFor(
+    'customer.erased',
+    {
+      customer_id: customerId,
+      identity_id: IDENTITY_ID,
+      erased_at: '2026-10-23T12:00:00.000Z',
+    },
+    { type: 'customer', id: customerId },
+    storeId,
+    1,
   );
 
 const paymentCaptured = (orderId: string, storeId: string = STORE_A) =>
@@ -553,10 +577,10 @@ describe('handleCdpEvent — the consent mode (#576)', () => {
   });
 
   it('SUPPRESSES WITH BOTH IDS when the erasure payload carries a hash (#580 v2)', async () => {
-    // v1 has no email_hash, so this feeds one as v2 will: the suppression must then carry both.
+    // `customerErased` is the v2 fixture (#583), so the hash arrives in the payload as the core sends it.
     const id = await makeCustomer(STORE_A, true);
     const e = customerErased(id);
-    (e.payload as Record<string, unknown>).email_hash = EMAIL_HASH;
+    expect(e.version).toBe(2);
 
     const r = await handleCdpEvent(e, 'out-m12', deps({ consentModeFor: modes({}, 'analytics') }));
     expect(r.sent?.kind).toBe('suppress');
@@ -566,12 +590,17 @@ describe('handleCdpEvent — the consent mode (#576)', () => {
     expect(adapter.isSuppressed(EMAIL_HASH)).toBe(true);
   });
 
-  it('suppresses by customer_id alone on a v1 payload, in both modes', async () => {
+  it('suppresses by customer_id alone on a GENUINE v1 payload, in both modes', async () => {
     for (const mode of ['analytics', 'strict'] as const) {
       adapter = new MemoryCdpAdapter();
       const id = await makeCustomer(STORE_A, true);
+      const e = customerErasedV1(id);
+      // The two guards that make the assertion below about the v1 PATH rather than about the fixture: a v2
+      // envelope would carry a hash, and `anonymousId: null` would then be testing nothing.
+      expect(e.version).toBe(1);
+      expect(e.payload).not.toHaveProperty('email_hash');
       const r = await handleCdpEvent(
-        customerErased(id),
+        e,
         `out-m13-${mode}`,
         deps({ consentModeFor: modes({}, mode) }),
       );
