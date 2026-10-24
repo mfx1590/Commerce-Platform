@@ -273,7 +273,9 @@ outbox for a person who asked to be deleted; `POST /me/export` follows the same 
   lawyer-review list; if the review says otherwise it becomes a follow-up (scrub the order email / shipping
   address), not a redo;
 - one audit row `customer.erase` (`addresses_deleted`, `identity_unlinked`, `identity_deleted` — no personal
-  data) and ONE `customer.erased` outbox row; consumers (marketing reviews / referrals, search, BI) must delete
+  data) and ONE `customer.erased` outbox row — **v2 since #580**: `email_hash` = the house sha256 of the e-mail as
+  it was, computed inside the transaction before the row is tombstoned (never the tombstone's hash, which matches
+  nothing), so the CDP can suppress a guest profile keyed by the hash; consumers (marketing reviews / referrals, search, BI) must delete
   their copies on it — the core does not reach into their tables.
 
 An erased customer stays listable and readable by support (status `erased`, the placeholder email, null names), is
