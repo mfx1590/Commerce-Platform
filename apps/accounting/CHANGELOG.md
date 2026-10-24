@@ -1,5 +1,21 @@
 # Changelog — @platform/accounting
 
+## 0.6.0 — 2026-10-23 (#552, 15.5)
+
+- The Integration 4 accounting gate (`test/month-replay.test.ts`): a 3-entity / 3-currency generated month through the
+  outbox table, relayed onto prefixed topics and consumed live, then replayed — all topics at once, orders last — into a
+  fresh group and database: zero trial balance per legal entity per currency with every currency present, per-account
+  totals identical to the live ledger, payout reports reconciled with zero differences, a second replay a no-op.
+  Three consecutive local runs green; ceilings ≥ 5× the medians. CI line by REQUEST #578; `--topic-prefix` on the
+  core CLIs by REQUEST #579 (until then the test reproduces relay/replay through @platform/events).
+- Posting: a shipment dated BEFORE the order's cancellation but consumed after it (separate partitions) recognises the
+  shipped part against the receivable and gives back the over-reversed VAT — the same ledger as fact order; the
+  cancellation no longer marks everything released (the projection keeps the actual amounts). A shipment dated at or
+  after the cancellation stays a defect.
+- Generator: a third legal entity (C/USD) through `legalEntities: 3`; `payoutReportFor` exported for the gate.
+- Tests: 83 (+10: the gate, and the auth edge cases from the Fable review of #582 — dev tokens refused in production,
+  the 503 fail-closed path).
+
 ## 0.5.0 — 2026-10-23 (#551, 15.4)
 
 - Finance read API (`src/api`) under `/accounting/v1`, mounted next to `/health`: routes, query parameters and

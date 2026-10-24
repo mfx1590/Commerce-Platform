@@ -417,8 +417,9 @@ describe('order.cancelled', () => {
     expect(r.order).toMatchObject({
       status: 'cancelled',
       cancelled_at: '2026-10-06T09:00:00Z',
-      goods_released_minor: 10_798,
-      shipping_released: true,
+      // the projection keeps what was actually released (nothing): a late shipment dated before the cancel needs it
+      goods_released_minor: 0,
+      shipping_released: false,
     });
   });
 
@@ -479,5 +480,63 @@ describe('full lifecycle of one order nets every balance-sheet account to zero e
       '2100': -450,
     });
     expect(Object.values(by).reduce((a, b) => a + b, 0)).toBe(0);
+  });
+});
+
+describe('a shipment that happened before the cancellation but arrives after it (separate partitions)', () => {
+  it('recognises the shipped part against the receivable and gives back the over-reversed VAT; the ledger equals fact order', () => {
+    // 2 × 50.00 at 20 %, shipping 10.00 + 2.00: total 132.00, tax 22.00; one unit shipped (10-07), then cancelled (10-08)
+    const e = orderPlaced({
+      lines: [{ quantity: 2, unit_price_minor: 5_000, tax_rate_bp: 2000 }],
+      shipping_minor: 1_000,
+      shipping_tax_minor: 200,
+    });
+    const lineId = e.payload.line_items[0]!.order_line_item_id;
+    const ship = shipmentShipped(e, [{ order_line_item_id: lineId, quantity: 1 }], {
+      cost_minor: 0,
+      shipped_at: '2026-10-07T08:00:00.000Z',
+    });
+    const cancel = orderCancelled(e, { cancelled_at: '2026-10-08T09:00:00.000Z' });
+    const collect = (events: Parameters<typeof postEvent>[0][]) => {
+      let order: OrderProjection | null = null;
+      const lines: JournalLine[] = [];
+      for (const ev of events) {
+        const r = postEvent(ev, order);
+        if (r.order) order = r.order;
+        for (const en of r.entries) lines.push(...en.lines);
+      }
+      return {
+        order,
+        net: Object.fromEntries(
+          aggregateLines(lines).map((l) => [l.account_code, l.debit_minor - l.credit_minor]),
+        ),
+      };
+    };
+    const factOrder = collect([e, ship, cancel]);
+    const lateShipment = collect([e, cancel, ship]);
+    // fact order: placed (AR 13200 / CL 10000 / CLS 1000 / VAT 2200), shipped (release 5000 + shipping 1000), cancel reverses 5000 + VAT 1000
+    expect(factOrder.net).toEqual({
+      '1200': 7_200,
+      '4000': -5_000,
+      '4010': -1_000,
+      '2200': -1_200,
+    });
+    expect(lateShipment.net).toEqual(factOrder.net);
+    expect(lateShipment.order).toMatchObject({
+      status: 'cancelled',
+      goods_released_minor: 5_000,
+      shipping_released: true,
+    });
+    // the late shipment itself: Dr 1200 (5000 + 1000 + VAT delta 1200), Cr 4000 5000, Cr 4010 1000, Cr 2200 1200
+    const cancelled = postEvent(cancel, postEvent(e, null).order!).order!;
+    const late = postEvent(ship, cancelled);
+    expect(sorted(late.entries[0]!.lines)).toEqual(
+      sorted([dr('1200', 7_200), cr('4000', 5_000), cr('4010', 1_000), cr('2200', 1_200)]),
+    );
+    // a shipment dated after the cancellation stays a defect
+    const after = shipmentShipped(e, [{ order_line_item_id: lineId, quantity: 1 }], {
+      shipped_at: '2026-10-09T08:00:00.000Z',
+    });
+    expect(() => postEvent(after, cancelled)).toThrow(/cancelled order/);
   });
 });

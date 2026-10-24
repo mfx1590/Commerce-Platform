@@ -77,7 +77,8 @@ function rowsFor(events: EventEnvelopeV1Base[], legalEntityId: string): BalanceT
   );
 }
 
-function fileFor(
+/** A clean payout report for a legal entity, built from its captures and refunds (weekly payouts, 2-day settlement). */
+export function payoutReportFor(
   events: EventEnvelopeV1Base[],
   legalEntityId: string,
   code: string,
@@ -120,8 +121,8 @@ export function buildPayoutFixtures(): PayoutFixtureSet[] {
     nullFeeRate: 0,
   });
   const clean: PayoutFixtureFile[] = [
-    fileFor(month.events, LE_A, 'le_brand_a', 'EUR'),
-    fileFor(month.events, LE_B, 'le_brand_b', 'GBP'),
+    payoutReportFor(month.events, LE_A, 'le_brand_a', 'EUR'),
+    payoutReportFor(month.events, LE_B, 'le_brand_b', 'GBP'),
   ];
 
   // The discrepant month: the same events, and on legal entity A's four payouts exactly one difference each.
