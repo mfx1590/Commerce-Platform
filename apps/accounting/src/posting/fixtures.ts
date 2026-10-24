@@ -18,6 +18,8 @@ export const LE_A = SEED_IDS.legalEntities.brandA; // EUR
 export const LE_B = SEED_IDS.legalEntities.brandB; // GBP
 export const STORE_A = SEED_IDS.stores.brandA;
 export const STORE_B = SEED_IDS.stores.brandB;
+export const LE_C = SEED_IDS.legalEntities.brandC; // USD
+export const STORE_C = SEED_IDS.stores.brandC;
 
 const validator = createValidator();
 
@@ -350,6 +352,8 @@ export interface GenerateMonthOptions {
   ordersPerDay?: number;
   /** Reproducible ids (seeded from `seed`): the same month byte for byte on every run. */
   deterministicIds?: boolean;
+  /** 2 (default: A/EUR, B/GBP) or 3 (+ C/USD, a third store and currency) legal entities. */
+  legalEntities?: 2 | 3;
 }
 
 export function generateMonth(opts: GenerateMonthOptions): GeneratedStream {
@@ -371,10 +375,13 @@ export function generateMonth(opts: GenerateMonthOptions): GeneratedStream {
   for (let i = 0; i < opts.orders; i++) {
     if (i > 0 && i % perDay === 0 && day < 28) day += 1;
     const dd = String(day).padStart(2, '0');
+    const roll = random();
     const entity =
-      random() < 0.5
-        ? { le: LE_A, store: STORE_A, cur: 'EUR', bp: 2100 }
-        : { le: LE_B, store: STORE_B, cur: 'GBP', bp: 2000 };
+      opts.legalEntities === 3 && roll >= 2 / 3
+        ? { le: LE_C, store: STORE_C, cur: 'USD', bp: 888 }
+        : roll < (opts.legalEntities === 3 ? 1 / 3 : 0.5)
+          ? { le: LE_A, store: STORE_A, cur: 'EUR', bp: 2100 }
+          : { le: LE_B, store: STORE_B, cur: 'GBP', bp: 2000 };
     const inclusive = random() < 0.3;
     const lines: LineSpec[] = Array.from({ length: int(1, 4) }, () => {
       const quantity = int(1, 5);

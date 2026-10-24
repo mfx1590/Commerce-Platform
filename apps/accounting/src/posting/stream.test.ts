@@ -48,10 +48,11 @@ describe('a generated month', () => {
     expect(perEntity.get(LE_B)!.has('GBP')).toBe(true);
     expect(entries.length).toBeGreaterThan(1_000);
 
-    // every fully shipped or cancelled order has released all of its goods; nothing is released twice
+    // every fully shipped order has released all of its goods; a cancelled order keeps what it actually released;
+    // nothing is released twice
     for (const o of projections.values()) {
       const shippedAll = o.lines.every((l) => l.shipped_quantity === l.quantity);
-      if (shippedAll || o.status === 'cancelled') {
+      if (shippedAll) {
         expect(o.goods_released_minor, o.order_id).toBe(o.goods_net_minor);
         expect(o.shipping_released).toBe(true);
       } else {
@@ -86,7 +87,7 @@ describe('a generated month', () => {
       for (const diff of byCurrency.values()) expect(diff).toBe(0);
   });
 
-  it('contract liability of the whole month = Σ unreleased goods + unreleased shipping of open orders', () => {
+  it('contract liability of the whole month = Σ unreleased goods + unreleased shipping of open (not cancelled) orders', () => {
     const { entries, projections } = run(99, 200);
     const cl = new Map<string, number>();
     for (const e of entries)
@@ -98,6 +99,7 @@ describe('a generated month', () => {
           cl.set(l.currency, (cl.get(l.currency) ?? 0) + l.credit_minor - l.debit_minor);
     const open = new Map<string, number>();
     for (const o of projections.values()) {
+      if (o.status === 'cancelled') continue; // the cancel cleared its liability
       const unreleased =
         o.goods_net_minor -
         o.goods_released_minor +

@@ -10,10 +10,20 @@
 //     Dr 6000 Shipping cost                cost_minor         when cost_minor is set and > 0
 //     Cr 2100 Carrier payable              cost_minor
 //
+// A shipment that happened BEFORE the order's cancellation but arrives AFTER it (the topics are separate partitions,
+// so a later order.cancelled can be consumed first): the cancellation reversed the whole unreleased remainder, so the
+// contract liability is already cleared; what the customer owes for the shipped goods is recognised against the
+// receivable instead, and the VAT the cancellation reversed too much is charged back —
+//     Dr 1200 Accounts receivable          release + shipping net + VAT delta
+//     Cr 4000 Revenue goods                release
+//     Cr 4010 Revenue shipping             shipping net (first shipment)
+//     Cr 2200 VAT payable                  VAT delta = VAT the cancel reversed − VAT it would have reversed knowing this shipment
+// — the same ledger as if the two events had arrived in fact order. A shipment dated AT or AFTER the cancellation is a
+// producer defect (ShipmentOfCancelledOrder), as are a line shipped beyond its quantity and an unknown line.
+//
 // Amounts come from the ledger's own projection of the order (ADR 0003 item 6), never from core tables. Without a
 // projection this function throws OrderProjectionMissing — the handler never lets that happen: it PARKS such an event
-// (accounting_parked_event) and applies it when the order.placed arrives. A shipment of more than was ordered, of an
-// unknown line, or of a cancelled order is a producer defect and dead-letters after the SDK's retries.
+// (accounting_parked_event) and applies it when the order.placed arrives.
 import type { EventEnvelope } from '@platform/events';
 import { ACCOUNT } from '../chart.js';
 import {
@@ -23,7 +33,8 @@ import {
   UnknownOrderLineError,
 } from '../errors.js';
 import { dateOf, finalizeEntry, line, proportion } from './balance.js';
-import type { JournalEntry, OrderProjection, PostingResult } from './types.js';
+import { cancellationVat } from './order-cancelled.js';
+import type { JournalEntry, JournalLine, OrderProjection, PostingResult } from './types.js';
 
 export function postShipmentShipped(
   e: EventEnvelope<'shipment.shipped'>,
@@ -31,7 +42,8 @@ export function postShipmentShipped(
 ): PostingResult {
   const p = e.payload;
   if (!order) throw new OrderProjectionMissingError(p.order_id, e.topic);
-  if (order.status === 'cancelled')
+  const afterCancel = order.status === 'cancelled';
+  if (afterCancel && (order.cancelled_at === null || p.shipped_at >= order.cancelled_at))
     throw new ShipmentOfCancelledOrderError(order.order_id, p.shipment_id);
   const storeId = e.store_id ?? order.store_id;
 
@@ -50,6 +62,33 @@ export function postShipmentShipped(
   }
   const releaseShipping = !order.shipping_released;
   const shippingNet = releaseShipping ? order.shipping_net_minor : 0;
+  const cur = order.currency;
+
+  let salesLines: (JournalLine | null)[];
+  if (!afterCancel) {
+    salesLines = [
+      line(ACCOUNT.CONTRACT_LIABILITY_GOODS, cur, release, 'debit'),
+      line(ACCOUNT.REVENUE_GOODS, cur, release, 'credit'),
+      line(ACCOUNT.CONTRACT_LIABILITY_SHIPPING, cur, shippingNet, 'debit'),
+      line(ACCOUNT.REVENUE_SHIPPING, cur, shippingNet, 'credit'),
+    ];
+  } else {
+    // the cancel cleared the liability for the then-unreleased remainder; recognise the shipped part against the
+    // receivable and give back the VAT the cancel reversed for it
+    const remainingBefore =
+      order.goods_net_minor -
+      order.goods_released_minor +
+      (order.shipping_released ? 0 : order.shipping_net_minor);
+    const remainingAfter = remainingBefore - release - shippingNet;
+    const vatDelta =
+      cancellationVat(order, remainingBefore) - cancellationVat(order, remainingAfter);
+    salesLines = [
+      line(ACCOUNT.RECEIVABLE, cur, release + shippingNet + vatDelta, 'debit'),
+      line(ACCOUNT.REVENUE_GOODS, cur, release, 'credit'),
+      line(ACCOUNT.REVENUE_SHIPPING, cur, shippingNet, 'credit'),
+      line(ACCOUNT.VAT_PAYABLE, cur, vatDelta, 'credit'),
+    ];
+  }
 
   const base = {
     entry_date: dateOf(p.shipped_at),
@@ -60,18 +99,7 @@ export function postShipmentShipped(
     reference_type: 'shipment' as const,
     reference_id: p.shipment_id,
   };
-  const entries: JournalEntry[] = [
-    finalizeEntry({
-      ...base,
-      journal: 'sales',
-      lines: [
-        line(ACCOUNT.CONTRACT_LIABILITY_GOODS, order.currency, release, 'debit'),
-        line(ACCOUNT.REVENUE_GOODS, order.currency, release, 'credit'),
-        line(ACCOUNT.CONTRACT_LIABILITY_SHIPPING, order.currency, shippingNet, 'debit'),
-        line(ACCOUNT.REVENUE_SHIPPING, order.currency, shippingNet, 'credit'),
-      ],
-    }),
-  ];
+  const entries: JournalEntry[] = [finalizeEntry({ ...base, journal: 'sales', lines: salesLines })];
   const cost = p.cost_minor ?? 0;
   if (cost > 0) {
     entries.push(

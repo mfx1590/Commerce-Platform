@@ -452,6 +452,12 @@ jobs:
           pnpm exec turbo run build --filter='@platform/core^...'
           pnpm --filter @platform/core exec vitest run test/auth-live.test.ts test/customers-api.test.ts src/outbox/relay.test.ts src/outbox/replay.test.ts             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/core-live.json"
           node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/core-live.json"             'Integration 1: real Keycloak tokens + OpenFGA through mountCoreMiddleware'             'live: real customers-realm tokens through the real verifier'             'relay against the local Redpanda (prefixed topics, self-cleaning)'             '10,000 historical orders through the relay, a consumer and a replay (local Redpanda)'
+      - name: accounting month replay gate (Integration 4) — and it really ran
+        if: needs.changes.outputs.e2e == 'true'
+        run: |
+          pnpm exec turbo run build --filter='@platform/accounting^...'
+          pnpm --filter @platform/accounting exec vitest run test/month-replay.test.ts             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/accounting-gate.json"
+          node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/accounting-gate.json"             'Integration 4 gate: a generated month replayed into a fresh accounting.ledger group (local Redpanda)'
       # One command covers both suites: packages/auth-sdk/vitest.config.ts already collects
       # ../../apps/core/src/modules/hq-rbac/test/**, which is how window 2 wired them.
       # Through turbo, not `pnpm --filter ... test`, so `dependsOn: ^build` builds @platform/db and

@@ -8,12 +8,24 @@
 //     Cr 1200 Accounts receivable          the sum
 //
 // Amounts come from the projection; the event's `totals` are not used (an edited order's totals describe the order,
-// the projection describes what the ledger holds). A second cancel of a cancelled order posts nothing.
+// the projection describes what the ledger holds). A second cancel of a cancelled order posts nothing. The projection
+// keeps the amounts actually released (it does NOT mark everything released): a shipment that happened BEFORE the
+// cancellation but arrives after it (the topics are separate partitions) is recognised by shipment-shipped.ts from
+// those numbers.
 import type { EventEnvelope } from '@platform/events';
 import { ACCOUNT } from '../chart.js';
 import { OrderProjectionMissingError } from '../errors.js';
 import { dateOf, finalizeEntry, line, roundShare } from './balance.js';
 import type { OrderProjection, PostingResult } from './types.js';
+
+/** The VAT a cancellation reverses for a given unreleased remainder: the order's tax in that proportion. */
+export function cancellationVat(order: OrderProjection, remaining: number): number {
+  const base = order.goods_net_minor + order.shipping_net_minor;
+  if (base > 0) return roundShare(order.tax_minor, remaining, base);
+  return remaining === 0 && (order.goods_released_minor > 0 || order.shipping_released)
+    ? 0
+    : order.tax_minor;
+}
 
 export function postOrderCancelled(
   e: EventEnvelope<'order.cancelled'>,
@@ -25,11 +37,7 @@ export function postOrderCancelled(
 
   const goodsRemaining = order.goods_net_minor - order.goods_released_minor;
   const shippingRemaining = order.shipping_released ? 0 : order.shipping_net_minor;
-  const base = order.goods_net_minor + order.shipping_net_minor;
-  const remaining = goodsRemaining + shippingRemaining;
-  const nothingReleased = order.goods_released_minor === 0 && !order.shipping_released;
-  const vat =
-    base > 0 ? roundShare(order.tax_minor, remaining, base) : nothingReleased ? order.tax_minor : 0;
+  const vat = cancellationVat(order, goodsRemaining + shippingRemaining);
   const cur = order.currency;
 
   const entry = finalizeEntry({
@@ -50,14 +58,6 @@ export function postOrderCancelled(
   });
   return {
     entries: [entry],
-    order: {
-      ...order,
-      status: 'cancelled',
-      cancelled_at: p.cancelled_at,
-      // the liability is cleared: nothing is left to release
-      goods_released_minor: order.goods_net_minor,
-      shipping_released: true,
-      lines: order.lines.map((l) => ({ ...l, released_minor: l.net_minor })),
-    },
+    order: { ...order, status: 'cancelled', cancelled_at: p.cancelled_at },
   };
 }
