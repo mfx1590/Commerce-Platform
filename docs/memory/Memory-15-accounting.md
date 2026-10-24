@@ -52,6 +52,7 @@ Double-entry ledger from events (order.placed, order.cancelled, payment.captured
 - Stripe test keys (#361): fixture payout reports until then.
 
 ## Gotchas learned
+- Lockfile churn on every clean `pnpm install` here (medusa admin-bundler / admin-vite-plugin / fdir / picomatch / @vitest/mocker jiti peer keys flip): the manager wants only our lines. Recipe that passes `pnpm install --frozen-lockfile`: take the BASE's lockfile (`git show <base>:pnpm-lock.yaml`), insert only the apps/accounting importer lines (specifier + version per dependency; yaml/ajv/ajv-formats package entries already exist in the lockfile), write it back (scratchpad/fix-lockfile.mjs). Never hand-edit snapshot keys.
 - JavaScript `String.replace` with a replacement STRING expands `$'`, `` $` ``, `$&`, `$1`: a yaml regex pattern `'^[A-Z]{3}$'` in the replacement text pasted the whole rest of the file into the middle (10-23, one lost turn). Always pass a function replacer `() => text` in scripted edits.
 - ajv / ajv-formats under NodeNext ESM arrive as a module object with `default` (no construct signature): unwrap `m.default ?? m` and cast (test/api.test.ts); auth-sdk `can()` wants its `PermissionRelation` type — cast the yaml string with `as Parameters<typeof can>[1]`.
 - `s.match(re)` without /g returns the capture groups, not the match count — count with /g in scripted edits.
