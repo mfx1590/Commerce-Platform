@@ -36,7 +36,7 @@ import { PROCESSED_TABLE } from '../ops/consumer.js';
 import { createStoreCodes } from '../ops/store-codes.js';
 import { MemoryCdpAdapter } from './adapter/memory.js';
 import { CONSENT_PURPOSE } from '../consent.js';
-import { CDP_GROUP_ID, createCdpConsumer, handleCdpEvent } from './consumer.js';
+import { CDP_GROUP_ID, createCdpConsumer, handleCdpEvent, type CdpLogLine } from './consumer.js';
 import { CdpError } from './types.js';
 
 const ORG = SEED_IDS.organization;
@@ -67,6 +67,12 @@ function deps(over: Partial<Parameters<typeof handleCdpEvent>[2]> = {}) {
     ...over,
   };
 }
+
+/** The per-store resolver the real config hands the consumer, built from a plain map for tests. */
+const modes =
+  (map: Record<string, 'analytics' | 'strict'>, fallback: 'analytics' | 'strict') =>
+  (storeCode: string) =>
+    map[storeCode] ?? fallback;
 
 function envelopeFor(
   topic: EventTopic,
@@ -126,6 +132,50 @@ const paymentCaptured = (orderId: string, storeId: string = STORE_A) =>
       captured_at: '2026-10-23T10:05:00.000Z',
     },
     { type: 'payment', id: '22222222-2222-4222-8222-222222222222' },
+    storeId,
+  );
+
+/** `order.placed` is the one mapped commerce topic that carries an `email_hash`, so it is the guest path. */
+const orderPlaced = (orderId: string, customerId: string | null, storeId: string = STORE_A) =>
+  envelopeFor(
+    'order.placed',
+    {
+      order_id: orderId,
+      display_id: 1001,
+      legal_entity_id: SEED_IDS.legalEntities.brandA,
+      sales_channel_id: '88888888-8888-4888-8888-888888888888',
+      customer_id: customerId,
+      email_hash: EMAIL_HASH,
+      currency: 'EUR',
+      locale: 'en-GB',
+      totals: {
+        subtotal_minor: 9000,
+        discount_minor: 0,
+        shipping_minor: 499,
+        tax_minor: 1495,
+        total_minor: 10994,
+      },
+      line_items: [
+        {
+          order_line_item_id: '66666666-6666-4666-8666-666666666666',
+          variant_id: '88888888-8888-4888-8888-888888888888',
+          sku: 'SKU-ALPHA',
+          title: 'Alpha chair',
+          quantity: 1,
+          unit_price_minor: 9000,
+          discount_minor: 0,
+          tax_rate_bp: 1900,
+          tax_minor: 1495,
+          total_minor: 10994,
+        },
+      ],
+      shipping: { code: 'standard', name: 'Standard', carrier: 'dhl', price_minor: 499 },
+      shipping_country: 'DE',
+      billing_country: 'DE',
+      promotion_codes: [],
+      placed_at: '2026-10-24T10:00:00.000Z',
+    },
+    { type: 'order', id: orderId },
     storeId,
   );
 
@@ -337,6 +387,191 @@ describe('handleCdpEvent — the decision path', () => {
     const id = await makeCustomer(STORE_A, true);
     adapter.failWith = new CdpError('rudderstack /v1/identify: HTTP 500');
     await expect(handleCdpEvent(customerCreated(id), 'out-14', deps())).rejects.toThrow('HTTP 500');
+  });
+});
+
+describe('handleCdpEvent — the consent mode (#576)', () => {
+  it('ANALYTICS: sends a customer who revoked marketing consent', async () => {
+    const id = await makeCustomer(STORE_A, false);
+    const r = await handleCdpEvent(
+      customerCreated(id),
+      'out-m1',
+      deps({ consentModeFor: modes({}, 'analytics') }),
+    );
+    expect(r.sent?.kind).toBe('identify');
+    expect(adapter.identifies).toHaveLength(1);
+  });
+
+  it('ANALYTICS: sends a customer who never answered', async () => {
+    const id = await makeCustomer(STORE_A, null);
+    const r = await handleCdpEvent(
+      customerCreated(id),
+      'out-m2',
+      deps({ consentModeFor: modes({}, 'analytics') }),
+    );
+    expect(r.sent?.kind).toBe('identify');
+  });
+
+  it('ANALYTICS: TRACKS A GUEST under the email_hash when the event carries one', async () => {
+    // `order.placed` carries `email_hash`, so a guest's purchase reaches the CDP pseudonymously — which is
+    // what #576 asks for.
+    const orderId = await makeOrder(STORE_A, null);
+    const r = await handleCdpEvent(
+      orderPlaced(orderId, null),
+      'out-m3',
+      deps({ consentModeFor: modes({}, 'analytics') }),
+    );
+    expect(r.sent?.kind).toBe('track');
+    expect(adapter.tracks[0]!.event).toBe('Order Completed');
+    expect(adapter.tracks[0]!.identity).toEqual({ userId: null, anonymousId: EMAIL_HASH });
+  });
+
+  it('ANALYTICS: a guest event with NO hash in the payload is still dropped — the known asymmetry', async () => {
+    // Of the six mapped commerce topics only `order.placed` carries an `email_hash`; `order.cancelled`,
+    // `payment.captured`, `refund.issued`, `shipment.shipped` and `return.requested` carry neither it nor a
+    // `customer_id`, so for a GUEST there is no identity to send and nothing to invent. The consequence is
+    // visible and deliberate: a guest's "Order Completed" reaches the CDP while their later "Order Shipped"
+    // does not. Closing it would mean hashing the order row's raw e-mail inside the CDP path, which widens
+    // what this service reads — flagged to the manager rather than slipped in. README records it.
+    const orderId = await makeOrder(STORE_A, null);
+    const r = await handleCdpEvent(
+      paymentCaptured(orderId),
+      'out-m3b',
+      deps({ consentModeFor: modes({}, 'analytics') }),
+    );
+    expect(r).toMatchObject({ sent: null, reason: 'no_identity' });
+    expect(adapter.count).toBe(0);
+  });
+
+  it('ANALYTICS: an order-scoped event for a KNOWN customer is tracked whatever their consent', async () => {
+    // The asymmetry above is about guests only: with a customer on the order there is an identity, so the
+    // whole order lifecycle reaches the CDP in analytics mode.
+    const customerId = await makeCustomer(STORE_A, false);
+    const orderId = await makeOrder(STORE_A, customerId);
+    const r = await handleCdpEvent(
+      paymentCaptured(orderId),
+      'out-m3c',
+      deps({ consentModeFor: modes({}, 'analytics') }),
+    );
+    expect(r.sent?.kind).toBe('track');
+    expect(adapter.tracks[0]!.identity.userId).toBe(customerId);
+  });
+
+  it('ANALYTICS: still refuses an ERASED customer', async () => {
+    const id = await makeCustomer(STORE_A, true);
+    await db.owner.query(`UPDATE customer SET status = 'erased' WHERE id = $1`, [id]);
+    const r = await handleCdpEvent(
+      customerCreated(id),
+      'out-m4',
+      deps({ consentModeFor: modes({}, 'analytics') }),
+    );
+    expect(r).toMatchObject({ sent: null, reason: 'customer_erased' });
+    expect(adapter.count).toBe(0);
+  });
+
+  it('STRICT: the same revoked customer is dropped', async () => {
+    const id = await makeCustomer(STORE_A, false);
+    const r = await handleCdpEvent(
+      customerCreated(id),
+      'out-m5',
+      deps({ consentModeFor: modes({}, 'strict') }),
+    );
+    expect(r).toMatchObject({ sent: null, reason: 'consent_revoked' });
+    expect(adapter.count).toBe(0);
+  });
+
+  it('STRICT: the same guest order is dropped', async () => {
+    const orderId = await makeOrder(STORE_A, null);
+    const r = await handleCdpEvent(
+      paymentCaptured(orderId),
+      'out-m6',
+      deps({ consentModeFor: modes({}, 'strict') }),
+    );
+    expect(r).toMatchObject({ sent: null, reason: 'no_identity' });
+  });
+
+  it('A PER-STORE OVERRIDE DECIDES: brand-a strict, brand-b analytics, same revoked consent', async () => {
+    // One revoked customer in each store, one resolver, two different outcomes — which is the whole point of
+    // a per-store mode (#576): each brand is one market.
+    const inA = await makeCustomer(STORE_A, false);
+    const inB = await makeCustomer(STORE_B, false);
+    const resolver = modes({ 'brand-a': 'strict', 'brand-b': 'analytics' }, 'analytics');
+
+    const a = await handleCdpEvent(
+      customerCreated(inA, STORE_A),
+      'out-m7',
+      deps({ consentModeFor: resolver }),
+    );
+    const b = await handleCdpEvent(
+      customerCreated(inB, STORE_B),
+      'out-m8',
+      deps({ consentModeFor: resolver }),
+    );
+
+    expect(a).toMatchObject({ sent: null, reason: 'consent_revoked' });
+    expect(b.sent?.kind).toBe('identify');
+    expect(adapter.identifies).toHaveLength(1);
+    expect(adapter.identifies[0]!.identity.userId).toBe(inB);
+  });
+
+  it('defaults to STRICT when no resolver is given', async () => {
+    const id = await makeCustomer(STORE_A, false);
+    const r = await handleCdpEvent(customerCreated(id), 'out-m9', deps());
+    expect(r).toMatchObject({ sent: null, reason: 'consent_revoked' });
+  });
+
+  it('puts the mode on the per-event log line, for a send and for a drop', async () => {
+    const lines: CdpLogLine[] = [];
+    const sent = await makeCustomer(STORE_A, true);
+    const dropped = await makeCustomer(STORE_A, false);
+
+    await handleCdpEvent(
+      customerCreated(sent),
+      'out-m10',
+      deps({ consentModeFor: modes({}, 'analytics'), log: (l) => lines.push(l) }),
+    );
+    await handleCdpEvent(
+      customerCreated(dropped),
+      'out-m11',
+      deps({ consentModeFor: modes({}, 'strict'), log: (l) => lines.push(l) }),
+    );
+
+    expect(lines[0]).toMatchObject({ event: 'sent', consent_mode: 'analytics' });
+    expect(lines[1]).toMatchObject({
+      event: 'dropped',
+      consent_mode: 'strict',
+      reason: 'consent_revoked',
+    });
+    // Still no PII on a log line.
+    expect(JSON.stringify(lines)).not.toMatch(/[\w.+-]+@[\w-]+\.[a-z]{2,}/i);
+  });
+
+  it('SUPPRESSES WITH BOTH IDS when the erasure payload carries a hash (#580 v2)', async () => {
+    // v1 has no email_hash, so this feeds one as v2 will: the suppression must then carry both.
+    const id = await makeCustomer(STORE_A, true);
+    const e = customerErased(id);
+    (e.payload as Record<string, unknown>).email_hash = EMAIL_HASH;
+
+    const r = await handleCdpEvent(e, 'out-m12', deps({ consentModeFor: modes({}, 'analytics') }));
+    expect(r.sent?.kind).toBe('suppress');
+    expect(adapter.suppressions[0]!.identity).toEqual({ userId: id, anonymousId: EMAIL_HASH });
+    // Both keys are suppressed as far as the adapter is concerned.
+    expect(adapter.isSuppressed(id)).toBe(true);
+    expect(adapter.isSuppressed(EMAIL_HASH)).toBe(true);
+  });
+
+  it('suppresses by customer_id alone on a v1 payload, in both modes', async () => {
+    for (const mode of ['analytics', 'strict'] as const) {
+      adapter = new MemoryCdpAdapter();
+      const id = await makeCustomer(STORE_A, true);
+      const r = await handleCdpEvent(
+        customerErased(id),
+        `out-m13-${mode}`,
+        deps({ consentModeFor: modes({}, mode) }),
+      );
+      expect(r.sent?.kind).toBe('suppress');
+      expect(adapter.suppressions[0]!.identity).toEqual({ userId: id, anonymousId: null });
+    }
   });
 });
 

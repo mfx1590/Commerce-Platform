@@ -131,9 +131,17 @@ package yet.
 - The CDP consumer needs TWO clients: the organization one for the marks (`consumer_processed` is
   `organization_only`), and a store-scoped one per event for the consent read (least privilege — consent is
   never propagated across stores).
-- No identify or track without granted consent; `customer.erased` is the only ungated call; a guest (no
-  `customer_id`) is dropped, not tracked pseudonymously. That gate is the Phase 4 default pending the owner's
-  lawyer answer — do not widen it, and do not invent a consent purpose.
+- **CDP consent mode (#576, owner decision 2026-10-23):** `analytics` is the DEFAULT — track and identify run
+  without `marketing_email`, and a guest is tracked under their `email_hash`. `strict` is #554's behaviour. The
+  mode **resolves PER STORE** (`ENGAGEMENT_CDP_CONSENT_MODE` plus `..._<STORE_CODE>`), is resolved per event
+  from the store the event names, and goes on the per-event log line. An unknown value fails the boot; a
+  missing mode defaults to `strict`. Never invent a consent purpose.
+- An **erased** customer is never sent in either mode, and `customer.erased` is ungated in both and carries
+  BOTH ids when known (the hash arrives with #580's v2; send it when present).
+- **The CDP mode must never reach CRM sync**, which stays consent-gated because it fetches and stores PII. A
+  test pins it.
+- `identify` carries ids only — `customer_id`, `email_hash`, store code. Not `status`, not `customer_group_id`
+  (a marketing segment id).
 - A new topic in `packages/events` must be added to `data/cdp/tracking-plan.json` as mapped or unmapped with a
   reason; the suite fails until it is.
 - Never touch a Dockerfile: the manager lands this service's `COPY` lines as an integration commit.
