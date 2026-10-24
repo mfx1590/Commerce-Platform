@@ -176,6 +176,25 @@ function fakeReader(over: Partial<SupportReader> = {}): SupportReader {
 }
 
 /**
+ * A reader that behaves like the core's STORE-SCOPED read: the customer row EXISTS, but only for the store
+ * that owns it. Asked under any other store it answers `null` — which is what a row invisible to that store
+ * actually looks like from here, and the difference between proving the 404 is about visibility and proving
+ * that a stub which answers `null` to everything returns `null` (#586 review).
+ */
+function storeScopedReader(ownerStoreId: string): SupportReader {
+  return fakeReader({
+    async getCustomer(storeId, _c, authorization) {
+      calls.push({ what: 'getCustomer', authorization });
+      return storeId === ownerStoreId ? customer : null;
+    },
+    async listOrders(storeId, _c, authorization) {
+      calls.push({ what: 'listOrders', authorization });
+      return storeId === ownerStoreId ? [summary] : [];
+    },
+  });
+}
+
+/**
  * The fake records what it was ASKED, and answers only for the store it was told to allow — so the per-store
  * tests prove the check is per store rather than global (#573 review: the first version returned a flat
  * boolean, which would have passed even if the server checked `store:*`).
@@ -422,10 +441,13 @@ describe('GET /support/customers/:id/context — the answer', () => {
   });
 
   it('a customer INVISIBLE to the store-scoped read is byte-identical to a missing one', async () => {
-    // Both reach `getCustomer -> null`: a customer of another store is not visible to the core's store-scoped
-    // read, so it answers 404 just as it does for an id that never existed. Nothing is mapped — and the two
-    // answers must be indistinguishable, or the route could be used to discover that an id exists elsewhere.
-    // (A core 401/403 is a different thing entirely and is passed through; see the test below.)
+    // Two different reasons for one answer, and they must be indistinguishable or the route becomes a way to
+    // discover that an id exists in another store: a row that does not exist anywhere, and a row that exists
+    // in brand-b and so cannot be SEEN by brand-a's store-scoped read. Nothing is mapped — a core 401/403 is
+    // a different thing entirely and is passed through (see the test below).
+    //
+    // The second reader is store-aware rather than a second `() => null` (#586 review): with two identical
+    // null fakes this test only proved that one fake is deterministic.
     await new Promise<void>((done) => server.close(() => done()));
     server = build(fakeReader({ getCustomer: async () => null }));
     base = await listen(server);
@@ -434,9 +456,8 @@ describe('GET /support/customers/:id/context — the answer', () => {
     });
 
     await new Promise<void>((done) => server.close(() => done()));
-    // The second reader stands in for the store-scoped read finding nothing because the row belongs to
-    // another store — the same `null` the core's 404 produces, by a different route.
-    server = build(fakeReader({ getCustomer: async () => null }));
+    const owned = storeScopedReader(SEED_IDS.stores.brandB);
+    server = build(owned);
     base = await listen(server);
     const foreign = await req(`/support/customers/${CUSTOMER}/context?store=brand-a`, {
       headers: { authorization: AGENT_TOKEN },
@@ -445,6 +466,11 @@ describe('GET /support/customers/:id/context — the answer', () => {
     expect(foreign.status).toBe(missing.status);
     expect(foreign.body).toEqual(missing.body);
     expect(foreign.status).toBe(404);
+    // And the row really is there for the store that owns it, so the 404 above is about VISIBILITY and not
+    // about a reader that answers null to everything.
+    await expect(
+      owned.getCustomer(SEED_IDS.stores.brandB, CUSTOMER, AGENT_TOKEN),
+    ).resolves.not.toBeNull();
   });
 
   it('404s a malformed customer id BEFORE any call to the core', async () => {

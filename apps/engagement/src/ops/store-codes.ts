@@ -13,6 +13,12 @@ export interface StoreCodes {
   codeFor(storeId: string | null | undefined): Promise<string>;
   /** Pre-load every store of the organization in one query (the consumer does this at start). */
   warm(): Promise<void>;
+  /**
+   * Every code loaded so far — the whole organization after `warm()`. Used to check a per-store config key
+   * against the stores that actually exist (#586); it is deliberately a snapshot of the cache rather than a
+   * query, so a caller cannot mistake it for a live list.
+   */
+  codes(): string[];
 }
 
 export function createStoreCodes(hq: ScopedClient): StoreCodes {
@@ -27,7 +33,13 @@ export function createStoreCodes(hq: ScopedClient): StoreCodes {
 
   return {
     async warm() {
-      await loadAll();
+      // Idempotent, so the entry point can warm once for its own checks and hand the SAME instance to a
+      // consumer whose `start()` warms again: one query, not two (#590 review). A store that appears later
+      // still resolves — `codeFor` re-queries on a miss.
+      if (!warmed) await loadAll();
+    },
+    codes() {
+      return [...cache.values()];
     },
     async codeFor(storeId) {
       // An organization-scope event (no store_id) belongs to the organization, not to a store.
