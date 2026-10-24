@@ -220,23 +220,27 @@ describe.runIf(brokerDown === null)(
     }, 300_000);
 
     afterAll(async () => {
-      for (const c of consumers) await c.stop().catch(() => {});
-      await publisher.disconnect().catch(() => {});
-      const admin = kafka.admin();
-      await admin.connect();
+      // #589 nit: a broker failure here (deleteTopics timing out) must not leave the two throwaway databases behind
       try {
-        const mine = (await admin.listTopics()).filter((t) => t.startsWith(prefix));
-        if (mine.length) await admin.deleteTopics({ topics: mine, timeout: 30_000 });
-        const groups = (await admin.listGroups()).groups
-          .map((g) => g.groupId)
-          .filter((g) => g.startsWith(prefix));
-        if (groups.length) await admin.deleteGroups(groups).catch(() => {});
+        for (const c of consumers) await c.stop().catch(() => {});
+        await publisher.disconnect().catch(() => {});
+        const admin = kafka.admin();
+        await admin.connect();
+        try {
+          const mine = (await admin.listTopics()).filter((t) => t.startsWith(prefix));
+          if (mine.length) await admin.deleteTopics({ topics: mine, timeout: 30_000 });
+          const groups = (await admin.listGroups()).groups
+            .map((g) => g.groupId)
+            .filter((g) => g.startsWith(prefix));
+          if (groups.length) await admin.deleteGroups(groups).catch(() => {});
+        } finally {
+          await admin.disconnect();
+        }
       } finally {
-        await admin.disconnect();
+        await live?.drop();
+        await fresh?.drop();
+        console.info(JSON.stringify({ test: 'month-replay', ...timings }));
       }
-      await live?.drop();
-      await fresh?.drop();
-      console.info(JSON.stringify({ test: 'month-replay', ...timings }));
     }, 120_000);
 
     it('the live run: relayed in seq order, every event handled once, books balanced per legal entity per currency', async () => {

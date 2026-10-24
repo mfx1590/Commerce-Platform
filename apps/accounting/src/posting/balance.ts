@@ -46,6 +46,17 @@ export function roundShare(amount: number, num: number, den: number): number {
   return Number(twice / (2n * BigInt(den)));
 }
 
+/**
+ * A timestamp as an instant (ms since the epoch). The events contract only promises `format: date-time`, so two
+ * strings for the same moment may differ (`09:00:00Z` / `09:00:00.000Z` / `11:00:00+02:00`) and string order is not
+ * time order: every comparison of event times goes through this (#589).
+ */
+export function instantOf(timestamp: string): number {
+  const ms = Date.parse(timestamp);
+  if (Number.isNaN(ms)) throw new TypeError(`not a timestamp: ${timestamp}`);
+  return ms;
+}
+
 /** The UTC calendar date of an RFC-3339 timestamp. */
 export function dateOf(timestamp: string): string {
   const d = new Date(timestamp);

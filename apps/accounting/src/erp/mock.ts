@@ -16,6 +16,8 @@ export interface MockOdooOptions {
   apiKey?: string;
   /** Test seam: transport failures before the first successful answer. */
   failFirst?: number;
+  /** Currencies known to the instance (odoo:init); default EUR active, GBP and USD inactive. */
+  currencies?: { id: number; name: string; active: boolean }[];
 }
 
 export const MOCK_ODOO_CREDENTIALS = {
@@ -63,6 +65,9 @@ export interface MockOdooState {
   accounts: ErpAccount[];
   journals: ErpJournal[];
   moves: (ErpMove & { line_ids: MockMoveLine[] })[];
+  currencies: { id: number; name: string; active: boolean }[];
+  /** Every `write` the server applied, for assertions (odoo:init must not rewrite a company). */
+  writes: { model: string; ids: number[]; values: Record<string, unknown> }[];
   /** Every RPC the server answered, for assertions: service.method on model. */
   calls: string[];
 }
@@ -74,6 +79,12 @@ export interface MockOdoo {
   refuseNextCreate(name: string, message: string): void;
   /** Test seam: archive an account so a move on it is refused (what a renamed/removed Odoo account does). */
   archiveAccount(id: number): void;
+  /** Test seam: the next `account.move create` is COMMITTED but its answer is lost (HTTP 503) — the #575 retry case. */
+  commitThenFailNextCreate(): void;
+  /** Test seam: the next `account.move create` fails with HTTP 503 BEFORE Odoo commits anything. */
+  failNextCreate(): void;
+  /** Test seam: an accountant cancels this move in Odoo (#591). */
+  cancelMove(id: number): void;
 }
 
 class OdooFault extends Error {
@@ -109,10 +120,18 @@ export function createMockOdoo(opts: MockOdooOptions = {}): MockOdoo {
       )
     ).map((j) => ({ id: nextId++, ...j })),
     moves: [],
+    currencies: opts.currencies ?? [
+      { id: 901, name: 'EUR', active: true },
+      { id: 902, name: 'GBP', active: false },
+      { id: 903, name: 'USD', active: false },
+    ],
+    writes: [],
     calls: [],
   };
   const archived = new Set<number>();
   let refuse: { name: string; message: string } | null = null;
+  let loseNextCreateAnswer = false;
+  let failNextCreateUncommitted = false;
   let failFirst = opts.failFirst ?? 0;
   const uid = 7;
 
@@ -175,6 +194,12 @@ export function createMockOdoo(opts: MockOdooOptions = {}): MockOdoo {
           journal_id: asRef(state.journals.find((j) => j.id === m.journal_id)!),
           company_id: asRef(state.companies.find((c) => c.id === m.company_id)!),
         }));
+        break;
+      case 'res.currency':
+        rows = state.currencies.map((c) => ({ ...c }));
+        break;
+      case 'ir.module.module':
+        rows = [{ id: 1, name: 'account', state: 'installed' }];
         break;
       default:
         throw new OdooFault('odoo.exceptions.AccessError', `model ${model} is not available`);
@@ -272,16 +297,61 @@ export function createMockOdoo(opts: MockOdooOptions = {}): MockOdoo {
           kwargs.fields as string[] | undefined,
           kwargs.limit as number | undefined,
         );
-      case 'create':
-        if (model !== 'account.move')
+      case 'create': {
+        const v = args[0] as Record<string, unknown>;
+        if (model === 'account.move') return createMove(v);
+        const id = nextId++;
+        if (model === 'res.company') {
+          const cur = state.currencies.find((c) => c.id === v.currency_id);
+          state.companies.push({ id, name: String(v.name), currency: cur?.name ?? '' });
+        } else if (model === 'account.account') {
+          state.accounts.push({
+            id,
+            company_id: Number(v.company_id),
+            code: String(v.code),
+            name: String(v.name),
+          });
+        } else if (model === 'account.journal') {
+          state.journals.push({
+            id,
+            company_id: Number(v.company_id),
+            code: String(v.code),
+            name: String(v.name),
+          });
+        } else
           throw new OdooFault('odoo.exceptions.AccessError', `create on ${model} is not available`);
-        return createMove(args[0] as Record<string, unknown>);
+        return id;
+      }
+      case 'write': {
+        const [ids, values] = args as [number[], Record<string, unknown>];
+        state.writes.push({ model, ids, values });
+        for (const id of ids) {
+          if (model === 'res.currency') {
+            const c = state.currencies.find((x) => x.id === id);
+            if (c && typeof values.active === 'boolean') c.active = values.active;
+          } else if (model === 'res.company') {
+            const c = state.companies.find((x) => x.id === id);
+            const cur = state.currencies.find((x) => x.id === values.currency_id);
+            if (c && cur) c.currency = cur.name;
+          } else
+            throw new OdooFault(
+              'odoo.exceptions.AccessError',
+              `write on ${model} is not available`,
+            );
+        }
+        return true;
+      }
       case 'action_post': {
         if (model !== 'account.move')
           throw new OdooFault('odoo.exceptions.AccessError', `action_post on ${model}`);
         for (const id of args[0] as number[]) {
           const m = state.moves.find((x) => x.id === id);
           if (!m) throw new OdooFault('odoo.exceptions.MissingError', `move ${id} does not exist`);
+          if (m.state !== 'draft')
+            throw new OdooFault(
+              'odoo.exceptions.UserError',
+              'Only draft journal entries can be posted',
+            );
           m.state = 'posted';
         }
         return true;
@@ -321,6 +391,10 @@ export function createMockOdoo(opts: MockOdooOptions = {}): MockOdoo {
     });
     try {
       const { service, method, args } = req.params;
+      if (service === 'db' && method === 'list') {
+        state.calls.push('db.list');
+        return answer([db]);
+      }
       if (service === 'common' && method === 'authenticate') {
         const [d, u, k] = args as [string, string, string];
         state.calls.push('common.authenticate');
@@ -338,7 +412,16 @@ export function createMockOdoo(opts: MockOdooOptions = {}): MockOdoo {
         ];
         if (d !== db || u !== uid || k !== apiKey)
           throw new OdooFault('odoo.exceptions.AccessDenied', 'Access Denied');
-        return answer(execute(model, m, a ?? [], kw ?? {}));
+        if (model === 'account.move' && m === 'create' && failNextCreateUncommitted) {
+          failNextCreateUncommitted = false; // nothing reached Odoo
+          return { ok: false, status: 503, json: async () => ({}) };
+        }
+        const out = execute(model, m, a ?? [], kw ?? {});
+        if (model === 'account.move' && m === 'create' && loseNextCreateAnswer) {
+          loseNextCreateAnswer = false; // committed above; the answer never arrives
+          return { ok: false, status: 503, json: async () => ({}) };
+        }
+        return answer(out);
       }
       throw new OdooFault('odoo.exceptions.AccessError', `${service}.${method} is not available`);
     } catch (err) {
@@ -355,6 +438,17 @@ export function createMockOdoo(opts: MockOdooOptions = {}): MockOdoo {
     },
     archiveAccount(id) {
       archived.add(id);
+    },
+    commitThenFailNextCreate() {
+      loseNextCreateAnswer = true;
+    },
+    failNextCreate() {
+      failNextCreateUncommitted = true;
+    },
+    cancelMove(id) {
+      const m = state.moves.find((x) => x.id === id);
+      if (!m) throw new Error(`mock: no move ${id}`);
+      m.state = 'cancel';
     },
   };
 }

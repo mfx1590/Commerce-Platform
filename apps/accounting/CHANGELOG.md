@@ -1,5 +1,47 @@
 # Changelog — @platform/accounting
 
+## 0.6.3 — 2026-10-25 (#575 review fixes, Opus review of #591)
+
+- A move cancelled in Odoo is handled: `ErpMove.state` includes `cancel`; `postMove` refuses it
+  (`OdooMoveCancelled`) instead of calling `action_post`; the sync reports it like a refusal and never marks its rows
+  (the rest continue); `findMoveByRef` prefers a posted move, then a draft, then a cancelled one when several share
+  the ref. Mock seam `cancelMove`.
+- `odoo:init` is local only: a non-loopback `ODOO_URL` is refused before any call (`OdooInitRemoteRefused`) unless
+  `--allow-remote` is passed (`isLocalOdooUrl`); it no longer writes `currency_id` on a company it finds — a
+  same-named company in another currency skips that legal entity (`companies_skipped`). The mock answers what
+  `odoo:init` calls (db list, module, currencies, company / account / journal create, writes recorded).
+- Nits: createMove's "nothing committed, rethrow" path tested (mock seam `failNextCreate`); the `dateOf` comment back
+  on `dateOf`; `package.json` version follows this CHANGELOG (was 0.2.0 since #548).
+- Tests: 95 (+4).
+
+## 0.6.2 — 2026-10-24 (#589, 15.5a)
+
+- Event times are compared as instants, never as strings (Opus review of #588): `instantOf` in `posting/balance.ts`;
+  the late-shipment rule (`shipment-shipped.ts`: before or after the cancellation) and the reconciliation window
+  (`matcher.ts`: window end and start) use it. The contract only promises `format: date-time`: `09:00:00.500Z` sorted
+  before `09:00:00Z` and offsets broke the order, so a shipment after the cancel could be booked as revenue. The
+  parked-event apply order and the window-start query already order in SQL on `timestamptz`; `dateOf` already parsed.
+- Nit: a zero-base order (every net 0, tax > 0) cancelled — `cancellationVat` takes the shipped state explicitly and
+  the late shipment passes the after-state, so the VAT no longer depends on arrival order.
+- Nit: `test/month-replay.test.ts` afterAll drops the two throwaway databases in a `finally` (a broker failure in
+  `deleteTopics` no longer leaves them behind).
+- Tests: 91 (+5): fractional seconds, a +02:00 offset, equal instants written differently (posting and matcher), the
+  zero-base cancel in both arrival orders.
+
+## 0.6.1 — 2026-10-24 (#575, 15.3a)
+
+- Odoo crash cases before live use: a DRAFT left by a crash between `create` and `action_post` is posted before its
+  rows are marked (`moves_posted_drafts`, `postMove` on the adapter); a create whose answer is lost after Odoo committed
+  it is no longer retried blindly — writes are sent once, the client searches by `ref` and uses what it finds (mock
+  seam `commitThenFailNextCreate`). Nits: `faultClass` matches Odoo's exception names, not `/access/i`; the live probe
+  prints no URL; CLAUDE.md typo.
+- `pnpm odoo:init`: database, `account` module, companies per seeded legal entity, our accounts and journals, the
+  mapping — idempotent — for the dev-stack Odoo Community 17 (compose profile `erp`).
+- Legal entities whose code starts with `e2e-` (the admin e2e journeys leave one per run in the shared dev database)
+  never reach Odoo: `odoo:init` skips them (`skip_e2e_legal_entities`), the mapping step and `syncLegalEntity` refuse
+  them (`LegalEntityExcluded`); `isSyncableLegalEntity` / `assertSyncable` exported (manager decision 2026-10-24).
+- Tests: 86 (+3).
+
 ## 0.6.0 — 2026-10-23 (#552, 15.5)
 
 - The Integration 4 accounting gate (`test/month-replay.test.ts`): a 3-entity / 3-currency generated month through the

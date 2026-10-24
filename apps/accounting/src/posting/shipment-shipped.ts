@@ -32,7 +32,7 @@ import {
   ShipmentOfCancelledOrderError,
   UnknownOrderLineError,
 } from '../errors.js';
-import { dateOf, finalizeEntry, line, proportion } from './balance.js';
+import { dateOf, finalizeEntry, instantOf, line, proportion } from './balance.js';
 import { cancellationVat } from './order-cancelled.js';
 import type { JournalEntry, JournalLine, OrderProjection, PostingResult } from './types.js';
 
@@ -43,7 +43,10 @@ export function postShipmentShipped(
   const p = e.payload;
   if (!order) throw new OrderProjectionMissingError(p.order_id, e.topic);
   const afterCancel = order.status === 'cancelled';
-  if (afterCancel && (order.cancelled_at === null || p.shipped_at >= order.cancelled_at))
+  if (
+    afterCancel &&
+    (order.cancelled_at === null || instantOf(p.shipped_at) >= instantOf(order.cancelled_at))
+  )
     throw new ShipmentOfCancelledOrderError(order.order_id, p.shipment_id);
   const storeId = e.store_id ?? order.store_id;
 
@@ -81,7 +84,7 @@ export function postShipmentShipped(
       (order.shipping_released ? 0 : order.shipping_net_minor);
     const remainingAfter = remainingBefore - release - shippingNet;
     const vatDelta =
-      cancellationVat(order, remainingBefore) - cancellationVat(order, remainingAfter);
+      cancellationVat(order, remainingBefore) - cancellationVat(order, remainingAfter, true);
     salesLines = [
       line(ACCOUNT.RECEIVABLE, cur, release + shippingNet + vatDelta, 'debit'),
       line(ACCOUNT.REVENUE_GOODS, cur, release, 'credit'),

@@ -266,6 +266,36 @@ describe('matcher (pure)', () => {
     });
     expect(windowed.discrepancies).toEqual([]);
   });
+
+  it('the window compares instants, not strings: fractional seconds, an offset, equal instants written differently (#589)', () => {
+    const at = (captured_at: string, start: string) =>
+      kinds(
+        matchPayout({
+          report: report([row({})], 946),
+          payments: [
+            payment,
+            {
+              ...payment,
+              payment_id: '00000000-0000-4000-8000-0000000000a3',
+              provider_payment_id: 'pi_3',
+              captured_at,
+            },
+          ],
+          refunds: [],
+          windowStart: { payments: start, refunds: null },
+        }).discrepancies,
+      );
+    // half a second after a whole-second start is inside the window: reported
+    expect(at('2026-10-05T09:00:00.500Z', '2026-10-05T09:00:00Z')).toEqual([
+      'unmatched_ledger_line',
+    ]);
+    // 09:00Z is after 10:30+02:00 (= 08:30Z): inside, reported
+    expect(at('2026-10-05T09:00:00.000Z', '2026-10-05T10:30:00+02:00')).toEqual([
+      'unmatched_ledger_line',
+    ]);
+    // 10:00+01:00 IS the 09:00Z start (exclusive): an earlier payout's business, not reported
+    expect(at('2026-10-05T10:00:00+01:00', '2026-10-05T09:00:00.000Z')).toEqual([]);
+  });
 });
 
 describe('the clean month', () => {

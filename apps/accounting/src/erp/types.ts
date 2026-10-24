@@ -44,7 +44,8 @@ export interface ErpMoveInput {
 
 export interface ErpMove extends ErpMoveInput {
   id: number;
-  state: 'draft' | 'posted';
+  /** Odoo's account.move state; `cancel` = an accountant cancelled it: never re-posted, never marked (#591). */
+  state: 'draft' | 'posted' | 'cancel';
 }
 
 /** What the sync needs from an ERP. Every method may throw an `ErpError` (class in `name`, no payload in the message). */
@@ -57,6 +58,8 @@ export interface ErpAdapter {
   findMoveByRef(companyId: number, ref: string): Promise<ErpMove | null>;
   /** Creates AND posts the move; the ERP refuses an unbalanced move, an unknown account or journal, a company mismatch. */
   createMove(input: ErpMoveInput): Promise<ErpMove>;
+  /** Posts a draft move (a posted one is left alone): the recovery for a crash between create and post. */
+  postMove(moveId: number): Promise<ErpMove>;
 }
 
 /** Errors the ERP side raises: `name` is the class the report carries; the message holds ids and amounts only. */

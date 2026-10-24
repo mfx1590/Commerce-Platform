@@ -54,6 +54,8 @@ export interface ErpSyncResult {
   moves_created: number;
   /** Moves that already existed in Odoo (a crash between create and mark on an earlier run): rows marked, nothing created. */
   moves_found: number;
+  /** Of those, drafts (a crash between create and action_post) that this run posted before marking. */
+  moves_posted_drafts: number;
   entries_marked: number;
   refused: { source_event_id: string; journal: string; error_class: string }[];
   skipped: {
@@ -63,12 +65,33 @@ export interface ErpSyncResult {
   }[];
 }
 
-/** Fills legal_entity.odoo_company_id (the mapping step; never by hand in SQL). */
+/**
+ * Legal entities the ERP sync touches. The admin e2e journeys leave `e2e-…` legal entities in the shared dev database
+ * (one per run); they are not books and never reach Odoo (manager decision 2026-10-24).
+ */
+export function isSyncableLegalEntity(code: string): boolean {
+  return !code.startsWith('e2e-');
+}
+
+export async function assertSyncable(q: Queryable, legalEntityId: string): Promise<string> {
+  const r = await q.query<{ code: string }>('SELECT code FROM legal_entity WHERE id = $1', [
+    legalEntityId,
+  ]);
+  const code = r.rows[0]?.code;
+  if (code === undefined)
+    throw new ErpError('LegalEntityUnknown', `legal entity ${legalEntityId} not visible`);
+  if (!isSyncableLegalEntity(code))
+    throw new ErpError('LegalEntityExcluded', `legal entity ${code} is an e2e fixture`);
+  return code;
+}
+
+/** Fills legal_entity.odoo_company_id (the mapping step; never by hand in SQL). An e2e legal entity is refused. */
 export async function mapLegalEntityToCompany(
   client: ScopedClient,
   legalEntityId: string,
   companyId: number,
 ): Promise<void> {
+  await assertSyncable(client, legalEntityId);
   const r = await client.query('UPDATE legal_entity SET odoo_company_id = $2 WHERE id = $1', [
     legalEntityId,
     companyId,
@@ -171,6 +194,7 @@ export async function syncLegalEntity(
 ): Promise<ErpSyncResult> {
   const log = deps.log ?? consoleLogger;
   const batch = deps.batchSize ?? 200;
+  await assertSyncable(deps.client, legalEntityId);
   const companyId = await companyOf(deps.client, legalEntityId);
   if (companyId === null)
     throw new ErpError(
@@ -189,6 +213,7 @@ export async function syncLegalEntity(
     chart,
     moves_created: 0,
     moves_found: 0,
+    moves_posted_drafts: 0,
     entries_marked: 0,
     refused: [],
     skipped: [],
@@ -252,9 +277,27 @@ export async function syncLegalEntity(
       try {
         const existing = await deps.erp.findMoveByRef(companyId, ref);
         if (existing) {
+          // cancelled in Odoo by an accountant (and nothing else carries the ref): neither re-posted nor marked —
+          // reported like a refusal, the rest continue, and every run reports it until someone decides (#591)
+          if (existing.state === 'cancel')
+            throw new ErpError(
+              'OdooMoveCancelled',
+              `move ${existing.id} with ref ${ref} was cancelled in Odoo`,
+            );
+          // a draft = a crash between create and action_post on an earlier run: post it, THEN mark (#575)
+          if (existing.state !== 'posted') {
+            await deps.erp.postMove(existing.id);
+            result.moves_posted_drafts += 1;
+          }
           await mark(existing.id);
           result.moves_found += 1;
-          log.info({ event: 'erp_move_found', ...base, move_id: existing.id, lines: ids.length });
+          log.info({
+            event: 'erp_move_found',
+            ...base,
+            move_id: existing.id,
+            lines: ids.length,
+            was_draft: existing.state !== 'posted',
+          });
           continue;
         }
         const lines: ErpMoveLine[] = entries.map((e) => ({
@@ -292,6 +335,7 @@ export async function syncLegalEntity(
     company_id: companyId,
     moves_created: result.moves_created,
     moves_found: result.moves_found,
+    moves_posted_drafts: result.moves_posted_drafts,
     entries_marked: result.entries_marked,
     refused: result.refused.length,
     skipped: result.skipped.length,
