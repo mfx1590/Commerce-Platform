@@ -3,9 +3,11 @@
 //
 // There is no HTTP server yet: 16.1 is a consumer. The support API arrives with #556.
 
+import { writeSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { createOrganizationClient, createPool } from '@platform/db';
 import { resolveConfig, type EngagementConfig } from './config.js';
+import { assertConsentModeOverridesKnown, ConsentModeConfigError } from './consent-mode.js';
 import { createCdpConsumer } from './cdp/consumer.js';
 import { MemoryCdpAdapter } from './cdp/adapter/memory.js';
 import { RudderStackCdpAdapter } from './cdp/adapter/rudderstack.js';
@@ -22,6 +24,7 @@ import { createSupportReader } from './support/admin-api.js';
 import { createChatwootReceiver } from './support/chatwoot.js';
 import { createSupportServer } from './support/server.js';
 import { createRateLimiter } from './ops/rate-limit.js';
+import { createStoreCodes } from './ops/store-codes.js';
 import { runDlqWatch } from './ops/dlq-watch.js';
 import { DevSinkAlertTransport } from './transport/dev-sink.js';
 import { SlackAlertTransport } from './transport/slack.js';
@@ -122,6 +125,23 @@ async function main(): Promise<void> {
     return;
   }
 
+  // ONE store-code cache for the process, warmed HERE — before a single consumer starts (#590 review).
+  //
+  // This is where the per-store consent-mode override keys are checked, and the order is the whole point: a
+  // consumer that is already running keeps the event loop alive, so a throw after `start()` could only set an
+  // exit code that never takes effect. The process would sit there with a bad configuration, consuming. The
+  // check needs the store list, which is why it cannot be in `resolveConfig`; it needs nothing else, which is
+  // why it can be the first thing that happens.
+  //
+  // It runs only when the CDP is enabled, the limit agreed on #586: a consumer that is not running applies no
+  // mode to anything. Now that the check lives here it COULD cover the disabled case too, at the cost of one
+  // query on every boot — a decision for the manager, not a thing to widen quietly.
+  const storeCodes = createStoreCodes(hq);
+  if (config.cdp.enabled) {
+    await storeCodes.warm();
+    assertConsentModeOverridesKnown(config.cdp.consentModeOverrides, storeCodes.codes());
+  }
+
   const consumer = createOpsConsumer({
     hq,
     transport,
@@ -132,7 +152,6 @@ async function main(): Promise<void> {
   // needs. The keys differ already (rule + group vs rule + store); a separate limiter keeps that true whatever
   // a future rule is called.
   const watchLimiter = createRateLimiter(config.rateLimit);
-  await consumer.start();
 
   // The CDP consumer is its own group and runs only when enabled (off until an account exists, #554).
   const cdp = config.cdp.enabled
@@ -142,12 +161,14 @@ async function main(): Promise<void> {
         adapter: buildCdpAdapter(config),
         // Per-store consent mode (#576): resolved per event from the store the event names.
         consentModeFor: config.cdp.consentModeFor,
-        // The keys behind it, so `start()` refuses an override that names no store (#586).
+        // The keys behind it, so a consumer built anywhere else gets the same refusal (#586). The boot's own
+        // check is above, where it can still stop the process.
         consentModeOverrides: config.cdp.consentModeOverrides,
+        // The cache this process already warmed: one query for the organization's stores, not two.
+        storeCodes,
         log: (line) => console.info(JSON.stringify(line)),
       })
     : null;
-  if (cdp) await cdp.start();
 
   // The CRM consumer, likewise its own group and off until a CRM and a service account exist (#555, #565).
   const crm = config.crm.enabled
@@ -162,8 +183,6 @@ async function main(): Promise<void> {
         log: (line) => console.info(JSON.stringify(line)),
       })
     : null;
-  if (crm) await crm.start();
-
   // The support API (#556): an HTTP server, off unless asked for. The agent's own token authenticates every
   // request; there is no service principal anywhere in this route.
   const support = config.support.enabled
@@ -184,17 +203,39 @@ async function main(): Promise<void> {
         log: (line) => console.info(JSON.stringify(line)),
       })
     : null;
-  if (support) {
-    await new Promise<void>((r) => support.listen(config.support.port, r));
-    console.info(
-      JSON.stringify({
-        service: 'engagement',
-        module: 'support',
-        event: 'started',
-        port: config.support.port,
-        chatwoot: Boolean(config.support.chatwootSecret),
-      }),
-    );
+
+  // Starting is all-or-nothing (#590 review). A half-started process keeps the event loop alive, so a
+  // failure here has to unwind what already runs — otherwise the boot "fails" and the service stays up.
+  const started: { stop(): Promise<void> }[] = [];
+  try {
+    await consumer.start();
+    started.push(consumer);
+    if (cdp) {
+      await cdp.start();
+      started.push(cdp);
+    }
+    if (crm) {
+      await crm.start();
+      started.push(crm);
+    }
+    if (support) {
+      await new Promise<void>((r) => support.listen(config.support.port, r));
+      console.info(
+        JSON.stringify({
+          service: 'engagement',
+          module: 'support',
+          event: 'started',
+          port: config.support.port,
+          chatwoot: Boolean(config.support.chatwootSecret),
+        }),
+      );
+    }
+  } catch (err) {
+    // Newest first, and a failure to stop must not mask the failure to start.
+    for (const s of [...started].reverse()) await s.stop().catch(() => undefined);
+    if (support?.listening) await new Promise<void>((r) => support.close(() => r()));
+    await pool.end().catch(() => undefined);
+    throw err;
   }
 
   const timer = setInterval(() => {
@@ -235,17 +276,27 @@ async function main(): Promise<void> {
 // path (`C:\...`) is not a URL path.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((err: unknown) => {
-    // The CLASS only, never the error itself: a thrown error's message or stack can carry a webhook URL, a
-    // write key or a row it was handling (#562 review). The class is what a restart policy needs.
-    console.error(
-      JSON.stringify({
-        service: 'engagement',
-        module: 'ops',
-        event: 'crashed',
-        error_class: err instanceof Error ? err.name : 'Error',
-      }),
-    );
-    process.exitCode = 1;
+    // The CLASS, never the error itself: a thrown error's message or stack can carry a webhook URL, a write
+    // key or a row it was handling (#562 review). The class is what a restart policy needs.
+    //
+    // ONE EXCEPTION, added by the #590 review: a `ConsentModeConfigError`'s message is also printed, because
+    // this module builds those messages itself out of env variable names and store codes — no payload, no
+    // secret, no personal data — and the operator needs to be told WHICH variable is wrong. Without it the
+    // boot failure reads `error_class: "Error"` and the name of the offending key is thrown away.
+    const line = JSON.stringify({
+      service: 'engagement',
+      module: 'ops',
+      event: 'crashed',
+      error_class: err instanceof Error ? err.name : 'Error',
+      ...(err instanceof ConsentModeConfigError ? { message: err.message } : {}),
+    });
+    // Written synchronously: `process.exit` below can truncate a buffered write to a pipe, and the whole
+    // point of this line is that it reaches whoever is reading the logs.
+    writeSync(2, `${line}\n`);
+    // EXIT, not just an exit code. `process.exitCode` alone does nothing while something is still running
+    // (an ops consumer, a server, a timer) — the defect this review found: the service stayed up with a
+    // configuration it had already refused.
+    process.exit(1);
   });
 }
 

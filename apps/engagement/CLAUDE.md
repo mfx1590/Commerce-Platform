@@ -134,9 +134,17 @@ package yet.
 - **Per-store config keys are normalised the same way on BOTH sides** (#586): `storeEnvKey` writes them and
   reads them, in `consent-mode.ts`. A key stored raw and looked up normalised is what made
   `ENGAGEMENT_CDP_CONSENT_MODE_brand_a` parse, validate and then apply to nothing. Two spellings of one store
-  that disagree fail the boot; an override naming no store fails `createCdpConsumer.start()`, right after
-  `warm()`, because that is the first moment the store list exists (`resolveConfig` has no database, and the
-  check is therefore skipped entirely while the CDP is disabled).
+  that disagree fail the boot; an override naming no store is refused by `main()` BEFORE a single consumer
+  starts, from one warmed `StoreCodes` it then hands to the CDP consumer (`resolveConfig` has no database, so
+  the check cannot live there, and it is skipped entirely while the CDP is disabled).
+- **A startup refusal must stop the PROCESS, not just set an exit code** (#590 review, which found exactly
+  that bug): anything already started keeps the event loop alive, so `process.exitCode = 1` is a no-op and
+  the service stays up with a configuration it refused. Validate before starting, unwind what started on a
+  failure, write the crash line synchronously, and `process.exit(1)`.
+- **`ConsentModeConfigError` is the one error class whose MESSAGE the crash line prints** — a deliberate
+  exception to "the class only", and it holds only because `consent-mode.ts` builds those messages from env
+  variable names and store codes. Never put a payload, a secret or an address into one, and keep the test
+  that pins every consent-mode failure to this class.
 - **CDP consent mode (#576, owner decision 2026-10-23):** `analytics` is the DEFAULT — track and identify run
   without `marketing_email`, and a guest is tracked under their `email_hash`. `strict` is #554's behaviour. The
   mode **resolves PER STORE** (`ENGAGEMENT_CDP_CONSENT_MODE` plus `..._<STORE_CODE>`), is resolved per event

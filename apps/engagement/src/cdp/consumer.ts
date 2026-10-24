@@ -226,6 +226,11 @@ export interface CdpConsumerOptions {
   log?: (line: CdpLogLine) => void;
   /** Test seam: supply the store-scoped client instead of building one from the pool. */
   storeClientFor?: (storeId: string) => ScopedClient;
+  /**
+   * The store-code cache to use. The entry point passes the one it warmed for its own startup checks, so the
+   * organization's stores are read once per process rather than once per consumer (#590 review).
+   */
+  storeCodes?: StoreCodes;
 }
 
 export interface CdpConsumer {
@@ -239,7 +244,7 @@ export interface CdpConsumer {
 
 export function createCdpConsumer(opts: CdpConsumerOptions): CdpConsumer {
   const organizationId = opts.hq.context.organizationId;
-  const storeCodes = createStoreCodes(opts.hq);
+  const storeCodes = opts.storeCodes ?? createStoreCodes(opts.hq);
   const processed = createPgProcessedStore(opts.hq, PROCESSED_TABLE);
   const storeClientFor =
     opts.storeClientFor ??

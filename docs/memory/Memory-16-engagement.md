@@ -45,6 +45,20 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
   `customerErasedV1` (version 1, no hash, validated against the FROZEN v1 schema), with `expect(e.version)`
   and the field's absence asserted BEFORE the suppression — see the gotcha below. Opus reviewed #585 as
   MERGE; its follow-up is #586.
+- **#590 (#586's PR) was BLOCKED by the Opus review — one real defect, and it was mine twice over.** The
+  unknown-store check was correct for a consumer and wrong for a boot: `main()` had already started the ops
+  consumer, so the throw reached a handler that logged `error_class: "Error"` and set `process.exitCode = 1`
+  — and nothing exited. A running consumer keeps the event loop alive, the SIGTERM handlers were never
+  registered, and the service stayed up with a configuration it had refused, with the variable name thrown
+  away. THE LESSON: "fails the boot" is a claim about the PROCESS. A throw proves nothing unless something
+  exits, and only a child-process test can show it — `src/main.boot.test.ts` boots the real entry point and
+  asserts the exit code, the crash line and that no `started` line appears; against the old code it hung.
+  Fixed in one commit: the check moved ahead of every `start()` (one warmed `StoreCodes`, shared with the CDP
+  consumer, `warm()` idempotent); `ConsentModeConfigError` added, and it is the ONE class whose message the
+  crash line prints (built from env names and store codes only, pinned by a test); the line is written with
+  `writeSync` and the process `exit(1)`s; startup unwinds what it started; a bare
+  `ENGAGEMENT_CDP_CONSENT_MODE_` fails instead of being skipped; the "before the broker" test now uses a
+  kafka seam that throws if touched, so the ORDER is asserted with or without a broker.
 - **#586 (16.2b, override-key validation) BUILT 2026-10-24** — the four points of the #585 review, all
   approved before building. Verified **409/409 with the broker up** (18 files, 116 s; live blocks
   self-cleaning: cdp 30 topics, crm 21, ops 12, each asserting none remains) and **400 passed / 9 skipped**

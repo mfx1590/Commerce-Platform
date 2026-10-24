@@ -12,6 +12,22 @@ import type { ConsentMode } from './consent.js';
 export const CONSENT_MODE_ENV = 'ENGAGEMENT_CDP_CONSENT_MODE';
 export const CONSENT_MODE_ENV_PREFIX = `${CONSENT_MODE_ENV}_`;
 
+/**
+ * Every way the consent-mode configuration can be wrong, under one class (#590 review).
+ *
+ * It has a name of its own for one reason: the crash line prints the CLASS of an error and not its message,
+ * because a message can carry a webhook URL, a write key or the row being handled. The messages THIS class
+ * carries are built here, from env variable names and store codes only — no payload, no secret, no personal
+ * data — so the entry point is allowed to print them, and the operator gets told which variable is wrong
+ * instead of the word "Error".
+ */
+export class ConsentModeConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConsentModeConfigError';
+  }
+}
+
 const MODES = new Set<ConsentMode>(['analytics', 'strict']);
 
 /**
@@ -36,7 +52,7 @@ export function parseConsentMode(
   if (!value) return fallback;
   if (!MODES.has(value as ConsentMode)) {
     // Throw rather than fall back: a typo like `strcit` must not quietly become the open mode.
-    throw new Error(`${where} must be "analytics" or "strict" (got "${value}")`);
+    throw new ConsentModeConfigError(`${where} must be "analytics" or "strict" (got "${value}")`);
   }
   return value as ConsentMode;
 }
@@ -58,13 +74,21 @@ export function readConsentModeOverrides(
   for (const [key, value] of Object.entries(env)) {
     if (!key.startsWith(CONSENT_MODE_ENV_PREFIX)) continue;
     const suffix = key.slice(CONSENT_MODE_ENV_PREFIX.length);
-    if (!suffix) continue;
+    if (!suffix) {
+      // The bare prefix with nothing after it (#590 review: this used to be skipped). It names no store, so
+      // whoever set it believes they configured something; silently ignoring it is the failure mode this
+      // whole issue is about.
+      throw new ConsentModeConfigError(
+        `${key} names no store (it is the prefix with nothing after it): ` +
+          `use ${CONSENT_MODE_ENV_PREFIX}<STORE_CODE>, or ${CONSENT_MODE_ENV} for the global default`,
+      );
+    }
     const storeKey = storeEnvKey(suffix);
     const mode = parseConsentMode(value, key, fallback);
     const first = setBy.get(storeKey);
     const already = overrides.get(storeKey);
     if (first !== undefined && already !== mode) {
-      throw new Error(
+      throw new ConsentModeConfigError(
         `${first} and ${key} both set the consent mode for store "${storeKey}" and disagree ` +
           `("${already}" vs "${mode}")`,
       );
@@ -96,7 +120,7 @@ export function assertConsentModeOverridesKnown(
   if (unknown.length === 0) return;
   const named = unknown.map((key) => `${CONSENT_MODE_ENV_PREFIX}${key}`).join(', ');
   const codes = [...storeCodes].sort().join(', ') || '(this organization has no stores)';
-  throw new Error(
+  throw new ConsentModeConfigError(
     `${named}: no such store in this organization, so the override would silently do nothing ` +
       `(known store codes: ${codes})`,
   );

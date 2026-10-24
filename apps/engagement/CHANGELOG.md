@@ -41,8 +41,40 @@ This had to land before any store or region is set to `strict`.
   `getCustomer: async () => null` fakes, so it only showed that one fake is deterministic. The second reader
   is now store-aware — it owns brand-B's customer and answers `null` under brand-a, as a row invisible to
   that store's read does — plus an assertion that the same reader DOES find them under their own store.
-- Tests: **400 passing, 9 live skipped** with the broker offline (was 385/9) — config 61, CDP consumer 32
-  (29 + 3 live), support server 30, plus the rest.
+- Tests: **405 passing, 9 live skipped** with the broker offline (was 385/9) — config 63, CDP consumer 33
+  (30 + 3 live), support server 30, the new boot tests, plus the rest.
+
+### The #590 review fix: "fails the boot" was not true
+
+The check was in the right place for a consumer and the wrong place for a boot. `createCdpConsumer.start()`
+threw as designed, but `main()` had already started the OPS consumer, so the throw reached a handler that
+logged `error_class: "Error"` and set `process.exitCode = 1` — and nothing exited. A running consumer keeps
+the event loop alive, the SIGTERM handlers below were never registered, and the service stayed up consuming
+with a configuration it had just refused, while the message naming the offending variable was discarded.
+
+- **The check now runs before anything starts.** `main()` creates ONE `StoreCodes`, warms it, and validates
+  the override keys before the first `start()` — and hands that same warmed instance to the CDP consumer, so
+  the organization's stores are still read once per process (`warm()` is now idempotent, and
+  `createCdpConsumer` takes an optional `storeCodes`). The consumer keeps its own check, for a consumer
+  constructed anywhere else.
+- **`ConsentModeConfigError`** is the class for every consent-mode configuration failure: a bad value, two
+  disagreeing spellings, a bare prefix, an unknown store. The crash line prints its MESSAGE as well as its
+  name — the one exception to "the class only, never the message", and a narrow one: these messages are built
+  in `consent-mode.ts` out of env variable names and store codes, with no payload, secret or personal data in
+  them. A test pins that every one of those failures is this class, because that is what makes printing safe.
+- **The crash line is written synchronously and the process exits 1.** `process.exitCode` alone does nothing
+  while something is still running, and `process.exit` can truncate a buffered write to a pipe — the whole
+  point of the line is that it reaches whoever reads the logs.
+- **Startup is all-or-nothing:** a failure part-way through stops what already started, newest first, closes
+  the server, ends the pool, and rethrows. A failure to stop never masks the failure to start.
+- **A bare `ENGAGEMENT_CDP_CONSENT_MODE_` with nothing after it now fails** instead of being skipped. Whoever
+  set it believes they configured a store.
+- **`src/main.boot.test.ts` boots the real entry point as a child process**, because nothing in-process can
+  assert an exit code: a bad override exits 1, the crash line names `ConsentModeConfigError` and the variable,
+  and no `started` line is ever printed. Against the old code the first of those tests would hang until its
+  timeout — which is exactly the defect.
+- The "before the broker" test no longer depends on the broker being down: it passes a kafka seam that throws
+  if touched, and a second test proves a VALID override does reach it. The order is asserted, not inferred.
 
 ## 0.5.0 — 2026-10-24 (#576, task 16.2a)
 

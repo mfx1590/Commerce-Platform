@@ -1,7 +1,7 @@
 import { SEED_IDS } from '@platform/db';
 import { describe, expect, it } from 'vitest';
 import { KNOWN_GROUPS, resolveConfig, storeEnvKey } from './config.js';
-import { assertConsentModeOverridesKnown } from './consent-mode.js';
+import { assertConsentModeOverridesKnown, ConsentModeConfigError } from './consent-mode.js';
 import { buildCdpAdapter, buildCrmAdapter, buildTokenProvider, buildTransport } from './main.js';
 
 const APP_URL = 'postgres://platform_app:platform_app@127.0.0.1:5433/platform';
@@ -321,6 +321,34 @@ describe('the override KEYS are normalised and validated (#586)', () => {
     expect(c.cdp.consentModeFor('brand-a')).toBe('strict');
   });
 
+  it('FAILS on the bare prefix with nothing after it', () => {
+    // #590 review: this used to be skipped. Whoever sets `ENGAGEMENT_CDP_CONSENT_MODE_` believes they
+    // configured a store, and silently ignoring it is the failure this whole issue is about.
+    const env = { ...base, ENGAGEMENT_CDP_CONSENT_MODE_: 'strict' };
+    expect(() => resolveConfig({ env })).toThrow(ConsentModeConfigError);
+    expect(() => resolveConfig({ env })).toThrow(
+      /names no store \(it is the prefix with nothing after it\)/,
+    );
+  });
+
+  it('every consent-mode failure is a ConsentModeConfigError, so the crash line may print its message', () => {
+    // The entry point prints this class's MESSAGE as well as its name, which is only safe because these
+    // messages are built from variable names and store codes. That safety depends on every one of these
+    // being this class and not a bare Error, so they are pinned together (#590 review).
+    const cases: Record<string, string>[] = [
+      { ENGAGEMENT_CDP_CONSENT_MODE: 'strcit' },
+      { ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A: 'off' },
+      { ENGAGEMENT_CDP_CONSENT_MODE_: 'strict' },
+      {
+        ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A: 'strict',
+        'ENGAGEMENT_CDP_CONSENT_MODE_brand-a': 'analytics',
+      },
+    ];
+    for (const env of cases) {
+      expect(() => resolveConfig({ env: { ...base, ...env } })).toThrow(ConsentModeConfigError);
+    }
+  });
+
   it('keeps a key that names no store instead of guessing, for the post-warm check to reject', () => {
     // `resolveConfig` has no database, so a typo and a store it has not heard of look identical here. It
     // neither drops the key nor applies it to something: it exposes it, and
@@ -349,6 +377,9 @@ describe('assertConsentModeOverridesKnown (#586)', () => {
     // The message has to be actionable at 3am: which variable, and what the valid values would have been.
     expect(() => assertConsentModeOverridesKnown(new Map([['BRANDA', 'strict']]), codes)).toThrow(
       /ENGAGEMENT_CDP_CONSENT_MODE_BRANDA: no such store[\s\S]*brand-a, brand-b, brand-c/,
+    );
+    expect(() => assertConsentModeOverridesKnown(new Map([['BRANDA', 'strict']]), codes)).toThrow(
+      ConsentModeConfigError,
     );
   });
 

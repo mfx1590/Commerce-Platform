@@ -37,7 +37,13 @@ import { createStoreCodes } from '../ops/store-codes.js';
 import { MemoryCdpAdapter } from './adapter/memory.js';
 import { CONSENT_PURPOSE } from '../consent.js';
 import { assertConsentModeOverridesKnown } from '../consent-mode.js';
-import { CDP_GROUP_ID, createCdpConsumer, handleCdpEvent, type CdpLogLine } from './consumer.js';
+import {
+  CDP_GROUP_ID,
+  createCdpConsumer,
+  handleCdpEvent,
+  type CdpConsumerOptions,
+  type CdpLogLine,
+} from './consumer.js';
 import { CdpError } from './types.js';
 
 const ORG = SEED_IDS.organization;
@@ -626,20 +632,53 @@ describe('the per-store override keys are checked against the real stores (#586)
     expect(codes).toContain('brand-b');
   });
 
+  /**
+   * A broker that must not be touched: any use of it throws a sentinel. This is how the ORDER is asserted
+   * rather than inferred from a broker happening to be down (#590 review) — the same test now proves the
+   * same thing whether or not Redpanda is running.
+   */
+  const forbiddenKafka = () =>
+    ({
+      producer: () => {
+        throw new Error('the broker must not be touched');
+      },
+      consumer: () => {
+        throw new Error('the broker must not be touched');
+      },
+      admin: () => {
+        throw new Error('the broker must not be touched');
+      },
+    }) as unknown as NonNullable<CdpConsumerOptions['kafka']>;
+
   it('start() REFUSES an override that names no store, before it ever reaches the broker', async () => {
     const consumer = createCdpConsumer({
       hq,
       pool: db.app,
       adapter,
       storeClientFor,
+      kafka: forbiddenKafka(),
       consentModeFor: modes({}, 'analytics'),
       consentModeOverrides: new Map([['BRANDA', 'strict']]),
     });
-    // The point of #586: a typo must stop the process, not leave brand-a quietly on `analytics`. It throws
-    // at the validation step, which is why this proves itself with no broker running.
+    // The point of #586: a typo must stop the boot, not leave brand-a quietly on `analytics`.
     await expect(consumer.start()).rejects.toThrow(
       /ENGAGEMENT_CDP_CONSENT_MODE_BRANDA: no such store/,
     );
+  });
+
+  it('reaches the broker once the override is valid, which is how we know the order', async () => {
+    const consumer = createCdpConsumer({
+      hq,
+      pool: db.app,
+      adapter,
+      storeClientFor,
+      kafka: forbiddenKafka(),
+      consentModeFor: modes({}, 'analytics'),
+      consentModeOverrides: new Map([['BRAND_A', 'strict']]),
+    });
+    // The other direction, and the reason the test above means anything: a VALID override lets `start()`
+    // through to the broker, so the refusal is the check talking and not a consumer that cannot start at all.
+    await expect(consumer.start()).rejects.toThrow(/the broker must not be touched/);
   });
 
   it('an override naming a real store passes the same check', async () => {

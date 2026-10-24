@@ -33,7 +33,10 @@ export function createStoreCodes(hq: ScopedClient): StoreCodes {
 
   return {
     async warm() {
-      await loadAll();
+      // Idempotent, so the entry point can warm once for its own checks and hand the SAME instance to a
+      // consumer whose `start()` warms again: one query, not two (#590 review). A store that appears later
+      // still resolves — `codeFor` re-queries on a miss.
+      if (!warmed) await loadAll();
     },
     codes() {
       return [...cache.values()];
