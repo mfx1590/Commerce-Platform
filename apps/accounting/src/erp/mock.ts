@@ -74,6 +74,8 @@ export interface MockOdoo {
   refuseNextCreate(name: string, message: string): void;
   /** Test seam: archive an account so a move on it is refused (what a renamed/removed Odoo account does). */
   archiveAccount(id: number): void;
+  /** Test seam: the next `account.move create` is COMMITTED but its answer is lost (HTTP 503) — the #575 retry case. */
+  commitThenFailNextCreate(): void;
 }
 
 class OdooFault extends Error {
@@ -113,6 +115,7 @@ export function createMockOdoo(opts: MockOdooOptions = {}): MockOdoo {
   };
   const archived = new Set<number>();
   let refuse: { name: string; message: string } | null = null;
+  let loseNextCreateAnswer = false;
   let failFirst = opts.failFirst ?? 0;
   const uid = 7;
 
@@ -282,6 +285,11 @@ export function createMockOdoo(opts: MockOdooOptions = {}): MockOdoo {
         for (const id of args[0] as number[]) {
           const m = state.moves.find((x) => x.id === id);
           if (!m) throw new OdooFault('odoo.exceptions.MissingError', `move ${id} does not exist`);
+          if (m.state === 'posted')
+            throw new OdooFault(
+              'odoo.exceptions.UserError',
+              'Only draft journal entries can be posted',
+            );
           m.state = 'posted';
         }
         return true;
@@ -338,7 +346,12 @@ export function createMockOdoo(opts: MockOdooOptions = {}): MockOdoo {
         ];
         if (d !== db || u !== uid || k !== apiKey)
           throw new OdooFault('odoo.exceptions.AccessDenied', 'Access Denied');
-        return answer(execute(model, m, a ?? [], kw ?? {}));
+        const out = execute(model, m, a ?? [], kw ?? {});
+        if (model === 'account.move' && m === 'create' && loseNextCreateAnswer) {
+          loseNextCreateAnswer = false; // committed above; the answer never arrives
+          return { ok: false, status: 503, json: async () => ({}) };
+        }
+        return answer(out);
       }
       throw new OdooFault('odoo.exceptions.AccessError', `${service}.${method} is not available`);
     } catch (err) {
@@ -355,6 +368,9 @@ export function createMockOdoo(opts: MockOdooOptions = {}): MockOdoo {
     },
     archiveAccount(id) {
       archived.add(id);
+    },
+    commitThenFailNextCreate() {
+      loseNextCreateAnswer = true;
     },
   };
 }

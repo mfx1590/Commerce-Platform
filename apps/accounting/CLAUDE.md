@@ -8,7 +8,7 @@ The ledger service (Phase 4). One bus consumer, group `accounting.ledger`, on th
 with the same `source_event_id`, debits = credits per currency — written in ONE transaction with the processed mark.
 Revenue is recognised at shipment: `order.placed` posts receivable vs contract liability + VAT, `shipment.shipped`
 releases the liability line by line from the service's OWN order projection (never a read of core tables). Since #549
-PSP fee matching + payout reconciliation from fixture reports (`src/reconcile`, journal `bank`). Since #550 the Odoo sync (`src/erp`, JSON-RPC + mock; live waits for the owner's instance). Next:, the Finance read API (#551), the month replay gate
+PSP fee matching + payout reconciliation from fixture reports (`src/reconcile`, journal `bank`). Since #550 the Odoo sync (`src/erp`, JSON-RPC + mock; live waits for the owner's instance). Next: the Finance read API (#551), the month replay gate
 (#552). README.md has the chart, the posting rules and a worked example per topic.
 
 ## Owner
@@ -31,6 +31,8 @@ landed by the manager in `packages/db`.
 @platform/accounting fixtures:payouts` rebuilds the committed fixtures.
 - `pnpm --filter @platform/accounting erp:sync -- --legal-entity <uuid> [--company <id>] [--mock]` — Odoo sync
   (after `build`); credentials from `ODOO_URL` / `ODOO_DB` / `ODOO_USER` / `ODOO_API_KEY`; `--mock` = in-memory Odoo.
+- `pnpm --filter @platform/accounting odoo:init` (after `build`) — prepares the dev-stack Odoo (database, account module,
+  companies, accounts, journals, mapping; idempotent, slow the first time; env ODOO_URL/DB/USER/API_KEY + ODOO_MASTER_PASSWORD).
 - `pnpm --filter @platform/accounting exec vitest run test/month-replay.test.ts` — the Integration 4 gate (#552) alone;
   `MONTH_REPLAY_ORDERS` scales it; needs the local broker, ask the manager for the machine before running it.
 - `pnpm --filter @platform/accounting typecheck | lint | build`.

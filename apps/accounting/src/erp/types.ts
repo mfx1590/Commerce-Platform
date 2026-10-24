@@ -57,6 +57,8 @@ export interface ErpAdapter {
   findMoveByRef(companyId: number, ref: string): Promise<ErpMove | null>;
   /** Creates AND posts the move; the ERP refuses an unbalanced move, an unknown account or journal, a company mismatch. */
   createMove(input: ErpMoveInput): Promise<ErpMove>;
+  /** Posts a draft move (a posted one is left alone): the recovery for a crash between create and post. */
+  postMove(moveId: number): Promise<ErpMove>;
 }
 
 /** Errors the ERP side raises: `name` is the class the report carries; the message holds ids and amounts only. */

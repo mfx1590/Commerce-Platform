@@ -5,12 +5,18 @@
 // answers (the owner's instance is still open: skipped with a printed reason until then).
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { SEED_IDS } from '@platform/db';
 import type { EventEnvelopeV1Base } from '@platform/events';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { handleLedgerEvent } from '../src/consumer.js';
 import { createMockOdoo, MOCK_ODOO_CREDENTIALS } from '../src/erp/mock.js';
 import { OdooJsonRpcClient, odooCredentialsFromEnv } from '../src/erp/odoo-jsonrpc.js';
-import { mapChart, mapLegalEntityToCompany, syncLegalEntity } from '../src/erp/sync.js';
+import {
+  isSyncableLegalEntity,
+  mapChart,
+  mapLegalEntityToCompany,
+  syncLegalEntity,
+} from '../src/erp/sync.js';
 import { ErpError, toCurrencyUnits } from '../src/erp/types.js';
 import type { Logger } from '../src/log.js';
 import { LE_A, LE_B } from '../src/posting/fixtures.js';
@@ -322,6 +328,117 @@ describe('sync on a seeded database with the clean-month ledger', () => {
     expect(marked.rows).toEqual([{ erp_reference: String(pre.id) }]);
   });
 
+  it('e2e legal entities never reach Odoo: the mapping step and the sync refuse them (manager decision 2026-10-24)', async () => {
+    expect(isSyncableLegalEntity('le-brand-a')).toBe(true);
+    expect(isSyncableLegalEntity('e2e-brand-muzxqspo-bv')).toBe(false);
+    const e2eId = '00000000-0000-4000-8000-00000000e2e0';
+    await t.db.owner.query(
+      `INSERT INTO legal_entity (id, organization_id, code, name, country, currency) VALUES ($1, $2, 'e2e-brand-fixture-bv', 'E2E fixture B.V.', 'NL', 'EUR')`,
+      [e2eId, SEED_IDS.organization],
+    );
+    await expect(mapLegalEntityToCompany(t.hq, e2eId, 1)).rejects.toMatchObject({
+      name: 'LegalEntityExcluded',
+    });
+    await expect(syncLegalEntity(deps(), e2eId)).rejects.toMatchObject({
+      name: 'LegalEntityExcluded',
+    });
+    const row = await t.hq.query<{ odoo_company_id: number | null }>(
+      'SELECT odoo_company_id FROM legal_entity WHERE id = $1',
+      [e2eId],
+    );
+    expect(row.rows[0]!.odoo_company_id).toBeNull();
+  });
+
+  it('#575 (1): a DRAFT left by a crash between create and action_post is posted before its rows are marked', async () => {
+    // a fresh entry pair; its move is created directly (what the client does before action_post) and left draft
+    const eventId = '00000000-0000-4000-8000-00000000d1a7';
+    await t.hq.query(
+      `INSERT INTO ledger_entry (organization_id, legal_entity_id, store_id, journal, entry_date, account_code, debit_minor, credit_minor, currency, source_event_id, source_topic, reference_type, reference_id)
+       SELECT organization_id, $1, NULL, 'bank', '2026-10-30', a, d, c, 'EUR', $2, 'psp.payout', 'payout', $2
+         FROM legal_entity, unnest(ARRAY['1000', '1100'], ARRAY[700, 0]::bigint[], ARRAY[0, 700]::bigint[]) AS x(a, d, c)
+        WHERE legal_entity.id = $1`,
+      [LE_A, eventId],
+    );
+    const bnk = (await odoo.listJournals(1)).find((j) => j.code === 'BNK')!;
+    const accounts = await odoo.listAccounts(1);
+    const draftId = (await odoo.executeKw('account.move', 'create', [
+      {
+        move_type: 'entry',
+        company_id: 1,
+        journal_id: bnk.id,
+        date: '2026-10-30',
+        ref: `${eventId}/bank`,
+        line_ids: [
+          [
+            0,
+            0,
+            {
+              account_id: accounts.find((a) => a.code === '1000')!.id,
+              name: '1000',
+              debit: 7,
+              credit: 0,
+            },
+          ],
+          [
+            0,
+            0,
+            {
+              account_id: accounts.find((a) => a.code === '1100')!.id,
+              name: '1100',
+              debit: 0,
+              credit: 7,
+            },
+          ],
+        ],
+      },
+    ])) as number;
+    expect(mock.state.moves.find((m) => m.id === draftId)!.state).toBe('draft');
+    const before = mock.state.moves.length;
+    const r = await syncLegalEntity(deps(), LE_A);
+    expect(r).toMatchObject({
+      moves_created: 0,
+      moves_found: 1,
+      moves_posted_drafts: 1,
+      entries_marked: 2,
+    });
+    expect(mock.state.moves.length).toBe(before);
+    expect(mock.state.moves.find((m) => m.id === draftId)!.state).toBe('posted');
+    const marked = await t.hq.query<{ erp_reference: string; posted: Date | null }>(
+      'SELECT DISTINCT erp_reference, posted_to_erp_at AS posted FROM ledger_entry WHERE source_event_id = $1',
+      [eventId],
+    );
+    expect(marked.rows).toHaveLength(1);
+    expect(marked.rows[0]).toMatchObject({ erp_reference: String(draftId) });
+    expect(marked.rows[0]!.posted).not.toBeNull();
+    expect(LOG.some((l) => l.includes('"was_draft":true'))).toBe(true);
+  });
+
+  it('#575 (2): a create whose answer is lost after Odoo committed it is NOT retried blindly — the move is found by ref and posted, once', async () => {
+    const eventId = '00000000-0000-4000-8000-00000000d1a8';
+    await t.hq.query(
+      `INSERT INTO ledger_entry (organization_id, legal_entity_id, store_id, journal, entry_date, account_code, debit_minor, credit_minor, currency, source_event_id, source_topic, reference_type, reference_id)
+       SELECT organization_id, $1, NULL, 'bank', '2026-10-31', a, d, c, 'EUR', $2, 'psp.payout', 'payout', $2
+         FROM legal_entity, unnest(ARRAY['1000', '1100'], ARRAY[900, 0]::bigint[], ARRAY[0, 900]::bigint[]) AS x(a, d, c)
+        WHERE legal_entity.id = $1`,
+      [LE_A, eventId],
+    );
+    const before = mock.state.moves.length;
+    mock.commitThenFailNextCreate();
+    const r = await syncLegalEntity(deps(), LE_A);
+    expect(r).toMatchObject({ moves_created: 1, moves_found: 0, refused: [], entries_marked: 2 });
+    expect(mock.state.moves.length).toBe(before + 1); // ONE move, not two
+    const mine = mock.state.moves.filter((m) => m.ref === `${eventId}/bank`);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]!.state).toBe('posted');
+    // a lost answer with NOTHING committed (a plain 5xx before the create) surfaces as a transport error, no move
+    const flaky = new OdooJsonRpcClient(MOCK_ODOO_CREDENTIALS, {
+      fetch: createMockOdoo({ failFirst: 1 }).fetch,
+      sleep: noWait,
+      retries: 0,
+    });
+    await expect(flaky.listCompanies()).rejects.toMatchObject({ name: 'OdooTransport' });
+  });
+
   it('a code map and a missing Odoo account: mapped through the map, the missing code skips only its entries', async () => {
     // a third company whose chart uses other codes and lacks our 6100 (PSP fees)
     const codes = [
@@ -392,9 +509,9 @@ async function probeOdoo(): Promise<string | null> {
       body: JSON.stringify({ jsonrpc: '2.0', method: 'call', params: {}, id: 1 }),
       signal: AbortSignal.timeout(2_000),
     });
-    return res.ok ? null : `${url}: HTTP ${res.status}`;
+    return res.ok ? null : `ODOO_URL answered HTTP ${res.status}`;
   } catch (err) {
-    return `${url}: ${(err as Error).name}`;
+    return `ODOO_URL unreachable (${(err as Error).name})`;
   }
 }
 const odooDown = await probeOdoo();
