@@ -1,5 +1,5 @@
-// Public API of @platform/contracts. Types live in './store' and './admin' (generated from openapi/*.yaml).
-export const CONTRACTS_VERSION = '0.4.27' as const;
+// Public API of @platform/contracts. Types live in './store', './admin' and './accounting' (generated from openapi/*.yaml).
+export const CONTRACTS_VERSION = '0.4.28' as const;
 
 /** Header names every client and the core agree on. */
 export const HEADERS = {
@@ -12,6 +12,7 @@ export const HEADERS = {
 export const MOCK_URLS = {
   store: 'http://localhost:4010',
   admin: 'http://localhost:4011',
+  accounting: 'http://localhost:4013',
 } as const;
 
 /** Stable machine-readable error codes shared by both APIs (`Error.code`). */
@@ -54,3 +55,8 @@ export type {
   components as AdminComponents,
   operations as AdminOperations,
 } from './admin.js';
+export type {
+  paths as AccountingPaths,
+  components as AccountingComponents,
+  operations as AccountingOperations,
+} from './accounting.js';

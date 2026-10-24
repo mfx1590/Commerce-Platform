@@ -1,0 +1,730 @@
+openapi: 3.1.0
+info:
+  title: Accounting API
+  version: 0.1.0
+  description: |
+    Finance-only READ API served by the accounting service (apps/accounting, window 15; CONTRACT CHANGE for #551).
+    Every request carries a Keycloak staff-realm JWT; every operation's `x-permission` is `finance` on
+    `organization:hq`, checked server-side with @platform/auth-sdk — a store admin, however many stores, gets 403.
+    Nothing here writes: the ledger is derived from events only (ADR 0003 item 6).
+    Money is integer minor units with an explicit `currency`; amounts are never summed across currencies. Ids are uuids,
+    timestamps RFC-3339, dates YYYY-MM-DD; lists are `{ page, limit, total, items }`; errors `{ code, message, details }`.
+    Legal entity = the books (one per brand); every read is scoped by `legalEntityId`, the admin API's `LegalEntity.id`.
+    A query parameter the operation does not declare, or a malformed one, is a 400 `validation_error` whose `details`
+    name the parameter. A period with no lines answers `rows: []`, `totals: []` — a consumer asserting balanced books
+    must also assert the currencies it expects are present.
+    Revision 2 (Fable review of CONTRACT CHANGE #572): shared `BadRequest`, `Limit` aligned with the house (default 20,
+    max 100), `getPayout`'s lines paginated, `minimum: 0` on amounts, mock port 4013.
+servers:
+  - url: http://localhost:4013
+    description: Prism mock (pnpm mock, MOCK_ACCOUNTING_PORT)
+  - url: https://accounting.example.com
+security:
+  - staffToken: []
+tags:
+  - name: books
+  - name: journal
+  - name: payouts
+  - name: erp
+
+paths:
+  # ---------------------------------------------------------------- books
+  /accounting/v1/legal-entities:
+    get:
+      tags: [books]
+      operationId: listLegalEntityBooks
+      summary: The legal entities with books, with their currencies, entry counts and ERP mapping
+      x-permission: { relation: finance, object: 'organization:hq' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/LegalEntityBooks' }
+              example:
+                items:
+                  - legal_entity_id: 00000000-0000-4000-8000-000000000011
+                    code: le-brand-a
+                    name: Brand A B.V.
+                    reporting_currency: EUR
+                    currencies: [EUR]
+                    entries: 1595
+                    unposted_entries: 12
+                    first_entry_date: '2026-10-01'
+                    last_entry_date: '2026-10-28'
+                    odoo_company_id: 1
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /accounting/v1/legal-entities/{legalEntityId}/trial-balance:
+    get:
+      tags: [books]
+      operationId: getTrialBalance
+      summary: Per (currency, account) totals of a legal entity for a period; debits equal credits per currency
+      description: |
+        Sums `ledger_entry` of the legal entity with `entry_date` in `[from, to]` (both inclusive, both optional) per
+        currency and account. `totals` per currency carries Σ debit, Σ credit and their difference — zero on balanced
+        books, which is what the Integration 4 gate asserts (#552). `currency` narrows to one currency.
+      x-permission: { relation: finance, object: 'organization:hq' }
+      parameters:
+        - { $ref: '#/components/parameters/LegalEntityId' }
+        - { $ref: '#/components/parameters/From' }
+        - { $ref: '#/components/parameters/To' }
+        - { $ref: '#/components/parameters/Currency' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TrialBalance' }
+              example:
+                legal_entity_id: 00000000-0000-4000-8000-000000000011
+                from: '2026-10-01'
+                to: '2026-10-31'
+                rows:
+                  - currency: EUR
+                    account_code: '1200'
+                    account_name: Accounts receivable — trade
+                    account_type: asset
+                    debit_minor: 1366500
+                    credit_minor: 1366500
+                    balance_minor: 0
+                  - currency: EUR
+                    account_code: '4000'
+                    account_name: Revenue — goods
+                    account_type: revenue
+                    debit_minor: 0
+                    credit_minor: 1079800
+                    balance_minor: -1079800
+                totals:
+                  - currency: EUR
+                    debit_minor: 4512300
+                    credit_minor: 4512300
+                    difference_minor: 0
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- journal
+  /accounting/v1/legal-entities/{legalEntityId}/journal-lines:
+    get:
+      tags: [journal]
+      operationId: listJournalLines
+      summary: Ledger lines of a legal entity by period, journal, account or reference (paginated)
+      x-permission: { relation: finance, object: 'organization:hq' }
+      parameters:
+        - { $ref: '#/components/parameters/LegalEntityId' }
+        - { $ref: '#/components/parameters/From' }
+        - { $ref: '#/components/parameters/To' }
+        - { $ref: '#/components/parameters/Currency' }
+        - { $ref: '#/components/parameters/Journal' }
+        - { name: account_code, in: query, schema: { type: string } }
+        - {
+            name: reference_type,
+            in: query,
+            schema: { type: string, enum: [order, payment, refund, shipment, payout] },
+          }
+        - { name: reference_id, in: query, schema: { type: string, format: uuid } }
+        - { name: source_event_id, in: query, schema: { type: string, format: uuid } }
+        - {
+            name: erp,
+            in: query,
+            description: 'posted = has posted_to_erp_at; unposted = has none',
+            schema: { type: string, enum: [posted, unposted] },
+          }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK (ordered by entry_date, created_at, source_event_id, account_code)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/JournalLinePage' }
+              example:
+                page: 1
+                limit: 20
+                total: 4
+                items:
+                  - id: 00000000-0000-4000-8000-00000000a001
+                    legal_entity_id: 00000000-0000-4000-8000-000000000011
+                    store_id: 00000000-0000-4000-8000-000000000031
+                    journal: sales
+                    entry_date: '2026-10-05'
+                    account_code: '1200'
+                    account_name: Accounts receivable — trade
+                    debit_minor: 13665
+                    credit_minor: 0
+                    currency: EUR
+                    source_event_id: 00000000-0000-4000-8000-00000000e001
+                    source_topic: order.placed
+                    reference_type: order
+                    reference_id: 00000000-0000-4000-8000-00000000c001
+                    posted_to_erp_at: null
+                    erp_reference: null
+                    created_at: '2026-10-05T10:00:01Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /accounting/v1/legal-entities/{legalEntityId}/parked-events:
+    get:
+      tags: [journal]
+      operationId: listParkedEvents
+      summary: Events waiting for their order.placed (shipments, refunds, cancels that arrived first)
+      description: |
+        Rows of `accounting_parked_event` for the legal entity's stores: ids, topic and times only — never the envelope.
+        A non-empty list that does not drain is the signal an `order.placed` is missing from the bus.
+      x-permission: { relation: finance, object: 'organization:hq' }
+      parameters:
+        - { $ref: '#/components/parameters/LegalEntityId' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK (oldest parked first)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ParkedEventPage' }
+              example:
+                page: 1
+                limit: 20
+                total: 1
+                items:
+                  - outbox_id: 00000000-0000-4000-8000-00000000e777
+                    store_id: 00000000-0000-4000-8000-000000000031
+                    topic: shipment.shipped
+                    version: 1
+                    order_id: 00000000-0000-4000-8000-00000000c777
+                    occurred_at: '2026-10-07T08:00:00Z'
+                    parked_at: '2026-10-07T08:00:02Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- payouts
+  /accounting/v1/legal-entities/{legalEntityId}/payouts:
+    get:
+      tags: [payouts]
+      operationId: listPayouts
+      summary: Imported PSP payouts of a legal entity with their reconciliation status (paginated)
+      x-permission: { relation: finance, object: 'organization:hq' }
+      parameters:
+        - { $ref: '#/components/parameters/LegalEntityId' }
+        - {
+            name: status,
+            in: query,
+            schema: { type: string, enum: [imported, reconciled, discrepant] },
+          }
+        - { name: provider, in: query, schema: { type: string } }
+        - { $ref: '#/components/parameters/From' }
+        - { $ref: '#/components/parameters/To' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK (by arrival_date, then provider payout id)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PayoutPage' }
+              example:
+                page: 1
+                limit: 20
+                total: 1
+                items:
+                  - id: 00000000-0000-4000-8000-00000000d001
+                    legal_entity_id: 00000000-0000-4000-8000-000000000011
+                    provider: stripe
+                    provider_payout_id: po_fixture_le_brand_a_01
+                    currency: EUR
+                    amount_minor: 276605
+                    arrival_date: '2026-10-08'
+                    status: reconciled
+                    line_count: 9
+                    matched_count: 9
+                    discrepancy_count: 0
+                    posted_at: '2026-10-23T12:00:00Z'
+                    imported_at: '2026-10-23T12:00:00Z'
+                    reconciled_at: '2026-10-23T12:00:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /accounting/v1/legal-entities/{legalEntityId}/payouts/{payoutId}:
+    get:
+      tags: [payouts]
+      operationId: getPayout
+      summary: One payout with its balance-transaction lines (paginated) and their match verdicts
+      x-permission: { relation: finance, object: 'organization:hq' }
+      parameters:
+        - { $ref: '#/components/parameters/LegalEntityId' }
+        - { name: payoutId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PayoutDetail' }
+              example:
+                id: 00000000-0000-4000-8000-00000000d001
+                legal_entity_id: 00000000-0000-4000-8000-000000000011
+                provider: stripe
+                provider_payout_id: po_fixture_le_brand_a_01
+                currency: EUR
+                amount_minor: 276605
+                arrival_date: '2026-10-08'
+                status: discrepant
+                line_count: 9
+                matched_count: 8
+                discrepancy_count: 1
+                posted_at: null
+                imported_at: '2026-10-23T12:00:00Z'
+                reconciled_at: null
+                lines:
+                  page: 1
+                  limit: 20
+                  total: 9
+                  items:
+                    - id: 00000000-0000-4000-8000-00000000f001
+                      provider_txn_id: txn_fixture_unknown_charge
+                      kind: charge
+                      provider_reference: pi_fixture_unknown
+                      amount_minor: 4200
+                      fee_minor: 147
+                      net_minor: 4053
+                      currency: EUR
+                      available_on: '2026-10-07'
+                      matched_reference_type: null
+                      matched_reference_id: null
+                      match_status: unmatched
+                      difference_minor: 4200
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- erp
+  /accounting/v1/legal-entities/{legalEntityId}/erp-status:
+    get:
+      tags: [erp]
+      operationId: getErpSyncStatus
+      summary: ERP (Odoo) mapping and sync position of a legal entity
+      x-permission: { relation: finance, object: 'organization:hq' }
+      parameters:
+        - { $ref: '#/components/parameters/LegalEntityId' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErpSyncStatus' }
+              example:
+                legal_entity_id: 00000000-0000-4000-8000-000000000011
+                odoo_company_id: 1
+                chart:
+                  accounts: 12
+                  mapped: 12
+                  unmapped_codes: []
+                entries: 1595
+                posted_entries: 1583
+                unposted_entries: 12
+                oldest_unposted_entry_date: '2026-10-28'
+                last_posted_at: '2026-10-28T23:10:00Z'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    staffToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Keycloak staff realm token
+
+  parameters:
+    LegalEntityId:
+      name: legalEntityId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    From:
+      name: from
+      in: query
+      description: First entry_date / arrival_date included (YYYY-MM-DD)
+      schema: { type: string, format: date }
+    To:
+      name: to
+      in: query
+      description: Last entry_date / arrival_date included (YYYY-MM-DD)
+      schema: { type: string, format: date }
+    Currency:
+      name: currency
+      in: query
+      schema: { type: string, pattern: '^[A-Z]{3}$' }
+    Journal:
+      name: journal
+      in: query
+      schema: { type: string, enum: [sales, psp_fees, refunds, cogs, tax, shipping, bank] }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+
+  responses:
+    BadRequest:
+      description: A query parameter the operation does not declare, or a malformed value; `details` names each one
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            {
+              code: validation_error,
+              message: Invalid query,
+              details: { limit: must be an integer in range, nope: unknown parameter },
+            }
+    Unauthorized:
+      description: Missing or invalid token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { code: unauthorized, message: Missing bearer token, details: {} }
+    Forbidden:
+      description: Permission check failed (OpenFGA) — `finance` on `organization:hq`
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            {
+              code: forbidden,
+              message: Not allowed,
+              details: { relation: finance, object: 'organization:hq' },
+            }
+    NotFound:
+      description: No such legal entity (or payout) in the caller's organization
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { code: not_found, message: Legal entity not found, details: {} }
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          {
+            type: string,
+            description: 'validation_error, unauthorized, forbidden, not_found, internal',
+          }
+        message: { type: string }
+        details: { type: object, additionalProperties: true }
+    Page:
+      type: object
+      required: [page, limit, total]
+      properties:
+        page: { type: integer }
+        limit: { type: integer }
+        total: { type: integer }
+
+    LegalEntityBooks:
+      type: object
+      required:
+        [
+          legal_entity_id,
+          code,
+          name,
+          reporting_currency,
+          currencies,
+          entries,
+          unposted_entries,
+          odoo_company_id,
+        ]
+      properties:
+        legal_entity_id:
+          {
+            type: string,
+            format: uuid,
+            description: 'The admin API LegalEntity.id (legal_entity.id); the books are keyed by it',
+          }
+        code: { type: string }
+        name: { type: string }
+        reporting_currency: { type: string, pattern: '^[A-Z]{3}$' }
+        currencies:
+          type: array
+          description: Every currency the books hold lines in
+          items: { type: string, pattern: '^[A-Z]{3}$' }
+        entries: { type: integer }
+        unposted_entries: { type: integer, description: Lines without posted_to_erp_at }
+        first_entry_date: { type: [string, 'null'], format: date }
+        last_entry_date: { type: [string, 'null'], format: date }
+        odoo_company_id: { type: [integer, 'null'] }
+
+    TrialBalanceRow:
+      type: object
+      required:
+        [
+          currency,
+          account_code,
+          account_name,
+          account_type,
+          debit_minor,
+          credit_minor,
+          balance_minor,
+        ]
+      properties:
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        account_code: { type: string }
+        account_name: { type: string }
+        account_type: { type: string, enum: [asset, liability, equity, revenue, expense] }
+        debit_minor: { type: integer, minimum: 0 }
+        credit_minor: { type: integer, minimum: 0 }
+        balance_minor: { type: integer, description: debit_minor − credit_minor }
+    TrialBalanceTotal:
+      type: object
+      required: [currency, debit_minor, credit_minor, difference_minor]
+      properties:
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        debit_minor: { type: integer }
+        credit_minor: { type: integer }
+        difference_minor: { type: integer, description: Σ debit − Σ credit; zero on balanced books }
+    TrialBalance:
+      type: object
+      description: 'A period with no lines has rows [] and totals []; assert the currencies you expect, not only zero differences'
+      required: [legal_entity_id, from, to, rows, totals]
+      properties:
+        legal_entity_id: { type: string, format: uuid }
+        from: { type: [string, 'null'], format: date }
+        to: { type: [string, 'null'], format: date }
+        rows:
+          type: array
+          items: { $ref: '#/components/schemas/TrialBalanceRow' }
+        totals:
+          type: array
+          items: { $ref: '#/components/schemas/TrialBalanceTotal' }
+
+    JournalLine:
+      type: object
+      required:
+        [
+          id,
+          legal_entity_id,
+          store_id,
+          journal,
+          entry_date,
+          account_code,
+          account_name,
+          debit_minor,
+          credit_minor,
+          currency,
+          source_event_id,
+          source_topic,
+          reference_type,
+          reference_id,
+          posted_to_erp_at,
+          erp_reference,
+          created_at,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        legal_entity_id: { type: string, format: uuid }
+        store_id:
+          {
+            type: [string, 'null'],
+            format: uuid,
+            description: NULL on a legal-entity-level line (a payout),
+          }
+        journal: { type: string, enum: [sales, psp_fees, refunds, cogs, tax, shipping, bank] }
+        entry_date: { type: string, format: date }
+        account_code: { type: string }
+        account_name: { type: string }
+        debit_minor: { type: integer, minimum: 0 }
+        credit_minor: { type: integer, minimum: 0 }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        source_event_id: { type: string, format: uuid }
+        source_topic:
+          { type: string, description: 'An event topic, or psp.payout for a payout posting' }
+        reference_type:
+          {
+            type: string,
+            enum: [order, payment, refund, shipment, payout],
+            description: 'Always set by the service (nullable in the 0008 table, never null here)',
+          }
+        reference_id:
+          {
+            type: string,
+            format: uuid,
+            description: 'The order / payment / refund / shipment / payout id; always set',
+          }
+        posted_to_erp_at: { type: [string, 'null'], format: date-time }
+        erp_reference: { type: [string, 'null'], description: The Odoo move id once posted }
+        created_at: { type: string, format: date-time }
+    JournalLinePage:
+      allOf:
+        - { $ref: '#/components/schemas/Page' }
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/JournalLine' }
+
+    ParkedEvent:
+      type: object
+      required: [outbox_id, store_id, topic, version, order_id, occurred_at, parked_at]
+      properties:
+        outbox_id: { type: string, format: uuid }
+        store_id: { type: string, format: uuid }
+        topic: { type: string }
+        version: { type: integer }
+        order_id: { type: string, format: uuid }
+        occurred_at: { type: string, format: date-time }
+        parked_at: { type: string, format: date-time }
+    ParkedEventPage:
+      allOf:
+        - { $ref: '#/components/schemas/Page' }
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/ParkedEvent' }
+
+    Payout:
+      type: object
+      required:
+        [
+          id,
+          legal_entity_id,
+          provider,
+          provider_payout_id,
+          currency,
+          amount_minor,
+          arrival_date,
+          status,
+          line_count,
+          matched_count,
+          discrepancy_count,
+          posted_at,
+          imported_at,
+          reconciled_at,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        legal_entity_id: { type: string, format: uuid }
+        provider: { type: string }
+        provider_payout_id: { type: string }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        amount_minor: { type: integer, description: What reached the bank }
+        arrival_date: { type: string, format: date }
+        status: { type: string, enum: [imported, reconciled, discrepant] }
+        line_count: { type: integer }
+        matched_count: { type: integer }
+        discrepancy_count: { type: integer, description: Lines whose match_status is not matched }
+        posted_at: { type: [string, 'null'], format: date-time }
+        imported_at: { type: string, format: date-time }
+        reconciled_at: { type: [string, 'null'], format: date-time }
+    PayoutLine:
+      type: object
+      required:
+        [
+          id,
+          provider_txn_id,
+          kind,
+          provider_reference,
+          amount_minor,
+          fee_minor,
+          net_minor,
+          currency,
+          available_on,
+          matched_reference_type,
+          matched_reference_id,
+          match_status,
+          difference_minor,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        provider_txn_id: { type: string }
+        kind: { type: string, enum: [charge, refund, fee, adjustment, payout, other] }
+        provider_reference: { type: [string, 'null'] }
+        amount_minor: { type: integer }
+        fee_minor: { type: integer }
+        net_minor: { type: integer }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        available_on: { type: [string, 'null'], format: date }
+        matched_reference_type: { type: [string, 'null'], enum: [payment, refund, null] }
+        matched_reference_id: { type: [string, 'null'], format: uuid }
+        match_status:
+          { type: string, enum: [pending, matched, unmatched, amount_mismatch, fee_mismatch] }
+        difference_minor: { type: integer, description: PSP amount − ledger amount; 0 when matched }
+    PayoutPage:
+      allOf:
+        - { $ref: '#/components/schemas/Page' }
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/Payout' }
+    PayoutLinePage:
+      allOf:
+        - { $ref: '#/components/schemas/Page' }
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/PayoutLine' }
+    PayoutDetail:
+      allOf:
+        - { $ref: '#/components/schemas/Payout' }
+        - type: object
+          required: [lines]
+          properties:
+            lines: { $ref: '#/components/schemas/PayoutLinePage' }
+
+    ErpSyncStatus:
+      type: object
+      required:
+        [
+          legal_entity_id,
+          odoo_company_id,
+          chart,
+          entries,
+          posted_entries,
+          unposted_entries,
+          oldest_unposted_entry_date,
+          last_posted_at,
+        ]
+      properties:
+        legal_entity_id: { type: string, format: uuid }
+        odoo_company_id: { type: [integer, 'null'] }
+        chart:
+          type: object
+          required: [accounts, mapped, unmapped_codes]
+          properties:
+            accounts: { type: integer }
+            mapped: { type: integer, description: ledger_account rows with erp_account_id }
+            unmapped_codes:
+              type: array
+              items: { type: string }
+        entries: { type: integer }
+        posted_entries: { type: integer }
+        unposted_entries: { type: integer }
+        oldest_unposted_entry_date: { type: [string, 'null'], format: date }
+        last_posted_at: { type: [string, 'null'], format: date-time }

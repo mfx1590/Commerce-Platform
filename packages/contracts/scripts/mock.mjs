@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// `pnpm mock`: Prism mock servers for both specs. Store API on :4010, Admin API on :4011 (override with env).
+// `pnpm mock`: Prism mock servers for the three specs. Store API on :4010, Admin API on :4011, Accounting API on :4013
+// (override with env; 4012 is the storefront perf scripts' PERF_MOCK_PORT).
 // Feature windows point their apps at these URLs in Phase 1 (MOCK_API_URL / MOCK_ADMIN_API_URL in .env.example).
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -23,6 +24,11 @@ const servers = [
     name: 'admin',
     spec: resolve(here, '../openapi/admin-api.yaml'),
     port: process.env.MOCK_ADMIN_PORT ?? '4011',
+  },
+  {
+    name: 'accounting',
+    spec: resolve(here, '../openapi/accounting.yaml'),
+    port: process.env.MOCK_ACCOUNTING_PORT ?? '4013',
   },
 ];
 
@@ -49,7 +55,8 @@ function shutdown(code = 0) {
 process.on('SIGINT', () => shutdown(0));
 process.on('SIGTERM', () => shutdown(0));
 console.info(
-  'mock: Store API http://localhost:%s  Admin API http://localhost:%s',
+  'mock: Store API http://localhost:%s  Admin API http://localhost:%s  Accounting API http://localhost:%s',
   servers[0].port,
   servers[1].port,
+  servers[2].port,
 );
