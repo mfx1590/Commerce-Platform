@@ -1,5 +1,9 @@
 # Changelog — @platform/db
 
+## 0.3.18 — 2026-10-24
+
+- `@platform/db/testing` `createTestDatabase`: the migration of a new test database runs under `pg_advisory_lock` held on a connection to the BASE database (advisory locks are per database). Migration 0001 creates the cluster-wide roles check-then-create, so two packages creating test databases at the same moment (turbo runs them in parallel) could both pass the check and one failed with 23505 on pg_authid_rolname_index (CI on PR #590). The applied migration is unchanged. New test: four databases created in parallel all migrate. Manager fix.
+
 ## 0.3.17 — 2026-10-23
 
 - `0203_accounting_ledger.sql` (CONTRACT CHANGE #558, window 15 #548/#549; Fable review CHANGES on rev 2, rev 3 landed): `ledger_account` (chart per legal entity), `accounting_order` / `accounting_order_line` (the accounting service's own order projection), `accounting_parked_event` (out-of-order events parked until their order arrives), `accounting_payment` / `accounting_refund` (provider ids for payout matching), `psp_payout` / `psp_payout_line`; `ledger_entry` journal CHECK gains `bank`, trial-balance + unposted indexes, `store_id` NULLable (legal-entity-level lines: payouts, bank). Every accounting table incl. `ledger_entry` is RLS `organization_only` (store admins never see accounting). Immutability in SQL: `ledger_entry` no DELETE and UPDATE only on (posted_to_erp_at, erp_reference, updated_at); no DELETE on ledger_account, psp_payout_line, accounting_payment, accounting_refund. Manager landing.

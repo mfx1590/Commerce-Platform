@@ -1,6 +1,7 @@
 import { SEED_IDS } from '@platform/db';
 import { describe, expect, it } from 'vitest';
 import { KNOWN_GROUPS, resolveConfig, storeEnvKey } from './config.js';
+import { assertConsentModeOverridesKnown, ConsentModeConfigError } from './consent-mode.js';
 import { buildCdpAdapter, buildCrmAdapter, buildTokenProvider, buildTransport } from './main.js';
 
 const APP_URL = 'postgres://platform_app:platform_app@127.0.0.1:5433/platform';
@@ -278,6 +279,126 @@ describe('the CDP consent mode resolves PER STORE (#576)', () => {
       },
     });
     expect(c.cdp.consentModeFor('brand-a')).toBe('strict');
+  });
+});
+
+describe('the override KEYS are normalised and validated (#586)', () => {
+  // The #585 review's finding: the key was stored RAW and looked up NORMALISED, so a lowercase or oddly
+  // punctuated key parsed, validated, and then matched no store — leaving that store on the open default
+  // while the configuration said otherwise. Every spelling of one store's key must reach that store.
+  it.each([
+    ['ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A'],
+    ['ENGAGEMENT_CDP_CONSENT_MODE_brand_a'],
+    ['ENGAGEMENT_CDP_CONSENT_MODE_brand-a'],
+    ['ENGAGEMENT_CDP_CONSENT_MODE_Brand_A'],
+  ])('%s switches brand-a to strict', (key) => {
+    const c = resolveConfig({ env: { ...base, [key]: 'strict' } });
+    expect(c.cdp.consentModeFor('brand-a')).toBe('strict');
+    expect(c.cdp.consentModeFor('brand-b')).toBe('analytics');
+    expect([...c.cdp.consentModeOverrides.keys()]).toEqual(['BRAND_A']);
+  });
+
+  it('refuses two spellings of one store that DISAGREE', () => {
+    expect(() =>
+      resolveConfig({
+        env: {
+          ...base,
+          ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A: 'strict',
+          'ENGAGEMENT_CDP_CONSENT_MODE_brand-a': 'analytics',
+        },
+      }),
+    ).toThrow(/both set the consent mode for store "BRAND_A" and disagree/);
+  });
+
+  it('allows two spellings that agree, because there is nothing to get wrong', () => {
+    const c = resolveConfig({
+      env: {
+        ...base,
+        ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A: 'strict',
+        'ENGAGEMENT_CDP_CONSENT_MODE_brand-a': 'strict',
+      },
+    });
+    expect(c.cdp.consentModeFor('brand-a')).toBe('strict');
+  });
+
+  it('FAILS on the bare prefix with nothing after it', () => {
+    // #590 review: this used to be skipped. Whoever sets `ENGAGEMENT_CDP_CONSENT_MODE_` believes they
+    // configured a store, and silently ignoring it is the failure this whole issue is about.
+    const env = { ...base, ENGAGEMENT_CDP_CONSENT_MODE_: 'strict' };
+    expect(() => resolveConfig({ env })).toThrow(ConsentModeConfigError);
+    expect(() => resolveConfig({ env })).toThrow(
+      /names no store \(it is the prefix with nothing after it\)/,
+    );
+  });
+
+  it('every consent-mode failure is a ConsentModeConfigError, so the crash line may print its message', () => {
+    // The entry point prints this class's MESSAGE as well as its name, which is only safe because these
+    // messages are built from variable names and store codes. That safety depends on every one of these
+    // being this class and not a bare Error, so they are pinned together (#590 review).
+    const cases: Record<string, string>[] = [
+      { ENGAGEMENT_CDP_CONSENT_MODE: 'strcit' },
+      { ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A: 'off' },
+      { ENGAGEMENT_CDP_CONSENT_MODE_: 'strict' },
+      {
+        ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A: 'strict',
+        'ENGAGEMENT_CDP_CONSENT_MODE_brand-a': 'analytics',
+      },
+    ];
+    for (const env of cases) {
+      expect(() => resolveConfig({ env: { ...base, ...env } })).toThrow(ConsentModeConfigError);
+    }
+  });
+
+  it('keeps a key that names no store instead of guessing, for the post-warm check to reject', () => {
+    // `resolveConfig` has no database, so a typo and a store it has not heard of look identical here. It
+    // neither drops the key nor applies it to something: it exposes it, and
+    // `assertConsentModeOverridesKnown` rejects it once the store list exists. That is why the consumer
+    // runs that check right after `warm()` rather than at config time.
+    const c = resolveConfig({ env: { ...base, ENGAGEMENT_CDP_CONSENT_MODE_BRANDA: 'strict' } });
+    expect(c.cdp.consentModeFor('brand-a')).toBe('analytics');
+    expect(c.cdp.consentModeOverrides.get('BRANDA')).toBe('strict');
+  });
+});
+
+describe('assertConsentModeOverridesKnown (#586)', () => {
+  const codes = ['brand-a', 'brand-b', 'brand-c'];
+
+  it('passes when every override names a real store', () => {
+    expect(() =>
+      assertConsentModeOverridesKnown(new Map([['BRAND_A', 'strict']]), codes),
+    ).not.toThrow();
+  });
+
+  it('passes trivially when there are no overrides', () => {
+    expect(() => assertConsentModeOverridesKnown(new Map(), [])).not.toThrow();
+  });
+
+  it('FAILS on a typo, naming the variable and the codes that do exist', () => {
+    // The message has to be actionable at 3am: which variable, and what the valid values would have been.
+    expect(() => assertConsentModeOverridesKnown(new Map([['BRANDA', 'strict']]), codes)).toThrow(
+      /ENGAGEMENT_CDP_CONSENT_MODE_BRANDA: no such store[\s\S]*brand-a, brand-b, brand-c/,
+    );
+    expect(() => assertConsentModeOverridesKnown(new Map([['BRANDA', 'strict']]), codes)).toThrow(
+      ConsentModeConfigError,
+    );
+  });
+
+  it('normalises the STORE side too, so a code with punctuation matches its key', () => {
+    expect(() =>
+      assertConsentModeOverridesKnown(new Map([['BRAND_A_2', 'strict']]), ['brand-a-2']),
+    ).not.toThrow();
+  });
+
+  it('reports every unknown key at once, not one per boot', () => {
+    expect(() =>
+      assertConsentModeOverridesKnown(
+        new Map([
+          ['BRANDA', 'strict'],
+          ['BRAND_D', 'strict'],
+        ]),
+        codes,
+      ),
+    ).toThrow(/BRANDA, ENGAGEMENT_CDP_CONSENT_MODE_BRAND_D/);
   });
 });
 

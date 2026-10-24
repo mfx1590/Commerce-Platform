@@ -56,6 +56,17 @@ export {
 } from './cdp/mapper.js';
 export type { MapContext } from './cdp/mapper.js';
 
+export {
+  assertConsentModeOverridesKnown,
+  ConsentModeConfigError,
+  consentModeEnvFor,
+  parseConsentMode,
+  readConsentModeOverrides,
+  storeEnvKey,
+  CONSENT_MODE_ENV,
+  CONSENT_MODE_ENV_PREFIX,
+} from './consent-mode.js';
+
 export { gate, readCustomerFacts, readOrderCustomerFacts, CONSENT_PURPOSE } from './consent.js';
 export type {
   ConsentState,

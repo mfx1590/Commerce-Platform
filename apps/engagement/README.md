@@ -171,6 +171,18 @@ and lands on every per-event log line as `consent_mode`, so a quiet CDP is expla
 value **fails the boot** rather than falling back to the open mode, and a caller that passes no mode at all
 gets `strict` — the cautious direction in both cases.
 
+**So does a bad KEY** (#586). The store part is normalised the same way when the override is read and when it
+is looked up (`brand-a` → `BRAND_A`), so `..._brand_a`, `..._brand-a` and `..._BRAND_A` are one and the same
+switch; two spellings of one store that DISAGREE fail the boot, since there is no safe answer. And an
+override that names no store at all — `..._BRANDA` — **stops the boot**: `main()` warms the store list and
+checks the keys BEFORE it starts a single consumer, then exits non-zero with a crash line naming
+`ConsentModeConfigError`, the variable, and the store codes that do exist. The order matters more than it
+looks: a consumer that is already running keeps the process alive, so a refusal raised after `start()` can
+only set an exit code that never takes effect (#590 review — it did exactly that). The check needs the store
+list, which is why it is not in `resolveConfig`; while the CDP is disabled there is nothing to check. The
+failure all of this prevents is the quiet one: a typo leaving that store on `analytics` while the
+configuration says `strict`.
+
 Two things `analytics` does not relax, because neither is about consent: an **erased** customer is never sent
 in either mode (the erasure told every consumer to delete its copies; tracking them again would undo it), and
 a vanished order or customer row is still reported as such. And **CRM sync is untouched** — it stays

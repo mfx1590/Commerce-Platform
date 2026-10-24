@@ -77,8 +77,10 @@ profile keyed by the hash is suppressed alongside one keyed by our `customer_id`
 
 **Two erasure gaps, both known and both recorded rather than hidden:**
 
-1. **`customer.erased` v1 carries no `email_hash`** — and the customer row is deleted by then, so the value
-   cannot be looked up afterwards either. That did not matter while guests were never tracked; it matters now
+1. **`customer.erased` v1 carries no `email_hash`** — and it cannot be looked up afterwards either. The core
+   KEEPS the customer row with `status = 'erased'` (it stays listable and readable; it is NOT deleted — this
+   section said otherwise until the #586 review), but every personal field on it has already been replaced,
+   so the address the hash would be computed from is gone. That did not matter while guests were never tracked; it matters now
    that `analytics` creates hash-keyed guest profiles, because an erasure would suppress the `customer_id`
    profile and leave the same person's earlier hash-keyed one. **CONTRACT CHANGE #580** adds `email_hash` to a
    new v2 (the core computes it from the e-mail before the delete); the suppression here already sends the hash
@@ -100,8 +102,9 @@ identity available and the event is dropped even in `analytics` mode. The conseq
 _Order Completed_ reaches the CDP while their later _Order Shipped_ does not. Closing it by hashing the order row's raw e-mail inside the CDP
 path was **considered and REFUSED** (manager ruling 2026-10-24: this service reads no raw e-mail, anywhere) —
 so the asymmetry stands, recorded here rather than closed by widening what we read. If guest analytics ever
-matters, the way in is a CONTRACT CHANGE adding `email_hash` to those five topics, which the manager has
-recorded as a later wave. A test pins the behaviour in both directions.
+matters, the way in is a CONTRACT CHANGE adding `email_hash` to those five topics — filed as **#584**
+(decision recorded there: accept the asymmetry now, option (c) is the later wave; hashing the order row's raw
+e-mail was option (b) and was rejected). A test pins the behaviour in both directions.
 
 ## Changing it
 
