@@ -215,7 +215,10 @@ describe('deleteErasedCustomerIdentity (unit, scripted)', () => {
       version: 2,
       payload: { customer_id: customerId, email_hash: 'sha256-of-the-address-not-read-here' },
     });
-    expect(v2).toEqual({ handled: true, result: { customerId, outcome: 'already_gone', liveRows: 0 } });
+    expect(v2).toEqual({
+      handled: true,
+      result: { customerId, outcome: 'already_gone', liveRows: 0 },
+    });
   });
 });
 
@@ -334,7 +337,11 @@ describe.runIf(live)(
     });
 
     /** A customer.erased outbox row as gdpr.ts writes it (ids only); v2 adds the email_hash (#580). */
-    async function erasedEvent(storeId: string, customerId: string, version: 1 | 2 = 1): Promise<string> {
+    async function erasedEvent(
+      storeId: string,
+      customerId: string,
+      version: 1 | 2 = 1,
+    ): Promise<string> {
       const id = randomUUID();
       await db.owner.query(
         `INSERT INTO outbox (id, organization_id, store_id, topic, version, aggregate_type, aggregate_id, payload, headers, occurred_at)
