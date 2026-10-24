@@ -30,7 +30,7 @@ import { AppError } from '../../lib/errors';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
 import { consentLedger, type ConsentDecision } from './consent-ledger';
 import { eraseIdentity, unlinkIdentity, type EraseIdentityResult } from './identity';
-import { resolveIn } from './service';
+import { customerEmailHash, resolveIn } from './service';
 import type { CustomerIdentity, CustomerScope } from './types';
 
 const notFound = (id: string) =>
@@ -103,13 +103,22 @@ async function eraseIn(
   actor: Actor,
 ): Promise<EraseResult> {
   {
-    const r = await tx.query<{ id: string; status: string; identity_id: string | null }>(
-      `SELECT id, status, identity_id FROM customer WHERE id = $1 AND store_id = $2 FOR NO KEY UPDATE`,
+    const r = await tx.query<{
+      id: string;
+      status: string;
+      identity_id: string | null;
+      email: string;
+    }>(
+      `SELECT id, status, identity_id, email FROM customer WHERE id = $1 AND store_id = $2 FOR NO KEY UPDATE`,
       [customerId, storeId],
     );
     const row = r.rows[0];
     if (!row) throw notFound(customerId);
     if (row.status === 'erased') return { erased: false };
+    // customer.erased v2 (#580): the hash of the e-mail AS IT WAS, taken here — inside the transaction, before the
+    // row is tombstoned — so a consumer keyed by the hash (the CDP's guest profiles) can suppress its copy. Never the
+    // tombstone's hash: `erased+<id>@invalid` matches nothing downstream. The same house hash as customer.created.
+    const emailHash = customerEmailHash(row.email);
 
     const addresses = await tx.query(
       'DELETE FROM customer_address WHERE customer_id = $1 AND store_id = $2',
@@ -167,6 +176,7 @@ async function eraseIn(
         payload: {
           customer_id: customerId,
           identity_id: row.identity_id,
+          email_hash: emailHash,
           erased_at: iso(erased.rows[0]!.updated_at)!,
         },
       }),
