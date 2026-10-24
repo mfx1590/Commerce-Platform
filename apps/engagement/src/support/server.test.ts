@@ -421,9 +421,11 @@ describe('GET /support/customers/:id/context — the answer', () => {
     expect(missing.body.message).toBe('No such customer in this store');
   });
 
-  it('maps a core 403 for a FOREIGN customer to the same 404 as a missing one', async () => {
-    // Two different upstream answers, one indistinguishable result: the route must not reveal that an id
-    // exists in another store (#573 review).
+  it('a customer INVISIBLE to the store-scoped read is byte-identical to a missing one', async () => {
+    // Both reach `getCustomer -> null`: a customer of another store is not visible to the core's store-scoped
+    // read, so it answers 404 just as it does for an id that never existed. Nothing is mapped — and the two
+    // answers must be indistinguishable, or the route could be used to discover that an id exists elsewhere.
+    // (A core 401/403 is a different thing entirely and is passed through; see the test below.)
     await new Promise<void>((done) => server.close(() => done()));
     server = build(fakeReader({ getCustomer: async () => null }));
     base = await listen(server);
@@ -432,14 +434,9 @@ describe('GET /support/customers/:id/context — the answer', () => {
     });
 
     await new Promise<void>((done) => server.close(() => done()));
-    const { SupportError } = await import('./types.js');
-    server = build(
-      fakeReader({
-        getCustomer: async () => {
-          throw new SupportError(404, 'not_found', 'No such customer in this store');
-        },
-      }),
-    );
+    // The second reader stands in for the store-scoped read finding nothing because the row belongs to
+    // another store — the same `null` the core's 404 produces, by a different route.
+    server = build(fakeReader({ getCustomer: async () => null }));
     base = await listen(server);
     const foreign = await req(`/support/customers/${CUSTOMER}/context?store=brand-a`, {
       headers: { authorization: AGENT_TOKEN },

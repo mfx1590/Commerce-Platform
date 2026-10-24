@@ -135,6 +135,18 @@ identity_id: (string | null)
 erased_at: string
 }
 /**
+ * GDPR erasure completed; consumers must delete their copies. v2 adds email_hash so a consumer can suppress a profile keyed by the hash as well as by customer_id (#576): the value is computed before the delete and exists nowhere afterwards.
+ */
+export interface CustomerErasedV2 {
+customer_id: string
+identity_id: (string | null)
+/**
+ * sha256 of the lowercased value; never the raw PII
+ */
+email_hash: string
+erased_at: string
+}
+/**
  * A GDPR export bundle is built and downloadable by the customer (Store API getMyExport, signed in) and by store admins (Admin API getCustomerExport) until expires_at. Ids and timestamps only — never the bundle, never personal data. Consumers: the notifications app tells the customer by email (it reads the address from the customer row at send time; the mail carries no token and no link with credentials).
  */
 export interface CustomerExportReadyV1 {
@@ -664,6 +676,7 @@ export interface EventPayloads {
   'cart.abandoned@1': CartAbandonedV1;
   'customer.created@1': CustomerCreatedV1;
   'customer.erased@1': CustomerErasedV1;
+  'customer.erased@2': CustomerErasedV2;
   'customer.export_ready@1': CustomerExportReadyV1;
   'customer.export_requested@1': CustomerExportRequestedV1;
   'customer.export_requested@2': CustomerExportRequestedV2;
@@ -706,7 +719,7 @@ export interface LatestPayloads {
   'campaign.launched': CampaignLaunchedV1;
   'cart.abandoned': CartAbandonedV1;
   'customer.created': CustomerCreatedV1;
-  'customer.erased': CustomerErasedV1;
+  'customer.erased': CustomerErasedV2;
   'customer.export_ready': CustomerExportReadyV1;
   'customer.export_requested': CustomerExportRequestedV2;
   'customer.updated': CustomerUpdatedV1;

@@ -99,7 +99,14 @@ const fixtures: Record<string, () => EventEnvelopeV1Base> = {
   'customer.erased': () =>
     envelope(
       'customer.erased',
-      { customer_id: CUSTOMER, identity_id: IDENTITY_ID, erased_at: '2026-10-23T10:00:00.000Z' },
+      {
+        customer_id: CUSTOMER,
+        identity_id: IDENTITY_ID,
+        // Required since customer.erased v2 (#580): the core computes it before the delete, so a consumer can
+        // suppress a profile keyed by the hash as well as one keyed by our id.
+        email_hash: EMAIL_HASH,
+        erased_at: '2026-10-23T10:00:00.000Z',
+      },
       { type: 'customer', id: CUSTOMER },
     ),
   'order.placed': () =>
@@ -365,15 +372,27 @@ describe('mapEvent', () => {
     }
   });
 
-  it('customer.created becomes an identify with traits and no consent field', () => {
+  it('customer.created becomes an identify carrying IDS ONLY (#576)', () => {
     const call = mapEvent(fixtures['customer.created']!(), ctx)!;
     expect(call.kind).toBe('identify');
+    // Exactly three fields, in both consent modes. `status` and `customer_group_id` were here and are gone:
+    // `status` is not an id, and a customer group is a marketing SEGMENT id.
     expect(call.kind === 'identify' && call.traits).toEqual({
       customer_id: CUSTOMER,
       email_hash: EMAIL_HASH,
-      status: 'registered',
       store_code: 'brand-a',
     });
+  });
+
+  it('carries NO status and NO customer_group_id, even when the payload has them', () => {
+    const e = fixtures['customer.updated']!();
+    (e.payload as { customer_group_id: string | null }).customer_group_id =
+      '12121212-1212-4212-8212-121212121212';
+    const call = mapEvent(e, ctx)!;
+    const traits = call.kind === 'identify' ? call.traits : {};
+    expect(Object.keys(traits).sort()).toEqual(['customer_id', 'email_hash', 'store_code']);
+    expect(JSON.stringify(call)).not.toContain('12121212');
+    expect(JSON.stringify(call)).not.toContain('registered');
   });
 
   it('IGNORES the payload s marketing_consent — the projection decides (manager ruling)', () => {
@@ -391,10 +410,14 @@ describe('mapEvent', () => {
   });
 
   it('drops a null trait rather than sending null', () => {
-    const call = mapEvent(fixtures['customer.created']!(), ctx)!;
-    expect(Object.keys(call.kind === 'identify' ? call.traits : {})).not.toContain(
-      'customer_group_id',
-    );
+    // With ids only there is no nullable trait left on identify, so this now asserts the narrower surface:
+    // an absent value never reaches the CDP as `null`.
+    const e = fixtures['customer.created']!();
+    (e.payload as { email_hash: string | null }).email_hash = null as unknown as string;
+    const call = mapEvent(e, ctx)!;
+    const traits = call.kind === 'identify' ? call.traits : {};
+    expect(Object.keys(traits)).not.toContain('email_hash');
+    expect(Object.values(traits)).not.toContain(null);
   });
 
   it('customer.erased becomes a suppress carrying the identity and nothing else', () => {

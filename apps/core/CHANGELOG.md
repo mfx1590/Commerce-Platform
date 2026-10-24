@@ -54,6 +54,13 @@
   `store:{storeId}`). Ten module routers. The mount test checks support and a store admin 200, store staff 403, no
   token 401, an unknown customer the route's own 404.
 
+### 2026-10-24 · customer.erased v2 (CONTRACT CHANGE #580 for #576, window 13; events 0.6.2)
+
+- Every erasure (admin `eraseCustomer`, self-service `eraseMe`, cross-brand `eraseCustomerIdentity`) emits
+  `customer.erased` **v2**: `email_hash` = the house sha256 of the e-mail as it was, computed inside the erasure
+  transaction before the row is tombstoned — never the tombstone's hash. Lets the CDP suppress a guest profile
+  keyed by the hash. Payload still ids and hashes only.
+
 ### 2026-10-18 · cross-brand identity (#473, window 13; CONTRACT CHANGE #504: db 0196, Admin API `getCustomerIdentity`)
 
 - `customer_identity` is written at last — by `app.link_customer_identity` from `resolveIn`, for a verified email

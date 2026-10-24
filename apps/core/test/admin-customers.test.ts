@@ -383,7 +383,14 @@ describe('eraseCustomer / buildCustomerExport (#414, GDPR)', () => {
       [ERIN],
     );
     expect(ev.rows.map((e) => e.topic)).toEqual(['customer.erased']);
-    expect(ev.rows[0]!.payload).toMatchObject({ customer_id: ERIN, identity_id: SHARED_ID });
+    // v2 (#580): the hash of the e-mail as it was ('erin@example.com'), computed before the tombstone
+    expect(ev.rows[0]!.payload).toEqual({
+      customer_id: ERIN,
+      identity_id: SHARED_ID,
+      email_hash: customerEmailHash('erin@example.com'),
+      erased_at: expect.any(String),
+    });
+    expect(ev.rows[0]!.payload.email_hash).not.toBe(customerEmailHash(`erased+${ERIN}@invalid`));
     const audit = await db.owner.query('SELECT action, after FROM audit_log WHERE entity_id = $1', [
       ERIN,
     ]);

@@ -6,6 +6,7 @@
 
 import { SEED_IDS } from '@platform/db';
 import { CDP_GROUP_ID } from './cdp/consumer.js';
+import type { ConsentMode } from './consent.js';
 import { CRM_GROUP_ID } from './crm/consumer.js';
 import { OPS_GROUP_ID } from './ops/consumer.js';
 
@@ -66,6 +67,13 @@ export interface CrmConfig {
 export interface CdpConfig {
   /** `false` keeps the CDP consumer off entirely (the default until a RudderStack account exists). */
   enabled: boolean;
+  /**
+   * The GLOBAL consent mode (#576, owner decision 2026-10-23): `analytics` by default. A store can override
+   * it, so read the effective mode with `consentModeFor(code)` and never this field directly.
+   */
+  consentMode: ConsentMode;
+  /** Resolves the effective mode for one store code, applying any per-store override. */
+  consentModeFor(storeCode: string): ConsentMode;
   adapter: CdpAdapterName;
   /** Only when `adapter === 'rudderstack'`. */
   writeKey?: string;
@@ -246,13 +254,56 @@ function resolveCrm(env: Record<string, string | undefined>, isProduction: boole
   };
 }
 
+/** `brand-a` → `BRAND_A`, so the env key is the `NOTIFICATIONS_<STORE>_<FIELD>` shape window 17 established. */
+export function storeEnvKey(storeCode: string): string {
+  return storeCode.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+}
+
+const MODES = new Set<ConsentMode>(['analytics', 'strict']);
+
+function parseMode(raw: string | undefined, where: string, fallback: ConsentMode): ConsentMode {
+  const value = raw?.trim();
+  if (!value) return fallback;
+  if (!MODES.has(value as ConsentMode)) {
+    // Throw rather than fall back: a typo like `strcit` must not quietly become the open mode.
+    throw new Error(`${where} must be "analytics" or "strict" (got "${value}")`);
+  }
+  return value as ConsentMode;
+}
+
 /**
- * The CDP side (#554). OFF by default: no RudderStack account exists, and a consumer group that reads the bus
- * and sends nowhere is worse than one that is not running. `memory` is refused in production for the same
- * reason the dev sink is — CDP calls into a process's memory are calls nobody receives.
+ * The CDP side (#554, consent mode #576). OFF by default: no RudderStack account exists, and a consumer group
+ * that reads the bus and sends nowhere is worse than one that is not running. `memory` is refused in
+ * production for the same reason the dev sink is — CDP calls into a process's memory are calls nobody
+ * receives.
+ *
+ * THE CONSENT MODE RESOLVES PER STORE. `ENGAGEMENT_CDP_CONSENT_MODE` is the global default (`analytics`), and
+ * `ENGAGEMENT_CDP_CONSENT_MODE_<STORE_CODE>` overrides it for one store. Each brand is one market today
+ * (A=EU, B=UK, C=US), so a per-store switch is a per-region switch and a region's legal rules become a config
+ * change rather than a code change — which is the whole point of #576.
+ *
+ * Every per-store value is parsed AT STARTUP, not lazily, so a typo in any of them fails the boot instead of
+ * silently applying the global default to that region months later.
  */
 function resolveCdp(env: Record<string, string | undefined>, isProduction: boolean): CdpConfig {
   const enabled = (env.ENGAGEMENT_CDP_ENABLED?.trim() || '0') === '1';
+  const consentMode = parseMode(
+    env.ENGAGEMENT_CDP_CONSENT_MODE,
+    'ENGAGEMENT_CDP_CONSENT_MODE',
+    'analytics',
+  );
+
+  // Every `ENGAGEMENT_CDP_CONSENT_MODE_<STORE>` in the environment, parsed now so a typo fails the boot.
+  const prefix = 'ENGAGEMENT_CDP_CONSENT_MODE_';
+  const overrides = new Map<string, ConsentMode>();
+  for (const [key, value] of Object.entries(env)) {
+    if (!key.startsWith(prefix)) continue;
+    const storeKey = key.slice(prefix.length);
+    if (!storeKey) continue;
+    overrides.set(storeKey, parseMode(value, key, consentMode));
+  }
+  const consentModeFor = (storeCode: string): ConsentMode =>
+    overrides.get(storeEnvKey(storeCode)) ?? consentMode;
   const adapter = (env.ENGAGEMENT_CDP_ADAPTER?.trim() || 'memory') as CdpAdapterName;
   if (adapter !== 'memory' && adapter !== 'rudderstack') {
     throw new Error(`ENGAGEMENT_CDP_ADAPTER must be "memory" or "rudderstack" (got "${adapter}")`);
@@ -263,7 +314,7 @@ function resolveCdp(env: Record<string, string | undefined>, isProduction: boole
     );
   }
 
-  if (adapter === 'memory') return { enabled, adapter };
+  if (adapter === 'memory') return { enabled, adapter, consentMode, consentModeFor };
 
   const writeKey = env.RUDDERSTACK_WRITE_KEY?.trim() || undefined;
   const dataPlaneUrl = env.RUDDERSTACK_DATA_PLANE_URL?.trim() || undefined;
@@ -287,6 +338,8 @@ function resolveCdp(env: Record<string, string | undefined>, isProduction: boole
   return {
     enabled,
     adapter,
+    consentMode,
+    consentModeFor,
     ...(writeKey ? { writeKey } : {}),
     ...(dataPlaneUrl ? { dataPlaneUrl } : {}),
     ...(regulation ? { regulation } : {}),

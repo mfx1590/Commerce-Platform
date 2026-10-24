@@ -22,38 +22,40 @@ reads and writes none of it.
 
 ### Environment
 
-| Variable                          | Default            | Meaning                                                                            |
-| --------------------------------- | ------------------ | ---------------------------------------------------------------------------------- |
-| `DATABASE_URL_APP`                | —                  | the `platform_app` role (RLS applies); required                                    |
-| `ENGAGEMENT_ORGANIZATION_ID`      | the seeded HQ      | the organization this process serves                                               |
-| `ENGAGEMENT_TRANSPORT`            | `dev`              | `dev` (a local file) or `slack`; **`dev` is refused in production**                |
-| `ENGAGEMENT_DIR`                  | `.engagement`      | where the dev sink writes (git-ignored)                                            |
-| `SLACK_OPS_WEBHOOK_URL`           | —                  | the incoming-webhook URL, **environment only**; required for `slack`, never logged |
-| `ENGAGEMENT_ALERT_RATE_MAX`       | `5`                | alerts per (rule, store) per window                                                |
-| `ENGAGEMENT_ALERT_RATE_WINDOW_MS` | `900000` (15 min)  | the window                                                                         |
-| `ENGAGEMENT_DLQ_GROUPS`           | all `engagement.*` | groups whose DLQ depth is watched; **production must list every group on the bus** |
-| `ENGAGEMENT_DLQ_THRESHOLD`        | `1`                | alert when a group's live dead-letter count reaches this                           |
-| `ENGAGEMENT_DLQ_POLL_MS`          | `60000`            | poll interval for the depth watch                                                  |
-| `KAFKA_BROKERS`                   | `127.0.0.1:19092`  | read by `@platform/events` (`createKafka`)                                         |
-| `ENGAGEMENT_CDP_ENABLED`          | `0`                | `1` starts the CDP consumer (off until an account exists)                          |
-| `ENGAGEMENT_CDP_ADAPTER`          | `memory`           | `memory` or `rudderstack`; **`memory` is refused in production when enabled**      |
-| `RUDDERSTACK_WRITE_KEY`           | —                  | the source write key, **environment only**, never logged                           |
-| `RUDDERSTACK_DATA_PLANE_URL`      | —                  | the data plane, e.g. `https://hosted.rudderlabs.example`                           |
-| `RUDDERSTACK_CONTROL_PLANE_URL`   | —                  | suppressions only (a different credential from the write key)                      |
-| `RUDDERSTACK_ACCESS_TOKEN`        | —                  | suppressions only; without it a suppression **throws** instead of doing nothing    |
-| `RUDDERSTACK_SOURCE_IDS`          | —                  | comma-separated source ids a suppression applies to                                |
-| `ENGAGEMENT_CRM_ENABLED`          | `0`                | `1` starts the CRM consumer (off until a CRM and #565 exist)                       |
-| `ENGAGEMENT_CRM_ADAPTER`          | `memory`           | `memory` or `twenty`; **`memory` is refused in production when enabled**           |
-| `ENGAGEMENT_CRM_TOKEN_PROVIDER`   | `mock`             | `mock` or `client_credentials`; **`mock` is refused in production**                |
-| `TWENTY_BASE_URL`                 | —                  | Twenty's REST base, e.g. `https://crm.example/rest`                                |
-| `TWENTY_API_KEY`                  | —                  | the Twenty key, **environment only**, never logged                                 |
-| `TWENTY_EXTERNAL_ID_FIELD`        | `externalId`       | the custom person field holding OUR customer id (the upsert key)                   |
-| `ADMIN_API_URL`                   | `localhost:9000`   | the core Admin API the contact's name and e-mail are read from                     |
-| `ENGAGEMENT_SUPPORT_ENABLED`      | `0`                | `1` starts the support HTTP server                                                 |
-| `ENGAGEMENT_SUPPORT_PORT`         | `4040`             | the port it listens on                                                             |
-| `ENGAGEMENT_SUPPORT_MAX_ORDERS`   | `25`               | how many of a customer's orders are detailed, newest first                         |
-| `CHATWOOT_WEBHOOK_SECRET`         | -                  | HMAC secret, **environment only**; without it the webhook route answers 503        |
-| `ENGAGEMENT_DEV_TOKENS`           | `0`                | `Bearer dev:<subject>` on the support routes; **refused in production**            |
+| Variable                              | Default            | Meaning                                                                                |
+| ------------------------------------- | ------------------ | -------------------------------------------------------------------------------------- |
+| `DATABASE_URL_APP`                    | —                  | the `platform_app` role (RLS applies); required                                        |
+| `ENGAGEMENT_ORGANIZATION_ID`          | the seeded HQ      | the organization this process serves                                                   |
+| `ENGAGEMENT_TRANSPORT`                | `dev`              | `dev` (a local file) or `slack`; **`dev` is refused in production**                    |
+| `ENGAGEMENT_DIR`                      | `.engagement`      | where the dev sink writes (git-ignored)                                                |
+| `SLACK_OPS_WEBHOOK_URL`               | —                  | the incoming-webhook URL, **environment only**; required for `slack`, never logged     |
+| `ENGAGEMENT_ALERT_RATE_MAX`           | `5`                | alerts per (rule, store) per window                                                    |
+| `ENGAGEMENT_ALERT_RATE_WINDOW_MS`     | `900000` (15 min)  | the window                                                                             |
+| `ENGAGEMENT_DLQ_GROUPS`               | all `engagement.*` | groups whose DLQ depth is watched; **production must list every group on the bus**     |
+| `ENGAGEMENT_DLQ_THRESHOLD`            | `1`                | alert when a group's live dead-letter count reaches this                               |
+| `ENGAGEMENT_DLQ_POLL_MS`              | `60000`            | poll interval for the depth watch                                                      |
+| `KAFKA_BROKERS`                       | `127.0.0.1:19092`  | read by `@platform/events` (`createKafka`)                                             |
+| `ENGAGEMENT_CDP_ENABLED`              | `0`                | `1` starts the CDP consumer (off until an account exists)                              |
+| `ENGAGEMENT_CDP_ADAPTER`              | `memory`           | `memory` or `rudderstack`; **`memory` is refused in production when enabled**          |
+| `RUDDERSTACK_WRITE_KEY`               | —                  | the source write key, **environment only**, never logged                               |
+| `RUDDERSTACK_DATA_PLANE_URL`          | —                  | the data plane, e.g. `https://hosted.rudderlabs.example`                               |
+| `RUDDERSTACK_CONTROL_PLANE_URL`       | —                  | suppressions only (a different credential from the write key)                          |
+| `RUDDERSTACK_ACCESS_TOKEN`            | —                  | suppressions only; without it a suppression **throws** instead of doing nothing        |
+| `RUDDERSTACK_SOURCE_IDS`              | —                  | comma-separated source ids a suppression applies to                                    |
+| `ENGAGEMENT_CDP_CONSENT_MODE`         | `analytics`        | global consent mode: `analytics` or `strict` (#576); an unknown value fails the boot   |
+| `ENGAGEMENT_CDP_CONSENT_MODE_<STORE>` | the global         | per-store override, e.g. `..._BRAND_A=strict` — one region made strict, no code change |
+| `ENGAGEMENT_CRM_ENABLED`              | `0`                | `1` starts the CRM consumer (off until a CRM and #565 exist)                           |
+| `ENGAGEMENT_CRM_ADAPTER`              | `memory`           | `memory` or `twenty`; **`memory` is refused in production when enabled**               |
+| `ENGAGEMENT_CRM_TOKEN_PROVIDER`       | `mock`             | `mock` or `client_credentials`; **`mock` is refused in production**                    |
+| `TWENTY_BASE_URL`                     | —                  | Twenty's REST base, e.g. `https://crm.example/rest`                                    |
+| `TWENTY_API_KEY`                      | —                  | the Twenty key, **environment only**, never logged                                     |
+| `TWENTY_EXTERNAL_ID_FIELD`            | `externalId`       | the custom person field holding OUR customer id (the upsert key)                       |
+| `ADMIN_API_URL`                       | `localhost:9000`   | the core Admin API the contact's name and e-mail are read from                         |
+| `ENGAGEMENT_SUPPORT_ENABLED`          | `0`                | `1` starts the support HTTP server                                                     |
+| `ENGAGEMENT_SUPPORT_PORT`             | `4040`             | the port it listens on                                                                 |
+| `ENGAGEMENT_SUPPORT_MAX_ORDERS`       | `25`               | how many of a customer's orders are detailed, newest first                             |
+| `CHATWOOT_WEBHOOK_SECRET`             | -                  | HMAC secret, **environment only**; without it the webhook route answers 503            |
+| `ENGAGEMENT_DEV_TOKENS`               | `0`                | `Bearer dev:<subject>` on the support routes; **refused in production**                |
 
 Locally: `.env` with the DB rows (loopback **127.0.0.1**, not `localhost` — Memory-main's IPv6 trap), nothing
 else, then `pnpm --filter @platform/engagement dev`. Make a payment fail and
@@ -144,14 +146,47 @@ mapped and unmapped lists together cover every topic in the events contract exac
 `packages/events` fails the suite until someone writes down which it is, so it can be neither silently
 forgotten nor silently sent to a third party.
 
-9 topics are mapped — `customer.created` / `customer.updated` to `identify`, `customer.erased` to
+9 topics are mapped. `identify` carries **ids only** — `customer_id`, `email_hash`, store code — in both
+consent modes (#576): `status` and `customer_group_id` were dropped, the latter being a marketing segment id.
+The mapping: `customer.created` / `customer.updated` to `identify`, `customer.erased` to
 `suppress`, and `order.placed`, `order.cancelled`, `payment.captured`, `refund.issued`, `shipment.shipped`,
 `return.requested` to `track`. The other 29 are listed as unmapped with a reason. `data/cdp/README.md` holds
 the rules and the reasoning; this section is how the code implements them.
 
+### Consent mode (#576)
+
+The owner answered the two questions #554 left open, on 2026-10-23: analytics tracking without a marketing
+consent is **allowed**, and so is tracking a guest under their `email_hash`. Counting our own commerce events
+is analytics rather than marketing. Region rules come later, so the switch is config:
+
+| Mode                      | `track` / `identify`                          | A guest (no `customer_id`)       |
+| ------------------------- | --------------------------------------------- | -------------------------------- |
+| **`analytics`** (default) | run without `marketing_email`                 | tracked under their `email_hash` |
+| `strict`                  | need granted `marketing_email` for that store | dropped                          |
+
+**It resolves per store.** `ENGAGEMENT_CDP_CONSENT_MODE` is the global default; `..._<STORE_CODE>` overrides it
+for one store (`ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A=strict`). Each brand is one market (A=EU, B=UK, C=US), so
+a per-store switch is a per-region switch. The mode is resolved **per event** from the store the event names,
+and lands on every per-event log line as `consent_mode`, so a quiet CDP is explainable per store. An unknown
+value **fails the boot** rather than falling back to the open mode, and a caller that passes no mode at all
+gets `strict` — the cautious direction in both cases.
+
+Two things `analytics` does not relax, because neither is about consent: an **erased** customer is never sent
+in either mode (the erasure told every consumer to delete its copies; tracking them again would undo it), and
+a vanished order or customer row is still reported as such. And **CRM sync is untouched** — it stays
+consent-gated in every mode, because putting a name and an e-mail into a third-party CRM is a different act
+from counting an order. A test asserts the mode cannot reach it.
+
+A guest is only trackable where an identity exists: of the six mapped commerce topics only `order.placed`
+carries an `email_hash`, so a guest's _Order Completed_ reaches the CDP while their later _Order Shipped_ does
+not. `data/cdp/README.md` records that asymmetry; closing it by reading the order's raw e-mail was refused
+(manager ruling 2026-10-24), and the way in, if guest analytics ever matters, is a contract change adding
+`email_hash` to those five topics.
+
 ### Consent
 
-Read-only, from the **`customer.consent` projection** (packages/db 0005, which the core's consent ledger
+In `strict` mode, and for the `identify` of a known customer, the consent itself is read
+read-only, from the **`customer.consent` projection** (packages/db 0005, which the core's consent ledger
 rewrites in the same transaction as each 0194 `customer_consent` row), **evaluated at processing time** —
 manager ruling, 2026-10-23. Never the ledger rows: window 13 owns their semantics, and "the newest row wins"
 is theirs to change. If the projection's shape is ever not enough, that is a `REQUEST:` to window 13, not a

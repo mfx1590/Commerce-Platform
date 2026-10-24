@@ -921,7 +921,15 @@ describe('deleteMe / the erasure tombstone (#470, #482)', () => {
     });
     expect((await rowsOf(A, 'zed@example.test')).length).toBe(0);
     const ev = await events(me.customer.id);
-    expect(ev.filter((e) => e.topic === 'customer.erased')).toHaveLength(1);
+    const erasedEv = ev.filter((e) => e.topic === 'customer.erased');
+    expect(erasedEv).toHaveLength(1);
+    // v2 (#580): the e-mail as it was — 'zed@example.test' — hashed before the tombstone replaced it
+    expect(erasedEv[0]!.payload).toMatchObject({
+      email_hash: customerEmailHash('zed@example.test'),
+    });
+    expect(erasedEv[0]!.payload.email_hash).not.toBe(
+      customerEmailHash(`erased+${me.customer.id}@invalid`),
+    );
     expect((await audits(me.customer.id)).map((x) => x.action)).toContain('customer.erase');
     expect((await audits(me.customer.id)).find((x) => x.action === 'customer.erase')).toMatchObject(
       {
@@ -1590,7 +1598,13 @@ describe('cross-brand identity (#473, db 0196 customer_identity closed to store 
       identityDeleted: true,
     });
     for (const c of [vA.id, vB.id]) {
-      expect((await events(c)).filter((e) => e.topic === 'customer.erased')).toHaveLength(1);
+      const gone = (await events(c)).filter((e) => e.topic === 'customer.erased');
+      expect(gone).toHaveLength(1);
+      // v2 (#580): each row's event carries ITS e-mail hash as it was (the same person, the same address here)
+      expect(gone[0]!.payload).toMatchObject({
+        customer_id: c,
+        email_hash: customerEmailHash('vic@example.test'),
+      });
       await expect(
         resolveCustomer(c === vA.id ? a : b, c === vA.id ? scopeA : scopeB, vic),
       ).rejects.toMatchObject({

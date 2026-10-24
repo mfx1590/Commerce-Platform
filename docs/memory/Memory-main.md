@@ -211,7 +211,7 @@ Six new worktrees over Phase 2 (6, 7, 8, 9, 10, 17): `./scripts/new-window.sh <n
 | # | Key | Title | First phase | Memory file | Model |
 |---|---|---|---|---|---|
 | 1 | core | Core commerce | 1 | docs/memory/Memory-1-core.md | Fable (owner decision 2026-09-04: budget not a constraint) |
-| 2 | auth | Auth & RBAC | 1 | docs/memory/Memory-2-auth.md | Fable |
+| 2 | auth | Auth & RBAC | 1 | docs/memory/Memory-2-auth.md | Opus since 2026-10-24 (was Fable) |
 | 3 | storefront | Storefront starter & UI kit | 1 | docs/memory/Memory-3-storefront.md | Opus |
 | 4 | admin | Admin application | 1 | docs/memory/Memory-4-admin.md | Opus |
 | 5 | infra | Infra & DevOps | 2 | docs/memory/Memory-5-infra.md | Opus |
@@ -222,9 +222,9 @@ Six new worktrees over Phase 2 (6, 7, 8, 9, 10, 17): `./scripts/new-window.sh <n
 | 10 | brands | Brand storefronts (A, B, C…) | 2 | docs/memory/Memory-10-brands.md | Sonnet |
 | 11 | warehouse | Shared warehouse / WMS | 3 | docs/memory/Memory-11-warehouse.md | Sonnet |
 | 12 | data | Data platform, BI & AI | 3 | docs/memory/Memory-12-data.md | Sonnet |
-| 13 | customers | Customer accounts & identity | 3 | docs/memory/Memory-13-customers.md | Sonnet |
+| 13 | customers | Customer accounts & identity | 3 | docs/memory/Memory-13-customers.md | Opus since 2026-10-24 (was Fable; the index had said Sonnet) |
 | 14 | events | Event bus & outbox relay | 4 | docs/memory/Memory-14-events.md | strongest |
-| 15 | accounting | Automatic accounting | 4 | docs/memory/Memory-15-accounting.md | Fable (strongest; money) |
+| 15 | accounting | Automatic accounting | 4 | docs/memory/Memory-15-accounting.md | Opus since 2026-10-24 (Fable weekly budget exhausted; was Fable) |
 | 16 | engagement | CRM, CDP, ops alerts & support (apps/notifications = window 17) | 4 | docs/memory/Memory-16-engagement.md | Sonnet |
 | 17 | marketing | Marketing (campaigns, feeds, segments, attribution, referrals, reviews) | 2 | docs/memory/Memory-17-marketing.md | Fable (manager decision 2026-09-08: attribution) |
 
@@ -289,6 +289,7 @@ Start messages for every window: docs/start-messages/ · Ownership map (CI-enfor
 **What Phase 2 must fix first:** core 2.1 cart + 2.2 placement (unblocks the real checkout, storefront 2.1, admin 2.2); window 1 also owns the `medusa-config.ts` ts-node noise. Window 5: #99, and a CI variant running the storefront against the core once 2.2 lands.
 
 ## Global gotchas (things every window must know)
+- **OpenFGA loses its store when Docker restarts (2026-10-24):** after Docker Desktop stopped and the stack was brought back with `compose start`, OpenFGA had no store; the first `fga:seed` created a new store and model and rewrote that worktree's .env. EVERY worktree (and the repo root) must re-run `pnpm --filter @platform/auth-sdk fga:seed` before any auth or live test, and an idle window does it on its next activation. Tell each window in its activation message.
 - **Hash-shaped fixtures (2026-10-23, window 16):** an `email_hash` must match the sha256 `$def` (64 hex), so a word will not validate, and a 64-hex LITERAL in a test is secret-shaped (gitleaks scans every branch's history; one literal reddens every open PR). Compute it in the test with `createHash('sha256')` as apps/core does; never paste the digest.
 - **gitleaks scans every branch's full history** (CI checks out with fetch-depth 0, all refs): one secret-shaped test literal on ANY branch turns the `secret scan` job red on EVERY PR and on main at once (2026-09-08: window 7's `'placement-key-12345678'`-style idempotency keys in payments.test.ts blocked #174, #177, #183). Rule for windows: test keys and tokens must not look like secrets — use words (`placement-key-alpha`), never digit/hex tails; a false positive is fixed by the manager with an anchored allowlist entry in `infra/gitleaks.toml` (window 5's file, root-config exception), never by `continue-on-error`.
 - Manager: a merge queue cannot be stopped from the harness once it is waiting on CI (killing the wrapper leaves `merge-queue.sh` running to completion). If a PR must not merge yet, do not start the queue; if it is already running, push a commit to the PR branch first (the queue's push is then rejected and it exits) — never rely on a stop.

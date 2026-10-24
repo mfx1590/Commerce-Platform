@@ -38,6 +38,7 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - vitest config must set DATABASE_URL/DATABASE_URL_APP in `test.env` (turbo strips DATABASE_URL* from the test environment) and `fileParallelism: false`, copied from apps/notifications.
 
 ## In progress
+- **#583 (customer.erased v2 integration) UNBLOCKED 2026-10-24** — side task, done and out of the way. `makeEvent` started writing v2, so 12 engagement tests built `customer.erased` without the now-required `email_hash`. One commit, **38338ed**, on branch `integration/customer-erased-v2-fixtures` (pushed; the manager fast-forwarded `integration/customer-erased-v2` to it and re-ran CI): one line per fixture in cdp/mapper.test.ts, cdp/consumer.test.ts, crm/consumer.test.ts, plus `data/cdp/tracking-plan.json`'s `customer.erased` version note (said 1, `makeEvent` emits 2). No production code. The CRM file uses its own `'f'.repeat(64)` convention rather than `createHash` — runtime, no committed literal; accepted.
 - **#556 16.4 (support context + Chatwoot webhook) — BUILT and VERIFIED: 326/326 with the broker up (~85 s, three live blocks self-cleaning: cdp 30 topics, crm 21, ops 12); 317/9 offline. Committed LOCALLY as 70f1118 + 92cdf74.** That is all four issues built.
   **PR BLOCKED ON TWO QUEUED MERGES, in this order: #568 (in the merge queue), then #570** — the integration PR for CONTRACT CHANGE #569. #556's code really does call the new parameter (`src/support/admin-api.ts:135`, `?customer_id=`) and it is NOT on origin/main yet, so the PR waits. The manager says when.
   **Caveat recorded for Integration 4:** the support tests drive a FAKE reader, so they prove the gate order, the header forwarding, the normalisation and the notes — NOT that the core honours `customer_id`. The first genuine proof is a live call once #570 and window 1's predicate are both in; that spans two windows, so it belongs on the integration list rather than in my PR.
@@ -49,6 +50,23 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
   Delivered: `src/support/` = `auth.ts` (the two gates), `admin-api.ts` (three reads, each with the AGENT's header), `context.ts` (pure normalisation + summary), `chatwoot.ts` (HMAC + freshness + seen-once), `server.ts` (node:http, three routes), `types.ts`; config + main wiring (`ENGAGEMENT_SUPPORT_ENABLED` defaults 0); `@platform/auth-sdk` added as a dependency; package 0.4.0; README + CHANGELOG + CLAUDE.md.
   **CONTRACT CHANGE #569 ACCEPTED** (listOrders `customer_id`, Admin API 0.4.24, landed on integration/orders-customer-filter a2e6e98; window 1 adds the core predicate). Built against it.
   **#568 = Fable MERGE**; its three nits folded in here (see below).
+
+### #576 — approved plan (CDP consent mode), with the manager's rulings
+
+**The owner reversed #554's conservative gate on 2026-10-23: TRACK.** Analytics tracking without marketing consent, and guests under `email_hash`, as the DEFAULT everywhere. Region rules come later as config, not code.
+
+- `ENGAGEMENT_CDP_CONSENT_MODE` = `analytics` (DEFAULT) | `strict`, resolved **PER STORE**: `ENGAGEMENT_CDP_CONSENT_MODE_<STORE_CODE>` overrides the global default (`brand-a` → `BRAND_A`, the `NOTIFICATIONS_<STORE>_<FIELD>` pattern). An unknown mode value THROWS at config time, never a silent fallback. Each brand is one market (A=EU, B=UK, C=US), so per store = per region.
+- Resolve the mode **per event** from the store code the consumer already looks up, and put `consent_mode` on the per-event log line (no PII).
+- `analytics`: `track` and `identify` run without `marketing_email`; a guest (no `customer_id`) is tracked with `anonymousId = email_hash`, dropped only when there is no hash either. `strict`: exactly #554's gate.
+- **Identify carries EXACTLY `customer_id`, `email_hash`, store code — in BOTH modes.** `status` and `customer_group_id` are DROPPED (manager ruling: ids only, never a marketing trait; `customer_group_id` is a marketing segment id). `data/cdp/tracking-plan.json`'s trait list must be updated to match, or the mapper/plan agreement test fails.
+- Unchanged in both: `customer.erased` ungated; CDP off unless `ENGAGEMENT_CDP_ENABLED=1`; no PII leaves; **CRM sync (#555) is NOT affected and stays consent-gated** — add a test asserting the CRM gate ignores the CDP mode, so the two cannot drift.
+- Tests: both modes × consented / unconsented / guest; erase in both; **a store override beating the global default**; the PII sweep unchanged; the CRM-unaffected test.
+- `data/cdp/README.md`: replace the lawyer-pending section with the owner's decision of 2026-10-23, a modes table, the one-line switch to make a region strict, and BOTH erasure gaps below.
+
+**The erasure gap I found, and #580.** #576 says erasure suppresses "customer_id AND email_hash", but `customer.erased` v1 carries NO hash and the row is deleted by then. That matters now precisely because `analytics` creates hash-keyed guest profiles, so an erasure could suppress the `customer_id` profile and leave the same person's earlier hash-keyed one. **CONTRACT CHANGE #580 ACCEPTED** — `customer.erased` v2 adds `email_hash` (house `sha256` $def, required); the events side has LANDED on `integration/customer-erased-v2` (d55a998, events 0.6.2) and window 13 writes the producer tomorrow. **Build suppression to send `customer_id` and `email_hash` WHEN PRESENT**, so v2 works the day it lands and v1 keeps working.
+**Second gap, record as a known limit:** a guest who never registers produces no `customer.erased` at all, so their hash-keyed profile has nothing to trigger a suppression. Needs a guest-erasure path keyed by e-mail — a later wave.
+
+**Also fold in the #573 nit:** the `context.ts` comment claiming a core 403 "becomes" a 404 is WRONG (the reader passes 401/403 through deliberately; a foreign customer yields 404 because RLS hides them). Manager ruling: fix the comment, rename the test to what it proves, **add NO 403→404 mapping** — masking a gate/core disagreement would be worse.
 
 ### #573 BLOCK — three real fixes, worth not repeating
 - **The support reader did not match the contract.** It read `body.orders` where `listOrders` answers a `Page` of `items`, and treated `total` as a scalar where `OrderSummary.total` is `Money { amount_minor, currency }` (the ONLY place a summary carries a currency). Against the real core: zero orders, empty currency. **No test could catch it because they all drove a hand-written fake.** LESSON: when a reader talks to a contract, type its responses FROM the contract (`@platform/contracts/admin`) and type every fixture from the contract's schemas — then drift is a compile error. Typing the existing fixtures surfaced six more wrong fields. `getCustomer` and `getOrder` return their schema DIRECTLY (no envelope).
@@ -100,9 +118,49 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **Never commit a 64-hex email_hash fixture.** The `sha256` $def needs a real 64-hex value, so a word will not validate — compute it: `createHash('sha256').update('…').digest('hex')`, which is what apps/core does. I had three such literals before catching it; one would have reddened every open PR.
 - `pg` is deliberately NOT a dependency of this app: for a pool type use `Parameters<typeof createTenantClient>[0]`.
 
-## RESUME HERE if this window restarts (updated 2026-10-23: the PR is OPEN, so step 1 is done)
+## RESUME HERE — 2026-10-24: #585 fixed and pushed, #586 is next (do NOT start it until #585 merges)
 
-**ALL FOUR ISSUES ARE DELIVERED.** #573 came back Fable BLOCK with three REAL fixes (see below), now folded in and pushed. #553 merged (via #563), #554 merged (#564), #555 MERGED (#568 = 9d8915a), #556 is **PR #573, head c06a9a9, open with 3 checks running**. Nothing left but its review; HOLD all pushes from c06a9a9.
+**#585 (#576, CDP consent mode) was REFUSED by the merge queue** once #583 landed `customer.erased` v2 on
+main (738c34a). Real failure, not a flake: `cdp/consumer.test.ts`'s "suppresses by `customer_id` alone on a
+v1 payload" reused the shared erasure fixture, which my own #583 commit (38338ed) gave an `email_hash`, so
+the v1 assertion ran on a v2 payload and got the hash where it expected `null`. (The first red, a storefront
+perf-store-example timeout, WAS a flake and was gone on the rerun.) Fixed by building a genuine v1 envelope
+— `envelopeFor` now takes an explicit `version`, the fixture omits `email_hash`, and the test asserts
+`version === 1` and the field's absence before asserting the suppression. Offline suite re-run: **385 passed
+/ 9 live skipped**, 18 files, ~51 s; typecheck, lint, prettier, ownership clean.
+
+**#586 (16.2b) is next and the plan is APPROVED** — build it only after the manager confirms #585 merged:
+1. `config.ts:303` stores the RAW env suffix in the overrides map while `consentModeFor` looks up
+   `storeEnvKey(code)`, so `..._brand_a` or `..._BRANDA` is parsed, validated and then never matched: the
+   store silently stays on `analytics`. Normalise the key the same way as the lookup; **throw** when two keys
+   normalise to the same code with DIFFERENT values (identical ones are fine); add `codes()` to
+   `src/ops/store-codes.ts`, expose the normalised override keys on `config.cdp`, and validate them in
+   `createCdpConsumer.start()` right after `warm()`, throwing with the unknown keys and the known codes.
+   ACCEPTED limit, to be commented: the CDP ships off, so with `ENGAGEMENT_CDP_ENABLED=0` there is no store
+   list and no boot to fail — `resolveConfig` must not reach a database.
+2. `apps/engagement/CLAUDE.md`'s "no raw e-mail reads" rule must name BOTH real exceptions: the #556 support
+   path reads and returns the address to the agent, and the Chatwoot receiver hashes one on arrival. (The
+   manager confirmed the edit is in scope — my package, a factual fix that loosens nothing — and told the
+   owner; the owner was told here too.)
+3. `data/cdp/README.md` gap 1 and the `cdp/consumer.ts` comment wrongly say the core DELETES the customer
+   row; it keeps it with `status = 'erased'`. Correct both and cite **#584** in the guest-lifecycle section.
+4. `support/server.test.ts`'s renamed 404-equivalence test builds two IDENTICAL `getCustomer: async () =>
+   null` fakes, so it proves determinism only. Make the second fake hold a brand-b customer and return null
+   for a brand-a read, so it exercises the invisible row.
+Tests to add: lowercase key honoured, typo key fails, override naming no known store fails after warm,
+colliding keys that disagree fail, consumer start both ways. ~30 tool calls, size approved.
+
+**Before the next live run:** re-seed FGA (see Blocked / waiting) and ask for the machine.
+
+<!-- The block below is from 2026-10-23 and is kept for the #556/#573 record; its "tomorrow" steps are done. -->
+
+
+**ALL FOUR ISSUES ARE DELIVERED.** #553 merged (via #563), #554 merged (#564), #555 merged (#568 = 9d8915a), #556 is **PR #573 — Fable MERGE after a re-review, in the merge queue**; the manager confirms tomorrow. Window 16's Phase 4 scope is complete.
+
+**TOMORROW, in this order, and only on the manager's word:**
+1. He confirms **#573 merged**. Then merge main, `pnpm install --frozen-lockfile`, rebuild the workspace packages.
+2. Build **#576 (16.2a, CDP consent mode)** — plan APPROVED, see "#576 — approved plan" below. Local commits only until he says push.
+3. Ask for the machine before any live block (one window measures at a time). The support tests need no broker; the three consumer live blocks do.
 
 **State:** branch `engagement/phase4` pushed at **c06a9a9** = PR #573. Verified 343/343 with the broker up (18 files, ~81 s) before the main merge, and **334/9 offline re-run AFTER merging main** (e6c73e0, which brought db migration 0203 — every DB test applies the full set, so the re-run was warranted). Lint, typecheck, ownership, prettier clean.
 
@@ -136,12 +194,15 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - 2026-10-23 (manager, kickoff — full text on #553): apps/notifications stays with window 17 (it built transactional email there since #360); your row is apps/engagement, apps/support, data/cdp. One new service apps/engagement; the manager lands its Dockerfile manifest lines as an integration commit on your 16.1 head. Shared `consumer_processed` (db 0202) via the SDK's pg store. SMS/WhatsApp (Twilio), Novu, Klaviyo flows DEFERRED until accounts exist; returns portal + refund limits by role are a later wave (core/auth/storefront/admin), not yours.
 
 ## Blocked / waiting
+- **Before the NEXT live run: re-run `pnpm --filter @platform/auth-sdk fga:seed` in this worktree.** Docker had stopped and was restarted on 2026-10-24 (manager; compose start, nothing recreated, DB intact). Not run yet, deliberately: the seed writes SHARED OpenFGA state and rewrites this worktree's `.env` fga ids, so it belongs inside the machine grant, together with the live run — not while another window may be measuring.
 - **The machine for the live broker block** (one window measures at a time; window 15 also active). Asked the manager 2026-10-23: 3 tests, prefixed `t-eng-<random>.` topics, self-cleaning, ~60-90 s. Note `pnpm test --filter @platform/engagement` AT ROOT runs the live block too whenever the broker is up — so that root command is itself the live run, not a safe pre-check.
 - ~~db 0202~~ **RESOLVED 2026-10-23: #557 merged** (main 653d817, packages/db 0.3.16); the landed file is byte-identical to the one I built against, so the copy and `applyProposedMigration` are deleted (1e1a9d8) and `createTestDatabase` applies the real migration. Its shape, asserted in my tests from the consumer's side: RLS `organization_only` (a store-scoped client reads nothing and cannot insert → the consumer MUST use createOrganizationClient), `organization_id` DEFAULT app.current_organization_id() (the SDK's two-column INSERT works), PK (group_id, outbox_id), UPDATE revoked from platform_app, group_id CHECK `^[a-z][a-z0-9_.-]*$` (so `engagement.ops` is fine).
 - ~~.gitignore row for `.engagement/`~~ **RESOLVED: on main in 653d817** (the manager added it; he also chose the name and `ENGAGEMENT_DIR`).
 - External accounts (Slack webhook, RudderStack, Twenty/HubSpot, Chatwoot): mocks until the owner provides them; live use on the launch checklist.
 
 ## Gotchas learned
+- **A shared fixture and a version-pinned test are a trap.** Bumping the shared `customer.erased` fixture to v2 (#583) silently turned the "v1 carries no hash" test into a v2 test that asserted the wrong thing — and it only went red when #583 reached main, i.e. in the MERGE QUEUE, not on my branch. A test that is about one schema version must build its own envelope with an explicit `version` and assert that version, because `makeEvent` always stamps `LATEST_VERSION`. The same applies to any frozen-version path (stock.moved v1, customer.export_requested v1).
+- **A window-prefixed branch cut from an INTEGRATION branch always fails the ownership job.** `scripts/check-ownership.sh` diffs `merge-base(main, HEAD)...HEAD`, so it judges the integration branch's OWN commits under your prefix too. Cutting `engagement/phase4-580-fixtures` from `integration/customer-erased-v2` was flagged for `packages/events/test/registry.test.ts` — the manager's own events landing, a file not in my diff. Name such a branch `integration/…` (it may write anywhere, and the prefix is honest: it IS the integration branch plus a commit). Accepted by the manager 2026-10-24.
 - (from Memory-main, read its Global gotchas) loopback 127.0.0.1 for DB and broker; rebuild workspace packages after every merge of main (stale dist); a new workspace package breaks `app images` until every Dockerfile COPYs its manifest — the manager lands mine, I never touch a Dockerfile.
 - The `app images` manifest rule bit nobody yet because I did not add the COPY lines; do not "help" by editing infra.
 - gitleaks: I nearly committed a real 40-hex sha1 as an email_hash fixture. Replaced with `emailhash-of-ada-not-hex`. Any long hex literal in a test is a repo-wide CI outage waiting to happen.

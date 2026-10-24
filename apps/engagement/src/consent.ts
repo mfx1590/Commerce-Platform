@@ -46,6 +46,23 @@ export interface GateIdentity {
 /** The only purpose the 0194 CHECK allows today. */
 export const CONSENT_PURPOSE = 'marketing_email';
 
+/**
+ * How much the CDP may send without a marketing consent (#576, owner decision 2026-10-23).
+ *
+ *   `analytics` — the DEFAULT. Commerce events are tracked without `marketing_email`, and a guest with no
+ *                  customer row is tracked under their `email_hash`. The owner's position is that analytics
+ *                  tracking of one's own commerce events is not marketing; region rules come later as config.
+ *   `strict`    — what #554 shipped: no identify and no track without granted `marketing_email` for that
+ *                  store, and a guest is dropped.
+ *
+ * The mode is resolved PER STORE (`config.ts`: a global default plus `ENGAGEMENT_CDP_CONSENT_MODE_<STORE>`),
+ * because each brand is one market — so one region can be made strict without touching code.
+ *
+ * It gates the CDP ONLY. CRM sync stays consent-gated in every mode, because it fetches and stores a name and
+ * an e-mail in a third-party CRM, which is a different act from counting an order.
+ */
+export type ConsentMode = 'analytics' | 'strict';
+
 /** What the projection says about one purpose. `null` = the customer has never answered. */
 export interface ConsentState {
   granted: boolean | null;
@@ -155,26 +172,39 @@ export type GateDecision =
   { send: true; identity: GateIdentity } | { send: false; reason: DropReason };
 
 /**
- * The gate. Consent-gated calls need a customer we can name AND a granted consent for that store; an erasure
- * (`gated: false`) needs only an identity, because a suppression must go out precisely for the customer who
- * has withdrawn everything.
+ * The gate.
  *
- * A guest — no `customer_id`, only an `email_hash` — is DROPPED rather than tracked pseudonymously: there is
- * no consent row to check for them. Manager ruling 2026-10-23: that is the conservative default while
- * "does analytics tracking need consent, and is pseudonymous guest tracking allowed" is on the owner's lawyer
- * list, and no CDP-specific consent purpose is to be invented meanwhile.
+ * An erasure (`gated: false`) needs only an identity and is never consent-gated in either mode: a suppression
+ * must go out precisely for the customer who has withdrawn everything.
+ *
+ * For everything else the `mode` decides (#576):
+ *
+ *   `strict`    — a customer we can name AND a granted `marketing_email` for that store. A guest (only an
+ *                  `email_hash`) is dropped: there is no consent row to check for them.
+ *   `analytics` — the DEFAULT. Consent is not required; an identity is. A named customer is sent, a guest is
+ *                  sent under their `email_hash`, and the only drop left is having no identity at all.
+ *
+ * `analytics` still refuses two things, because they are not about consent:
+ *   * an ERASED customer is never sent, in either mode. The erasure already told every consumer to delete
+ *     their copies, so tracking that person again would undo it.
+ *   * a vanished order or customer row is still reported as such rather than guessed at.
  */
 export function gate(args: {
   gated: boolean;
   facts: Pick<CustomerFacts, 'found' | 'customerId' | 'status' | 'consent'>;
-  /** From the payload, when it has one. Never the identity on its own for a gated call. */
+  /** From the payload, when it has one. In `analytics` mode it can be the identity on its own. */
   emailHash?: string | null;
   /** Set for the order-scoped topics so a vanished order is reported as such. */
   orderFound?: boolean;
+  /** Defaults to `strict`: a caller that forgets the mode gets the cautious behaviour, never the open one. */
+  mode?: ConsentMode;
 }): GateDecision {
   if (args.orderFound === false) return { send: false, reason: 'order_not_found' };
 
-  // An erasure: the identity is enough, and it must go out whatever the consent says.
+  // An erasure: the identity is enough, and it must go out whatever the consent says. BOTH ids travel when
+  // both are known, so the suppression reaches a profile keyed by the hash as well as one keyed by our id
+  // (#576 — the hash-keyed profiles `analytics` mode creates for guests). `customer.erased` v1 carries no
+  // hash; v2 does (CONTRACT CHANGE #580), and this needs no change when it lands: the hash is simply there.
   if (!args.gated) {
     const id = args.facts.customerId ?? null;
     if (id) return { send: true, identity: { userId: id, anonymousId: args.emailHash ?? null } };
@@ -183,11 +213,30 @@ export function gate(args: {
     return { send: false, reason: 'no_identity' };
   }
 
+  // An erased customer is refused in BOTH modes, before anything about consent: the erasure already told
+  // every consumer to delete its copies, and tracking them again would undo it.
+  if (args.facts.status === 'erased') return { send: false, reason: 'customer_erased' };
+
+  const mode: ConsentMode = args.mode ?? 'strict';
+
+  if (mode === 'analytics') {
+    // Consent is not required; an identity is. A guest is tracked under their hash (#576).
+    if (args.facts.customerId) {
+      return {
+        send: true,
+        identity: { userId: args.facts.customerId, anonymousId: args.emailHash ?? null },
+      };
+    }
+    if (args.emailHash)
+      return { send: true, identity: { userId: null, anonymousId: args.emailHash } };
+    // A customer row that was there but is gone is still reported as such rather than guessed at.
+    return { send: false, reason: args.facts.found ? 'customer_not_found' : 'no_identity' };
+  }
+
   if (!args.facts.customerId) {
     // Either a guest (no customer at all) or a customer row that is gone.
     return { send: false, reason: args.facts.found ? 'customer_not_found' : 'no_identity' };
   }
-  if (args.facts.status === 'erased') return { send: false, reason: 'customer_erased' };
   if (args.facts.consent.granted === null) return { send: false, reason: 'consent_absent' };
   if (args.facts.consent.granted === false) return { send: false, reason: 'consent_revoked' };
 

@@ -426,6 +426,46 @@
         "type": "object"
       }
     },
+    "customer.erased@2": {
+      "sha256": "f783194e39d381b6f0e78d584ec67b3397cc1a00911e1b09f71dfe1d866e1a0f",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/customer.erased/v2.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "GDPR erasure completed; consumers must delete their copies. v2 adds email_hash so a consumer can suppress a profile keyed by the hash as well as by customer_id (#576): the value is computed before the delete and exists nowhere afterwards.",
+        "properties": {
+          "customer_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "email_hash": {
+            "description": "sha256 of the lowercased value; never the raw PII",
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "erased_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "identity_id": {
+            "oneOf": [
+              {
+                "format": "uuid",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["customer_id", "identity_id", "email_hash", "erased_at"],
+        "title": "customer.erased v2",
+        "type": "object"
+      }
+    },
     "customer.export_ready@1": {
       "sha256": "9f3571332609f341171605d542583c5df7d7fa5a6e6fb187208e754a70fc45cd",
       "schema": {

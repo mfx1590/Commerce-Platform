@@ -1,6 +1,6 @@
 import { SEED_IDS } from '@platform/db';
 import { describe, expect, it } from 'vitest';
-import { KNOWN_GROUPS, resolveConfig } from './config.js';
+import { KNOWN_GROUPS, resolveConfig, storeEnvKey } from './config.js';
 import { buildCdpAdapter, buildCrmAdapter, buildTokenProvider, buildTransport } from './main.js';
 
 const APP_URL = 'postgres://platform_app:platform_app@127.0.0.1:5433/platform';
@@ -124,9 +124,12 @@ describe('resolveConfig', () => {
 });
 
 describe('resolveConfig — the CDP side (#554)', () => {
-  it('is OFF by default, on the memory adapter', () => {
+  it('is OFF by default, on the memory adapter and the analytics consent mode', () => {
     const c = resolveConfig({ env: base });
-    expect(c.cdp).toEqual({ enabled: false, adapter: 'memory' });
+    expect(c.cdp).toMatchObject({ enabled: false, adapter: 'memory', consentMode: 'analytics' });
+    // The owner's default (#576), and it applies to every store until one is overridden.
+    expect(c.cdp.consentModeFor('brand-a')).toBe('analytics');
+    expect(c.cdp.consentModeFor('brand-z')).toBe('analytics');
   });
 
   it('turns on with the memory adapter outside production', () => {
@@ -149,7 +152,7 @@ describe('resolveConfig — the CDP side (#554)', () => {
 
   it('allows the memory adapter in production while the consumer is OFF', () => {
     const c = resolveConfig({ env: prodBase, nodeEnv: 'production' });
-    expect(c.cdp).toEqual({ enabled: false, adapter: 'memory' });
+    expect(c.cdp).toMatchObject({ enabled: false, adapter: 'memory' });
   });
 
   it('rejects an unknown adapter name', () => {
@@ -179,9 +182,10 @@ describe('resolveConfig — the CDP side (#554)', () => {
         RUDDERSTACK_SOURCE_IDS: 'source-alpha, source-beta',
       },
     });
-    expect(c.cdp).toEqual({
+    expect(c.cdp).toMatchObject({
       enabled: true,
       adapter: 'rudderstack',
+      consentMode: 'analytics',
       writeKey: 'write-key-words-only',
       dataPlaneUrl: 'https://dataplane.rudderstack.example',
       regulation: {
@@ -211,6 +215,69 @@ describe('resolveConfig — the CDP side (#554)', () => {
       env: { ...base, RUDDERSTACK_WRITE_KEY: 'write-key-words-only' },
     });
     expect(JSON.stringify(c)).not.toContain('write-key-words-only');
+  });
+});
+
+describe('the CDP consent mode resolves PER STORE (#576)', () => {
+  it('defaults to analytics globally — the owner decision of 2026-10-23', () => {
+    expect(resolveConfig({ env: base }).cdp.consentMode).toBe('analytics');
+  });
+
+  it('takes a global strict', () => {
+    const c = resolveConfig({ env: { ...base, ENGAGEMENT_CDP_CONSENT_MODE: 'strict' } });
+    expect(c.cdp.consentMode).toBe('strict');
+    expect(c.cdp.consentModeFor('brand-a')).toBe('strict');
+  });
+
+  it('A PER-STORE OVERRIDE BEATS THE GLOBAL DEFAULT, and only for that store', () => {
+    // One region made strict without touching code — the point of #576.
+    const c = resolveConfig({ env: { ...base, ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A: 'strict' } });
+    expect(c.cdp.consentMode).toBe('analytics');
+    expect(c.cdp.consentModeFor('brand-a')).toBe('strict');
+    expect(c.cdp.consentModeFor('brand-b')).toBe('analytics');
+    expect(c.cdp.consentModeFor('brand-c')).toBe('analytics');
+  });
+
+  it('and the other way round: a store can be analytics under a strict global', () => {
+    const c = resolveConfig({
+      env: {
+        ...base,
+        ENGAGEMENT_CDP_CONSENT_MODE: 'strict',
+        ENGAGEMENT_CDP_CONSENT_MODE_BRAND_C: 'analytics',
+      },
+    });
+    expect(c.cdp.consentModeFor('brand-a')).toBe('strict');
+    expect(c.cdp.consentModeFor('brand-c')).toBe('analytics');
+  });
+
+  it('maps a store code to its env key the way apps/notifications does', () => {
+    expect(storeEnvKey('brand-a')).toBe('BRAND_A');
+    expect(storeEnvKey('brand-a-2')).toBe('BRAND_A_2');
+    expect(storeEnvKey('BRAND_B')).toBe('BRAND_B');
+  });
+
+  it('THROWS on an unknown mode rather than falling back to the open one', () => {
+    // A typo like `strcit` must never silently become `analytics`.
+    expect(() =>
+      resolveConfig({ env: { ...base, ENGAGEMENT_CDP_CONSENT_MODE: 'strcit' } }),
+    ).toThrow(/ENGAGEMENT_CDP_CONSENT_MODE must be "analytics" or "strict"/);
+  });
+
+  it('THROWS on an unknown per-store mode, at startup, naming the variable', () => {
+    expect(() =>
+      resolveConfig({ env: { ...base, ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A: 'off' } }),
+    ).toThrow(/ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A must be "analytics" or "strict"/);
+  });
+
+  it('an empty per-store value falls back to the global rather than throwing', () => {
+    const c = resolveConfig({
+      env: {
+        ...base,
+        ENGAGEMENT_CDP_CONSENT_MODE: 'strict',
+        ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A: '  ',
+      },
+    });
+    expect(c.cdp.consentModeFor('brand-a')).toBe('strict');
   });
 });
 

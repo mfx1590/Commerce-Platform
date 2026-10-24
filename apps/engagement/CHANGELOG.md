@@ -1,5 +1,46 @@
 # @platform/engagement
 
+## 0.5.0 — 2026-10-24 (#576, task 16.2a)
+
+The CDP consent mode: analytics tracking and pseudonymous guests, allowed by default, switchable per store.
+
+- **The owner answered #554's two open questions on 2026-10-23: both allowed.** Analytics tracking of our own
+  commerce events does not need a marketing consent, and a guest may be tracked under their `email_hash`. The
+  lawyer-pending section of `data/cdp/README.md` is replaced by the decision, a modes table and the one-line
+  switch back.
+- **`ENGAGEMENT_CDP_CONSENT_MODE`** = `analytics` (default) | `strict`, **resolved PER STORE** through
+  `ENGAGEMENT_CDP_CONSENT_MODE_<STORE_CODE>` (the `NOTIFICATIONS_<STORE>_<FIELD>` shape). Each brand is one
+  market, so a region's rules are a config change: `ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A=strict`. The mode is
+  resolved **per event** from the store the event names and goes on every per-event log line as
+  `consent_mode`, so a quiet CDP is explainable per store. Every per-store value is parsed at STARTUP, so a
+  typo fails the boot instead of silently applying the global default to one region months later — and an
+  unknown value throws rather than falling back to the open mode. A gate called with no mode defaults to
+  `strict`.
+- **`analytics` does not relax two things**, because neither is about consent: an **erased** customer is never
+  sent in either mode (the erasure told every consumer to delete its copies), and a vanished order or customer
+  row is still reported as such.
+- **`identify` carries ids only** — `customer_id`, `email_hash`, store code — in both modes. `status` and
+  `customer_group_id` are gone: `status` is not an id, and a customer group is a marketing SEGMENT id, which is
+  the kind of trait an identify must not carry. `data/cdp/tracking-plan.json` is version 2 to match.
+- **`customer.erased` carries BOTH ids when both are known**, so a hash-keyed profile is suppressed alongside
+  the `customer_id` one. v1 has no hash; **CONTRACT CHANGE #580** adds it in a v2, and the suppression already
+  sends it when present — so it starts working the day v2 lands with no change here.
+- **CRM sync is untouched** and stays consent-gated in every mode, because it fetches and stores PII in a
+  third-party system. Two tests assert the CDP mode cannot reach it, including a structural one on the
+  handler's own deps.
+- **A known asymmetry, recorded rather than quietly worked around:** of the six mapped commerce topics only
+  `order.placed` carries an `email_hash`, so a GUEST's later `payment.captured` / `shipment.shipped` have no
+  identity and are dropped even in `analytics`. A guest's _Order Completed_ therefore reaches the CDP while
+  their _Order Shipped_ does not. Closing it would mean hashing the order row's raw e-mail inside the CDP path,
+  which widens what this service reads; tests pin the behaviour both ways.
+- The #573 nit: `context.ts` no longer claims a core 403 "becomes" a 404. A customer of another store reaches
+  the same 404 because the core's store-scoped read cannot SEE them, not because anything is mapped; a core
+  401/403 means our gate and the core disagree and is passed through, because masking it would hide a real
+  misconfiguration. The test is renamed to what it proves.
+- **The #585 queue failure, once #583 put `customer.erased` v2 on main.** The "suppresses by `customer_id` alone" test reused the shared erasure fixture, which carries an `email_hash` since #583 — so it asserted v1 behaviour on a v2 payload and received the hash where it expected none. It now builds a GENUINE v1 envelope (version 1, no `email_hash`, validated against the frozen v1 schema) through an explicit `version` on the test's envelope helper, and guards both facts before asserting. The v2 test no longer mutates a hash onto a payload that already has one.
+- Tests: **385 passing, 9 live skipped** with the broker offline — consent 37, config 41, CDP consumer 29
+  (26 + 3 live), plus the rest.
+
 ## 0.4.0 — 2026-10-23 (#556, task 16.4)
 
 The support-context API and the Chatwoot webhook stub.
