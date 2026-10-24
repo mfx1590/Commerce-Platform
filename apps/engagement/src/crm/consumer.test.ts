@@ -113,7 +113,14 @@ const customerUpdated = (customerId: string) =>
 const customerErased = (customerId: string) =>
   envelopeFor(
     'customer.erased',
-    { customer_id: customerId, identity_id: IDENTITY_ID, erased_at: '2026-10-23T12:00:00.000Z' },
+    {
+      customer_id: customerId,
+      identity_id: IDENTITY_ID,
+      // Required since customer.erased v2 (#580). `'f'.repeat(64)` is this file's existing convention for a
+      // sha256-shaped fixture (see the two payloads above): computed, never a committed hex literal.
+      email_hash: 'f'.repeat(64),
+      erased_at: '2026-10-23T12:00:00.000Z',
+    },
     { type: 'customer', id: customerId },
   );
 

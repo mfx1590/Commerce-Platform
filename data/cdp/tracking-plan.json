@@ -47,11 +47,11 @@
     },
     {
       "topic": "customer.erased",
-      "version": 1,
+      "version": 2,
       "call": "suppress",
       "traits": ["customer_id"],
       "consent_gated": false,
-      "$comment": "An erasure is honoured whatever the consent said: it is the one call that must go out for a customer who has withdrawn everything."
+      "$comment": "An erasure is honoured whatever the consent said: it is the one call that must go out for a customer who has withdrawn everything. Version 2 since CONTRACT CHANGE #580: the payload carries email_hash, so a suppression can reach a profile keyed by the hash as well as one keyed by our customer_id."
     },
     {
       "topic": "order.placed",
