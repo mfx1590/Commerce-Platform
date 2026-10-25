@@ -473,7 +473,7 @@ jobs:
       - name: analytics ingest live block (Redpanda + ClickHouse) — and it really ran
         if: needs.changes.outputs.e2e == 'true'
         run: |
-          for i in $(seq 1 60); do curl -sf -u "$CLICKHOUSE_USER:$CLICKHOUSE_PASSWORD" "$CLICKHOUSE_URL/?query=SELECT%201" >/dev/null && break; sleep 2; done
+          for i in $(seq 1 60); do curl -sf --max-time 3 -u "$CLICKHOUSE_USER:$CLICKHOUSE_PASSWORD" "$CLICKHOUSE_URL/?query=SELECT%201" >/dev/null && break; sleep 2; done
           pnpm exec turbo run build --filter='@platform/analytics-ingest^...'
           pnpm --filter @platform/analytics-ingest exec vitest run src/live.test.ts             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/analytics-live.json"
           node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/analytics-live.json"             'live ingest (local Redpanda + ClickHouse)'
@@ -555,7 +555,7 @@ jobs:
         run: bash infra/ci/run-e2e.sh
       - name: keycloak and openfga logs on failure
         if: failure() && needs.changes.outputs.e2e == 'true'
-        run: docker compose -f infra/docker/docker-compose.yml logs --tail=100 keycloak openfga redpanda
+        run: docker compose -f infra/docker/docker-compose.yml --profile analytics logs --tail=100 keycloak openfga redpanda clickhouse
       - uses: actions/upload-artifact@v4
         if: failure() && needs.changes.outputs.e2e == 'true'
         with:
