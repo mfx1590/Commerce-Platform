@@ -1,6 +1,6 @@
 # Memory 9 — Search, media, promotions
 Window: 9 · Key: `search` · Branch prefix: `search/` · Model: Opus 5
-Last updated: 2026-09-15 · Contracts: contracts-v0.4.1 on main (67f19d5) · Branch: `search/phase2` · Status: **PHASE 2 COMPLETE AND QUIET.** 2.1–2.5 merged (#160, #166, #188); 2.5 follow-up #208 merged (main `2456e9a`); this docs-only cleanup is the last commit. Reopens only on a REQUEST.
+Last updated: 2026-10-25 · Contracts: **contracts-v0.4.28** on main · Branch: `search/phase5` (cut from origin/main `cadaeba`) · Status: **PHASE 5 WAVE 2 OPEN — #607 step 1 done (contract diff posted), no code yet.** Phase 2 is complete and merged (2.1–2.5 via #160, #166, #188, #208, #211).
 
 ## PHASE 5 DOCKET (written by the manager, 2026-10-25, Manager session nine) — READ THIS FIRST ON RESUME
 You reopen in Phase 5 wave 2 for **#607** P5.8 recommendations (plan `docs/plan/phase5-plan.md` D10; tracking #612).
@@ -34,8 +34,30 @@ Algolia index per brand synced from product.published events, merchandising rule
 - [x] **#137 · 2.4** Price lists — commit `46b4cf6`, merged in #188 (main `899e606`); issue closed. Module `apps/core/src/modules/promotions/` created (placement per the manager: the pricing half the cart consumes; recorded in the module README). No contract change needed: `listPriceLists`/`createPriceList`/`upsertPrices` exist in contracts-v0.3, so `pricingRouter()` takes permissions and bodies from `loadSpec` — first spec-driven router of this window. `resolvePrices` (sale > override/group > default, priority, windows, groups, tiers, Queryable-friendly for the cart's tx). REQUEST #179 (window 1): catalog media functions, three router mounts, cart `resolvePrices` call site. Tests: pricing.test.ts (5). Not built (not in the contract): list update/delete, CSV import; no price events exist (price changes reach the index at full reindex — documented).
 - [x] **#138 · 2.5** Promotions and coupon rule engine — commit `023209b`, merged inside #188 (main `899e606`); issue closed 2026-09-14. No separate 2.5 PR: the commits reached the branch via the 2026-09-09 push (see the push gotcha below); the scope correction and the corrected PR title/body landed on #188 before it merged. CONTRACT CHANGE #189 accepted, lands with Admin API 0.4.1 (migration 0150 = the promotion type-CHECK widening).
 
-## In progress
-- (nothing — window quiet since 2026-09-15)
+## In progress — #607 (P5.8 recommendations), Phase 5 wave 2
+- [x] **Step 0 — reactivation (2026-10-25).** `.claude/CLAUDE.local.md` rewritten; `search/phase5` cut from `origin/main`
+  `cadaeba` (old `search/phase2` NOT merged in — it is fully on main); `pnpm install --frozen-lockfile` clean;
+  `pnpm turbo run build` for auth-sdk/db/events/contracts green (4/4); `fga:seed` reused store
+  `01M5SFMYA64CWXD3THRMQ2M0FE`, wrote model `01M5SYTK0MK5KGRNZXQ9Z4YHHY`, 11 tuples already present.
+  This worktree's `.env` was from 2026-09-09 and missing the Phase 5 rows: replaced with a copy of the main
+  checkout's (old one kept as `.env.bak-phase2`), then `fga:seed` rewrote the two fga ids in it.
+- [x] **Step 1 — CONTRACT CHANGE posted on #607** (comment 6400269668, 2026-10-25). Waiting for the manager to land
+  it on an `integration/*` branch; I cut my code from that sha. Nothing written in `packages/**` by me, ever.
+- [ ] **Step 2 — the job** `apps/core/src/jobs/index-recommendations.ts` + the read path in `modules/search/`.
+  Blocked on the contract landing. Plan, so it survives a /compact:
+  1. The job file MUST export a `config` (Medusa's job loader — see the #202/#203 gotcha below); the heavy lifting
+     goes in `modules/search/recommendations/` so it is testable without booting Medusa.
+  2. ClickHouse `fct_order_line` read with the READ-ONLY user; code against a fixture of #601's documented columns.
+     **#601 does not publish its column list yet** (issue body + its one comment say only "documented as stable"),
+     so the ClickHouse-backed tests stay behind a skip that prints the reason until the manager says #601 merged,
+     and the columns I assume go in the PR body for window 12 to contradict cheaply.
+  3. Co-occurrence per store with lift + minimum support, thresholds in config with a worked example in the README;
+     popular over 7 and 30 days; idempotent rewrite (DELETE+INSERT per store/kind/window in one transaction)
+     through the tenant client.
+  4. Read time: published + in-stock + same-store only; fall back to the popular list when an anchor has no pairs.
+  5. Tests: hand-made basket set with known lift; brand A orders never produce a brand B recommendation.
+- [ ] **Step 3 — REQUESTs**: window 1 for the route mount + apps/core CHANGELOG/package.json/.env.example rows;
+  window 3 for the rail (#609) — both filed only once my PR is merged.
 
 ## Next — only if reopened by a REQUEST
 - When window 1 mounts the three pending routers (#179: `mediaRouter`, `pricingRouter`, `promotionsRouter`): update the two READMEs' "not mounted yet" lines.
@@ -44,6 +66,30 @@ Algolia index per brand synced from product.published events, merchandising rule
 - Local env note (manager-confirmed 2026-09-15): the shared stack can be partially down locally — OpenFGA (:8081) was, so hq-rbac + auth-live suites skipped (34 passed / 8 skipped). **CI's live job is the authoritative run** for those suites; check which files skipped before trusting a local green, and never restart the shared stack from this window.
 
 ## Decisions made (with reasons)
+### Phase 5 / #607 (proposed on #607, NOT yet accepted — the manager may change any of these)
+- **`product_recommendation` carries two columns the docket did not list, both forced by #607's own criteria:**
+  `window_days` (0 = bought_together, 7/30 = popular) because "popular over 7 **and** 30 days" is two lists under
+  one `kind` and would otherwise overwrite itself; and a **nullable `product_id`** (NULL = the store-wide popular
+  list) because popular is store-wide and anchoring it per product duplicates the list once per catalogue row.
+  Three CHECKs tie `kind`, `product_id IS NULL` and `window_days` together so neither can drift. Offered the
+  manager the literal-column alternative (N-fold duplication, or kinds `popular_7d`/`popular_30d`).
+- **RLS kind `store`** via 0192's `app.apply_rls` (ENABLE + FORCE + `tenant_isolation`) — no new kind, no new role,
+  no SECURITY DEFINER. Grants come from 0009's `ALTER DEFAULT PRIVILEGES`; **UPDATE revoked** because the job
+  rewrites (DELETE+INSERT) instead of upserting. If the manager prefers `ON CONFLICT DO UPDATE`, that REVOKE line
+  is the one to drop.
+- **`score` is `numeric`, not an integer/money column**: it is a lift ratio for pairs and a unit count for popular.
+  No money, no customer/order id, nothing PII-shaped goes in this table — product ids and numbers only.
+- **Two partial unique indexes, not one UNIQUE**: NULLs are distinct in a plain UNIQUE, so one index would silently
+  stop deduplicating the popular rows (`…_pair_key WHERE product_id IS NOT NULL`, `…_popular_key WHERE NULL`).
+- **One Store API operation for both surfaces**: `GET /store/recommendations` (PDP sends `product_id`, cart sends
+  `variant_ids`), not `/store/products/{handle}/recommendations` — the cart case has no single product. Not a
+  `Page`: a rail is one short list and `total` is meaningless after the published/in-stock filter. `limit` max 24.
+- **The response's `kind` reports the popular fallback** (asked `bought_together`, served `popular`) so #609's rail
+  and its analytics event need no extra boolean field.
+- **404, not a silent popular list**, for a `product_id`/`variant_ids` outside the resolved store or unpublished —
+  same as `getProduct`, so a storefront bug surfaces instead of rendering a plausible wrong rail.
+
+### Phase 2
 - **No SDKs (Algolia, Cloudinary); REST/crypto over Node built-ins.** `apps/core/package.json` belongs to window 1. Errors strip the Algolia key (every occurrence); `request` retries 429/5xx/network with backoff.
 - **Outbox cursor = `outbox.seq`**; cursor lives in the index settings `userData.outbox_cursor`; no cursor → `conflict`. Full reindex never clears. Known limits in README (READ COMMITTED `seq` gap → `--full` safety net; concurrent full reindexes race).
 - **Index name = `store.search_index` if set, else `products_<code>`** (manager confirmed). Replicas `_price_asc|_price_desc|_newest`; rules on the primary only.
@@ -64,6 +110,16 @@ Algolia index per brand synced from product.published events, merchandising rule
 - (none — all window-9 work is merged or in #208; #179 mount lines are window 1's and non-blocking)
 
 ## Gotchas learned
+- **Phase 5 wave order vs. the budget (2026-10-25):** Memory-main has wave 1 starting after the 10-27 17:00 local
+  weekly reset (all-models was at 80%, Fable 100%) and #607 is wave 2, behind window 12's #601. The contract diff
+  was cheap enough to post early; asked the manager before spending anything on step 2. Owner rule: stop at 80% of
+  the 5-hour limit.
+- **Phase 5 rules for this window:** route mounting and `apps/core` CHANGELOG/package.json/.env.example are window 1
+  via REQUEST; the rail is window 3 (#609, REQUEST only once my API is merged); **ask the manager for "the machine"
+  before any live or long run and report "machine free" after** (one window measures at a time); nothing
+  secret-shaped in tests (words, never hex/digit tails — gitleaks scans every branch's history); no closing keyword
+  next to an issue number in a commit message unless that commit finishes the issue; merge main before pushing.
+- **No docker commands from this window, ever** — the manager runs the shared stack.
 - **A branch push is all-or-nothing — "hold the push" cannot be honoured per-commit** (2026-09-14). 2.5 was committed locally under a push hold; pushing an unrelated memory commit on 2026-09-09 carried it too, so 2.5 rode into PR #188 and merged with 2.3+2.4 instead of getting its own PR. The manager was still planning around "2.5 unpushed" two messages later. If a hold matters, either keep the held work on a separate branch or re-check `git log origin/<branch>..HEAD` before reporting "unpushed" — and re-verify the claim every time it is repeated, not just when first made.
 - **A 2-second all-red CI run with no logs = GitHub Actions billing, not your branch** (2026-09-09, run 34359615873 on #188): every job "failed" with 0 steps; the check annotation reads "The job was not started because recent account payments have failed or your spending limit needs to be increased". Read it with `gh api repos/<owner>/<repo>/check-runs/<id>/annotations`. Re-running is pointless; the manager merges manually on billing refusal (Memory-main merge round 14 did this for #205). Local gates are the evidence to post.
 - **Never put a plain CLI script in `apps/core/src/jobs/`** (#202/#203, 2026-09-09): Medusa's job loader scans that folder and requires every file to export a `config`, so the core refuses to boot with "Config is required for scheduled jobs" — and `pnpm test`/typecheck never notice because they don't boot Medusa. The index CLI lives at `src/modules/search/cli/index-products.ts`; a real scheduled job goes in `src/jobs/` **with** a `config` export. Boot proof: `pnpm --filter @platform/core dev` → `/health` 200.
