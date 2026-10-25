@@ -69,6 +69,35 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   policy. #601: `mart_recognised_daily` DROPPED (ledger lines in #602); `fct_order_line.product_id` via `dim_variant`
   from product.published/updated `variants[]` (BINDING for window 9) — read the two manager comments on #601 first.
 
+## #601 design draft (2026-10-25; NO code until the #616 review is back)
+- Sources checked: order.placed v1 line_items carry order_line_item_id, variant_id (nullable), sku, title, quantity,
+  unit_price_minor, discount_minor, tax_rate_bp, tax_minor, total_minor; product.published/updated v1 `variants[]`
+  = {variant_id, sku, title}; order.cancelled v1 has order_id + cancelled_at. Every binding fct_order_line column exists.
+- `data/clickhouse/models/` = REPLACEABLE objects (CREATE OR REPLACE VIEW), re-applied when the checksum changes
+  (unlike migrations, which are refused on change); the runner gets a second mode. Tables behind MVs stay migrations.
+- stg_<topic>_v<n>: views over `raw_events FINAL WHERE topic = … AND version = …` with JSONExtract typed columns.
+- dim_variant: ARRAY JOIN variants of product.published/updated, argMax(product_id, sku by occurred_at) per
+  (store_id, variant_id), last_seen_at. fct_order_line: ARRAY JOIN line_items + LEFT JOIN dim_variant;
+  order_status = cancelled if an order.cancelled exists. Leave out email_hash/customer_id/title (no PII; title isn't
+  needed).
+- mv_orders_minute: the MV sees every INSERT, redeliveries included → AggregatingMergeTree with uniqState(event_id)
+  for the order count; money via a FINAL-backed view on top (or argMax per event), never a plain sum in the MV.
+- Marts: mart_bookings_daily, mart_cash_daily (store × currency × UTC day); mart_recognised_daily DROPPED.
+- MANAGER DECISIONS 2026-10-25 (binding for #601):
+  (1) Test month: the manager moves `posting/fixtures.ts` to `packages/test-utils`; code against
+      `import { generateMonth, … } from '@platform/test-utils'` (same names and signatures). Wait for the sha on main.
+  (2) Bookings test = a reference computed IN THE TEST from the same events with rpt_sales_daily's rules (exclude
+      cancelled/voided/failed, awaiting counts, UTC day); Postgres = ClickHouse is #602's. Write the split in the PR body.
+  (3a) Order counts use `uniqExactState`, never `uniq` (approximate). (3b) No money sums from an MV that sees
+      redelivered inserts. MY PICK: `mv_orders_minute` writes per-order rows into a ReplacingMergeTree ORDER BY
+      (store_id, currency, minute, event_id); the tile aggregates at read time with FINAL (state it in the PR). MVs and
+      their TO tables go in MIGRATIONS; only plain views live in models/ (CREATE OR REPLACE, re-applied on a
+      checksum change).
+- (superseded) Open questions sent to the manager on 2026-10-25: (1) the #552 month (`generateMonth`) isn't in @platform/accounting's
+  public API → REQUEST to window 15 for an export; (2) the "mart_bookings_daily = rpt_sales_daily row for row" test
+  needs Postgres orders from the same month (the generator gives events only) → proposed: in #601, test against a
+  reference computed from the events with rpt_sales_daily's rules, and leave the Postgres identity to #602.
+
 ## Next — Phase 5
 - [ ] #600 live proof (machine) → counts into the PR body.
 - [ ] #601 models: `data/clickhouse/models/` applied by the same runner (add the dir to `DEFAULT_SQL_DIRS`); the #552
