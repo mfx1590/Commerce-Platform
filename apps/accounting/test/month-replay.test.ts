@@ -1,31 +1,34 @@
 // The Integration 4 accounting gate (#552): a generated month — three legal entities, three stores, three currencies,
 // orders, captures with fees, partial and full refunds, cancellations, partial and full shipments — written as outbox
-// rows, relayed onto the bus (the relay's own wire format: `outboxRowToEnvelope` + `envelopeToMessage`, prefixed
-// topics), consumed live by one `accounting.ledger` group into one ledger, then REPLAYED from the outbox — every topic
-// at once, shipments and refunds before their orders on purpose — into a FRESH group and a FRESH database:
+// rows, relayed onto the bus by the REAL relay (apps/core's `outbox:relay --once --topic-prefix <p> --throwaway-db
+// --no-registry`, spawned against the throwaway database), consumed live by one `accounting.ledger` group into one
+// ledger, then REPLAYED by the REAL `outbox:replay --topic <t> --topic-prefix <p>` (one process per topic, shipments,
+// refunds, cancellations and captures first, orders last on purpose) into a FRESH group and a FRESH database:
 //   (1) the trial balance is zero per legal entity per currency, and the replayed ledger equals the live one,
 //   (2) the month's payout reports reconcile with zero differences,
 //   (3) a second replay into the same group changes nothing.
-// The relay and the replay are reproduced through @platform/events' own wire functions (`outboxRowToEnvelope` →
-// `envelopeToMessage`, seq order, the replay headers) on PREFIXED topics: apps/core's relay-cli / outbox:replay publish to
-// the real topic names of the shared dev broker and apps/accounting cannot import apps/core internals. Once
-// `--topic-prefix` lands on both CLIs (REQUEST #579 to window 14) this test switches to them.
-// Counts and balances are the assertions; durations are ceilings only (≥ 5× the local medians, both in the comment
-// at the bottom). Skipped with a printed reason when the broker is down. Self-cleaning (prefixed topics and groups).
+// Since #594 / #595 the test no longer reproduces the relay and the replay with @platform/events' wire functions
+// (`outboxRowToEnvelope` + `envelopeToMessage`, the accepted deviation until #579): it spawns both CLIs, so the gate
+// covers their row selection, seq order, marking, headers and replay headers too. Every topic of the policy exists
+// under the run's prefix (the relay's start-up check requires them); nothing touches the real topic names.
+// Counts and balances are the assertions; durations are ceilings only (both in the comment at the bottom; relay and
+// replay now include process start-up). Skipped with a printed reason when the broker is down. Self-cleaning
+// (prefixed topics and groups, the two throwaway databases).
+import { execFile } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import net from 'node:net';
+import { fileURLToPath } from 'node:url';
+import { SEED_IDS } from '@platform/db';
 import {
   brokersFromEnv,
   createKafka,
-  createKafkaPublisher,
   ensureTopics,
-  envelopeToMessage,
-  outboxRowToEnvelope,
   planTopics,
   toOutboxRow,
   type EventConsumer,
   type EventEnvelope,
   type EventEnvelopeV1Base,
-  type OutboxRow,
   type TopicPolicy,
 } from '@platform/events';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -43,9 +46,9 @@ const ORDERS = Number(process.env.MONTH_REPLAY_ORDERS ?? 150);
 // Ceilings ≥ 5× the local medians (three runs, 150 orders = 556 events, 2026-10-23, this laptop):
 //   relay 1,009 ms · consume 14,828 ms · replay 211 ms · replay_consume 13,206 ms · reconcile 364 ms
 const CEILING_MS = {
-  relay: 30_000,
+  relay: 60_000,
   consume: 120_000,
-  replay: 30_000,
+  replay: 60_000,
   replay_consume: 120_000,
   reconcile: 30_000,
 };
@@ -75,12 +78,15 @@ describe.runIf(brokerDown === null)(
   () => {
     const prefix = `gate-${Math.random().toString(36).slice(2, 8)}.`;
     const kafka = createKafka({ clientId: 'accounting-month-replay' });
-    const publisher = createKafkaPublisher(kafka, { retries: 1 });
-    const policy: TopicPolicy = {
-      environments: { t: { partitions: 1, replication: 1 } },
-      retention: { forever: ['order.', 'payment.', 'refund.', 'shipment.'], days_30: [] },
-      dlq: { prefix: 'dlq.', consumer_groups: [] },
-    };
+    // the repo's topic policy: the relay refuses to start unless every event topic of it exists under the prefix
+    const policy = JSON.parse(
+      readFileSync(
+        fileURLToPath(new URL('../../../infra/redpanda/topics.policy.json', import.meta.url)),
+        'utf8',
+      ),
+    ) as TopicPolicy;
+    const coreDir = fileURLToPath(new URL('../../core', import.meta.url));
+    const tsxCli = createRequire(import.meta.url).resolve('tsx/cli');
     const quiet: Logger = { info: () => {}, warn: () => {}, error: () => {} };
     const consumers: EventConsumer[] = [];
     let live: AccountingTestDatabase; // the live run's ledger (and the outbox the month is written to)
@@ -123,33 +129,60 @@ describe.runIf(brokerDown === null)(
       consumers.push(c);
       return c;
     };
-    /** Publishes outbox rows per topic in seq order with the relay's wire format (+ replay headers when asked). */
-    const publishRows = async (
-      rows: (OutboxRow & { seq: string })[],
-      topicOrder: string[],
-      replay: boolean,
-    ) => {
-      for (const topic of topicOrder) {
-        const mine = rows
-          .filter((r) => r.topic === topic)
-          .sort((a, b) => Number(a.seq) - Number(b.seq));
-        for (let i = 0; i < mine.length; i += 500) {
-          const chunk = mine.slice(i, i + 500).map((r) => {
-            const m = envelopeToMessage(outboxRowToEnvelope(r), 'accounting-month-replay/test');
-            return replay
-              ? {
-                  ...m,
-                  headers: { ...m.headers, replay: '1', replayed_at: new Date().toISOString() },
-                }
-              : m;
-          });
-          if (chunk.length) await publisher.send(`${prefix}${topic}`, chunk);
-        }
+    /** Spawns one of apps/core's outbox CLIs against the LIVE throwaway database; its last stdout line is the summary. */
+    const runCoreCli = (script: string, args: string[]) => {
+      const url = new URL(process.env.DATABASE_URL_APP!);
+      url.pathname = `/${live.db.name}`;
+      return new Promise<Record<string, unknown>>((done, fail) => {
+        execFile(
+          process.execPath,
+          [tsxCli, `src/outbox/${script}`, ...args, '--no-registry', '--topic-prefix', prefix],
+          {
+            cwd: coreDir,
+            env: {
+              ...process.env,
+              DATABASE_URL_APP: url.toString(),
+              CORE_ORGANIZATION_ID: SEED_IDS.organization,
+            },
+            timeout: 120_000,
+            maxBuffer: 16 * 1024 * 1024,
+          },
+          (err, stdout, stderr) => {
+            if (err)
+              return fail(
+                new Error(`${script} ${args.join(' ')} failed: ${String(stderr).slice(-2000)}`),
+              );
+            const last = String(stdout).trim().split('\n').at(-1) ?? '{}';
+            done(JSON.parse(last) as Record<string, unknown>);
+          },
+        );
+      });
+    };
+    /** `outbox:relay --once` over every unpublished row (one pass, batch ≥ the month). */
+    const relay = () =>
+      runCoreCli('relay-cli.ts', [
+        '--once',
+        '--throwaway-db',
+        '--batch',
+        String(events.length + 1),
+      ]);
+    /** `outbox:replay --topic <t>` per topic: `first` in parallel, then `last` (the orders), each in seq order. */
+    const replay = async (first: string[], last: string[]) => {
+      const run = (topic: string) => runCoreCli('replay-cli.ts', ['--topic', topic]);
+      const out = await Promise.all(first.map(run));
+      for (const t of last) out.push(await run(t));
+      return out;
+    };
+    const expectReplayed = (summaries: Record<string, unknown>[], rows: { topic: string }[]) => {
+      for (const sm of summaries) {
+        const n = rows.filter((r) => r.topic === sm.topic).length;
+        expect(sm, String(sm.topic)).toMatchObject({ replay: 'outbox', rows: n, published: n });
       }
+      expect(summaries.map((x) => x.topic).sort()).toEqual([...LEDGER_TOPICS].sort());
     };
     const readOutbox = async (db: AccountingTestDatabase) => {
-      const r = await db.hq.query<OutboxRow & { seq: string }>(
-        `SELECT id, organization_id, store_id, topic, version, aggregate_type, aggregate_id, payload, headers, occurred_at, seq::text
+      const r = await db.hq.query<{ id: string; topic: string; published: boolean }>(
+        `SELECT id, topic, published_at IS NOT NULL AS published
            FROM outbox o WHERE topic = ANY($1::text[]) ORDER BY o.seq`,
         [[...LEDGER_TOPICS]],
       );
@@ -201,10 +234,9 @@ describe.runIf(brokerDown === null)(
       await admin.connect();
       await ensureTopics(
         admin,
-        planTopics(policy, { environment: 't', prefix, topics: [...LEDGER_TOPICS] }),
+        planTopics(policy, { environment: 'ci', prefix }).filter((t) => t.kind === 'event'),
       );
       await admin.disconnect();
-      await publisher.connect();
       console.info(
         JSON.stringify({
           test: 'month-replay',
@@ -223,7 +255,6 @@ describe.runIf(brokerDown === null)(
       // #589 nit: a broker failure here (deleteTopics timing out) must not leave the two throwaway databases behind
       try {
         for (const c of consumers) await c.stop().catch(() => {});
-        await publisher.disconnect().catch(() => {});
         const admin = kafka.admin();
         await admin.connect();
         try {
@@ -248,10 +279,10 @@ describe.runIf(brokerDown === null)(
       expect(rows.length).toBe(events.length);
       const consumer = consumerFor(live, LEDGER_GROUP);
       await consumer.start();
-      await timed('relay', async () => {
-        await publishRows(rows, [...LEDGER_TOPICS], false);
-        await live.hq.query('UPDATE outbox SET published_at = now() WHERE published_at IS NULL');
-      });
+      const relayed = await timed('relay', relay);
+      expect(relayed).toMatchObject({ relay: 'outbox', published: rows.length, failed: 0 });
+      // the relay marked every row it published (in the throwaway database only)
+      expect((await readOutbox(live)).every((r) => r.published)).toBe(true);
       await timed('consume', () =>
         until(
           () => consumer.stats.handled >= rows.length,
@@ -277,19 +308,13 @@ describe.runIf(brokerDown === null)(
       const rows = await readOutbox(live);
       const consumer = consumerFor(fresh, `${LEDGER_GROUP}.replay`);
       await consumer.start();
-      await timed('replay', () =>
-        publishRows(
-          rows,
-          [
-            'shipment.shipped',
-            'refund.issued',
-            'order.cancelled',
-            'payment.captured',
-            'order.placed',
-          ],
-          true,
+      const replayed = await timed('replay', () =>
+        replay(
+          ['shipment.shipped', 'refund.issued', 'order.cancelled', 'payment.captured'],
+          ['order.placed'],
         ),
       );
+      expectReplayed(replayed, rows);
       await timed('replay_consume', () =>
         until(
           () => consumer.stats.handled >= rows.length,
@@ -377,7 +402,7 @@ describe.runIf(brokerDown === null)(
         handled: consumer.stats.handled,
         duplicates: consumer.stats.duplicates,
       };
-      await publishRows(rows, [...LEDGER_TOPICS], true);
+      expectReplayed(await replay([...LEDGER_TOPICS], []), rows);
       await until(
         () => consumer.stats.duplicates >= before.duplicates + rows.length,
         `${rows.length} duplicates`,
@@ -400,3 +425,5 @@ describe.runIf(brokerDown === null)(
 // Local runs 2026-10-23, final code (150 orders = 556 events; relay / consume / replay / replay_consume / reconcile, ms):
 //   run 1: 1,009 / 14,828 / 212 / 12,015 / 364 · run 2: 605 / 12,412 / 211 / 13,206 / 355 · run 3: 1,161 / 16,830 / 199 / 19,212 / 608
 //   medians 1,009 / 14,828 / 211 / 13,206 / 364 → ceilings 30 s / 120 s / 30 s / 120 s / 30 s (≥ 5×).
+// 2026-10-25 (#594): relay and replay are spawned CLIs now (tsx start-up of apps/core per process): their ceilings
+// are 60 s each, unmeasured locally; the three required CI runs on the switch PR are the first measurements.

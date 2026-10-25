@@ -349,11 +349,15 @@ cancellation stays a defect. "Before" and "after" are compared as INSTANTS (`ins
 events contract only promises `format: date-time`, so `09:00:00.500Z`, `09:00:00Z` and `11:00:00+02:00` do not sort
 by time as text. The reconciliation window compares instants the same way.
 
-**Deviation, accepted for now.** The relay and the replay are reproduced through `@platform/events`' wire functions
-(`outboxRowToEnvelope` → `envelopeToMessage`, seq order, the replay headers) on prefixed topics: apps/core's
-`relay-cli` / `outbox:replay` publish to the real topic names of the shared dev broker, and apps/accounting cannot
-import apps/core internals. Once `--topic-prefix` lands on both CLIs (REQUEST #579, window 14) the test
-switches to them.
+**The real relay and replay (since #594 / #595).** The test spawns apps/core's own CLIs against its throwaway database
+(`DATABASE_URL_APP` pointed at it): `relay-cli --once --topic-prefix <p> --throwaway-db --no-registry --batch <n>`
+relays and marks every row, and `replay-cli --topic <t> --topic-prefix <p> --no-registry` replays one topic per
+process (shipments, refunds, cancellations and captures in parallel, then the orders). Every event topic of
+`infra/redpanda/topics.policy.json` is created under the run's prefix first, because the relay refuses to start
+without them; the real topic names are never touched, and `--throwaway-db` refuses the shared dev database. Until
+#595 the test reproduced both with `@platform/events`' wire functions (`outboxRowToEnvelope` → `envelopeToMessage`),
+the deviation accepted on #552; that code is gone. The relay and replay ceilings are 60 s each now, since they include
+process start-up.
 
 ## Out of the Phase 4 gate (manager decision 4)
 

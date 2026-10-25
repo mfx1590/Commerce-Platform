@@ -1,5 +1,14 @@
 # Changelog — @platform/accounting
 
+## 0.6.5 — 2026-10-25 (Integration 4, Refs #594)
+
+- The month replay gate (`test/month-replay.test.ts`) spawns the REAL apps/core CLIs: `relay-cli --once
+--topic-prefix <p> --throwaway-db --no-registry` against its throwaway database, and `replay-cli --topic <t>
+--topic-prefix <p>` once per topic (orders last). The reproduction through `@platform/events`' wire functions
+  (`outboxRowToEnvelope` + `envelopeToMessage`, the deviation accepted on #552) is removed. Every event topic of
+  the repo's policy is created under the run's prefix (the relay's start-up check). The relay and replay ceilings are
+  60 s each (they include process start-up; unmeasured locally, first measured by the required CI runs).
+
 ## 0.6.4 — 2026-10-25 (Integration 4, Refs #594)
 
 - The consumer group is configurable: `ACCOUNTING_GROUP_ID`, or `--group <id>` / `--group=<id>` (the flag wins);
