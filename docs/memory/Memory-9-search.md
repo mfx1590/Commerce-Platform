@@ -2,6 +2,17 @@
 Window: 9 · Key: `search` · Branch prefix: `search/` · Model: Opus 5
 Last updated: 2026-09-15 · Contracts: contracts-v0.4.1 on main (67f19d5) · Branch: `search/phase2` · Status: **PHASE 2 COMPLETE AND QUIET.** 2.1–2.5 merged (#160, #166, #188); 2.5 follow-up #208 merged (main `2456e9a`); this docs-only cleanup is the last commit. Reopens only on a REQUEST.
 
+## PHASE 5 DOCKET (written by the manager, 2026-10-25, Manager session nine) — READ THIS FIRST ON RESUME
+You reopen in Phase 5 wave 2 for **#607** P5.8 recommendations (plan `docs/plan/phase5-plan.md` D10; tracking #612).
+Before you start: merge main into a new branch `search/phase5` (your branch is still at Phase 2; a lot has changed —
+read Memory-main "Current status" first bullet and "Global gotchas", run `pnpm install --frozen-lockfile`, rebuild the
+workspace packages, run `pnpm --filter @platform/auth-sdk fga:seed`).
+- Read `fct_order_line` in ClickHouse (window 12's #601; read-only user) from `apps/core/src/jobs/index-recommendations.ts`;
+  co-occurrence with lift + minimum support per store, popular over 7/30 days; write `product_recommendation` (RLS)
+  through the tenant client; serve Store API `listProductRecommendations` filtered to published, in-stock, same-store.
+- CONTRACT CHANGE first (db table + Store API op, exact diff on #607); the manager lands it on an `integration/*` branch.
+- Then REQUEST window 3 for the rail (#609). Message the manager when a PR is up and when checks finish.
+
 ## Identity (does not change)
 Owned paths (write):
 - `apps/core/src/modules/search/**`

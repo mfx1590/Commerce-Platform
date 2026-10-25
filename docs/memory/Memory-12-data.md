@@ -2,6 +2,20 @@
 Window: 12 · Key: `data` · Branch prefix: `data/` · Branch: `data/phase3`
 Last updated: 2026-10-18 · Contracts: contracts-v0.4.22 (Admin API 0.4.19), db 0.3.8 · Status: Phase 3 reporting v1 — 12.1 and 12.2 merged; 12.3 (#480) built, PR waits for the ownership row on main
 
+## PHASE 5 DOCKET (written by the manager, 2026-10-25, Manager session nine) — READ THIS FIRST ON RESUME
+Phase 3 reporting v1 is done (#478–#480). Phase 5 = data platform and AI; you are its main window. Plan and the
+decisions you must follow: `docs/plan/phase5-plan.md` (D1–D12); tracking #612. New branch `data/phase5` from main.
+New owned paths once the manager's step-0 commit is on main: `packages/ai/**`, `data/clickhouse/**` (ClickHouse runs
+in the shared compose stack: HTTP 18123, native 19000; run `fga:seed` before any auth or live test).
+- Wave 1: **#600** P5.1 ingest (every topic → `raw_events`, exactly once, DLQ, `--once`), then **#601** P5.2 models
+  (staging/facts/marts + `mv_orders_minute`, Vitest on the #552 generated month).
+- Wave 2: **#602** reconcile (three identities: bookings / recognised revenue at shipment / cash), **#603** metrics
+  API (CONTRACT CHANGE, scope added on the server, no SQL input), **#604** admin BI v2.
+- Wave 3: **#605** `packages/ai` gateway, **#606** BI Q&A by tool use over the metrics API.
+Rules that bite: no dbt/Dagster/Metabase (D3, D5); money in minor units, never summed across currencies; no PII in
+ClickHouse; one window measures at a time (ask the manager for the machine); a new required-CI step needs three
+consecutive green runs on one head. Message the manager when a PR is up and when checks finish.
+
 ## Identity (does not change)
 Owned paths (write), per docs/ownership.md row `data/`:
 - `data/**`
