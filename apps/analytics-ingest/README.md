@@ -1,5 +1,101 @@
 # @platform/analytics-ingest
 
-ClickHouse ingest consumer (Phase 5). Streams every bus event into ClickHouse for live dashboards. Scaffold only.
+Every bus event into ClickHouse `raw_events`, exactly once in effect (#600; Phase 5 plan D1, D2, D12). Owner:
+window 12 (data). The models on top of `raw_events` live in `data/clickhouse/` (#601).
 
-See CLAUDE.md for run/test commands and the public API. Owner: window 12 (data)..
+## How it works
+
+```
+Redpanda (every topic of @platform/events, from the beginning)
+  └─ group analytics.raw (override: ANALYTICS_GROUP_ID / --group)
+       ├─ valid event ──► insert buffer ──(size or time flush)──► ClickHouse raw_events ─┐
+       └─ undecodable / unknown topic or version / fails its schema ──► dlq.<group> ──────┤
+                                                                                         ▼
+                                       commit the partition offset only when BOTH are acknowledged
+```
+
+- **Exactly once in effect.** Offsets are committed only after ClickHouse acknowledged the insert (no async
+  insert) and the dead letters are on `dlq.<group>` (acks = all). A crash in between redelivers the batch; its rows
+  come in again with the same `(topic, event_id)` and `raw_events` (ReplacingMergeTree, version `ingested_at`)
+  folds them. **Count with `FINAL`** (or `uniqExact(event_id)`) until a merge has run.
+- **Nothing is dropped silently.** Unlike the SDK's `createConsumer`, which skips an unknown topic or a higher
+  version (a ledger has nothing to post for it), the raw store dead-letters them, so a deploy that knows the new
+  version can replay them (`replayFromDlq`). Dead letters have the SDK's `DeadLetter` shape: ids, offsets and the
+  error class (`UnknownEventError`, `InvalidEventError`, `UndecodableMessageError`). Never the payload.
+- **One group id per process.** `loadConfig` resolves the group once; the consumer, its DLQ topic and the
+  `--once` report's DLQ count all take it from there, so an override can never consume one group while it
+  watches another's dead letters (#599).
+- **Why not `createConsumer`?** It runs one handler per message and commits per kafkajs batch. A ClickHouse
+  insert per message is the wrong shape, and buffering across messages inside a handler cannot wait for the ack
+  before the SDK commits. So this package runs its own `eachBatch` loop over the SDK's wire format
+  (`decodeMessage`), DLQ topic plan (`planTopics`/`ensureTopics`), `DeadLetter` record, `readDeadLetters` and
+  validator.
+- **Per partition, only what was acknowledged.** Each partition batch commits its own offset, and only after
+  its rows are in an acknowledged insert. A rebalance or a crash mid-flush commits nothing for that batch, so it
+  is replayed in full and ReplacingMergeTree folds the duplicates. The batch heartbeats every 2 s while it
+  waits for the flush, so a slow ClickHouse (it is memory-capped on the laptop) does not trigger a rebalance storm.
+- **Writer and reader.** The ingest and `ch:migrate` use the writer (`CLICKHOUSE_USER`, which pins
+  `async_insert = 0`). Readers (`createChReader`, the read-only `CLICKHOUSE_READONLY_USER`) send no per-query
+  settings, because a `readonly = 1` user is refused any. Tests that need DDL use the writer on a throwaway
+  `analytics_test_<word>` database and drop it. `analytics` itself is never dropped (the reader's grant is bound
+  to it).
+- **No PII.** Events carry ids, hashes, amounts and countries only. `payload` is the event's payload verbatim as
+  JSON text, and a test sweeps a generated month over every topic for e-mail, phone, name and address shapes.
+- **Money** stays inside `payload` in integer minor units beside its currency. Nothing here sums anything.
+
+## Run
+
+| Command                                                  | What                                                                                                                                                                                                                                   |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm --filter @platform/analytics-ingest ch:migrate`    | applies `data/clickhouse/migrations/*.sql` to `CLICKHOUSE_DATABASE` (creates it), each file once; a changed applied file is refused                                                                                                    |
+| `pnpm --filter @platform/analytics-ingest dev` / `start` | long-running consumer; `GET /health` on `$PORT` when set (the container contract)                                                                                                                                                      |
+| `pnpm --filter @platform/analytics-ingest once`          | `--once`: drain to idle (≥ `ANALYTICS_MIN_RUN_MS`, then `ANALYTICS_IDLE_MS` quiet, hard stop `ANALYTICS_MAX_RUN_MS`), print one JSON report (rows per topic, dead letters this run, records on the group's DLQ), exit 0 (1 on max_run) |
+
+Flags: `--once`, `--group <id>`, `--topic-prefix <p>` (tests and gates; applies to the DLQ too).
+
+| Variable                                                    | Default                                                     |
+| ----------------------------------------------------------- | ----------------------------------------------------------- |
+| `CLICKHOUSE_URL`                                            | `http://127.0.0.1:18123`                                    |
+| `CLICKHOUSE_USER` / `CLICKHOUSE_PASSWORD`                   | `default` / empty (the shared stack: the writer `platform`) |
+| `CLICKHOUSE_READONLY_USER` / `CLICKHOUSE_READONLY_PASSWORD` | readers only (`analytics_ro`)                               |
+| `CLICKHOUSE_DATABASE`                                       | `analytics`                                                 |
+| `KAFKA_BROKERS`                                             | `127.0.0.1:19092`                                           |
+| `ANALYTICS_GROUP_ID`                                        | `analytics.raw`                                             |
+| `ANALYTICS_TOPIC_PREFIX`                                    | empty                                                       |
+| `ANALYTICS_BATCH_SIZE` / `ANALYTICS_FLUSH_MS`               | 5000 rows / 1000 ms                                         |
+| `ANALYTICS_CONCURRENCY`                                     | 8 partitions at once (the buffer fills across them)         |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`                               | unset = no export                                           |
+
+## Metrics (OpenTelemetry, exported only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set)
+
+| Instrument                         | Kind                                                                                                         | Attributes               |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------ |
+| `analytics_ingest.consumer_lag`    | gauge, messages behind the high watermark after the last committed batch                                     | topic, partition         |
+| `analytics_ingest.ingest_delay`    | histogram, ms from the relay's publish (Kafka timestamp) to the ClickHouse ack (the gate's "lag p95 < 10 s") | none                     |
+| `analytics_ingest.rows_inserted`   | counter                                                                                                      | topic                    |
+| `analytics_ingest.dead_lettered`   | counter                                                                                                      | event_topic, error_class |
+| `analytics_ingest.insert_duration` | histogram, ms per acknowledged insert                                                                        | none                     |
+
+## Tests
+
+`pnpm --filter @platform/analytics-ingest test`. The unit tests need nothing:
+
+- `rows.test.ts`: the row mapping; unknown version, unknown topic, schema failure and undecodable message all go
+  to the DLQ; dead letters carry exactly the SDK fields (no payload); every topic@version is accepted.
+- `batcher.test.ts`: size flush, time flush, resolve only after the ack, a failed insert rejects only its callers,
+  inserts in order.
+- `ingest.test.ts`: commit after the ack; no commit when the insert or the DLQ fails; a replay of the same batch
+  leaves `count() FINAL` unchanged; a crash between insert and commit duplicates rows that FINAL folds; a whole
+  generated month lands once per (topic, event_id).
+- `pii.test.ts`: the sweep (and a planted row proving the sweep finds each shape).
+- `config.test.ts` (group override moves the DLQ, #599), `clickhouse.test.ts` (DDL, statement splitter,
+  idempotent runner), `once.test.ts` (the stopping rule), `metrics.test.ts` (in-memory OTel exporter).
+
+`live.test.ts` runs the real thing against Redpanda and ClickHouse: migrate twice, a month published under a
+throwaway prefix into a throwaway database (once per topic; invalid events on the overridden group's DLQ), a full
+replay into a fresh group (no count changes), and a crash between insert and commit (FINAL folds). It is
+**opt-in** on a laptop (`ANALYTICS_LIVE=1`, only while you hold the machine; CI always opts in), then skipped with
+a printed reason when ClickHouse is down or refuses the configured user, or the broker is down.
+
+The generated month (`src/testing/month.ts`) is built from the schemas themselves: every topic and version of
+`@platform/events`, seeded, validated with the real validator. A new topic is covered the day it lands.

@@ -2,7 +2,8 @@
 
 ## Purpose
 
-ClickHouse ingest consumer (Phase 5). Streams every bus event into ClickHouse for live dashboards. Scaffold only.
+ClickHouse ingest consumer (Phase 5, #600): every bus topic into `raw_events`, exactly once in effect, invalid or
+unknown events to `dlq.<group>`, `--once` drain mode, lag metrics over OpenTelemetry. Design and tests: README.md.
 
 ## Owner
 
@@ -10,22 +11,21 @@ window 12 (data).
 
 ## Run / test
 
-- `pnpm --filter @platform/analytics-ingest build` — compile to dist/
-- `pnpm --filter @platform/analytics-ingest typecheck`
-- `pnpm --filter @platform/analytics-ingest test` — Vitest (tests live in test/)
+- `pnpm --filter @platform/analytics-ingest build | typecheck | lint | test`
+- `pnpm --filter @platform/analytics-ingest ch:migrate` applies `data/clickhouse/migrations/` (idempotent)
+- `pnpm --filter @platform/analytics-ingest once` drains to idle and reports
+- Live tests: `ANALYTICS_LIVE=1` only while holding the machine (ask the manager); CI always runs them.
 - Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/analytics-ingest` before finishing any task.
 
 ## Public API
 
-- Consumer group: analytics.all; idempotent on event_id
+- Consumer group `analytics.raw` (`DEFAULT_GROUP`; override `ANALYTICS_GROUP_ID` / `--group`, which moves the DLQ too)
+- `loadConfig`, `createIngest`, `processBatch`, `classify`, `createBatcher`, `createChClient`, `createRawEventsSink`,
+  `migrate`, `readSqlFiles`, `createIngestMetrics`, `waitForIdle`; types `RawEventRow`, `IngestConfig`, `OnceReport`
 
 ## Constraints
 
 - Import other packages only through their public API (`@platform/<name>`), never `src/*`.
-- No secrets in code. No PII in logs. Every DB access through `@platform/db` tenant client.
+- No secrets in code. No PII in logs or in ClickHouse. ClickHouse SQL lives in `data/clickhouse/`, never inline DDL.
+- Offsets are committed only after the ClickHouse insert and the DLQ write are acknowledged.
 - Update README.md and CHANGELOG.md with every change.
-
-## Phase 0 note
-
-This is a scaffold: package.json, tsconfig, an empty index.ts. The owning window replaces it with the real
-framework setup (Medusa 2 / Next.js) in its first Phase 1 task. Keep the package name and the CLAUDE.md sections.
