@@ -165,7 +165,28 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **Never commit a 64-hex email_hash fixture.** The `sha256` $def needs a real 64-hex value, so a word will not validate — compute it: `createHash('sha256').update('…').digest('hex')`, which is what apps/core does. I had three such literals before catching it; one would have reddened every open PR.
 - `pg` is deliberately NOT a dependency of this app: for a pool type use `Parameters<typeof createTenantClient>[0]`.
 
-## RESUME HERE — 2026-10-25: Integration 4 step 3 DONE, PR open, window 16 otherwise idle
+## RESUME HERE — 2026-10-25: INTEGRATION 4 DONE, PHASE 4 CLOSED, WINDOW 16 IDLE
+
+**#598 MERGED = `b2a967a`** (Integration 4 step 3; Opus review = MERGE). **#594 closed, Phase 4 closed**,
+tags `contracts-v0.4.28` and `events-v1.1`. Window 16 is idle; the manager writes if anything comes up.
+
+**#599 IS FILED FOR ME AND IS A REAL BUG I INTRODUCED — do NOT start it until a manager session assigns
+it.** From the #598 review: in `src/main.ts`'s LONG-RUNNING path, `config.groups` is passed to the drain's
+consumers but NOT to the long-running ones, while `dlq.groups` now DEFAULTS to `config.groups`. So
+`ENGAGEMENT_*_GROUP_ID` set WITHOUT `--drain` makes the process consume `engagement.cdp` while watching
+`dlq.engagement.cdp.int4` — an all-clear about a queue nobody fills, which is the exact failure mode I wrote
+the rule about and then built into the other path. Preferred fix per the issue: **refuse the group overrides
+unless `--drain` is given**; the alternative is wiring them through the long-running path consistently. Test
+both ways. Nits with it: the co-author trailer, and state in the drain report that ops is ALWAYS enabled
+(the report prints `enabled: { ops: true, … }` as a constant, which reads like a resolved value).
+
+**The lesson, written down because it is the second time a report of mine was righter than the code:** when
+one path gains a defaulted value, check every OTHER path that reads it. The drain and the long-running mode
+share `resolveConfig`, so a default added for one silently changed the other.
+
+<!-- The step-3 detail below stays: it is the record of what ran and the operational traps. -->
+
+## Integration 4 step 3 — what ran (2026-10-25)
 
 **#594 step 3 (engagement on the dev bus) ran GREEN on branch `engagement/int4`** (cut from main `5cbe10b`).
 Built for it: `--drain` (one-shot measurement mode), per-module group overrides, `src/drain.ts`
