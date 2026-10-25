@@ -34,7 +34,10 @@ expect violation brands/phase2     cms/src/index.ts                   # the cms 
 expect violation brands/phase2     apps/storefront-starter/src/app/page.tsx
 expect ok        data/phase3       data/dbt/models/x.sql "apps/admin/src/app/(hq)/bi/page.tsx"
 expect violation data/phase3       "apps/admin/src/app/(hq)/finance/page.tsx"
-expect ok        events/phase4     apps/core/src/outbox/relay.ts packages/events/schemas/order.placed/v2.json
+expect ok        events/phase5     apps/core/src/outbox/relay.ts packages/ai/src/index.ts
+expect violation events/phase5     packages/events/schemas/order.placed/v2.json
+expect ok        data/phase5       data/clickhouse/migrations/0001_raw_events.sql apps/analytics-ingest/src/index.ts
+expect violation data/phase5       packages/ai/src/index.ts
 expect violation events/phase4     packages/db/migrations/0001.sql
 expect ok        main/anything     packages/contracts/openapi/store-api.yaml
 expect ok        integration/phase1 packages/db/migrations/0009.sql
