@@ -286,7 +286,8 @@ services:
       - ../clickhouse/config.d/low-memory.xml:/etc/clickhouse-server/config.d/low-memory.xml:ro
       - ../clickhouse/users.d/analytics-readonly.xml:/etc/clickhouse-server/users.d/analytics-readonly.xml:ro
     healthcheck:
-      test: ['CMD-SHELL', 'clickhouse-client --user platform --password platform --query "SELECT 1"']
+      test:
+        ['CMD-SHELL', 'clickhouse-client --user platform --password platform --query "SELECT 1"']
       interval: 5s
       timeout: 3s
       retries: 30
