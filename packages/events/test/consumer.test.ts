@@ -471,7 +471,8 @@ describe.runIf(brokerDown === null)(
           topics: [topic],
           topicPrefix: prefix,
           kafka,
-          fromBeginning: false,
+          // the SDK default: the group never committed, so only a start from the beginning sees the message again
+          fromBeginning: true,
           log: quiet,
           sleep: noWait,
           handler: async (m) => {

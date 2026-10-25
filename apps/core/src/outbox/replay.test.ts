@@ -381,7 +381,9 @@ describe('replayOutbox (database, recording publisher)', () => {
         },
         { organizationId: ORG, topic: 'order.placed', log: quiet },
       ),
-    ).rejects.toThrow(/stopped after 0 row\(s\) in 0 batch\(es\) \(last_seq 0\): Error/);
+    ).rejects.toThrow(
+      /stopped after 0 row\(s\) in 0 batch\(es\) \(last_seq 0; resume with --after-seq 0\): Error/,
+    );
   });
 });
 
