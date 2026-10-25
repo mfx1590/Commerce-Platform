@@ -44,8 +44,13 @@ SELECT
     provider,
     count()                              AS captured_count,
     sum(amount_minor)                    AS captured_minor,
-    coalesce(sum(fee_minor), 0)          AS fee_minor,
-    countIf(isNull(fee_minor))           AS fee_unknown
-FROM fct_payment
-WHERE status = 'captured'
+    coalesce(sum(fee), 0)                AS fee_minor,
+    countIf(isNull(fee))                 AS fee_unknown
+FROM
+(
+    -- the source column is renamed so the output alias fee_minor cannot shadow it inside countIf
+    SELECT organization_id, store_id, at, currency, provider, amount_minor, fee_minor AS fee
+    FROM fct_payment
+    WHERE status = 'captured'
+)
 GROUP BY organization_id, store_id, day, currency, provider;

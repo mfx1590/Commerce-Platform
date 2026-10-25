@@ -76,8 +76,14 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   `data/clickhouse/models/{100_staging,200_dims,300_facts,400_marts,500_live}.sql`; runner → `src/migrations.ts`
   (models re-applied on change, idempotency lint, `_migrations_lock`); InsertRejectedError (follow-up 2);
   `createChReader`; `src/models.test.ts` (9 tests, opt-in) + `src/testing/clickhouse-gate.ts`; READMEs, CHANGELOG 0.3.0.
-- 49 unit tests green. models.test NOT YET RUN: asked the manager for the machine (2026-10-25). Also run live.test
-  once to confirm the runner change. Asked whether models.test titles get pinned in CI.
+- 49 unit tests green. With the manager's machine (2026-10-25): models.test 11 + live.test 4 = 15/15 green, THREE
+  consecutive runs, 0 leftover databases/topics. The first run found a real bug (mart_cash_daily: output alias
+  fee_minor shadowed the source column inside countIf → "aggregate inside aggregate"; fixed with a renaming
+  subquery). Manager's two checks added: backfill racing the MV; two runners at once (lock).
+- models.test TITLES ARE FROZEN (the manager pins them in CI when #601 lands): describes "ClickHouse models on the
+  generated month" and "ClickHouse runner under concurrency", 11 its as in the file. Never rename them.
+- check-ownership flags packages/test-utils/src/index.ts ONLY because #617 is merged locally; clears once #617 is
+  on main and main is merged.
 - PR body must state: the bookings/cash marts are tested against references computed from the events (Postgres =
   ClickHouse is #602's); the live-tile choice (RMT per event + FINAL read, uniqExact); follow-ups 2 and 4 done;
   follow-ups 3 (memory bound doc) and 5 (ch:migrate via tsx in prod image) are later notes.

@@ -20,7 +20,7 @@ import { generateMonth, ORG } from '@platform/test-utils';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createChClient, createRawEventsSink, type ChClient } from './clickhouse.js';
 import { loadConfig } from './config.js';
-import { migrate, readSqlFiles } from './migrations.js';
+import { migrate, MigrationLockedError, readSqlFiles } from './migrations.js';
 import { classify, type RawEventRow } from './rows.js';
 import { clickHouseSkipReason, throwawayDatabase } from './testing/clickhouse-gate.js';
 import { toWire } from './testing/fakes.js';
@@ -385,5 +385,84 @@ describe.runIf(skip === null)('ClickHouse models on the generated month', () => 
        AND match(name, '(?i)(email|customer|phone|address|first_name|last_name|postcode)')`,
     );
     expect(rows).toEqual([]);
+  });
+});
+
+describe.runIf(skip === null)('ClickHouse runner under concurrency', () => {
+  const made: string[] = [];
+  let admin: ChClient;
+  const clients: ChClient[] = [];
+  const open = (db: string): ChClient => {
+    const c = createChClient(cfg, db);
+    clients.push(c);
+    return c;
+  };
+  const q = async (c: ChClient, query: string): Promise<Row[]> =>
+    (await c.query({ query, format: 'JSONEachRow' })).json<Row>();
+
+  beforeAll(() => {
+    admin = createChClient(cfg, 'default');
+  });
+
+  afterAll(async () => {
+    for (const db of made)
+      await admin?.command({ query: `DROP DATABASE IF EXISTS ${db}` }).catch(() => undefined);
+    await Promise.allSettled([admin?.close(), ...clients.map((c) => c.close())]);
+  });
+
+  it('the 0002 backfill racing the MV (rows arriving during the migration) leaves one row per event after FINAL', async () => {
+    const db = throwawayDatabase();
+    made.push(db);
+    const c = open(db);
+    const files = readSqlFiles();
+    await migrate(
+      admin,
+      c,
+      db,
+      files.filter((f) => f.name === '0001_raw_events.sql'),
+    );
+    const rows = rowsOf(allEvents, '2026-11-01T00:00:00.000Z');
+    const sink = createRawEventsSink(c);
+    const half = Math.floor(rows.length / 2);
+    await sink.insert(rows.slice(0, half));
+    // the rest arrives in small inserts WHILE the migration creates the MV and runs its backfill
+    const trickle = (async () => {
+      for (let i = half; i < rows.length; i += 25) await sink.insert(rows.slice(i, i + 25));
+    })();
+    await Promise.all([migrate(admin, open(db), db, files), trickle]);
+    const [r] = await q(
+      c,
+      `SELECT count() n, uniqExact(event_id) u FROM orders_minute_events FINAL`,
+    );
+    expect(Number(r!.n)).toBe(placed.length);
+    expect(Number(r!.u)).toBe(placed.length);
+    const [t] = await q(c, 'SELECT sum(orders) n FROM live_orders_minute');
+    expect(Number(t!.n)).toBe(placed.length);
+  });
+
+  it('a second runner exits cleanly while the first holds the lock, and no file is applied twice', async () => {
+    const db = throwawayDatabase();
+    made.push(db);
+    const files = readSqlFiles();
+    const outcomes = await Promise.allSettled([
+      migrate(admin, open(db), db, files),
+      migrate(admin, open(db), db, files),
+    ]);
+    const done = outcomes.filter((o) => o.status === 'fulfilled');
+    const refused = outcomes.filter((o) => o.status === 'rejected');
+    expect(done.length).toBeGreaterThanOrEqual(1);
+    for (const o of refused)
+      expect((o as PromiseRejectedResult).reason).toBeInstanceOf(MigrationLockedError);
+    const c = open(db);
+    // every file recorded exactly once (a second application would add a second row before FINAL folds it)
+    const perFile = await q(c, 'SELECT name, count() n FROM _migrations GROUP BY name');
+    expect(perFile.map((r) => r.name).sort()).toEqual(files.map((f) => f.name).sort());
+    expect(perFile.every((r) => Number(r.n) === 1)).toBe(true);
+    // the lock is released, so the next run is a clean no-op
+    const again = await migrate(admin, c, db, files);
+    expect(again.applied).toEqual([]);
+    expect(again.reapplied).toEqual([]);
+    const [l] = await q(c, 'SELECT count() n FROM _migrations_lock');
+    expect(Number(l!.n)).toBe(0);
   });
 });
