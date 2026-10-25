@@ -29,6 +29,11 @@ re-reads history without moving the live group's offsets:
 ENGAGEMENT_CDP_GROUP_ID=engagement.cdp.int4 pnpm --filter @platform/engagement drain
 ```
 
+Both modes build their consumers through the same `buildConsumers`, so a group override moves the consumer
+AND its DLQ watch together (#599) — and `resolveConfig` refuses to start at all if an explicit
+`ENGAGEMENT_DLQ_GROUPS` omits a group this process runs, exiting **2** with a message naming it. More
+watched groups than we run is fine; fewer is the failure that issue was about.
+
 Stopping is a rule, not a timeout: a fresh group has to join and be assigned partitions before anything can
 arrive, so "nothing yet" and "nothing left" are the same for the first seconds. A run therefore lasts at least
 `ENGAGEMENT_DRAIN_MIN_RUN_MS` (20 s) and ends `ENGAGEMENT_DRAIN_IDLE_MS` (10 s) after the last batch —

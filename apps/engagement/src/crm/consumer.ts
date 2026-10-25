@@ -286,7 +286,7 @@ export function createCrmConsumer(opts: CrmConsumerOptions): CrmConsumer {
         service: 'engagement',
         module: 'crm',
         event: 'started',
-        group_id: CRM_GROUP_ID,
+        group_id: groupId,
         adapter: opts.adapter.name,
       });
     },
@@ -296,7 +296,7 @@ export function createCrmConsumer(opts: CrmConsumerOptions): CrmConsumer {
         service: 'engagement',
         module: 'crm',
         event: 'stopped',
-        group_id: CRM_GROUP_ID,
+        group_id: groupId,
       });
     },
   };

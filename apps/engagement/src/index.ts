@@ -67,6 +67,8 @@ export {
   CONSENT_MODE_ENV_PREFIX,
 } from './consent-mode.js';
 
+export { ConfigRefusedError, CONFIG_REFUSED_EXIT } from './config-error.js';
+
 export { summariseDrain, waitForIdle } from './drain.js';
 export type {
   DrainLogLine,
