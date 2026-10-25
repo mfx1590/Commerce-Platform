@@ -36,7 +36,8 @@ landed by the manager in `packages/db`.
   companies, accounts, journals, mapping; idempotent, slow the first time; env ODOO_URL/DB/USER/API_KEY + ODOO_MASTER_PASSWORD).
   Loopback hosts only unless `--allow-remote`; never rewrites a company it finds.
 - `pnpm --filter @platform/accounting exec vitest run test/month-replay.test.ts` — the Integration 4 gate (#552) alone;
-  `MONTH_REPLAY_ORDERS` scales it; needs the local broker, ask the manager for the machine before running it.
+  `MONTH_REPLAY_ORDERS` scales it; needs the local broker, ask the manager for the machine before running it. It spawns
+  apps/core's real `relay-cli` / `replay-cli` with `--topic-prefix` + `--throwaway-db` (#595).
 - `pnpm --filter @platform/accounting typecheck | lint | build`.
 - Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/accounting` before finishing any task.
 
