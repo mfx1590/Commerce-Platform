@@ -1,6 +1,7 @@
 import { SEED_IDS } from '@platform/db';
 import { describe, expect, it } from 'vitest';
 import { KNOWN_GROUPS, resolveConfig, storeEnvKey } from './config.js';
+import { ConfigRefusedError } from './config-error.js';
 import { assertConsentModeOverridesKnown, ConsentModeConfigError } from './consent-mode.js';
 import { buildCdpAdapter, buildCrmAdapter, buildTokenProvider, buildTransport } from './main.js';
 
@@ -400,6 +401,50 @@ describe('assertConsentModeOverridesKnown (#586)', () => {
       ),
     ).toThrow(/BRANDA, ENGAGEMENT_CDP_CONSENT_MODE_BRAND_D/);
   });
+});
+
+describe('every configuration refusal is a ConfigRefusedError (#599)', () => {
+  // The exit-2 claim is only true while this holds: the entry point decides the code and the printing from
+  // the CLASS, so a refusal that throws a plain Error exits 1 and keeps its message to itself. The #613
+  // review found the claim wider than the code; this is what keeps them together as config.ts grows.
+  const prod = { ENGAGEMENT_TRANSPORT: 'slack', SLACK_OPS_WEBHOOK_URL: WEBHOOK };
+  const cases: { what: string; env: Record<string, string>; nodeEnv?: string }[] = [
+    { what: 'a missing database URL', env: {} },
+    { what: 'an unknown transport', env: { ...base, ENGAGEMENT_TRANSPORT: 'carrier-pigeon' } },
+    { what: 'slack without a webhook', env: { ...base, ENGAGEMENT_TRANSPORT: 'slack' } },
+    { what: 'the dev transport in production', env: { ...base }, nodeEnv: 'production' },
+    { what: 'a bad group id', env: { ...base, ENGAGEMENT_CDP_GROUP_ID: 'Engagement.Cdp' } },
+    { what: 'a bad integer', env: { ...base, ENGAGEMENT_DLQ_THRESHOLD: 'a few' } },
+    { what: 'an unknown CDP adapter', env: { ...base, ENGAGEMENT_CDP_ADAPTER: 'segment' } },
+    { what: 'an unknown CRM adapter', env: { ...base, ENGAGEMENT_CRM_ADAPTER: 'salesforce' } },
+    {
+      what: 'an unknown token provider',
+      env: { ...base, ENGAGEMENT_CRM_TOKEN_PROVIDER: 'magic' },
+    },
+    {
+      what: 'dev tokens in production',
+      env: { ...base, ...prod, ENGAGEMENT_DEV_TOKENS: '1' },
+      nodeEnv: 'production',
+    },
+    {
+      what: 'the memory CDP adapter in production',
+      env: { ...base, ...prod, ENGAGEMENT_CDP_ENABLED: '1' },
+      nodeEnv: 'production',
+    },
+    {
+      what: 'a watch list that omits a running group',
+      env: { ...base, ENGAGEMENT_DLQ_GROUPS: 'accounting.ledger' },
+    },
+    { what: 'an unknown consent mode', env: { ...base, ENGAGEMENT_CDP_CONSENT_MODE: 'strcit' } },
+  ];
+
+  for (const c of cases) {
+    it(`refuses ${c.what} with a ConfigRefusedError`, () => {
+      expect(() =>
+        resolveConfig({ env: c.env, ...(c.nodeEnv ? { nodeEnv: c.nodeEnv } : {}), argv: [] }),
+      ).toThrow(ConfigRefusedError);
+    });
+  }
 });
 
 describe('the consumer groups are overridable per module (#594)', () => {

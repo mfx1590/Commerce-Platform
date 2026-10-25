@@ -17,15 +17,21 @@ A group override moved the DLQ watch and left the consumer behind. One builder n
 - **`resolveConfig` refuses the one remaining way to split them**: an explicit `ENGAGEMENT_DLQ_GROUPS` that
   omits a group this process runs. More groups than we run stays fine (production must list every group on
   the bus, other windows' included); fewer is refused with a message naming the group.
-- **A configuration refusal now exits 2** (`ConfigRefusedError`, which `ConsentModeConfigError` extends): a
-  supervisor that restarts on a crash must not restart on an environment that has already been refused —
-  the same environment is refused again, forever, and the restart loop buries the message. 1 stays
-  "something went wrong at runtime". The message is printed for this class only, and only because this
-  repository builds it from variable names and values it chose.
+- **Every configuration refusal now exits 2** (`ConfigRefusedError`, which `ConsentModeConfigError`
+  extends): a supervisor that restarts on a crash must not restart on an environment that has already been
+  refused — the same environment is refused again, forever, and the restart loop buries the message. 1 stays
+  "something went wrong at runtime". **All 16 refusals in `config.ts` are that class** (#613 review: the
+  claim was wider than the code), and a test pins every one of them, because the entry point decides the
+  exit code and the printing from the CLASS. The message is printed for this class only, and that holds
+  only while these messages name variables and echo values this repository chose — a mode, an adapter, a
+  group id, a port — and never the value of a credential-bearing variable.
+- **The `started` / `stopped` log lines print the RESOLVED group id**, not the module constant (#613 review):
+  the same drift as #599 one level down, in all three consumers. A log line that names the default while the
+  consumer runs another group cannot answer the one question it exists for.
 - The drain report says `ran`, not `enabled`: ops has no switch, so `enabled.ops: true` was a constant
   dressed up as a resolved value (#599 nit).
-- Tests: **441 passing with the broker up** (21 files, 112 s; live blocks self-cleaning: cdp 30 topics, crm
-  21, ops 12), 432/9 offline. `src/main.test.ts` is new and states the invariant — every group a consumer
+- Tests: **445 passing / 9 live skipped offline** (21 files) after the #613 review fixes; 441/441 with the
+  broker up before them (21 files, 112 s; live blocks self-cleaning: cdp 30 topics, crm 21, ops 12). `src/main.test.ts` is new and states the invariant — every group a consumer
   runs is a group the watch watches — across six configurations including the one that was broken, with no
   broker and no database, because constructing a consumer connects to nothing.
 

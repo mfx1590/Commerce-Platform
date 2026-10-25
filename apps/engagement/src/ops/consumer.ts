@@ -210,7 +210,7 @@ export function createOpsConsumer(opts: OpsConsumerOptions): OpsConsumer {
         service: 'engagement',
         module: 'ops',
         event: 'started',
-        group_id: OPS_GROUP_ID,
+        group_id: groupId,
         transport: opts.transport.name,
       });
     },
@@ -220,7 +220,7 @@ export function createOpsConsumer(opts: OpsConsumerOptions): OpsConsumer {
         service: 'engagement',
         module: 'ops',
         event: 'stopped',
-        group_id: OPS_GROUP_ID,
+        group_id: groupId,
       });
     },
   };

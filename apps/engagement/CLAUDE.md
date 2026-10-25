@@ -149,12 +149,18 @@ package yet.
   starts, from one warmed `StoreCodes` it then hands to the CDP consumer (`resolveConfig` has no database, so
   the check cannot live there, and it is skipped entirely while the CDP is disabled).
 - **A startup refusal must stop the PROCESS, not just set an exit code** (#590 review, which found exactly
-  that bug): anything already started keeps the event loop alive, so `process.exitCode = 1` is a no-op and
+  that bug): anything already started keeps the event loop alive, so `process.exitCode` alone is a no-op and
   the service stays up with a configuration it refused. Validate before starting, unwind what started on a
-  failure, write the crash line synchronously, and `process.exit(1)`.
-- **`ConsentModeConfigError` is the one error class whose MESSAGE the crash line prints** — a deliberate
-  exception to "the class only", and it holds only because `consent-mode.ts` builds those messages from env
-  variable names and store codes. Never put a payload, a secret or an address into one, and keep the test
+  failure, write the crash line synchronously, and `process.exit(…)`.
+- **A configuration refusal is a `ConfigRefusedError` and exits 2; everything else exits 1** (#599). Every
+  refusal in `config.ts` is one, and `ConsentModeConfigError` extends it. A supervisor that restarts on a
+  crash must not restart on an environment that has already been refused — it will be refused again, and the
+  loop buries the message.
+- **A `ConfigRefusedError`'s MESSAGE is printed by the crash line**, the one exception to "the class only".
+  It holds only while those messages are built from env variable NAMES and from values this repository chose
+  — a mode, an adapter, a group id, a port. **Never echo the value of a credential-bearing variable**
+  (`DATABASE_URL_APP`, `SLACK_OPS_WEBHOOK_URL`, `TWENTY_API_KEY`, `RUDDERSTACK_WRITE_KEY`,
+  `CHATWOOT_WEBHOOK_SECRET`, `ENGAGEMENT_CRM_MOCK_TOKEN`) and never a payload or an address. Keep the test
   that pins every consent-mode failure to this class.
 - **CDP consent mode (#576, owner decision 2026-10-23):** `analytics` is the DEFAULT — track and identify run
   without `marketing_email`, and a guest is tracked under their `email_hash`. `strict` is #554's behaviour. The
