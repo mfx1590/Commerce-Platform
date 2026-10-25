@@ -402,6 +402,94 @@ describe('assertConsentModeOverridesKnown (#586)', () => {
   });
 });
 
+describe('the consumer groups are overridable per module (#594)', () => {
+  it('defaults to the three constants, and watches exactly those', () => {
+    const c = resolveConfig({ env: base, argv: [] });
+    expect(c.groups).toEqual({
+      ops: 'engagement.ops',
+      cdp: 'engagement.cdp',
+      crm: 'engagement.crm',
+    });
+    expect(c.dlq.groups).toEqual([...KNOWN_GROUPS]);
+  });
+
+  it('takes a FRESH group per module, and the DLQ watch follows the groups this process runs', () => {
+    const c = resolveConfig({
+      env: {
+        ...base,
+        ENGAGEMENT_OPS_GROUP_ID: 'engagement.ops.int4',
+        ENGAGEMENT_CDP_GROUP_ID: 'engagement.cdp.int4',
+        ENGAGEMENT_CRM_GROUP_ID: 'engagement.crm.int4',
+      },
+      argv: [],
+    });
+    expect(c.groups).toEqual({
+      ops: 'engagement.ops.int4',
+      cdp: 'engagement.cdp.int4',
+      crm: 'engagement.crm.int4',
+    });
+    // The point of tying them together: watching `engagement.cdp` while running `engagement.cdp.int4`
+    // reports on a queue nobody in this process is filling, which reads as "all clear".
+    expect(c.dlq.groups).toEqual([
+      'engagement.ops.int4',
+      'engagement.cdp.int4',
+      'engagement.crm.int4',
+    ]);
+  });
+
+  it('refuses a group id the marks table would reject, at the boot rather than at the first mark', () => {
+    // `consumer_processed.group_id` has this exact CHECK (packages/db 0202): a group the table refuses must
+    // not be discovered after the first batch has already been handled.
+    for (const bad of ['Engagement.Ops', '1group', 'engagement ops', 'engagement/ops']) {
+      expect(() =>
+        resolveConfig({ env: { ...base, ENGAGEMENT_CDP_GROUP_ID: bad }, argv: [] }),
+      ).toThrow(/ENGAGEMENT_CDP_GROUP_ID must match/);
+    }
+  });
+
+  it('treats a blank override as "not set", so an empty variable cannot silently rename a group', () => {
+    const c = resolveConfig({ env: { ...base, ENGAGEMENT_OPS_GROUP_ID: '   ' }, argv: [] });
+    expect(c.groups.ops).toBe('engagement.ops');
+  });
+
+  it('still honours an explicit ENGAGEMENT_DLQ_GROUPS over the groups it runs', () => {
+    // Production must list every group on the bus, other windows' included, and that stays the operator's
+    // call — the override is only the DEFAULT.
+    const c = resolveConfig({
+      env: {
+        ...base,
+        ENGAGEMENT_CDP_GROUP_ID: 'engagement.cdp.int4',
+        ENGAGEMENT_DLQ_GROUPS: 'accounting.ledger, engagement.cdp.int4',
+      },
+      argv: [],
+    });
+    expect(c.dlq.groups).toEqual(['accounting.ledger', 'engagement.cdp.int4']);
+  });
+});
+
+describe('--drain, the one-shot measurement mode (#594)', () => {
+  it('is off unless the flag is given', () => {
+    const c = resolveConfig({ env: base, argv: ['node', 'main.js'] });
+    expect(c.drain.enabled).toBe(false);
+  });
+
+  it('is on with --drain, with an idle window and a minimum run', () => {
+    const c = resolveConfig({ env: base, argv: ['node', 'main.js', '--drain'] });
+    expect(c.drain).toEqual({ enabled: true, idleMs: 10_000, minRunMs: 20_000 });
+  });
+
+  it('takes both windows from the environment, and refuses a non-number', () => {
+    const c = resolveConfig({
+      env: { ...base, ENGAGEMENT_DRAIN_IDLE_MS: '3000', ENGAGEMENT_DRAIN_MIN_RUN_MS: '9000' },
+      argv: ['--drain'],
+    });
+    expect(c.drain).toEqual({ enabled: true, idleMs: 3_000, minRunMs: 9_000 });
+    expect(() =>
+      resolveConfig({ env: { ...base, ENGAGEMENT_DRAIN_IDLE_MS: 'soon' }, argv: [] }),
+    ).toThrow(/ENGAGEMENT_DRAIN_IDLE_MS/);
+  });
+});
+
 describe('buildCdpAdapter', () => {
   it('builds the memory adapter by default', () => {
     expect(buildCdpAdapter(resolveConfig({ env: base })).name).toBe('memory');
@@ -510,6 +598,62 @@ describe('resolveConfig — the CRM side (#555)', () => {
   it('never carries twenty credentials when the adapter is memory', () => {
     const c = resolveConfig({ env: { ...base, TWENTY_API_KEY: 'twenty-api-key-words-only' } });
     expect(JSON.stringify(c)).not.toContain('twenty-api-key-words-only');
+  });
+});
+
+describe('ENGAGEMENT_CRM_MOCK_TOKEN — the dev stand-in for #565 (#594)', () => {
+  const crmOn = { ...base, ENGAGEMENT_CRM_ENABLED: '1' };
+  // In production the dev transport is refused FIRST, so a production case has to be valid otherwise or it
+  // proves the wrong refusal.
+  const prod = { ENGAGEMENT_TRANSPORT: 'slack', SLACK_OPS_WEBHOOK_URL: WEBHOOK };
+
+  it('is handed to the mock provider when set', () => {
+    const c = resolveConfig({ env: { ...crmOn, ENGAGEMENT_CRM_MOCK_TOKEN: 'dev:seed-support' } });
+    expect(c.crm.mockToken).toBe('dev:seed-support');
+    expect(buildTokenProvider(c).name).toBe('mock');
+  });
+
+  it('is absent, not empty, when unset or blank', () => {
+    expect(resolveConfig({ env: crmOn }).crm.mockToken).toBeUndefined();
+    expect(
+      resolveConfig({ env: { ...crmOn, ENGAGEMENT_CRM_MOCK_TOKEN: '  ' } }).crm.mockToken,
+    ).toBeUndefined();
+  });
+
+  it('IS REFUSED IN PRODUCTION, set or not, used or not', () => {
+    // Two independent refusals, and both matter: the stand-in is a staff subject standing in for a service
+    // principal that does not exist yet, so a production process must neither use it nor carry it.
+    expect(() =>
+      resolveConfig({
+        env: {
+          ...crmOn,
+          ...prod,
+          ENGAGEMENT_CRM_ADAPTER: 'twenty',
+          ENGAGEMENT_CRM_MOCK_TOKEN: 'dev:seed-support',
+        },
+        nodeEnv: 'production',
+      }),
+    ).toThrow(/ENGAGEMENT_CRM_MOCK_TOKEN is refused in production/);
+    // Even with the CRM switched off, where nothing would read it.
+    expect(() =>
+      resolveConfig({
+        env: { ...base, ...prod, ENGAGEMENT_CRM_MOCK_TOKEN: 'dev:seed-support' },
+        nodeEnv: 'production',
+      }),
+    ).toThrow(/ENGAGEMENT_CRM_MOCK_TOKEN is refused in production/);
+    // And the mock PROVIDER stays refused there on its own, which is the older rule this must not weaken.
+    expect(() =>
+      resolveConfig({
+        env: {
+          ...crmOn,
+          ...prod,
+          ENGAGEMENT_CRM_ADAPTER: 'twenty',
+          TWENTY_BASE_URL: 'https://crm.example.test',
+          TWENTY_API_KEY: 'words-only-not-a-key',
+        },
+        nodeEnv: 'production',
+      }),
+    ).toThrow(/mock is refused in production/);
   });
 });
 

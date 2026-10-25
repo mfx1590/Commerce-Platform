@@ -165,7 +165,40 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **Never commit a 64-hex email_hash fixture.** The `sha256` $def needs a real 64-hex value, so a word will not validate — compute it: `createHash('sha256').update('…').digest('hex')`, which is what apps/core does. I had three such literals before catching it; one would have reddened every open PR.
 - `pg` is deliberately NOT a dependency of this app: for a pool type use `Parameters<typeof createTenantClient>[0]`.
 
-## RESUME HERE — 2026-10-24: PHASE 4 IS COMPLETE AND WINDOW 16 IS IDLE
+## RESUME HERE — 2026-10-25: Integration 4 step 3 DONE, PR open, window 16 otherwise idle
+
+**#594 step 3 (engagement on the dev bus) ran GREEN on branch `engagement/int4`** (cut from main `5cbe10b`).
+Built for it: `--drain` (one-shot measurement mode), per-module group overrides, `src/drain.ts`
+(`summariseDrain` + `waitForIdle`), `StoreCodes.codes()` shared with the entry point, and
+`ENGAGEMENT_CRM_MOCK_TOKEN` — the manager-approved DEV STAND-IN for the #565 principal, never in production.
+Package 0.6.0, 423 passed / 9 live skipped offline.
+
+**The numbers (one run, machine granted and returned):** CDP 152 handled / 148 sent / 4 dropped; CRM 149
+handled / 20 upserted / 129 skipped; OPS 0 events; **0 dead letters in all three fresh groups**
+(`engagement.{ops,cdp,crm}.int4`); PII sweep 0 hits over the 152 CDP calls, the dev sink and all 312 log
+lines. Live support context: 200 with 18 orders through `listOrders?customer_id=` against the real core, and
+a brand-B customer under brand-a = 404 — **#569's Integration 4 item is closed**, so the "a fake reader
+cannot prove the core honours the filter" caveat from #556 is answered.
+
+**Three findings worth keeping:**
+1. **The dev data cannot exercise ops at all** — no `payment.failed` / `refund.failed` / `return.requested`
+   has ever been produced on the dev stack. Reported as a coverage gap, not a pass.
+2. **#584's guest-lifecycle asymmetry showed up on real data**: all 4 CDP drops were `no_identity` on
+   `order.cancelled` / `shipment.shipped`, whose payloads carry neither id, while 126 guest `order.placed`
+   events were tracked under their `email_hash`.
+3. **The report caught its own bug**: a dropped CDP line still carries the `call` the mapper produced, so
+   counting every line read 149 tracks against 148 sends. Fixed (sent only) with a test. Keeping BOTH the
+   log-derived report and the consumers' own counters is what made it visible.
+
+**Operational notes for the next live run:** the engagement process does NOT load the root `.env`, so
+`OPENFGA_*` and `KEYCLOAK_*` must be passed explicitly or the support gate answers 503 (fail closed, which I
+saw). Pin `DATABASE_URL_APP` and `KAFKA_BROKERS` to 127.0.0.1 — but **leave `KEYCLOAK_URL` on `localhost`**:
+the verifier pins the issuer, and a 127.0.0.1 host turns a valid token into 401. The core must run with
+`CORE_DEV_TOKENS=1` for the CRM stand-in token, and it outlives its wrapper — stop it by port.
+
+<!-- The 2026-10-24 end-of-phase block below still describes the four Phase 4 tasks. -->
+
+## RESUME (superseded) — 2026-10-24: PHASE 4 COMPLETE, WINDOW 16 IDLE
 
 **All six issues merged:** #553 (via #563), #554 (#564), #555 (#568), #556 (#573), #576 (#585 = `6897960`)
 and **#586 (#590 = `a689f58`)**. The manager confirmed the list is closed and told this window to go idle; he

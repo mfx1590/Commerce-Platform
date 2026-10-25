@@ -35,6 +35,17 @@ export interface EngagementConfig {
   cdp: CdpConfig;
   crm: CrmConfig;
   support: SupportConfig;
+  /**
+   * The three consumer groups. Overridable per module (#594, Integration 4) so a one-off run can read the
+   * real topics from the beginning under a FRESH group, without moving the live group's offsets or writing
+   * marks under its name. Defaults are the modules' own constants.
+   */
+  groups: { ops: string; cdp: string; crm: string };
+  /**
+   * `--drain`: start the consumers, read from the beginning, and stop once the bus has been quiet — the
+   * one-shot mode Integration 4 measures with. NOT `--once`, which is the DLQ poll and stays what it was.
+   */
+  drain: { enabled: boolean; idleMs: number; minRunMs: number };
 }
 
 export interface SupportConfig {
@@ -68,6 +79,18 @@ export interface CrmConfig {
    * or worse, acting as somebody else.
    */
   tokenProvider: 'mock' | 'client_credentials';
+  /**
+   * The token the MOCK provider hands over — a **dev stand-in for the `crm-sync` principal (#565); never in
+   * production** (#594, Integration 4).
+   *
+   * Why it exists: on the dev stack there is no service principal, so a CRM PII read cannot succeed, and the
+   * consent → fetch → rollup → upsert path — the largest piece of this service — could not be measured at
+   * all. With the core on `CORE_DEV_TOKENS=1` a `dev:<subject>` token lets that path run on real data. It is
+   * a STAFF subject, which is why it is labelled everywhere it appears: the rule that CRM uses this
+   * service's own principal and never a human's token still stands, and this is the dev exception to it,
+   * refused in production twice over (the mock provider itself is refused there, and so is this value).
+   */
+  mockToken?: string;
 }
 
 export interface CdpConfig {
@@ -96,6 +119,8 @@ export interface CdpConfig {
 
 export interface ResolveOptions {
   env?: Record<string, string | undefined>;
+  /** Defaults to `process.argv`. Only `--drain` is read from it. */
+  argv?: readonly string[];
   /** Defaults to `env.NODE_ENV`. */
   nodeEnv?: string;
 }
@@ -107,6 +132,21 @@ export interface ResolveOptions {
  * including other windows' (`accounting`, …): this default can only know its own.
  */
 export const KNOWN_GROUPS = [OPS_GROUP_ID, CDP_GROUP_ID, CRM_GROUP_ID] as const;
+
+/**
+ * The same shape `consumer_processed.group_id` allows (packages/db 0202's CHECK) and the same rule window 15
+ * applied for `ACCOUNTING_GROUP_ID` (#594): a group id that the table would reject must fail the boot here,
+ * not at the first mark.
+ */
+const GROUP_ID = /^[a-z][a-z0-9_.-]*$/;
+
+function groupFrom(raw: string | undefined, fallback: string, what: string): string {
+  const value = raw?.trim() || fallback;
+  if (!GROUP_ID.test(value)) {
+    throw new Error(`${what} must match ${GROUP_ID.source} (got "${value}")`);
+  }
+  return value;
+}
 
 const DEFAULTS = {
   dir: '.engagement',
@@ -157,10 +197,24 @@ export function resolveConfig(opts: ResolveOptions = {}): EngagementConfig {
   const crm = resolveCrm(env, isProduction);
   const support = resolveSupport(env, isProduction);
 
-  const groups = (env.ENGAGEMENT_DLQ_GROUPS?.trim() || KNOWN_GROUPS.join(','))
+  // The groups this process will actually run, after any override.
+  const consumerGroups = {
+    ops: groupFrom(env.ENGAGEMENT_OPS_GROUP_ID, OPS_GROUP_ID, 'ENGAGEMENT_OPS_GROUP_ID'),
+    cdp: groupFrom(env.ENGAGEMENT_CDP_GROUP_ID, CDP_GROUP_ID, 'ENGAGEMENT_CDP_GROUP_ID'),
+    crm: groupFrom(env.ENGAGEMENT_CRM_GROUP_ID, CRM_GROUP_ID, 'ENGAGEMENT_CRM_GROUP_ID'),
+  };
+
+  // The DLQ watch defaults to the groups THIS process runs, overrides included: watching
+  // `engagement.cdp` while running `engagement.cdp.int4` would report on a queue nobody here is filling.
+  const groups = (
+    env.ENGAGEMENT_DLQ_GROUPS?.trim() ||
+    [consumerGroups.ops, consumerGroups.cdp, consumerGroups.crm].join(',')
+  )
     .split(',')
     .map((g) => g.trim())
     .filter(Boolean);
+
+  const drainIdleMs = intFrom(env.ENGAGEMENT_DRAIN_IDLE_MS, 10_000, 'ENGAGEMENT_DRAIN_IDLE_MS');
 
   return {
     databaseUrlApp,
@@ -188,6 +242,15 @@ export function resolveConfig(opts: ResolveOptions = {}): EngagementConfig {
     cdp,
     crm,
     support,
+    groups: consumerGroups,
+    drain: {
+      enabled: (opts.argv ?? process.argv).includes('--drain'),
+      idleMs: drainIdleMs,
+      // A fresh group has to join and be assigned partitions before anything can arrive, so "quiet" means
+      // nothing for the idle window AFTER at least this long. Without it an empty-looking first few seconds
+      // would end the run before the first batch (#594).
+      minRunMs: intFrom(env.ENGAGEMENT_DRAIN_MIN_RUN_MS, 20_000, 'ENGAGEMENT_DRAIN_MIN_RUN_MS'),
+    },
   };
 }
 
@@ -239,6 +302,15 @@ function resolveCrm(env: Record<string, string | undefined>, isProduction: boole
       `ENGAGEMENT_CRM_TOKEN_PROVIDER must be "mock" or "client_credentials" (got "${tokenProvider}")`,
     );
   }
+  // The dev stand-in token (#594). Refused in production whether or not the CRM is enabled: a production
+  // process must not even carry it, and "it was only set, not used" is not a defence for a credential.
+  const mockToken = env.ENGAGEMENT_CRM_MOCK_TOKEN?.trim() || undefined;
+  if (mockToken && isProduction) {
+    throw new Error(
+      'ENGAGEMENT_CRM_MOCK_TOKEN is refused in production (it is a dev stand-in for the crm-sync principal, #565)',
+    );
+  }
+
   if (enabled && isProduction && tokenProvider === 'mock') {
     throw new Error(
       'ENGAGEMENT_CRM_TOKEN_PROVIDER=mock is refused in production (no real service principal)',
@@ -251,6 +323,7 @@ function resolveCrm(env: Record<string, string | undefined>, isProduction: boole
     externalIdField: env.TWENTY_EXTERNAL_ID_FIELD?.trim() || 'externalId',
     adminApiUrl: env.ADMIN_API_URL?.trim() || 'http://localhost:9000',
     tokenProvider,
+    ...(mockToken ? { mockToken } : {}),
   };
   if (adapter === 'memory') return base;
 

@@ -1,5 +1,58 @@
 # @platform/engagement
 
+## 0.6.0 — 2026-10-25 (#594, Integration 4 step 3)
+
+What this service needed in order to be MEASURED on the real dev stack, and nothing else: the consumers'
+behaviour is unchanged.
+
+- **`--drain` (`pnpm drain`), the one-shot measurement mode.** It starts every enabled consumer, reads from
+  the beginning, waits until the bus has gone quiet, stops and prints one report. It is a mode rather than a
+  script because the measurement has to be the real wiring — the same consumers, handlers and marks — and
+  deliberately NOT `--once`, which is the DLQ poll and stays what it was (`pnpm once` and the runbooks mean
+  it).
+- **A fresh consumer group per module**, `ENGAGEMENT_{OPS,CDP,CRM}_GROUP_ID`, validated against the same
+  CHECK `consumer_processed.group_id` has, so a group the table would refuse fails the boot instead of the
+  first mark (window 15's `ACCOUNTING_GROUP_ID` pattern, #594). `fromBeginning` is what makes a fresh group
+  see history rather than wait for the next message. **The DLQ watch now defaults to the groups the process
+  actually runs:** watching `engagement.cdp` while running `engagement.cdp.int4` reads as "all clear" about a
+  queue nobody is filling.
+- **Stopping is a rule, not a timeout** (`src/drain.ts`): a fresh group must join and be assigned partitions
+  before anything can arrive, so "nothing yet" and "nothing left" are indistinguishable at first. A run lasts
+  at least `ENGAGEMENT_DRAIN_MIN_RUN_MS` and ends `ENGAGEMENT_DRAIN_IDLE_MS` after the last batch, reporting
+  `idle`, `empty` or `max_run` — a run that cannot stop is a result, not something to swallow.
+- **The report is built from the log lines the consumers already emit**, with each consumer's own counters
+  printed beside it: two paths to one answer, and a disagreement means the report is wrong. That caught its
+  own bug on the first real run — a dropped CDP line still carries the `call` the mapper produced, so the
+  call counts read 149 tracks against 148 sends. Calls are now counted only for what was SENT, with a test.
+- **`ENGAGEMENT_CRM_MOCK_TOKEN` — a dev stand-in for the `crm-sync` principal (#565); never in production.**
+  On the dev stack there is no service principal, so a CRM PII read cannot succeed and the largest piece of
+  this service (consent → PII fetch → rollup → upsert) could not be measured at all. With the core on
+  `CORE_DEV_TOKENS=1` a `dev:<subject>` token lets that path run on real data. It is a STAFF subject, so it
+  is labelled as a stand-in everywhere it appears; `resolveConfig` refuses the value in production whether or
+  not the CRM is enabled, and a test pins that refusal alongside the mock provider's own. Manager-approved
+  (#594) as a dev-only exception to "CRM uses this service's own principal, never a human's token", which
+  otherwise stands.
+- `StoreCodes.codes()` is shared: the entry point warms one cache for its own checks and hands the same
+  instance to the CDP consumer, so the organization's stores are read once per process.
+- Tests: **423 passing, 9 live skipped** with the broker offline (was 405/9) — config 74, drain 7, plus the
+  rest.
+
+### What the run showed (the numbers are in the Integration 4 report)
+
+- **CDP: 152 events, 148 sent, 4 dropped, 0 dead letters.** 144 `order.placed` → _Order Completed_, 3
+  `identify`, 1 `shipment.shipped` → _Order Shipped_. All four drops are `no_identity` in `analytics` mode —
+  two `order.cancelled` and two `shipment.shipped` — which is **#584's guest-lifecycle asymmetry on real
+  data**: those topics carry neither a `customer_id` nor an `email_hash`, so a guest's later lifecycle is
+  invisible while their _Order Completed_ is not. 126 of the 144 orders are guests, tracked under their hash.
+- **CRM: 149 events, 20 upserted, 129 skipped, 0 dead letters.** The 20 are the one consented brand-A
+  customer's events; the skips are 128 `no_identity` (guest orders) and 1 `consent_absent`.
+- **OPS: 0 events** — the dev stack has never produced a `payment.failed`, `refund.failed` or
+  `return.requested`, so the rules are exercised by the suite and not by this data. Recorded as a coverage
+  gap, not a pass.
+- **PII sweep: 0 hits** on the 152 CDP calls, the dev sink and all 312 log lines of the run.
+- **The live support-context call (#569's Integration 4 item) answers from the real core:** 200 with that
+  customer's 18 orders through `listOrders?customer_id=`, and a brand-B customer under the brand-A store is 404. The fake-reader caveat recorded on #556 is closed.
+
 ## 0.5.1 — 2026-10-24 (#586, task 16.2b)
 
 The #585 review's follow-up: a per-store consent-mode override that is silently ignored is now impossible.
