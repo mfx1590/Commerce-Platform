@@ -50,8 +50,13 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
 ## In progress — Phase 5
 - #600 P5.1 ingest on `data/phase5`: built — `apps/analytics-ingest/src/{config,rows,batcher,ingest,clickhouse,metrics,
   once,telemetry,main,migrate-cli,index}.ts`, `data/clickhouse/migrations/0001_raw_events.sql` + `data/clickhouse/README.md`;
-  41 unit tests green; `src/live.test.ts` (4 tests) opt-in `ANALYTICS_LIVE=1` (CI always). PR next, then message the
-  manager (PR number + head sha) and again when checks finish.
+  41 unit tests green; `src/live.test.ts` (4 tests) opt-in `ANALYTICS_LIVE=1` (CI always).
+  PR #616 (Closes #600; code commit 0949769; head = this memory commit). Landing (manager 2026-10-25): push NOTHING
+  more; the manager cuts `integration/phase5-ingest` from this head after #614, adds the CI step "analytics ingest
+  live block — and it really ran" (pins my 4 live test TITLES via require-live-tests.mjs: never rename them), needs
+  3 consecutive green runs; the integration PR merges and marks #616 merged. An independent Opus review is running:
+  code fixes, if any, go to data/phase5 and the manager re-cuts. #601: read/design only until the review is back.
+  Still owed: message the manager when every check on #616 has finished.
 - Live, with the manager's machine (2026-10-25): `ANALYTICS_LIVE=1` live.test 4/4 green (~17 s, self-cleaned);
   dev stack: `ch:migrate` on `analytics` (applied 0001, second run nothing) → `--once` group analytics.raw: 460 rows =
   the outbox's 460 published rows, 22 topic@versions equal row for row, 0 dead letters → full replay under group
