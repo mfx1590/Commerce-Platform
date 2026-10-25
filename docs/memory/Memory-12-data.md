@@ -5,13 +5,13 @@ Last updated: 2026-10-18 · Contracts: contracts-v0.4.22 (Admin API 0.4.19), db 
 ## PHASE 5 DOCKET (written by the manager, 2026-10-25, Manager session nine) — READ THIS FIRST ON RESUME
 Phase 3 reporting v1 is done (#478–#480). Phase 5 = data platform and AI; you are its main window. Plan and the
 decisions you must follow: `docs/plan/phase5-plan.md` (D1–D12); tracking #612. New branch `data/phase5` from main.
-New owned paths once the manager's step-0 commit is on main: `packages/ai/**`, `data/clickhouse/**` (ClickHouse runs
-in the shared compose stack: HTTP 18123, native 19000; run `fga:seed` before any auth or live test).
+ClickHouse SQL goes under `data/clickhouse/**` (already inside `data/**`). ClickHouse runs
+in the shared compose stack: HTTP 18123, native 19000. Run `fga:seed` before any auth or live test.
 - Wave 1: **#600** P5.1 ingest (every topic → `raw_events`, exactly once, DLQ, `--once`), then **#601** P5.2 models
   (staging/facts/marts + `mv_orders_minute`, Vitest on the #552 generated month).
-- Wave 2: **#602** reconcile (three identities: bookings / recognised revenue at shipment / cash), **#603** metrics
+- Wave 2: **#602** reconcile (three identities: bookings / recognised revenue / cash; check 2 uses the LEDGER's posted lines, never a recomputation — D7 as amended 10-25; the CI generated month is the primary proof), **#603** metrics
   API (CONTRACT CHANGE, scope added on the server, no SQL input), **#604** admin BI v2.
-- Wave 3: **#605** `packages/ai` gateway, **#606** BI Q&A by tool use over the metrics API.
+- Wave 3: **#606** BI Q&A by tool use over the metrics API, on window 14's **#605** `packages/ai` gateway (moved to 14 on 10-25 to spread the load).
 Rules that bite: no dbt/Dagster/Metabase (D3, D5); money in minor units, never summed across currencies; no PII in
 ClickHouse; one window measures at a time (ask the manager for the machine); a new required-CI step needs three
 consecutive green runs on one head. Message the manager when a PR is up and when checks finish.

@@ -2,6 +2,15 @@
 Window: 14 · Key: `events` · Branch prefix: `events/` · Model: strongest
 Last updated: 2026-10-25 (window 14, Integration 4) · events-v1 = 2abe310 · events 0.6.3 · Status: Integration 4 PR (#579, #561, SDK stop race, --after-seq, 10k cleanup) pushed on events/int4, PR opened; step 1 needed no run (0 unpublished of 460)
 
+## PHASE 5 DOCKET (written by the manager, 2026-10-25, Manager session nine) — READ THIS FIRST ON RESUME
+Phase 4 and Integration 4 are done. In Phase 5 wave 3 you build **#605** `packages/ai`, the one guarded Claude gateway
+(plan `docs/plan/phase5-plan.md` D8, D9; tracking #612). The ownership row `packages/ai/**` → 14 lands with the
+manager's step-0 PR; the Phase 4 exception for `packages/events/**` ends with it (events are main-only again).
+Key facts: the key variable is `AI_ANTHROPIC_API_KEY` (NEVER `ANTHROPIC_API_KEY`: Claude Code would bill it);
+`AI_ENABLED=0` is the default and CI runs on the deterministic fake; redaction, a per-store budget, and an audit row
+without content are acceptance criteria. Consumers: window 12 (#606 BI Q&A), windows 1 + 4 (#608), window 16 (#610).
+Wait for the manager's activation message (waves 2–3 start after the weekly reset on 2026-10-27).
+
 ## Identity (does not change)
 Owned paths (write):
 - `apps/core/src/outbox/**`

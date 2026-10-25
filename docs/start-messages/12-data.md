@@ -1,15 +1,19 @@
-# Start message — Window 12: Data platform, BI & AI (Phase 3)
-Paste into a Claude Code session opened inside the worktree `../wt-data` (create it with `./scripts/new-window.sh 12 3`). Model: Sonnet.
+# Start message — Window 12: Data platform & BI (Phase 5)
+Paste into a NEW Claude Code session opened IN the folder `C:\Users\mehdi\Desktop\wt-data` (worktree option OFF).
+The Phase 3 version of this file is in git history.
 
 ---
 
-You are window 12 — DATA (Data platform, BI & AI). Read, in this order: CLAUDE.md, docs/ownership.md, docs/memory/Memory-main.md (status + global gotchas only), docs/memory/Memory-12-data.md, docs/domain.md, and the GitHub issues labelled window:data. Then write .claude/CLAUDE.local.md containing exactly:
-"I am window 12 (data). I write only: data/**, apps/analytics-ingest/**, apps/admin/src/app/(hq)/bi/** (embed only). Contracts are frozen at the tag named in Memory-main. My memory file is docs/memory/Memory-12-data.md."
+You are window 12 — DATA (data platform & BI), Phase 5. Your manager is the repo-root session "Manager session nine".
 
-Mission this phase: Reporting v1: Postgres reporting views, Metabase with row-level permissions by allowedStores, embedded in the admin.
+Read, in this order: CLAUDE.md, docs/ownership.md (row `data/`), docs/memory/Memory-main.md (the first bullet under "Current status" and "Global gotchas" only), docs/memory/Memory-12-data.md (start with the PHASE 5 DOCKET at the top), docs/plan/phase5-plan.md (decisions D1–D12 are binding), then GitHub issues #612 (tracking), #600 and #601.
 
-Work on branch data/phase3, one task from the Next list at a time, in order. For each task: plan briefly, implement, test, update docs/memory/Memory-12-data.md, commit, open a PR with the acceptance criteria in the description. Never merge your own PR. If a contract does not fit, open an issue titled "CONTRACT CHANGE: <what>" with the exact diff and continue against a local mock. Never edit files outside your owned paths; never edit Memory-main or other memory files.
+Then:
+1. Rewrite `.claude/CLAUDE.local.md` (yours, git-excluded) to say: "I am window 12 (data). I write only: data/**, apps/analytics-ingest/**, apps/core/src/modules/reporting/**, apps/admin/src/app/(hq)/bi/**, apps/admin/test/bi/**, apps/admin/test-contract/bi/**, apps/admin/e2e/bi/**. Contracts are frozen at the tag named in Memory-main. My memory file is docs/memory/Memory-12-data.md. Branch: data/phase5."
+2. Set up: `git fetch origin` · `git switch -c data/phase5 origin/main` · `pnpm install --frozen-lockfile` · rebuild the workspace packages · `pnpm --filter @platform/auth-sdk fga:seed`. No docker commands, ever: the manager runs the shared stack.
+3. Work on #600 (P5.1 ingest), then #601 (P5.2 models), one PR each, acceptance criteria in the PR body. ClickHouse arrives in the shared stack with the manager's step-0 PR (HTTP 18123, native 19000). Until the manager tells you it is on main, write the code and the unit tests and keep the ClickHouse-backed tests behind a skip that prints its reason. Pick the official `@clickhouse/client` at an exact version.
+4. Design notes that bite: idempotency is `(topic, event_id)` in a ReplacingMergeTree; offsets are committed only after ClickHouse acknowledges the insert; invalid or unknown-version events go to the DLQ, and the DLQ watch must follow the same group override (the #599 lesson); no PII in ClickHouse; money in integer minor units, never summed across currencies; ClickHouse never recomputes ledger revenue (D7).
+5. Rules: one window measures at a time, so ask the manager for "the machine" before any live or long run and report "machine free" after; long runs detached, output to a file, bounded polling; a new required-CI step needs three consecutive green runs on one head, recorded in the PR body; nothing secret-shaped in tests (use words); no closing keyword next to an issue number in a commit message unless that commit finishes the issue; merge main before pushing.
+6. Message the manager ("Manager session nine") twice per PR: when it is up (PR number + head sha) and when every check has finished. Update your memory file after every task and before every commit.
 
-Memory rule: after every completed task and before every commit, update your memory file (move the task to Done with the commit sha, rewrite In progress and Next, add Decisions and Gotchas) and commit it together with the code. If context grows long, update the memory file first, then run /compact. If a task looks like more than ~20 tool calls, stop, write the plan under In progress, and ask me to confirm.
-
-Begin by summarising the Mission and Next list in five lines and confirming your owned paths, then start task 1.
+Start by summarising in five lines what you will build for #600 and how you will test it, then begin.
