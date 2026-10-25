@@ -164,15 +164,23 @@ the start-up topic check requires the PREFIXED names — a prefixed run never ne
 prefixed topic still refuses the start, naming the prefixed topics. The schema ids are still looked up by the
 unprefixed `topic@version` (subjects do not change; `--no-registry` keeps working), the replay's `--topic` stays the
 unprefixed event topic, headers and keys are unchanged, and the database side is untouched: rows are read and
-marked exactly as without the flag. It is for tests on a shared broker — window 15's #552 gate spawns
-`outbox:relay --once --topic-prefix <p> --no-registry` against its throwaway database. `relayOnce` /
+marked exactly as without the flag. **On the relay, `--topic-prefix` needs `--throwaway-db`** (#595 review): the relay MARKS every row it publishes, so
+a prefixed relay against the shared dev database would publish the real unpublished rows to `<p>*` and hide them
+from the real consumers for good. `--throwaway-db` checks `current_database()` before anything is read and refuses
+the shared dev database (`platform`, plus the database names in the repo-root `.env` — read from the file, since the
+environment points elsewhere on purpose); both refusals exit 2. **Recovery after a mistaken prefixed run**: the rows
+are published, so an UNPREFIXED `outbox:replay --topic <t> --after-seq <a seq before the run>` per topic republishes
+them to the real topics (consumers dedupe on `outbox_id`). The replay never marks rows, so a prefixed replay needs no
+safety catch; it prints a one-line note to stderr. Argument errors exit 2, a refused start (missing topic,
+unreachable registry) exits 1. It is for tests on a shared broker — window 15's #552 gate spawns
+`outbox:relay --once --topic-prefix <p> --throwaway-db --no-registry` against its throwaway database. `relayOnce` /
 `replayOutbox` take the same `topicPrefix` option in-process.
 
 `outbox:replay --after-seq <seq>` replays only the rows after that `seq` (compared as bigint). A replay that stops on
 a failed send names its resume point: `… (last_seq 12345; resume with --after-seq 12345)`.
 
 ```bash
-pnpm --filter @platform/core outbox:relay --once --topic-prefix gate-abc123. --no-registry
+pnpm --filter @platform/core outbox:relay --once --topic-prefix gate-abc123. --throwaway-db --no-registry
 pnpm --filter @platform/core outbox:replay --topic order.placed --topic-prefix gate-abc123. --after-seq 12345
 ```
 

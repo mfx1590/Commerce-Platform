@@ -32,7 +32,14 @@ import {
   type RelayPassResult,
   type RelayPublisher,
 } from './relay';
-import { parseArgs, parseTopicPrefix, requiredTopics } from './relay-cli';
+import {
+  assertThrowawayDatabase,
+  CliUsageError,
+  parseArgs,
+  parseTopicPrefix,
+  requiredTopics,
+  sharedDatabaseNames,
+} from './relay-cli';
 
 const ORG = '31000000-0000-4000-8000-000000000001';
 const LE = '31000000-0000-4000-8000-000000000011';
@@ -576,6 +583,7 @@ describe('relayOnce (database, recording publisher)', () => {
       intervalMs: 1000,
       registry: true,
       topicPrefix: '',
+      throwawayDb: false,
     });
     expect(parseArgs(['--once', '--batch', '50', '--interval-ms', '250', '--no-registry'])).toEqual(
       {
@@ -584,6 +592,7 @@ describe('relayOnce (database, recording publisher)', () => {
         intervalMs: 250,
         registry: false,
         topicPrefix: '',
+        throwawayDb: false,
       },
     );
     expect(() => parseArgs(['--batch', '0'])).toThrow(/positive integer/);
@@ -594,9 +603,19 @@ describe('relayOnce (database, recording publisher)', () => {
   });
 
   it('--topic-prefix (#579): parsed, validated, and applied to the required topics; the default is the real topics', () => {
-    expect(parseArgs(['--once', '--topic-prefix', 'gate-abc123.']).topicPrefix).toBe(
-      'gate-abc123.',
+    expect(parseArgs(['--once', '--topic-prefix', 'gate-abc123.', '--throwaway-db'])).toMatchObject(
+      {
+        topicPrefix: 'gate-abc123.',
+        throwawayDb: true,
+      },
     );
+    // #595: a prefixed relay marks rows, so it needs --throwaway-db; the message names both rules
+    expect(() => parseArgs(['--once', '--topic-prefix', 'gate-abc123.'])).toThrow(CliUsageError);
+    expect(() => parseArgs(['--once', '--topic-prefix', 'gate-abc123.'])).toThrow(
+      /needs --throwaway-db.*refuses the shared dev database/,
+    );
+    expect(parseArgs(['--throwaway-db']).throwawayDb).toBe(true); // allowed alone: only the database check
+    expect(() => parseArgs(['--batch', 'x'])).toThrow(CliUsageError);
     expect(parseTopicPrefix([])).toBe('');
     expect(() => parseTopicPrefix(['--topic-prefix'])).toThrow(/needs a value/);
     expect(() => parseTopicPrefix(['--topic-prefix', '--once'])).toThrow(/needs a value/);
@@ -608,6 +627,22 @@ describe('relayOnce (database, recording publisher)', () => {
     expect(prefixed).toContain('gate-abc123.order.placed');
     expect(prefixed.every((t) => t.startsWith('gate-abc123.'))).toBe(true);
     expect(requiredTopics(undefined, '')).toEqual(requiredTopics());
+  });
+
+  it('sharedDatabaseNames: always platform, plus the database names of the repo-root .env (read from the file)', () => {
+    const names = sharedDatabaseNames();
+    expect(names.has('platform')).toBe(true);
+    const fromEnv = new URL(process.env.DATABASE_URL_APP!).pathname.replace(/^\//, '');
+    expect(names.has(fromEnv) || fromEnv === db.name).toBe(true);
+    expect(names.has(db.name)).toBe(false); // this file's throwaway database is never "shared"
+  });
+
+  it('assertThrowawayDatabase refuses the shared names and passes this throwaway database', async () => {
+    await expect(assertThrowawayDatabase(hq, new Set(['platform']))).resolves.toBe(db.name);
+    await expect(assertThrowawayDatabase(hq, new Set([db.name]))).rejects.toThrow(CliUsageError);
+    await expect(assertThrowawayDatabase(hq, new Set([db.name]))).rejects.toThrow(
+      /--throwaway-db: the database is ".*", the shared dev database/,
+    );
   });
 });
 
@@ -641,6 +676,7 @@ beforeAll(async () => {
 async function runCli(
   script: string,
   args: string[],
+  env: Record<string, string> = {},
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   const appUrl = new URL(process.env.DATABASE_URL_APP!);
   appUrl.pathname = `/${db.name}`;
@@ -652,7 +688,12 @@ async function runCli(
       [tsxCli, `src/outbox/${script}`, ...args],
       {
         cwd,
-        env: { ...process.env, DATABASE_URL_APP: appUrl.toString(), CORE_ORGANIZATION_ID: ORG },
+        env: {
+          ...process.env,
+          DATABASE_URL_APP: appUrl.toString(),
+          CORE_ORGANIZATION_ID: ORG,
+          ...env,
+        },
         timeout: 90_000,
       },
       (err, stdout, stderr) => {
@@ -666,6 +707,41 @@ async function runCli(
     );
   });
 }
+
+describe('relay-cli / replay-cli argument errors exit 2 (spawned, #595)', () => {
+  it('a bad prefix exits 2 (relay and replay)', async () => {
+    const relay = await runCli('relay-cli.ts', [
+      '--once',
+      '--topic-prefix',
+      'bad prefix/',
+      '--throwaway-db',
+    ]);
+    expect(relay.code).toBe(2);
+    expect(relay.stderr).toMatch(/not a Kafka topic prefix/);
+    const replay = await runCli('replay-cli.ts', ['--topic', 'store.updated', '--after-seq', '-1']);
+    expect(replay.code).toBe(2);
+    expect(replay.stderr).toMatch(/--after-seq needs a non-negative integer/);
+  }, 120_000);
+
+  it('a prefixed relay without --throwaway-db exits 2 naming both rules, before touching any database', async () => {
+    const r = await runCli('relay-cli.ts', ['--once', '--no-registry', '--topic-prefix', 'x.']);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/needs --throwaway-db/);
+    expect(r.stderr).toMatch(/refuses the shared dev database/);
+  }, 120_000);
+
+  it('--throwaway-db against the shared dev database exits 2 (only SELECT current_database() runs there)', async () => {
+    const shared = new URL(process.env.DATABASE_URL_APP!);
+    shared.pathname = '/platform';
+    const r = await runCli(
+      'relay-cli.ts',
+      ['--once', '--no-registry', '--topic-prefix', 'x.', '--throwaway-db'],
+      { DATABASE_URL_APP: shared.toString() },
+    );
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/--throwaway-db: the database is "platform", the shared dev database/);
+  }, 120_000);
+});
 
 describe('relay against the local Redpanda (prefixed topics, self-cleaning)', () => {
   const prefix = `t-${Math.random().toString(36).slice(2, 8)}.`;
@@ -757,6 +833,7 @@ describe('relay against the local Redpanda (prefixed topics, self-cleaning)', ()
       '--no-registry',
       '--topic-prefix',
       cliPrefix,
+      '--throwaway-db',
     ]);
     expect(ok.code, ok.stderr).toBe(0);
     expect(JSON.parse(ok.stdout.trim().split('\n').at(-1)!)).toMatchObject({
@@ -810,6 +887,7 @@ describe('relay against the local Redpanda (prefixed topics, self-cleaning)', ()
       '--no-registry',
       '--topic-prefix',
       `${prefix}none.`,
+      '--throwaway-db',
     ]);
     expect(missing.code).toBe(1);
     expect(missing.stderr).toMatch(

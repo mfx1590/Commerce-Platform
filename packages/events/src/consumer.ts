@@ -103,7 +103,6 @@ export interface DeadLetter {
   failed_at: string;
 }
 
-/** A misconfigured consumer (e.g. ctx.markProcessed(tx) with a store that cannot mark through a client): thrown out of the batch, never dead-lettered. */
 /**
  * stop() was called while a message was still being retried: the retries are cut short, the message is neither
  * dead-lettered nor committed, so the next start of the group gets it again. Never escapes the SDK.
@@ -115,6 +114,7 @@ export class ConsumerStoppedError extends Error {
   }
 }
 
+/** A misconfigured consumer (e.g. ctx.markProcessed(tx) with a store that cannot mark through a client): thrown out of the batch, never dead-lettered. */
 export class ConsumerConfigurationError extends Error {
   constructor(message: string) {
     super(message);
@@ -531,7 +531,9 @@ export function createConsumer(opts: ConsumerOptions): EventConsumer {
 
   /**
    * Stops reading, lets the batch in flight finish (a message mid-retry gives up at its next attempt: no dead
-   * letter, no commit — it is redelivered on the next start), and only then disconnects the producer. Before this
+   * letter, no commit — it is redelivered on the next start), and only then disconnects the producer. A message that
+   * is sleeping between attempts finishes that sleep first, so stop() can take up to the backoff maximum (3 s by
+   * default) plus the handler call in progress. Before this
    * order, stop() cleared the producer first and a dead letter in flight crashed on `undefined` (#552 runs).
    */
   async function stop(): Promise<void> {
