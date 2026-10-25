@@ -35,7 +35,8 @@
     "@platform/events": "workspace:*",
     "@platform/auth-sdk": "workspace:*",
     "yaml": "^2.9.0",
-    "@platform/contracts": "workspace:*"
+    "@platform/contracts": "workspace:*",
+    "@platform/test-utils": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.19.0",
