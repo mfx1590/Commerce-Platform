@@ -1,5 +1,34 @@
 # @platform/engagement
 
+## 0.6.1 — 2026-10-25 (#599, Phase 5 wave 1)
+
+A group override moved the DLQ watch and left the consumer behind. One builder now chooses every group.
+
+- **The bug.** `--drain` passed `config.groups` to the consumers; the long-running path built them inline
+  with no group id, while `config.dlq.groups` had started defaulting to `config.groups` (0.6.0). So
+  `ENGAGEMENT_CDP_GROUP_ID` **without** `--drain` left the process consuming `engagement.cdp` while watching
+  `dlq.engagement.cdp.int4` — an all-clear about a queue nobody was filling, which is the exact failure the
+  0.6.0 rule warns about. Two readers of one value with different defaults.
+- **The fix is structural, not a guard: `buildConsumers` is now the only place a consumer is constructed**,
+  called by both modes, and the only differences they may pass are the two that are genuinely about the mode
+  (`fromBeginning`, and the drain's per-batch hook). A future consumer cannot drift because there is nowhere
+  else to add one. Chosen over "refuse the overrides unless `--drain`" because the override is about WHICH
+  group, never about which code path read it — and window 12's new ingest (#600) copies this pattern.
+- **`resolveConfig` refuses the one remaining way to split them**: an explicit `ENGAGEMENT_DLQ_GROUPS` that
+  omits a group this process runs. More groups than we run stays fine (production must list every group on
+  the bus, other windows' included); fewer is refused with a message naming the group.
+- **A configuration refusal now exits 2** (`ConfigRefusedError`, which `ConsentModeConfigError` extends): a
+  supervisor that restarts on a crash must not restart on an environment that has already been refused —
+  the same environment is refused again, forever, and the restart loop buries the message. 1 stays
+  "something went wrong at runtime". The message is printed for this class only, and only because this
+  repository builds it from variable names and values it chose.
+- The drain report says `ran`, not `enabled`: ops has no switch, so `enabled.ops: true` was a constant
+  dressed up as a resolved value (#599 nit).
+- Tests: **441 passing with the broker up** (21 files, 112 s; live blocks self-cleaning: cdp 30 topics, crm
+  21, ops 12), 432/9 offline. `src/main.test.ts` is new and states the invariant — every group a consumer
+  runs is a group the watch watches — across six configurations including the one that was broken, with no
+  broker and no database, because constructing a consumer connects to nothing.
+
 ## 0.6.0 — 2026-10-25 (#594, Integration 4 step 3)
 
 What this service needed in order to be MEASURED on the real dev stack, and nothing else: the consumers'

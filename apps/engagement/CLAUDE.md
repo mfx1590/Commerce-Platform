@@ -183,10 +183,21 @@ package yet.
     no path may start reading one from a table of ours or from an event payload. A log line, an alert, an error
     and a dead letter never carry one in any module, including the three above.
 - **A one-off run gets a FRESH group, never the live one** (#594): `ENGAGEMENT_*_GROUP_ID` plus
-  `fromBeginning`, which is what makes a new group see history instead of waiting for the next message. The
-  DLQ watch then defaults to the groups the process actually runs — watching `engagement.cdp` while running
-  `engagement.cdp.int4` reads as "all clear" about a queue nobody is filling. A group id must match
-  `consumer_processed.group_id`'s CHECK, validated at the boot.
+  `fromBeginning`, which is what makes a new group see history instead of waiting for the next message. A
+  group id must match `consumer_processed.group_id`'s CHECK, validated at the boot.
+- **`buildConsumers` in `main.ts` is the ONLY place a consumer is constructed, and therefore the only place a
+  group id is chosen** (#599). Both modes call it; the only differences they may pass are `fromBeginning` and
+  the drain's per-batch hook. The bug that made this a rule: the drain passed `config.groups` and the
+  long-running path built them inline without a group id, while `dlq.groups` had started defaulting to
+  `config.groups` — so an override moved the WATCH and left the CONSUMER behind, and the watch reported "all
+  clear" about a queue nobody was filling. Two readers of one value with different defaults. If you add a
+  consumer, add it there.
+- **Every group this process runs must be watched; more is fine, fewer is refused** (#599). `resolveConfig`
+  throws when an explicit `ENGAGEMENT_DLQ_GROUPS` omits a running group — the one way left to split them.
+- **A configuration refusal is a `ConfigRefusedError` and exits 2**, not 1 (#599): a supervisor that restarts
+  on a crash must not restart on an environment already refused, and its message IS printed because this
+  repository builds it from variable names and values it chose. `ConsentModeConfigError` extends it. Never
+  put a payload, a secret or anything a customer typed into one of those messages.
 - The drain's counts come from the log lines the consumers already emit, with each consumer's own counters
   printed beside them. Keep both: they are two paths to one answer, and a disagreement means the report is
   wrong.

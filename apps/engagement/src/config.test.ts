@@ -452,6 +452,32 @@ describe('the consumer groups are overridable per module (#594)', () => {
     expect(c.groups.ops).toBe('engagement.ops');
   });
 
+  it('REFUSES an explicit watch list that omits a group this process runs (#599)', () => {
+    // The one way left to split the consumers from the watch once they share `groups`: an explicit list that
+    // leaves one out. More groups than we run is fine (production must list every group on the bus); fewer
+    // means this process consumes a topic whose dead letters are nobody's.
+    expect(() =>
+      resolveConfig({
+        env: {
+          ...base,
+          ENGAGEMENT_CDP_ENABLED: '1',
+          ENGAGEMENT_CDP_GROUP_ID: 'engagement.cdp.int4',
+          ENGAGEMENT_DLQ_GROUPS: 'engagement.ops, engagement.cdp',
+        },
+        argv: [],
+      }),
+    ).toThrow(/does not watch engagement\.cdp\.int4, which this process consumes/);
+  });
+
+  it('does not require the group of a DISABLED module to be watched (#599)', () => {
+    // The CDP is off here, so nothing consumes `engagement.cdp` and leaving it out of the list is correct.
+    const c = resolveConfig({
+      env: { ...base, ENGAGEMENT_DLQ_GROUPS: 'engagement.ops' },
+      argv: [],
+    });
+    expect(c.dlq.groups).toEqual(['engagement.ops']);
+  });
+
   it('still honours an explicit ENGAGEMENT_DLQ_GROUPS over the groups it runs', () => {
     // Production must list every group on the bus, other windows' included, and that stays the operator's
     // call — the override is only the DEFAULT.
@@ -459,11 +485,14 @@ describe('the consumer groups are overridable per module (#594)', () => {
       env: {
         ...base,
         ENGAGEMENT_CDP_GROUP_ID: 'engagement.cdp.int4',
-        ENGAGEMENT_DLQ_GROUPS: 'accounting.ledger, engagement.cdp.int4',
+        // `engagement.ops` is in the list because this process RUNS it: #599 refuses a list that omits a
+        // group being consumed. The point of the test is unchanged — an explicit list wins over the default,
+        // and it may name other windows' groups.
+        ENGAGEMENT_DLQ_GROUPS: 'accounting.ledger, engagement.ops, engagement.cdp.int4',
       },
       argv: [],
     });
-    expect(c.dlq.groups).toEqual(['accounting.ledger', 'engagement.cdp.int4']);
+    expect(c.dlq.groups).toEqual(['accounting.ledger', 'engagement.ops', 'engagement.cdp.int4']);
   });
 });
 

@@ -7,6 +7,7 @@
 // rule in one place, which is the whole lesson of #586: the bug was a key stored raw and looked up
 // normalised, and two copies of a transform are the same bug waiting to happen again.
 
+import { ConfigRefusedError } from './config-error.js';
 import type { ConsentMode } from './consent.js';
 
 export const CONSENT_MODE_ENV = 'ENGAGEMENT_CDP_CONSENT_MODE';
@@ -21,7 +22,7 @@ export const CONSENT_MODE_ENV_PREFIX = `${CONSENT_MODE_ENV}_`;
  * data — so the entry point is allowed to print them, and the operator gets told which variable is wrong
  * instead of the word "Error".
  */
-export class ConsentModeConfigError extends Error {
+export class ConsentModeConfigError extends ConfigRefusedError {
   constructor(message: string) {
     super(message);
     this.name = 'ConsentModeConfigError';

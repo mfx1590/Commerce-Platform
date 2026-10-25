@@ -7,7 +7,8 @@ import { writeSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { createOrganizationClient, createPool } from '@platform/db';
 import { resolveConfig, type EngagementConfig } from './config.js';
-import { assertConsentModeOverridesKnown, ConsentModeConfigError } from './consent-mode.js';
+import { CONFIG_REFUSED_EXIT, ConfigRefusedError } from './config-error.js';
+import { assertConsentModeOverridesKnown } from './consent-mode.js';
 import { summariseDrain, waitForIdle, type DrainLogLine } from './drain.js';
 import { createCdpConsumer } from './cdp/consumer.js';
 import { MemoryCdpAdapter } from './cdp/adapter/memory.js';
@@ -97,6 +98,87 @@ function logLine(line: EngagementLogLine): void {
   console.info(JSON.stringify(line));
 }
 
+export interface EngagementConsumers {
+  ops: ReturnType<typeof createOpsConsumer>;
+  cdp: ReturnType<typeof createCdpConsumer> | null;
+  crm: ReturnType<typeof createCrmConsumer> | null;
+}
+
+/**
+ * The ONE place the consumers are constructed, and therefore the one place a group id is chosen (#599).
+ *
+ * THE BUG THIS EXISTS TO MAKE IMPOSSIBLE: `--drain` passed `config.groups` and the long-running path did
+ * not, while `config.dlq.groups` had started defaulting to `config.groups`. So `ENGAGEMENT_CDP_GROUP_ID`
+ * without `--drain` moved the WATCH and left the CONSUMER on `engagement.cdp` — the process consumed one
+ * group and reported "all clear" about another group's dead letters. Two readers of one value with
+ * different defaults; the fix is one reader.
+ *
+ * Both modes call this. The only differences they are allowed are the two that are genuinely about the mode:
+ * `fromBeginning` (a one-off run reads history; the service resumes where it left off) and the per-batch
+ * hook the drain uses to tell "still arriving" from "idle".
+ */
+export function buildConsumers(deps: {
+  config: EngagementConfig;
+  hq: ReturnType<typeof createOrganizationClient>;
+  pool: ReturnType<typeof createPool>;
+  transport: AlertTransport;
+  storeCodes: ReturnType<typeof createStoreCodes>;
+  log: (line: DrainLogLine) => void;
+  fromBeginning?: boolean;
+  onBatch?: () => void;
+}): EngagementConsumers {
+  const { config, hq, pool, transport, storeCodes, log } = deps;
+  const mode = {
+    ...(deps.fromBeginning === undefined ? {} : { fromBeginning: deps.fromBeginning }),
+    ...(deps.onBatch ? { onBatch: deps.onBatch } : {}),
+  };
+
+  const ops = createOpsConsumer({
+    hq,
+    transport,
+    rateLimit: config.rateLimit,
+    groupId: config.groups.ops,
+    log,
+    ...mode,
+  });
+
+  // The CDP consumer is its own group and runs only when enabled (off until an account exists, #554).
+  const cdp = config.cdp.enabled
+    ? createCdpConsumer({
+        hq,
+        pool,
+        adapter: buildCdpAdapter(config),
+        // Per-store consent mode (#576): resolved per event from the store the event names.
+        consentModeFor: config.cdp.consentModeFor,
+        // The keys behind it, so a consumer built anywhere else gets the same refusal (#586).
+        consentModeOverrides: config.cdp.consentModeOverrides,
+        // The cache the caller already warmed: one query for the organization's stores, not two.
+        storeCodes,
+        groupId: config.groups.cdp,
+        log,
+        ...mode,
+      })
+    : null;
+
+  // The CRM consumer, likewise its own group and off until a CRM and a service account exist (#555, #565).
+  const crm = config.crm.enabled
+    ? createCrmConsumer({
+        hq,
+        pool,
+        adapter: buildCrmAdapter(config),
+        customers: createAdminApiReader({
+          baseUrl: config.crm.adminApiUrl,
+          tokens: buildTokenProvider(config),
+        }),
+        groupId: config.groups.crm,
+        log,
+        ...mode,
+      })
+    : null;
+
+  return { ops, cdp, crm };
+}
+
 /**
  * `--drain` (#594, Integration 4 step 3): start every enabled consumer on the REAL topics from the
  * beginning, wait for the bus to go quiet, stop, and print one report.
@@ -135,44 +217,17 @@ async function runDrain(deps: {
     assertConsentModeOverridesKnown(config.cdp.consentModeOverrides, storeCodes.codes());
   }
 
-  const ops = createOpsConsumer({
+  const { ops, cdp, crm } = buildConsumers({
+    config,
     hq,
+    pool,
     transport,
-    rateLimit: config.rateLimit,
-    groupId: config.groups.ops,
+    storeCodes,
+    log: collect,
+    // A one-off run reads the history; the long-running service resumes where it left off.
     fromBeginning: true,
     onBatch,
-    log: collect,
   });
-  const cdp = config.cdp.enabled
-    ? createCdpConsumer({
-        hq,
-        pool,
-        adapter: buildCdpAdapter(config),
-        consentModeFor: config.cdp.consentModeFor,
-        consentModeOverrides: config.cdp.consentModeOverrides,
-        storeCodes,
-        groupId: config.groups.cdp,
-        fromBeginning: true,
-        onBatch,
-        log: collect,
-      })
-    : null;
-  const crm = config.crm.enabled
-    ? createCrmConsumer({
-        hq,
-        pool,
-        adapter: buildCrmAdapter(config),
-        customers: createAdminApiReader({
-          baseUrl: config.crm.adminApiUrl,
-          tokens: buildTokenProvider(config),
-        }),
-        groupId: config.groups.crm,
-        fromBeginning: true,
-        onBatch,
-        log: collect,
-      })
-    : null;
 
   const started: { stop(): Promise<void> }[] = [];
   const startedAt = Date.now();
@@ -222,7 +277,9 @@ async function runDrain(deps: {
       stop,
       elapsed_ms: Date.now() - startedAt,
       groups: config.groups,
-      enabled: { ops: true, cdp: Boolean(cdp), crm: Boolean(crm) },
+      // `ran`, not `enabled`: ops has no switch, so an `enabled.ops: true` was a constant dressed up as a
+      // resolved value (#599 nit). This states what happened.
+      ran: { ops: true, cdp: Boolean(cdp), crm: Boolean(crm) },
       report: summariseDrain(lines),
       // The consumers' own counters, beside the log-derived report, as two paths to one answer.
       counters: {
@@ -296,47 +353,26 @@ async function main(): Promise<void> {
     assertConsentModeOverridesKnown(config.cdp.consentModeOverrides, storeCodes.codes());
   }
 
-  const consumer = createOpsConsumer({
+  // #599: built by the SAME function the drain uses, so a group override moves the consumer and the DLQ
+  // watch together. This path used to construct them inline without a group id, which is exactly how the
+  // two drifted apart.
+  const {
+    ops: consumer,
+    cdp,
+    crm,
+  } = buildConsumers({
+    config,
     hq,
+    pool,
     transport,
-    rateLimit: config.rateLimit,
-    log: logLine,
+    storeCodes,
+    log: (line) => console.info(JSON.stringify(line)),
   });
   // Its own limiter, not the consumer's: a flood of payment failures must not use up the window a stuck DLQ
   // needs. The keys differ already (rule + group vs rule + store); a separate limiter keeps that true whatever
   // a future rule is called.
   const watchLimiter = createRateLimiter(config.rateLimit);
 
-  // The CDP consumer is its own group and runs only when enabled (off until an account exists, #554).
-  const cdp = config.cdp.enabled
-    ? createCdpConsumer({
-        hq,
-        pool,
-        adapter: buildCdpAdapter(config),
-        // Per-store consent mode (#576): resolved per event from the store the event names.
-        consentModeFor: config.cdp.consentModeFor,
-        // The keys behind it, so a consumer built anywhere else gets the same refusal (#586). The boot's own
-        // check is above, where it can still stop the process.
-        consentModeOverrides: config.cdp.consentModeOverrides,
-        // The cache this process already warmed: one query for the organization's stores, not two.
-        storeCodes,
-        log: (line) => console.info(JSON.stringify(line)),
-      })
-    : null;
-
-  // The CRM consumer, likewise its own group and off until a CRM and a service account exist (#555, #565).
-  const crm = config.crm.enabled
-    ? createCrmConsumer({
-        hq,
-        pool,
-        adapter: buildCrmAdapter(config),
-        customers: createAdminApiReader({
-          baseUrl: config.crm.adminApiUrl,
-          tokens: buildTokenProvider(config),
-        }),
-        log: (line) => console.info(JSON.stringify(line)),
-      })
-    : null;
   // The support API (#556): an HTTP server, off unless asked for. The agent's own token authenticates every
   // request; there is no service principal anywhere in this route.
   const support = config.support.enabled
@@ -433,24 +469,30 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     // The CLASS, never the error itself: a thrown error's message or stack can carry a webhook URL, a write
     // key or a row it was handling (#562 review). The class is what a restart policy needs.
     //
-    // ONE EXCEPTION, added by the #590 review: a `ConsentModeConfigError`'s message is also printed, because
-    // this module builds those messages itself out of env variable names and store codes — no payload, no
-    // secret, no personal data — and the operator needs to be told WHICH variable is wrong. Without it the
-    // boot failure reads `error_class: "Error"` and the name of the offending key is thrown away.
+    // ONE EXCEPTION, added by the #590 review and widened by #599 to every CONFIGURATION refusal: a
+    // `ConfigRefusedError`'s message is printed too, because those messages are built in this repository out
+    // of environment variable names and values it chose — no payload, no secret, no personal data — and the
+    // operator needs to be told WHICH variable is wrong. Without it the boot failure reads
+    // `error_class: "Error"` and the name of the offending key is thrown away.
+    const refused = err instanceof ConfigRefusedError;
     const line = JSON.stringify({
       service: 'engagement',
       module: 'ops',
       event: 'crashed',
       error_class: err instanceof Error ? err.name : 'Error',
-      ...(err instanceof ConsentModeConfigError ? { message: err.message } : {}),
+      ...(refused ? { message: err.message, exit: CONFIG_REFUSED_EXIT } : {}),
     });
     // Written synchronously: `process.exit` below can truncate a buffered write to a pipe, and the whole
     // point of this line is that it reaches whoever is reading the logs.
     writeSync(2, `${line}\n`);
     // EXIT, not just an exit code. `process.exitCode` alone does nothing while something is still running
-    // (an ops consumer, a server, a timer) — the defect this review found: the service stayed up with a
+    // (an ops consumer, a server, a timer) — the defect the #590 review found: the service stayed up with a
     // configuration it had already refused.
-    process.exit(1);
+    //
+    // 2 for a configuration refusal, 1 for anything else (#599): a supervisor that restarts on a crash must
+    // not restart on an environment that has already been refused — the same environment is refused again,
+    // forever, and the loop buries the message.
+    process.exit(refused ? CONFIG_REFUSED_EXIT : 1);
   });
 }
 

@@ -165,7 +165,38 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **Never commit a 64-hex email_hash fixture.** The `sha256` $def needs a real 64-hex value, so a word will not validate — compute it: `createHash('sha256').update('…').digest('hex')`, which is what apps/core does. I had three such literals before catching it; one would have reddened every open PR.
 - `pg` is deliberately NOT a dependency of this app: for a pool type use `Parameters<typeof createTenantClient>[0]`.
 
-## RESUME HERE — 2026-10-25: INTEGRATION 4 DONE, PHASE 4 CLOSED, WINDOW 16 IDLE
+## RESUME HERE — 2026-10-25: Phase 5 wave 1 (#599) FIXED, PR open
+
+**Manager session NINE is the manager now** (session eight stood down). Phase 5 started: plan
+`docs/plan/phase5-plan.md`, tracking **#612**. My wave-1 task was **#599** and it is done on branch
+`engagement/phase5` (cut from main `f70f590`). **Wave 3 (after the weekly reset) is #610 — support reply
+drafts, default OFF. Nothing to do for it yet.**
+
+**#599, the bug I recorded at Integration 4 and then fixed.** The drain passed `config.groups` to its
+consumers; the long-running path built them inline with no group id, while `dlq.groups` had started
+defaulting to `config.groups`. So an override without `--drain` consumed one group and watched another's
+DLQ. **The fix is structural: `buildConsumers` in `main.ts` is now the only place a consumer is constructed**
+and therefore the only place a group is chosen; both modes call it and may differ only in `fromBeginning`
+and the drain's per-batch hook. Chosen over "refuse the overrides unless `--drain`" because the override is
+about WHICH group, never about which path read it — and window 12's #600 copies this pattern. Plus:
+`resolveConfig` refuses an explicit `ENGAGEMENT_DLQ_GROUPS` that omits a running group (more is fine, fewer
+is refused), and **a configuration refusal now exits 2** (`ConfigRefusedError`, which `ConsentModeConfigError`
+extends) so a supervisor does not restart an environment already refused.
+
+**Verified:** 441/441 with the broker up (21 files, 112 s, live blocks self-cleaning: cdp 30 / crm 21 / ops
+12), **432 passed / 9 skipped offline**, typecheck, lint, prettier, ownership clean. Package 0.6.1. Machine
+granted and returned.
+
+**`src/main.test.ts` is the new pattern to copy:** it states the invariant — every group a consumer RUNS is a
+group the watch WATCHES — over six configurations including the broken one, with no broker and no database,
+because constructing a consumer connects to nothing. A test that reads a shipped object's `groupId` is worth
+more than one that re-derives what the code should have done.
+
+**The lesson, now twice over:** when one path gains a defaulted value, check every OTHER path that reads it.
+
+<!-- The Integration 4 / Phase 4 record below still holds; its operational notes are still accurate. -->
+
+## Integration 4 and Phase 4 (closed 2026-10-25)
 
 **#598 MERGED = `b2a967a`** (Integration 4 step 3; Opus review = MERGE). **#594 closed, Phase 4 closed**,
 tags `contracts-v0.4.28` and `events-v1.1`. Window 16 is idle; the manager writes if anything comes up.

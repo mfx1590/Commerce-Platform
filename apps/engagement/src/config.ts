@@ -7,6 +7,7 @@
 import { SEED_IDS } from '@platform/db';
 import { CDP_GROUP_ID } from './cdp/consumer.js';
 import type { ConsentMode } from './consent.js';
+import { ConfigRefusedError } from './config-error.js';
 import {
   CONSENT_MODE_ENV,
   parseConsentMode,
@@ -215,6 +216,23 @@ export function resolveConfig(opts: ResolveOptions = {}): EngagementConfig {
     .filter(Boolean);
 
   const drainIdleMs = intFrom(env.ENGAGEMENT_DRAIN_IDLE_MS, 10_000, 'ENGAGEMENT_DRAIN_IDLE_MS');
+
+  // #599: the watch may cover MORE groups than this process runs — production must list every group on the
+  // bus, other windows' included — but never FEWER. A group this process consumes whose dead letters nobody
+  // reads is the failure this whole issue is about, and an explicit `ENGAGEMENT_DLQ_GROUPS` is the one way
+  // left to create it now that the consumers and the watch share `groups`.
+  const running = [
+    consumerGroups.ops,
+    ...(cdp.enabled ? [consumerGroups.cdp] : []),
+    ...(crm.enabled ? [consumerGroups.crm] : []),
+  ];
+  const unwatched = running.filter((g) => !groups.includes(g));
+  if (unwatched.length > 0) {
+    throw new ConfigRefusedError(
+      `ENGAGEMENT_DLQ_GROUPS does not watch ${unwatched.join(', ')}, which this process consumes: ` +
+        `its dead letters would be nobody's (watching: ${groups.join(', ') || '(none)'})`,
+    );
+  }
 
   return {
     databaseUrlApp,
