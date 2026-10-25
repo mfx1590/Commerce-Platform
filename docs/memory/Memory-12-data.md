@@ -69,7 +69,20 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   policy. #601: `mart_recognised_daily` DROPPED (ledger lines in #602); `fct_order_line.product_id` via `dim_variant`
   from product.published/updated `variants[]` (BINDING for window 9) — read the two manager comments on #601 first.
 
-## #601 design draft (2026-10-25; NO code until the #616 review is back)
+## #601 IN PROGRESS (2026-10-25; review of #616 = MERGE, landing PR #618 collects 3 green runs; push NOTHING to
+## data/phase5 until #617 + #618 are on main, then merge main)
+- Local branch has #617 (origin/integration/phase5-month-fixture) merged in, to code against `@platform/test-utils`.
+- Built: `data/clickhouse/migrations/0002_orders_minute.sql` (orders_minute_events RMT + mv_orders_minute + backfill),
+  `data/clickhouse/models/{100_staging,200_dims,300_facts,400_marts,500_live}.sql`; runner → `src/migrations.ts`
+  (models re-applied on change, idempotency lint, `_migrations_lock`); InsertRejectedError (follow-up 2);
+  `createChReader`; `src/models.test.ts` (9 tests, opt-in) + `src/testing/clickhouse-gate.ts`; READMEs, CHANGELOG 0.3.0.
+- 49 unit tests green. models.test NOT YET RUN: asked the manager for the machine (2026-10-25). Also run live.test
+  once to confirm the runner change. Asked whether models.test titles get pinned in CI.
+- PR body must state: the bookings/cash marts are tested against references computed from the events (Postgres =
+  ClickHouse is #602's); the live-tile choice (RMT per event + FINAL read, uniqExact); follow-ups 2 and 4 done;
+  follow-ups 3 (memory bound doc) and 5 (ch:migrate via tsx in prod image) are later notes.
+
+## #601 design draft (2026-10-25)
 - Sources checked: order.placed v1 line_items carry order_line_item_id, variant_id (nullable), sku, title, quantity,
   unit_price_minor, discount_minor, tax_rate_bp, tax_minor, total_minor; product.published/updated v1 `variants[]`
   = {variant_id, sku, title}; order.cancelled v1 has order_id + cancelled_at. Every binding fct_order_line column exists.

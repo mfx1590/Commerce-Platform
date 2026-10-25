@@ -45,11 +45,11 @@ Redpanda (every topic of @platform/events, from the beginning)
 
 ## Run
 
-| Command                                                  | What                                                                                                                                                                                                                                   |
-| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm --filter @platform/analytics-ingest ch:migrate`    | applies `data/clickhouse/migrations/*.sql` to `CLICKHOUSE_DATABASE` (creates it), each file once; a changed applied file is refused                                                                                                    |
-| `pnpm --filter @platform/analytics-ingest dev` / `start` | long-running consumer; `GET /health` on `$PORT` when set (the container contract)                                                                                                                                                      |
-| `pnpm --filter @platform/analytics-ingest once`          | `--once`: drain to idle (≥ `ANALYTICS_MIN_RUN_MS`, then `ANALYTICS_IDLE_MS` quiet, hard stop `ANALYTICS_MAX_RUN_MS`), print one JSON report (rows per topic, dead letters this run, records on the group's DLQ), exit 0 (1 on max_run) |
+| Command                                                  | What                                                                                                                                                                                                                                                           |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm --filter @platform/analytics-ingest ch:migrate`    | applies `data/clickhouse/migrations/*.sql` (each once; an edited applied file is refused) and then `data/clickhouse/models/*.sql` (views, re-applied when changed) to `CLICKHOUSE_DATABASE` (creates it), under `_migrations_lock`, after the idempotency lint |
+| `pnpm --filter @platform/analytics-ingest dev` / `start` | long-running consumer; `GET /health` on `$PORT` when set (the container contract)                                                                                                                                                                              |
+| `pnpm --filter @platform/analytics-ingest once`          | `--once`: drain to idle (≥ `ANALYTICS_MIN_RUN_MS`, then `ANALYTICS_IDLE_MS` quiet, hard stop `ANALYTICS_MAX_RUN_MS`), print one JSON report (rows per topic, dead letters this run, records on the group's DLQ), exit 0 (1 on max_run)                         |
 
 Flags: `--once`, `--group <id>`, `--topic-prefix <p>` (tests and gates; applies to the DLQ too).
 
@@ -88,8 +88,26 @@ Flags: `--once`, `--group <id>`, `--topic-prefix <p>` (tests and gates; applies 
   leaves `count() FINAL` unchanged; a crash between insert and commit duplicates rows that FINAL folds; a whole
   generated month lands once per (topic, event_id).
 - `pii.test.ts`: the sweep (and a planted row proving the sweep finds each shape).
-- `config.test.ts` (group override moves the DLQ, #599), `clickhouse.test.ts` (DDL, statement splitter,
-  idempotent runner), `once.test.ts` (the stopping rule), `metrics.test.ts` (in-memory OTel exporter).
+- `migrations.test.ts`: the DDL; the idempotency lint over both SQL folders; migrations then models; a second run
+  applies nothing; an edited model is re-applied while an edited migration is refused; the lock refuses a second
+  runner and is always released.
+- `config.test.ts` (group override moves the DLQ, #599), `once.test.ts` (the stopping rule), `metrics.test.ts`
+  (in-memory OTel exporter).
+
+`models.test.ts` runs the models (data/clickhouse/README.md) on the shared month from `@platform/test-utils`: 150
+orders over three legal entities, with refunds, cancellations before and after partial shipments, and unknown fees.
+The events are written straight into `raw_events` of two throwaway databases. The tests check:
+
+- one row per fact key;
+- `product_id` through `dim_variant`;
+- `mart_bookings_daily` and `mart_cash_daily` row for row against references computed from the same events with
+  `rpt_sales_daily`'s / `rpt_payments_daily`'s rules (Postgres = ClickHouse itself is #602's);
+- a second database fed in reverse, every event twice, with the MV created midway, gives identical marts and
+  tiles;
+- exact live counts;
+- no PII-named column.
+
+It needs ClickHouse only, with the same gate as `live.test.ts`.
 
 `live.test.ts` runs the real thing against Redpanda and ClickHouse: migrate twice, a month published under a
 throwaway prefix into a throwaway database (once per topic; invalid events on the overridden group's DLQ), a full

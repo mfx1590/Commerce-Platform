@@ -21,13 +21,8 @@ import {
   type TopicPolicy,
 } from '@platform/events';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import {
-  createChClient,
-  createRawEventsSink,
-  migrate,
-  readSqlFiles,
-  type ChClient,
-} from './clickhouse.js';
+import { createChClient, createRawEventsSink, type ChClient } from './clickhouse.js';
+import { migrate, readSqlFiles } from './migrations.js';
 import { loadConfig } from './config.js';
 import { createIngest, SimulatedCrash, type Ingest, type IngestLogLine } from './ingest.js';
 import { generateMonth } from './testing/month.js';

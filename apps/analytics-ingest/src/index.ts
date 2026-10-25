@@ -8,13 +8,19 @@ export {
   createChClient,
   createChReader,
   createRawEventsSink,
-  DEFAULT_SQL_DIRS,
+} from './clickhouse.js';
+export type { ChClient } from './clickhouse.js';
+export {
+  DEFAULT_SQL_SOURCES,
+  lintSqlFiles,
+  LOCK_TTL_SECONDS,
   migrate,
   MigrationChangedError,
+  MigrationLockedError,
   readSqlFiles,
   splitStatements,
-} from './clickhouse.js';
-export type { ChClient, MigrateResult, SqlFile } from './clickhouse.js';
+} from './migrations.js';
+export type { MigrateResult, SqlFile, SqlKind, SqlSource } from './migrations.js';
 export { ConfigError, DEFAULT_GROUP, loadConfig } from './config.js';
 export type { ClickHouseConfig, IngestConfig } from './config.js';
 export { consoleLog, createIngest, processBatch, SimulatedCrash } from './ingest.js';
@@ -34,6 +40,7 @@ export { idleState, waitForIdle } from './once.js';
 export type { IdleOutcome, OnceReport, WaitForIdleOptions } from './once.js';
 export {
   classify,
+  InsertRejectedError,
   InvalidEventError,
   toClickHouseTime,
   UndecodableMessageError,

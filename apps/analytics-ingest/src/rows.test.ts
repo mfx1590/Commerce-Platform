@@ -112,6 +112,13 @@ describe('classify', () => {
     );
   });
 
+  it('dead-letters a schema-valid event whose row ClickHouse would refuse (insert_rejected), instead of stalling', () => {
+    const farFuture = mutate(placed, { occurred_at: '2400-01-01T00:00:00.000Z' });
+    expect(validator.validateEnvelope(farFuture).ok).toBe(true);
+    const c = classify(toWire(farFuture, 14), batch, ctx);
+    expect(c.kind === 'dead' && c.letter.error_class).toBe('InsertRejectedError');
+  });
+
   it('formats DateTime64 text in UTC with milliseconds', () => {
     expect(toClickHouseTime(new Date('2026-10-01T00:00:00Z'))).toBe('2026-10-01 00:00:00.000');
     expect(() => toClickHouseTime(new Date('nope'))).toThrow(RangeError);

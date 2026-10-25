@@ -26,6 +26,7 @@
     "clean": "rm -rf dist .turbo"
   },
   "devDependencies": {
+    "@platform/test-utils": "workspace:*",
     "@types/node": "^20.19.0",
     "tsx": "4.23.13",
     "typescript": "^5.8.0",
