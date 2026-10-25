@@ -46,31 +46,19 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   + `_components/{bi-report,series-chart}.tsx` + README; `apps/admin/test/bi/{report,bi-page}.test.ts(x)` (32),
   `apps/admin/test-contract/bi/bi.test.ts` (4, Prism); core: analyst reads a store's stock test,
   REFUND_REASONS.includes.
+- P5.1 #600: MERGED with integration PR #618 = 9e8993d (my PR #616: code 0949769 + memory 1dba221; manager CI
+  commit cea626b adds ClickHouse to the live job and the pinned step "analytics ingest live block — and it really ran";
+  3 green runs; Opus review MERGE; #600 closed, #616 marked merged). Dev-stack proof: 460 outbox rows = 460 raw_events
+  FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
-- #600 P5.1 ingest on `data/phase5`: built — `apps/analytics-ingest/src/{config,rows,batcher,ingest,clickhouse,metrics,
-  once,telemetry,main,migrate-cli,index}.ts`, `data/clickhouse/migrations/0001_raw_events.sql` + `data/clickhouse/README.md`;
-  41 unit tests green; `src/live.test.ts` (4 tests) opt-in `ANALYTICS_LIVE=1` (CI always).
-  PR #616 (Closes #600; code commit 0949769; head = this memory commit). Landing (manager 2026-10-25): push NOTHING
-  more; the manager cuts `integration/phase5-ingest` from this head after #614, adds the CI step "analytics ingest
-  live block — and it really ran" (pins my 4 live test TITLES via require-live-tests.mjs: never rename them), needs
-  3 consecutive green runs; the integration PR merges and marks #616 merged. An independent Opus review is running:
-  code fixes, if any, go to data/phase5 and the manager re-cuts. #601: read/design only until the review is back.
-  Still owed: message the manager when every check on #616 has finished.
-- Live, with the manager's machine (2026-10-25): `ANALYTICS_LIVE=1` live.test 4/4 green (~17 s, self-cleaned);
-  dev stack: `ch:migrate` on `analytics` (applied 0001, second run nothing) → `--once` group analytics.raw: 460 rows =
-  the outbox's 460 published rows, 22 topic@versions equal row for row, 0 dead letters → full replay under group
-  analytics.raw.proof-replay: FINAL still 460 per topic (raw 617 before merge). PII: 0 e-mail shapes; the only key
-  hit is customer.updated `changed_fields: ["first_name","last_name"]` (field NAMES, not values).
-- Manager answers (2026-10-25): eachBatch loop ACCEPTED (README states why; per-partition commit after ack; heartbeat
-  during flush; same group for DLQ); writer `platform`/reader `analytics_ro` (readonly=1: no per-query settings on
-  the read path → `createChReader`); DDL tests on `analytics_test_<word>`, never drop `analytics`; CI ClickHouse
-  wiring = the manager's commit on top of my #600 head. REQUEST #615 (window 14) for analytics.raw in the DLQ
-  policy. #601: `mart_recognised_daily` DROPPED (ledger lines in #602); `fct_order_line.product_id` via `dim_variant`
-  from product.published/updated `variants[]` (BINDING for window 9) — read the two manager comments on #601 first.
+- #601 P5.2 models: PR #619 (Closes #601; code commits 0b3b265, 0a0d6b8, a6b8e42 on top of the merge of main 05cf71f;
+  head = this memory commit). Review = a FABLE review after the weekly reset (2026-10-27 14:00 UTC); the manager pins
+  the 11 models.test titles in the CI live step on the integration landing. Push NOTHING more unless the review asks.
+- IDLE after this (weekly usage 84%): NO #602 work until the manager activates wave 2 after the reset.
+- Machine: last runs 2026-10-25, 15/15 three times on the merged head; machine free reported.
 
-## #601 IN PROGRESS (2026-10-25; review of #616 = MERGE, landing PR #618 collects 3 green runs; push NOTHING to
-## data/phase5 until #617 + #618 are on main, then merge main)
+## #601 notes (2026-10-25)
 - Local branch has #617 (origin/integration/phase5-month-fixture) merged in, to code against `@platform/test-utils`.
 - Built: `data/clickhouse/migrations/0002_orders_minute.sql` (orders_minute_events RMT + mv_orders_minute + backfill),
   `data/clickhouse/models/{100_staging,200_dims,300_facts,400_marts,500_live}.sql`; runner → `src/migrations.ts`
@@ -154,6 +142,9 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
 - #600: no processed store — ReplacingMergeTree(ingested_at) ORDER BY (topic, event_id) is the dedupe; readers count
   with FINAL. PARTITION BY toYYYYMM(occurred_at) is safe for folding (a copy has the same occurred_at).
 - #600: the group id is resolved once in loadConfig; consumer, `dlqTopic` and the --once DLQ count all read it (#599).
+- #600 (manager 2026-10-25): ClickHouse writer `platform` (ingest + migrator), reader `analytics_ro` (readonly=1: no
+  per-query settings on the read path, hence `createChReader`); DDL tests on `analytics_test_<word>`, never drop
+  `analytics` (the reader grant is bound to it); REQUEST #615 (window 14) adds analytics.raw to the DLQ policy.
 - #600: the test month is generated from the event SCHEMAS (`src/testing/month.ts`, every topic@version, validated),
   so the ingest/PII tests need nothing from apps/accounting.
 
