@@ -211,6 +211,14 @@ export interface CrmConsumerOptions {
   topicPrefix?: string;
   retries?: number;
   fromBeginning?: boolean;
+  /**
+   * The consumer group, for a one-off run that must not disturb the real one (#594, Integration 4): a
+   * FRESH group re-reads the topics from the beginning without touching the live group's offsets or its
+   * marks. Default: the module's own constant. Must match the `consumer_processed.group_id` CHECK.
+   */
+  groupId?: string;
+  /** Per-batch hook, used by the drain mode to tell "still arriving" from "idle". */
+  onBatch?: (batch: { topic: string; partition: number; first: string; last: string }) => void;
   log?: (line: CrmLogLine) => void;
   storeClientFor?: (storeId: string) => ScopedClient;
 }
@@ -226,6 +234,7 @@ export interface CrmConsumer {
 }
 
 export function createCrmConsumer(opts: CrmConsumerOptions): CrmConsumer {
+  const groupId = opts.groupId ?? CRM_GROUP_ID;
   const organizationId = opts.hq.context.organizationId;
   const processed = createPgProcessedStore(opts.hq, PROCESSED_TABLE);
   const storeClientFor =
@@ -236,13 +245,14 @@ export function createCrmConsumer(opts: CrmConsumerOptions): CrmConsumer {
   let skipped = 0;
 
   const consumer: EventConsumer = createConsumer({
-    groupId: CRM_GROUP_ID,
+    groupId,
     topics: CRM_TOPICS,
     processed,
     ...(opts.kafka ? { kafka: opts.kafka } : {}),
     ...(opts.topicPrefix === undefined ? {} : { topicPrefix: opts.topicPrefix }),
     ...(opts.retries === undefined ? {} : { retries: opts.retries }),
     ...(opts.fromBeginning === undefined ? {} : { fromBeginning: opts.fromBeginning }),
+    ...(opts.onBatch ? { onBatch: opts.onBatch } : {}),
     handler: async ({ envelope, outboxId }) => {
       const r = await handleCrmEvent(envelope, outboxId, {
         hq: opts.hq,
@@ -259,7 +269,7 @@ export function createCrmConsumer(opts: CrmConsumerOptions): CrmConsumer {
   });
 
   return {
-    groupId: CRM_GROUP_ID,
+    groupId,
     dlqTopic: consumer.dlqTopic,
     get upserted() {
       return upserted;

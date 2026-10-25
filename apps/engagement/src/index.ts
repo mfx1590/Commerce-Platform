@@ -67,6 +67,15 @@ export {
   CONSENT_MODE_ENV_PREFIX,
 } from './consent-mode.js';
 
+export { summariseDrain, waitForIdle } from './drain.js';
+export type {
+  DrainLogLine,
+  DrainReport,
+  DrainModuleReport,
+  DrainStop,
+  WaitForIdleOptions,
+} from './drain.js';
+
 export { gate, readCustomerFacts, readOrderCustomerFacts, CONSENT_PURPOSE } from './consent.js';
 export type {
   ConsentState,

@@ -60,6 +60,14 @@ export interface OpsConsumerOptions {
   now?: () => number;
   /** Test seam: start at the latest offset instead of the beginning. */
   fromBeginning?: boolean;
+  /**
+   * The consumer group, for a one-off run that must not disturb the real one (#594, Integration 4): a
+   * FRESH group re-reads the topics from the beginning without touching the live group's offsets or its
+   * marks. Default: the module's own constant. Must match the `consumer_processed.group_id` CHECK.
+   */
+  groupId?: string;
+  /** Per-batch hook, used by the drain mode to tell "still arriving" from "idle". */
+  onBatch?: (batch: { topic: string; partition: number; first: string; last: string }) => void;
 }
 
 export interface OpsConsumer {
@@ -127,6 +135,7 @@ export async function handleEvent(args: {
 }
 
 export function createOpsConsumer(opts: OpsConsumerOptions): OpsConsumer {
+  const groupId = opts.groupId ?? OPS_GROUP_ID;
   const rules = opts.rules ?? OPS_RULES;
   const limiter = createRateLimiter({
     ...opts.rateLimit,
@@ -138,13 +147,14 @@ export function createOpsConsumer(opts: OpsConsumerOptions): OpsConsumer {
   let suppressed = 0;
 
   const consumer: EventConsumer = createConsumer({
-    groupId: OPS_GROUP_ID,
+    groupId,
     topics: ruleTopics(rules),
     processed,
     ...(opts.kafka ? { kafka: opts.kafka } : {}),
     ...(opts.topicPrefix === undefined ? {} : { topicPrefix: opts.topicPrefix }),
     ...(opts.retries === undefined ? {} : { retries: opts.retries }),
     ...(opts.fromBeginning === undefined ? {} : { fromBeginning: opts.fromBeginning }),
+    ...(opts.onBatch ? { onBatch: opts.onBatch } : {}),
     handler: async ({ envelope, outboxId }) => {
       const r = await handleEvent({
         envelope,
@@ -185,7 +195,7 @@ export function createOpsConsumer(opts: OpsConsumerOptions): OpsConsumer {
   });
 
   return {
-    groupId: OPS_GROUP_ID,
+    groupId,
     dlqTopic: consumer.dlqTopic,
     get sent() {
       return sent;

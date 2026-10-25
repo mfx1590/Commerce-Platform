@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { createOrganizationClient, createPool } from '@platform/db';
 import { resolveConfig, type EngagementConfig } from './config.js';
 import { assertConsentModeOverridesKnown, ConsentModeConfigError } from './consent-mode.js';
+import { summariseDrain, waitForIdle, type DrainLogLine } from './drain.js';
 import { createCdpConsumer } from './cdp/consumer.js';
 import { MemoryCdpAdapter } from './cdp/adapter/memory.js';
 import { RudderStackCdpAdapter } from './cdp/adapter/rudderstack.js';
@@ -25,6 +26,7 @@ import { createChatwootReceiver } from './support/chatwoot.js';
 import { createSupportServer } from './support/server.js';
 import { createRateLimiter } from './ops/rate-limit.js';
 import { createStoreCodes } from './ops/store-codes.js';
+import { readDeadLetters } from '@platform/events';
 import { runDlqWatch } from './ops/dlq-watch.js';
 import { DevSinkAlertTransport } from './transport/dev-sink.js';
 import { SlackAlertTransport } from './transport/slack.js';
@@ -73,7 +75,9 @@ export function buildTokenProvider(config: EngagementConfig): TokenProvider {
       'ENGAGEMENT_CRM_TOKEN_PROVIDER=client_credentials is not implemented yet (REQUEST #565)',
     );
   }
-  return mockTokenProvider();
+  // `ENGAGEMENT_CRM_MOCK_TOKEN` is the dev stand-in for the crm-sync principal (#565); never in production,
+  // where both the mock provider and the value itself are refused by `resolveConfig`.
+  return config.crm.mockToken ? mockTokenProvider(config.crm.mockToken) : mockTokenProvider();
 }
 
 /**
@@ -93,12 +97,162 @@ function logLine(line: EngagementLogLine): void {
   console.info(JSON.stringify(line));
 }
 
+/**
+ * `--drain` (#594, Integration 4 step 3): start every enabled consumer on the REAL topics from the
+ * beginning, wait for the bus to go quiet, stop, and print one report.
+ *
+ * Why it is a mode of its own rather than a script: the measurement has to be the real wiring — the same
+ * consumers, the same handlers, the same marks — differing only in the group id and in stopping by itself.
+ * A fresh group (`ENGAGEMENT_*_GROUP_ID`) re-reads the topics without moving the live group's offsets, and
+ * `fromBeginning` is what makes a fresh group see the history rather than wait for the next message.
+ *
+ * The counts come from the log lines the consumers already emit, so the report says exactly what an operator
+ * reading the log would conclude — and each consumer's own counters are printed beside them as a
+ * cross-check. If the two ever disagree, the report is wrong and says so.
+ */
+async function runDrain(deps: {
+  config: EngagementConfig;
+  pool: ReturnType<typeof createPool>;
+  hq: ReturnType<typeof createOrganizationClient>;
+  transport: AlertTransport;
+}): Promise<void> {
+  const { config, pool, hq, transport } = deps;
+  const lines: DrainLogLine[] = [];
+  const collect = (line: DrainLogLine): void => {
+    lines.push(line);
+    console.info(JSON.stringify(line));
+  };
+
+  let lastBatchAt: number | null = null;
+  const onBatch = (): void => {
+    lastBatchAt = Date.now();
+  };
+
+  // The same check the long-running path makes, before anything starts (#590).
+  const storeCodes = createStoreCodes(hq);
+  if (config.cdp.enabled) {
+    await storeCodes.warm();
+    assertConsentModeOverridesKnown(config.cdp.consentModeOverrides, storeCodes.codes());
+  }
+
+  const ops = createOpsConsumer({
+    hq,
+    transport,
+    rateLimit: config.rateLimit,
+    groupId: config.groups.ops,
+    fromBeginning: true,
+    onBatch,
+    log: collect,
+  });
+  const cdp = config.cdp.enabled
+    ? createCdpConsumer({
+        hq,
+        pool,
+        adapter: buildCdpAdapter(config),
+        consentModeFor: config.cdp.consentModeFor,
+        consentModeOverrides: config.cdp.consentModeOverrides,
+        storeCodes,
+        groupId: config.groups.cdp,
+        fromBeginning: true,
+        onBatch,
+        log: collect,
+      })
+    : null;
+  const crm = config.crm.enabled
+    ? createCrmConsumer({
+        hq,
+        pool,
+        adapter: buildCrmAdapter(config),
+        customers: createAdminApiReader({
+          baseUrl: config.crm.adminApiUrl,
+          tokens: buildTokenProvider(config),
+        }),
+        groupId: config.groups.crm,
+        fromBeginning: true,
+        onBatch,
+        log: collect,
+      })
+    : null;
+
+  const started: { stop(): Promise<void> }[] = [];
+  const startedAt = Date.now();
+  let stop: Awaited<ReturnType<typeof waitForIdle>> = 'empty';
+  try {
+    await ops.start();
+    started.push(ops);
+    if (cdp) {
+      await cdp.start();
+      started.push(cdp);
+    }
+    if (crm) {
+      await crm.start();
+      started.push(crm);
+    }
+    stop = await waitForIdle({
+      lastBatchAt: () => lastBatchAt,
+      startedAt,
+      idleMs: config.drain.idleMs,
+      minRunMs: config.drain.minRunMs,
+    });
+  } finally {
+    for (const s of [...started].reverse()) await s.stop().catch(() => undefined);
+  }
+
+  // The dead letters of THESE groups, after they stopped: the number the gate cares about (expected 0).
+  const deadLetters: Record<string, number> = {};
+  for (const [module, groupId] of [
+    ['ops', config.groups.ops],
+    ['cdp', config.groups.cdp],
+    ['crm', config.groups.crm],
+  ] as const) {
+    if (module === 'cdp' && !cdp) continue;
+    if (module === 'crm' && !crm) continue;
+    try {
+      deadLetters[groupId] = (await readDeadLetters(groupId, { timeoutMs: 10_000 })).length;
+    } catch {
+      // An unreadable DLQ is reported as unknown, never as zero: zero is a gate line.
+      deadLetters[groupId] = -1;
+    }
+  }
+
+  console.info(
+    JSON.stringify({
+      service: 'engagement',
+      event: 'drained',
+      stop,
+      elapsed_ms: Date.now() - startedAt,
+      groups: config.groups,
+      enabled: { ops: true, cdp: Boolean(cdp), crm: Boolean(crm) },
+      report: summariseDrain(lines),
+      // The consumers' own counters, beside the log-derived report, as two paths to one answer.
+      counters: {
+        ops: { sent: ops.sent, suppressed: ops.suppressed },
+        ...(cdp ? { cdp: { sent: cdp.sent, dropped: cdp.dropped } } : {}),
+        ...(crm
+          ? { crm: { upserted: crm.upserted, removed: crm.removed, skipped: crm.skipped } }
+          : {}),
+      },
+      dead_letters: deadLetters,
+      transport: transport.name,
+      cdp_adapter: config.cdp.enabled ? config.cdp.adapter : null,
+      crm_adapter: config.crm.enabled ? config.crm.adapter : null,
+    }),
+  );
+  await pool.end();
+}
+
 async function main(): Promise<void> {
   const once = process.argv.includes('--once');
   const config = resolveConfig();
   const pool = createPool(config.databaseUrlApp);
   const hq = createOrganizationClient(pool, { organizationId: config.organizationId });
   const transport = buildTransport(config);
+
+  // `--drain` is the one-shot measurement mode (#594); `--once` below is the DLQ poll and is unchanged.
+  if (config.drain.enabled) {
+    await runDrain({ config, pool, hq, transport });
+    return;
+  }
 
   if (once) {
     const limiter = createRateLimiter(config.rateLimit);

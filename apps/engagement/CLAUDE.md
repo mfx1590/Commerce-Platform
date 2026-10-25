@@ -22,6 +22,10 @@ a file to edit; a change there is a `REQUEST:` to window 17.
 
 - `pnpm --filter @platform/engagement dev` — consumer + DLQ poll against `.env` (DB rows on 127.0.0.1)
 - `pnpm --filter @platform/engagement start` / `once` (one DLQ poll, prints a report, exits)
+- `pnpm --filter @platform/engagement drain` (`--drain`, #594) — the one-shot measurement: every enabled
+  consumer from the beginning of its topics until the bus is quiet, then one report. Pair it with a FRESH
+  group per module (`ENGAGEMENT_{OPS,CDP,CRM}_GROUP_ID`) so it never moves the live group's offsets. `--once`
+  is still the DLQ poll and must stay that way — `pnpm once` and the runbooks mean it.
 - `pnpm --filter @platform/engagement build` / `typecheck` (src and tests) / `lint`
 - `pnpm --filter @platform/engagement exec vitest run` — unit tests need nothing; `ops/consumer.test.ts`
   builds its own throwaway DB through `@platform/db/testing` and has a live broker block that skips with a
@@ -106,6 +110,13 @@ package yet.
 - Consent gates the whole CRM contact and is checked BEFORE the PII is fetched; `customer.erased` deletes
   before anything is read and `remove` is idempotent.
 - `ENGAGEMENT_CRM_TOKEN_PROVIDER=client_credentials` throws until #565 is built — never fall back to the mock.
+- **`ENGAGEMENT_CRM_MOCK_TOKEN` is a dev stand-in for the `crm-sync` principal (#565); never in production.**
+  It feeds `mockTokenProvider` so the CRM path can be measured end to end on the dev stack (#594), where no
+  service principal exists: with the core on `CORE_DEV_TOKENS=1` a `dev:<subject>` token lets consent → PII
+  fetch → rollup → upsert actually run. It is a STAFF subject, so the rule above — CRM uses this service's
+  own principal, never a human's token — still stands and this is its one dev exception. `resolveConfig`
+  refuses the value in production whether or not the CRM is enabled, and a test pins both that refusal and
+  the mock provider's own; label it as a stand-in wherever it appears in a report.
 - **The support API uses the AGENT's own token, never a service principal** (#556). Authenticate, then check
   `support` on the store server-side, THEN read — and forward the agent's header so the core checks them too.
   OpenFGA unreachable is 503, not 403.
@@ -171,6 +182,14 @@ package yet.
     Everywhere else a hash is the only form an address takes. The CDP and ops paths read no address at all, and
     no path may start reading one from a table of ours or from an event payload. A log line, an alert, an error
     and a dead letter never carry one in any module, including the three above.
+- **A one-off run gets a FRESH group, never the live one** (#594): `ENGAGEMENT_*_GROUP_ID` plus
+  `fromBeginning`, which is what makes a new group see history instead of waiting for the next message. The
+  DLQ watch then defaults to the groups the process actually runs — watching `engagement.cdp` while running
+  `engagement.cdp.int4` reads as "all clear" about a queue nobody is filling. A group id must match
+  `consumer_processed.group_id`'s CHECK, validated at the boot.
+- The drain's counts come from the log lines the consumers already emit, with each consumer's own counters
+  printed beside them. Keep both: they are two paths to one answer, and a disagreement means the report is
+  wrong.
 - A new topic in `packages/events` must be added to `data/cdp/tracking-plan.json` as mapped or unmapped with a
   reason; the suite fails until it is.
 - Never touch a Dockerfile: the manager lands this service's `COPY` lines as an integration commit.

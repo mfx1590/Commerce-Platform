@@ -1,6 +1,6 @@
 {
   "name": "@platform/engagement",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "description": "Engagement service: ops alerts, CDP, CRM sync and the support-context API (#553-#556)",
@@ -21,6 +21,7 @@
     "dev": "tsx watch --clear-screen=false src/main.ts",
     "start": "node dist/main.js",
     "once": "node dist/main.js --once",
+    "drain": "node dist/main.js --drain",
     "test": "vitest run --passWithNoTests",
     "lint": "eslint . --max-warnings 0",
     "clean": "rm -rf dist .turbo"

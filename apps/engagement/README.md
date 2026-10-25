@@ -16,6 +16,25 @@ the CDP consumer, the CRM consumer and the support HTTP server that are enabled.
 `pnpm --filter @platform/engagement once` runs **one DLQ poll** and exits — the way to drive the watch from a
 script or a CI job without a long-lived process. The support API (#556) is the one HTTP server here, and it is off unless asked for.
 
+`pnpm --filter @platform/engagement drain` (`--drain`) is the **one-shot measurement mode** (#594): it starts
+every enabled consumer, reads its topics **from the beginning**, waits until the bus has gone quiet, stops and
+prints one report — events handled per module, counts by event, by drop/skip reason, by rule and by call, each
+consumer's own counters beside them as a cross-check, and the dead letters of the groups it ran. It is a mode
+rather than a script because the measurement has to be the real wiring: the same consumers, the same handlers,
+the same marks, differing only in the group id and in stopping by itself. Pair it with a FRESH group per
+module (`ENGAGEMENT_OPS_GROUP_ID`, `ENGAGEMENT_CDP_GROUP_ID`, `ENGAGEMENT_CRM_GROUP_ID`) so a one-off run
+re-reads history without moving the live group's offsets:
+
+```
+ENGAGEMENT_CDP_GROUP_ID=engagement.cdp.int4 pnpm --filter @platform/engagement drain
+```
+
+Stopping is a rule, not a timeout: a fresh group has to join and be assigned partitions before anything can
+arrive, so "nothing yet" and "nothing left" are the same for the first seconds. A run therefore lasts at least
+`ENGAGEMENT_DRAIN_MIN_RUN_MS` (20 s) and ends `ENGAGEMENT_DRAIN_IDLE_MS` (10 s) after the last batch —
+reporting `idle`, `empty` (nothing ever arrived) or `max_run` (10 min), because a run that cannot stop is a
+result, not something to swallow.
+
 One process serves one organization (`ENGAGEMENT_ORGANIZATION_ID`) and reads every store of it through an
 **organization-scoped** client: `consumer_processed` is RLS kind `organization_only`, so a store-scoped session
 reads and writes none of it.
@@ -31,7 +50,13 @@ reads and writes none of it.
 | `SLACK_OPS_WEBHOOK_URL`               | —                  | the incoming-webhook URL, **environment only**; required for `slack`, never logged     |
 | `ENGAGEMENT_ALERT_RATE_MAX`           | `5`                | alerts per (rule, store) per window                                                    |
 | `ENGAGEMENT_ALERT_RATE_WINDOW_MS`     | `900000` (15 min)  | the window                                                                             |
-| `ENGAGEMENT_DLQ_GROUPS`               | all `engagement.*` | groups whose DLQ depth is watched; **production must list every group on the bus**     |
+| `ENGAGEMENT_DLQ_GROUPS`               | the groups it runs | groups whose DLQ depth is watched; **production must list every group on the bus**     |
+| `ENGAGEMENT_CRM_MOCK_TOKEN`           | –                  | **dev stand-in for the `crm-sync` principal (#565); never in production** (#594)       |
+| `ENGAGEMENT_OPS_GROUP_ID`             | `engagement.ops`   | the ops consumer group; a fresh id re-reads history without moving the live offsets    |
+| `ENGAGEMENT_CDP_GROUP_ID`             | `engagement.cdp`   | the CDP consumer group (same rule)                                                     |
+| `ENGAGEMENT_CRM_GROUP_ID`             | `engagement.crm`   | the CRM consumer group (same rule)                                                     |
+| `ENGAGEMENT_DRAIN_IDLE_MS`            | `10000`            | `--drain`: quiet for this long after the last batch = drained                          |
+| `ENGAGEMENT_DRAIN_MIN_RUN_MS`         | `20000`            | `--drain`: no run ends sooner, so a slow group join is not read as an empty bus        |
 | `ENGAGEMENT_DLQ_THRESHOLD`            | `1`                | alert when a group's live dead-letter count reaches this                               |
 | `ENGAGEMENT_DLQ_POLL_MS`              | `60000`            | poll interval for the depth watch                                                      |
 | `KAFKA_BROKERS`                       | `127.0.0.1:19092`  | read by `@platform/events` (`createKafka`)                                             |
