@@ -149,12 +149,18 @@ package yet.
   starts, from one warmed `StoreCodes` it then hands to the CDP consumer (`resolveConfig` has no database, so
   the check cannot live there, and it is skipped entirely while the CDP is disabled).
 - **A startup refusal must stop the PROCESS, not just set an exit code** (#590 review, which found exactly
-  that bug): anything already started keeps the event loop alive, so `process.exitCode = 1` is a no-op and
+  that bug): anything already started keeps the event loop alive, so `process.exitCode` alone is a no-op and
   the service stays up with a configuration it refused. Validate before starting, unwind what started on a
-  failure, write the crash line synchronously, and `process.exit(1)`.
-- **`ConsentModeConfigError` is the one error class whose MESSAGE the crash line prints** — a deliberate
-  exception to "the class only", and it holds only because `consent-mode.ts` builds those messages from env
-  variable names and store codes. Never put a payload, a secret or an address into one, and keep the test
+  failure, write the crash line synchronously, and `process.exit(…)`.
+- **A configuration refusal is a `ConfigRefusedError` and exits 2; everything else exits 1** (#599). Every
+  refusal in `config.ts` is one, and `ConsentModeConfigError` extends it. A supervisor that restarts on a
+  crash must not restart on an environment that has already been refused — it will be refused again, and the
+  loop buries the message.
+- **A `ConfigRefusedError`'s MESSAGE is printed by the crash line**, the one exception to "the class only".
+  It holds only while those messages are built from env variable NAMES and from values this repository chose
+  — a mode, an adapter, a group id, a port. **Never echo the value of a credential-bearing variable**
+  (`DATABASE_URL_APP`, `SLACK_OPS_WEBHOOK_URL`, `TWENTY_API_KEY`, `RUDDERSTACK_WRITE_KEY`,
+  `CHATWOOT_WEBHOOK_SECRET`, `ENGAGEMENT_CRM_MOCK_TOKEN`) and never a payload or an address. Keep the test
   that pins every consent-mode failure to this class.
 - **CDP consent mode (#576, owner decision 2026-10-23):** `analytics` is the DEFAULT — track and identify run
   without `marketing_email`, and a guest is tracked under their `email_hash`. `strict` is #554's behaviour. The
@@ -183,10 +189,21 @@ package yet.
     no path may start reading one from a table of ours or from an event payload. A log line, an alert, an error
     and a dead letter never carry one in any module, including the three above.
 - **A one-off run gets a FRESH group, never the live one** (#594): `ENGAGEMENT_*_GROUP_ID` plus
-  `fromBeginning`, which is what makes a new group see history instead of waiting for the next message. The
-  DLQ watch then defaults to the groups the process actually runs — watching `engagement.cdp` while running
-  `engagement.cdp.int4` reads as "all clear" about a queue nobody is filling. A group id must match
-  `consumer_processed.group_id`'s CHECK, validated at the boot.
+  `fromBeginning`, which is what makes a new group see history instead of waiting for the next message. A
+  group id must match `consumer_processed.group_id`'s CHECK, validated at the boot.
+- **`buildConsumers` in `main.ts` is the ONLY place a consumer is constructed, and therefore the only place a
+  group id is chosen** (#599). Both modes call it; the only differences they may pass are `fromBeginning` and
+  the drain's per-batch hook. The bug that made this a rule: the drain passed `config.groups` and the
+  long-running path built them inline without a group id, while `dlq.groups` had started defaulting to
+  `config.groups` — so an override moved the WATCH and left the CONSUMER behind, and the watch reported "all
+  clear" about a queue nobody was filling. Two readers of one value with different defaults. If you add a
+  consumer, add it there.
+- **Every group this process runs must be watched; more is fine, fewer is refused** (#599). `resolveConfig`
+  throws when an explicit `ENGAGEMENT_DLQ_GROUPS` omits a running group — the one way left to split them.
+- **A configuration refusal is a `ConfigRefusedError` and exits 2**, not 1 (#599): a supervisor that restarts
+  on a crash must not restart on an environment already refused, and its message IS printed because this
+  repository builds it from variable names and values it chose. `ConsentModeConfigError` extends it. Never
+  put a payload, a secret or anything a customer typed into one of those messages.
 - The drain's counts come from the log lines the consumers already emit, with each consumer's own counters
   printed beside them. Keep both: they are two paths to one answer, and a disagreement means the report is
   wrong.

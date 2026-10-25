@@ -24,5 +24,9 @@
     "typescript": "^5.8.0",
     "vitest": "^3.2.0",
     "@types/node": "^20.19.0"
+  },
+  "dependencies": {
+    "@platform/db": "workspace:*",
+    "@platform/events": "workspace:*"
   }
 }

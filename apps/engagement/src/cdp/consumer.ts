@@ -309,7 +309,7 @@ export function createCdpConsumer(opts: CdpConsumerOptions): CdpConsumer {
         service: 'engagement',
         module: 'cdp',
         event: 'started',
-        group_id: CDP_GROUP_ID,
+        group_id: groupId,
         adapter: opts.adapter.name,
       });
     },
@@ -319,7 +319,7 @@ export function createCdpConsumer(opts: CdpConsumerOptions): CdpConsumer {
         service: 'engagement',
         module: 'cdp',
         event: 'stopped',
-        group_id: CDP_GROUP_ID,
+        group_id: groupId,
       });
     },
   };
