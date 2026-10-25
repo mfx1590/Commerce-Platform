@@ -9,7 +9,7 @@ import {
 import { createFinanceAuth } from './api/auth.js';
 import { createAccountingApi } from './api/server.js';
 import { resolveConfig } from './config.js';
-import { createLedgerConsumer, LEDGER_GROUP } from './consumer.js';
+import { createLedgerConsumer } from './consumer.js';
 import { consoleLogger, errorClassOf } from './log.js';
 import { createHealthServer } from './server.js';
 
@@ -28,6 +28,7 @@ async function main(): Promise<void> {
   const consumer = createLedgerConsumer({
     client,
     log,
+    groupId: config.groupId,
     retries: config.retries,
     onBatch: () => {
       lastBatchAt = Date.now();
@@ -46,7 +47,7 @@ async function main(): Promise<void> {
   });
   const server = createHealthServer(
     () => ({
-      group: LEDGER_GROUP,
+      group: config.groupId,
       organization_id: config.organizationId,
       stats: consumer.stats,
     }),
@@ -56,7 +57,7 @@ async function main(): Promise<void> {
   await consumer.start();
   log.info({
     event: 'started',
-    group: LEDGER_GROUP,
+    group: config.groupId,
     organization_id: config.organizationId,
     port: config.port,
     once: config.once,

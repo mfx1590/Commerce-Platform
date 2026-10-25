@@ -1,5 +1,12 @@
 # Changelog — @platform/accounting
 
+## 0.6.4 — 2026-10-25 (Integration 4, Refs #594)
+
+- The consumer group is configurable: `ACCOUNTING_GROUP_ID`, or `--group <id>` / `--group=<id>` (the flag wins);
+  default `accounting.ledger`; validated like `consumer_processed.group_id`. `/health` and the start line report the
+  group in use. Integration 4 runs `once` with a fresh `accounting.ledger.int4` from the beginning of the dev topics.
+- Tests: 98 (+3, `src/config.test.ts`).
+
 ## 0.6.3 — 2026-10-25 (#575 review fixes, Opus review of #591)
 
 - A move cancelled in Odoo is handled: `ErpMove.state` includes `cancel`; `postMove` refuses it

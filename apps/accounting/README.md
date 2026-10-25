@@ -369,16 +369,21 @@ switches to them.
 pnpm --filter @platform/accounting dev     # tsx watch, the local stack (Postgres 5433, Redpanda 19092)
 pnpm --filter @platform/accounting start   # node dist/main.js (the image: `pnpm start`, GET /health on $PORT)
 pnpm --filter @platform/accounting once    # consume until the bus has been idle for ACCOUNTING_ONCE_IDLE_MS (5 s), exit
+pnpm --filter @platform/accounting once -- --group accounting.ledger.int4   # a fresh group: re-reads every topic from the beginning
 ```
 
 Environment: `DATABASE_URL_APP` (the app role — never the owner URL), `KAFKA_BROKERS` (default `127.0.0.1:19092`),
 `CORE_ORGANIZATION_ID` (default: the seeded HQ), `PORT` / `ACCOUNTING_PORT` (9003), `ACCOUNTING_RETRIES` (5),
-`ACCOUNTING_ONCE_IDLE_MS` (5000). The broker's topics must exist (`infra/redpanda/create-topics.mjs`); the consumer
-creates `dlq.accounting.ledger` itself on first start.
+`ACCOUNTING_ONCE_IDLE_MS` (5000), `ACCOUNTING_GROUP_ID` (default `accounting.ledger`; `--group <id>` wins; must match
+`^[a-z][a-z0-9_.-]*$` like `consumer_processed.group_id`). The broker's topics must exist
+(`infra/redpanda/create-topics.mjs`); the consumer creates `dlq.<group>` itself on first start. A fresh group reads
+from the beginning into the SAME ledger: every event it has not processed under that group is posted, so only point it
+at a ledger that has not seen those events under another group (Integration 4, #594: a fresh group on the empty dev
+ledger).
 
 ## Tests
 
-`pnpm --filter @platform/accounting test` — 95 tests in ten files:
+`pnpm --filter @platform/accounting test` — 98 tests in eleven files:
 
 - `src/posting/posting.test.ts` — pure: the arithmetic, the worked example of every topic above, partial shipments,
   proportional refunds and cancellations, every defect class, the netted life of one order, the late shipment, event
@@ -405,6 +410,7 @@ creates `dlq.accounting.ledger` itself on first start.
   re-entered one found), a create with nothing committed rethrowing; `odoo:init` against the mock (an existing company
   in another currency left alone and skipped, a re-run creating and writing nothing, a remote host refused before any
   call unless `--allow-remote`); a live block for the dev-stack Odoo (skipped with the reason when it is down).
+- `src/config.test.ts` — the consumer group: default, env, `--group` in both spellings, invalid names refused.
 - `src/api/spec.test.ts` — the contract as loaded (seven reads, all finance, 401/403) and the route matcher.
 - `src/api/auth.test.ts` — dev tokens never accepted in production, refused without the flag, accepted with it; an
   unknown subject 401; the permission service unreachable → 503 fail closed; a refusal → the contract's 403.
