@@ -163,6 +163,9 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   files, the manager routes it to window 1 — not mine.
 
 ## Gotchas learned
+- CI's `lint + typecheck` job runs `format:check` (prettier) over the WHOLE repo; a package's `eslint` does not.
+  data/clickhouse/README.md failed it on #616/#618 (manager fixed it in 5069bd2 on the integration branch). Before
+  every push: `pnpm exec prettier --check .` at the root. Expect a README conflict with 5069bd2 when merging main.
 - 2026-10-25: a live test that runs whenever the services answer WILL run inside a plain `vitest run` once the shared
   stack has them (ClickHouse appeared on 18123 mid-session; one unasked ~30 s attempt, failed at auth, nothing
   written, reported). Live blocks are opt-in (`ANALYTICS_LIVE=1`, CI always) AND probe with the configured user.
