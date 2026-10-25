@@ -1,6 +1,6 @@
 # Memory 9 — Search, media, promotions
 Window: 9 · Key: `search` · Branch prefix: `search/` · Model: Opus 5
-Last updated: 2026-10-25 · Contracts: **contracts-v0.4.28** on main · Branch: `search/phase5` (cut from origin/main `cadaeba`) · Status: **PHASE 5 WAVE 2 OPEN — #607 step 1 done (contract diff posted), no code yet.** Phase 2 is complete and merged (2.1–2.5 via #160, #166, #188, #208, #211).
+Last updated: 2026-10-25 · Contracts: **contracts-v0.4.28** on main · Branch: `search/phase5` (cut from origin/main `cadaeba`) · Status: **IDLE, WAITING FOR THE MANAGER'S INTEGRATION SHA.** #607 step 1 is done: the contract diff is posted AND accepted (manager, 2026-10-25); he lands it after the 10-27 17:00 local weekly reset and activates me then. No code written. Phase 2 is complete and merged (2.1–2.5 via #160, #166, #188, #208, #211).
 
 ## PHASE 5 DOCKET (written by the manager, 2026-10-25, Manager session nine) — READ THIS FIRST ON RESUME
 You reopen in Phase 5 wave 2 for **#607** P5.8 recommendations (plan `docs/plan/phase5-plan.md` D10; tracking #612).
@@ -41,21 +41,48 @@ Algolia index per brand synced from product.published events, merchandising rule
   `01M5SFMYA64CWXD3THRMQ2M0FE`, wrote model `01M5SYTK0MK5KGRNZXQ9Z4YHHY`, 11 tuples already present.
   This worktree's `.env` was from 2026-09-09 and missing the Phase 5 rows: replaced with a copy of the main
   checkout's (old one kept as `.env.bak-phase2`), then `fga:seed` rewrote the two fga ids in it.
-- [x] **Step 1 — CONTRACT CHANGE posted on #607** (comment 6400269668, 2026-10-25). Waiting for the manager to land
-  it on an `integration/*` branch; I cut my code from that sha. Nothing written in `packages/**` by me, ever.
+- [x] **Step 1 — CONTRACT CHANGE posted on #607** (comment 6400269668, 2026-10-25) and **ACCEPTED by the manager the
+  same day with one amendment**, re-posted as comment 6400324458. Nothing written in `packages/**` by me, ever.
+  **The manager lands it after the 10-27 17:00 local reset and activates me with the integration sha; I cut my code
+  from that sha.** The four manager decisions, verbatim in effect:
+  1. **`window_days` accepted** (0 = bought_together, 7/30 = popular) with my three CHECKs — it generalises, so a
+     90-day list later is data, not a schema change.
+  2. **Nullable `product_id` accepted**, but my two partial unique indexes are **replaced by one table constraint**
+     `UNIQUE NULLS NOT DISTINCT (store_id, kind, window_days, product_id, related_product_id)`. Reason (his, and he
+     is right): with the default NULLS DISTINCT two store-wide popular rows with a NULL anchor never collide, so a
+     write that is not a clean DELETE+INSERT can duplicate the list. `product_recommendation_read_idx` realigned to
+     `(store_id, kind, window_days, product_id, score DESC)`. **Postgres 16 is confirmed in both
+     `infra/docker/docker-compose.yml` and `.github/workflows/ci.yml:135`**, so NULLS NOT DISTINCT (PG 15+) is
+     available locally and in CI.
+  3. **`fct_order_line` is now fixed on #601** (comment 6400313723, binding; additive-only once #601 merges) — the
+     gap is closed, see "ClickHouse interface" below.
+  4. **Scheduling: stop here.** Do not build step 2 before the reset; the contract lands in the same integration
+     landing as these decisions.
 - [ ] **Step 2 — the job** `apps/core/src/jobs/index-recommendations.ts` + the read path in `modules/search/`.
-  Blocked on the contract landing. Plan, so it survives a /compact:
+  **NOT STARTED ON PURPOSE** (manager decision 4): waits for the reset and the integration sha. Plan, so it
+  survives a /compact:
   1. The job file MUST export a `config` (Medusa's job loader — see the #202/#203 gotcha below); the heavy lifting
      goes in `modules/search/recommendations/` so it is testable without booting Medusa.
-  2. ClickHouse `fct_order_line` read with the READ-ONLY user; code against a fixture of #601's documented columns.
-     **#601 does not publish its column list yet** (issue body + its one comment say only "documented as stable"),
-     so the ClickHouse-backed tests stay behind a skip that prints the reason until the manager says #601 merged,
-     and the columns I assume go in the PR body for window 12 to contradict cheaply.
+  2. ClickHouse `fct_order_line` read with the READ-ONLY user, against a fixture of the #601 columns below. Keep
+     the ClickHouse-backed tests behind a skip that prints the reason until the manager says #601 is on main.
   3. Co-occurrence per store with lift + minimum support, thresholds in config with a worked example in the README;
      popular over 7 and 30 days; idempotent rewrite (DELETE+INSERT per store/kind/window in one transaction)
      through the tenant client.
   4. Read time: published + in-stock + same-store only; fall back to the popular list when an anchor has no pairs.
   5. Tests: hand-made basket set with known lift; brand A orders never produce a brand B recommendation.
+
+### ClickHouse interface — `fct_order_line`, BINDING (#601 comment 6400313723, 2026-10-25)
+Window 12 may still propose a change on #601 before it merges; after that, additive only. Columns:
+`organization_id` UUID · `store_id` UUID · `order_id` UUID · `order_line_item_id` UUID (the grain, unique) ·
+`variant_id` Nullable(UUID) · `product_id` Nullable(UUID) · `sku` String · `quantity` UInt32 ·
+`unit_price_minor` / `discount_minor` / `tax_minor` / `total_minor` Int64 · `currency` LowCardinality(String) ·
+`placed_at` DateTime64(3,'UTC') · `order_status` LowCardinality(String) placed|cancelled · `source_event_id` UUID.
+Also published: `dim_variant` (store_id, variant_id, product_id, sku, last_seen_at). No PII columns.
+- **`order.placed` line items carry only `variant_id`; ClickHouse resolves `product_id` itself through `dim_variant`**
+  (built from product.published / product.updated `variants[]`). **The job needs NO Postgres join for the mapping.**
+- **Skip `product_id IS NULL`** (the variant was never published) **and `order_status = 'cancelled'`** (manager).
+- Basket = `order_id`, so co-occurrence is over DISTINCT `product_id` per order: a product on two lines of one order
+  counts once as support. `quantity` feeds the popular lists, not the pair counts.
 - [ ] **Step 3 — REQUESTs**: window 1 for the route mount + apps/core CHANGELOG/package.json/.env.example rows;
   window 3 for the rail (#609) — both filed only once my PR is merged.
 
@@ -66,7 +93,7 @@ Algolia index per brand synced from product.published events, merchandising rule
 - Local env note (manager-confirmed 2026-09-15): the shared stack can be partially down locally — OpenFGA (:8081) was, so hq-rbac + auth-live suites skipped (34 passed / 8 skipped). **CI's live job is the authoritative run** for those suites; check which files skipped before trusting a local green, and never restart the shared stack from this window.
 
 ## Decisions made (with reasons)
-### Phase 5 / #607 (proposed on #607, NOT yet accepted — the manager may change any of these)
+### Phase 5 / #607 — **ACCEPTED by the manager 2026-10-25** (with the uniqueness amendment noted below)
 - **`product_recommendation` carries two columns the docket did not list, both forced by #607's own criteria:**
   `window_days` (0 = bought_together, 7/30 = popular) because "popular over 7 **and** 30 days" is two lists under
   one `kind` and would otherwise overwrite itself; and a **nullable `product_id`** (NULL = the store-wide popular
@@ -79,8 +106,10 @@ Algolia index per brand synced from product.published events, merchandising rule
   is the one to drop.
 - **`score` is `numeric`, not an integer/money column**: it is a lift ratio for pairs and a unit count for popular.
   No money, no customer/order id, nothing PII-shaped goes in this table — product ids and numbers only.
-- **Two partial unique indexes, not one UNIQUE**: NULLs are distinct in a plain UNIQUE, so one index would silently
-  stop deduplicating the popular rows (`…_pair_key WHERE product_id IS NOT NULL`, `…_popular_key WHERE NULL`).
+- ~~Two partial unique indexes, not one UNIQUE~~ — **SUPERSEDED by the manager**: one table constraint
+  `UNIQUE NULLS NOT DISTINCT (store_id, kind, window_days, product_id, related_product_id)` (Postgres 16; confirmed
+  in compose and `ci.yml:135`). My worry was right (a plain UNIQUE stops deduplicating the NULL-anchored popular
+  rows) but the fix is the PG-15 modifier, not two partial indexes whose predicates must stay mutually exclusive.
 - **One Store API operation for both surfaces**: `GET /store/recommendations` (PDP sends `product_id`, cart sends
   `variant_ids`), not `/store/products/{handle}/recommendations` — the cart case has no single product. Not a
   `Page`: a rail is one short list and `total` is meaningless after the published/in-stock filter. `limit` max 24.
@@ -110,10 +139,12 @@ Algolia index per brand synced from product.published events, merchandising rule
 - (none — all window-9 work is merged or in #208; #179 mount lines are window 1's and non-blocking)
 
 ## Gotchas learned
-- **Phase 5 wave order vs. the budget (2026-10-25):** Memory-main has wave 1 starting after the 10-27 17:00 local
-  weekly reset (all-models was at 80%, Fable 100%) and #607 is wave 2, behind window 12's #601. The contract diff
-  was cheap enough to post early; asked the manager before spending anything on step 2. Owner rule: stop at 80% of
-  the 5-hour limit.
+- **Phase 5 wave order vs. the budget (2026-10-25, ANSWERED):** asking before spending anything on step 2 was the
+  right call — the manager's answer was "stop here", and the contract lands after the 10-27 17:00 local reset in the
+  same integration landing as his decisions. Posting the cheap contract diff early was welcome; building against it
+  early was not. Owner rule: stop at 80% of the 5-hour limit.
+- **The fga model id changes on every `fga:seed` run and that is harmless** (manager, 2026-10-25): each run writes a
+  model and every worktree reads its own `.env`. Do not report it as a problem again.
 - **Phase 5 rules for this window:** route mounting and `apps/core` CHANGELOG/package.json/.env.example are window 1
   via REQUEST; the rail is window 3 (#609, REQUEST only once my API is merged); **ask the manager for "the machine"
   before any live or long run and report "machine free" after** (one window measures at a time); nothing
