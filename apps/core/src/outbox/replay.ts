@@ -28,6 +28,8 @@ export interface ReplayOptions {
   from?: Date;
   /** `occurred_at < to` */
   to?: Date;
+  /** Only rows with `seq > afterSeq`: the resume point a stopped replay printed (`last_seq`). */
+  afterSeq?: string;
   /** Only this store's rows. */
   storeId?: string;
   /** Rows per send. Default 500. */
@@ -50,7 +52,7 @@ export interface ReplayBatchLine {
   topic: string;
   batch: number;
   rows: number;
-  /** The seq of the last row in this batch (resume point: --from-seq). */
+  /** The seq of the last row in this batch: the resume point (`--after-seq <last_seq>`). */
   last_seq: string;
   duration_ms: number;
 }
@@ -88,6 +90,11 @@ function where(opts: ReplayOptions): { sql: string; params: unknown[] } {
   if (opts.storeId) {
     params.push(opts.storeId);
     parts.push(`store_id = $${params.length}`);
+  }
+  if (opts.afterSeq !== undefined) {
+    // WHERE sees the table column (an output alias is visible to ORDER BY only); compared as bigint, not text
+    params.push(opts.afterSeq);
+    parts.push(`seq > $${params.length}::bigint`);
   }
   return { sql: parts.join(' AND '), params };
 }
@@ -131,7 +138,8 @@ export async function describeReplay(
 /**
  * Republishes the matching rows in `seq` order, `batchSize` at a time, one send per batch (the whole batch is
  * one topic, so per-partition order is the seq order). A send that fails stops the replay: the summary so far is
- * in the error, and the operator reruns (`--from` / the last_seq of the batch lines); a rerun is safe.
+ * in the error with the last published `seq`, and the operator reruns with `--after-seq <last_seq>` to resume (a full
+ * rerun is safe too: consumers dedupe on outbox_id).
  */
 export async function replayOutbox(
   client: ScopedClient,
@@ -204,7 +212,7 @@ export async function replayOutbox(
       ]);
     } catch (err) {
       throw new Error(
-        `replay of ${opts.topic} stopped after ${summary.published} row(s) in ${summary.batches} batch(es) (last_seq ${lastSeq}): ${errorClass(err)}`,
+        `replay of ${opts.topic} stopped after ${summary.published} row(s) in ${summary.batches} batch(es) (last_seq ${lastSeq}; resume with --after-seq ${lastSeq}): ${errorClass(err)}`,
       );
     } finally {
       clearTimeout(timer);

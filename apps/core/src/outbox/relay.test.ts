@@ -1,6 +1,8 @@
 // The outbox relay (#531). Database part always (throwaway database, app role, organization scope); the bus part
 // only when the local Redpanda answers (prefixed topics, self-cleaning; skipped with a printed reason otherwise).
+import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import net from 'node:net';
 import { resolve } from 'node:path';
 import { createOrganizationClient } from '@platform/db';
@@ -15,6 +17,7 @@ import {
   HEADER_OUTBOX_ID,
   HEADER_STORE_ID,
   planTopics,
+  readTopicToEnd,
   type RelayMessage,
   type TopicPolicy,
 } from '@platform/events';
@@ -29,7 +32,14 @@ import {
   type RelayPassResult,
   type RelayPublisher,
 } from './relay';
-import { parseArgs, requiredTopics } from './relay-cli';
+import {
+  assertThrowawayDatabase,
+  CliUsageError,
+  parseArgs,
+  parseTopicPrefix,
+  requiredTopics,
+  sharedDatabaseNames,
+} from './relay-cli';
 
 const ORG = '31000000-0000-4000-8000-000000000001';
 const LE = '31000000-0000-4000-8000-000000000011';
@@ -572,6 +582,8 @@ describe('relayOnce (database, recording publisher)', () => {
       batchSize: 500,
       intervalMs: 1000,
       registry: true,
+      topicPrefix: '',
+      throwawayDb: false,
     });
     expect(parseArgs(['--once', '--batch', '50', '--interval-ms', '250', '--no-registry'])).toEqual(
       {
@@ -579,13 +591,58 @@ describe('relayOnce (database, recording publisher)', () => {
         batchSize: 50,
         intervalMs: 250,
         registry: false,
+        topicPrefix: '',
+        throwawayDb: false,
       },
     );
     expect(() => parseArgs(['--batch', '0'])).toThrow(/positive integer/);
     const topics = requiredTopics();
     expect(topics).toContain('order.placed');
     expect(topics).toHaveLength(38);
-    expect(topics.some((t) => t.startsWith('dlq.'))).toBe(false);
+    expect(topics.some((t) => t.startsWith('dlq.'))).toBe(false); // the four consumer groups' DLQs are never required
+  });
+
+  it('--topic-prefix (#579): parsed, validated, and applied to the required topics; the default is the real topics', () => {
+    expect(parseArgs(['--once', '--topic-prefix', 'gate-abc123.', '--throwaway-db'])).toMatchObject(
+      {
+        topicPrefix: 'gate-abc123.',
+        throwawayDb: true,
+      },
+    );
+    // #595: a prefixed relay marks rows, so it needs --throwaway-db; the message names both rules
+    expect(() => parseArgs(['--once', '--topic-prefix', 'gate-abc123.'])).toThrow(CliUsageError);
+    expect(() => parseArgs(['--once', '--topic-prefix', 'gate-abc123.'])).toThrow(
+      /needs --throwaway-db.*refuses the shared dev database/,
+    );
+    expect(parseArgs(['--throwaway-db']).throwawayDb).toBe(true); // allowed alone: only the database check
+    expect(() => parseArgs(['--batch', 'x'])).toThrow(CliUsageError);
+    expect(parseTopicPrefix([])).toBe('');
+    expect(() => parseTopicPrefix(['--topic-prefix'])).toThrow(/needs a value/);
+    expect(() => parseTopicPrefix(['--topic-prefix', '--once'])).toThrow(/needs a value/);
+    expect(() => parseTopicPrefix(['--topic-prefix', 'bad prefix/'])).toThrow(
+      /not a Kafka topic prefix/,
+    );
+    const prefixed = requiredTopics(undefined, 'gate-abc123.');
+    expect(prefixed).toHaveLength(38);
+    expect(prefixed).toContain('gate-abc123.order.placed');
+    expect(prefixed.every((t) => t.startsWith('gate-abc123.'))).toBe(true);
+    expect(requiredTopics(undefined, '')).toEqual(requiredTopics());
+  });
+
+  it('sharedDatabaseNames: always platform, plus the database names of the repo-root .env (read from the file)', () => {
+    const names = sharedDatabaseNames();
+    expect(names.has('platform')).toBe(true);
+    const fromEnv = new URL(process.env.DATABASE_URL_APP!).pathname.replace(/^\//, '');
+    expect(names.has(fromEnv) || fromEnv === db.name).toBe(true);
+    expect(names.has(db.name)).toBe(false); // this file's throwaway database is never "shared"
+  });
+
+  it('assertThrowawayDatabase refuses the shared names and passes this throwaway database', async () => {
+    await expect(assertThrowawayDatabase(hq, new Set(['platform']))).resolves.toBe(db.name);
+    await expect(assertThrowawayDatabase(hq, new Set([db.name]))).rejects.toThrow(CliUsageError);
+    await expect(assertThrowawayDatabase(hq, new Set([db.name]))).rejects.toThrow(
+      /--throwaway-db: the database is ".*", the shared dev database/,
+    );
   });
 });
 
@@ -613,6 +670,77 @@ beforeAll(async () => {
   brokerDown = await probeBroker();
   if (brokerDown)
     console.warn(`relay.test: broker ${brokerDown} — bus block skipped (pnpm compose:up)`);
+});
+
+/** Runs one of the outbox CLIs the way an operator (or window 15's gate) does, against this file's throwaway database. */
+async function runCli(
+  script: string,
+  args: string[],
+  env: Record<string, string> = {},
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  const appUrl = new URL(process.env.DATABASE_URL_APP!);
+  appUrl.pathname = `/${db.name}`;
+  const tsxCli = createRequire(__filename).resolve('tsx/cli');
+  const cwd = resolve(__dirname, '../..');
+  return new Promise((done) => {
+    execFile(
+      process.execPath,
+      [tsxCli, `src/outbox/${script}`, ...args],
+      {
+        cwd,
+        env: {
+          ...process.env,
+          DATABASE_URL_APP: appUrl.toString(),
+          CORE_ORGANIZATION_ID: ORG,
+          ...env,
+        },
+        timeout: 90_000,
+      },
+      (err, stdout, stderr) => {
+        const code = err
+          ? typeof (err as { code?: unknown }).code === 'number'
+            ? (err as { code: number }).code
+            : 1
+          : 0;
+        done({ code, stdout: String(stdout), stderr: String(stderr) });
+      },
+    );
+  });
+}
+
+describe('relay-cli / replay-cli argument errors exit 2 (spawned, #595)', () => {
+  it('a bad prefix exits 2 (relay and replay)', async () => {
+    const relay = await runCli('relay-cli.ts', [
+      '--once',
+      '--topic-prefix',
+      'bad prefix/',
+      '--throwaway-db',
+    ]);
+    expect(relay.code).toBe(2);
+    expect(relay.stderr).toMatch(/not a Kafka topic prefix/);
+    const replay = await runCli('replay-cli.ts', ['--topic', 'store.updated', '--after-seq', '-1']);
+    expect(replay.code).toBe(2);
+    expect(replay.stderr).toMatch(/--after-seq needs a non-negative integer/);
+  }, 120_000);
+
+  it('a prefixed relay without --throwaway-db exits 2 naming both rules, before touching any database', async () => {
+    const r = await runCli('relay-cli.ts', ['--once', '--no-registry', '--topic-prefix', 'x.']);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/needs --throwaway-db/);
+    expect(r.stderr).toMatch(/refuses the shared dev database/);
+  }, 120_000);
+
+  it('--throwaway-db against the shared dev database exits 2 (only SELECT current_database() runs there)', async () => {
+    const shared = new URL(process.env.DATABASE_URL_APP!);
+    shared.pathname = '/platform';
+    const r = await runCli(
+      'relay-cli.ts',
+      ['--once', '--no-registry', '--topic-prefix', 'x.', '--throwaway-db'],
+      { DATABASE_URL_APP: shared.toString() },
+    );
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/--throwaway-db: the database is "platform", the shared dev database/);
+  }, 120_000);
 });
 
 describe('relay against the local Redpanda (prefixed topics, self-cleaning)', () => {
@@ -675,8 +803,8 @@ describe('relay against the local Redpanda (prefixed topics, self-cleaning)', ()
     if (brokerDown) return;
     try {
       await publisher.disconnect();
-      const existing = new Set(await admin.listTopics());
-      const mine = [topic].filter((n) => existing.has(n));
+      // every topic under this block's prefix: store.updated and the CLI tests' prefixed policy topics
+      const mine = (await admin.listTopics()).filter((n) => n.startsWith(prefix));
       if (mine.length > 0) await admin.deleteTopics({ topics: mine, timeout: 30_000 });
       console.info(
         `relay.test: deleted ${mine.length} test topic(s): ${mine.join(', ') || '(none)'}`,
@@ -686,6 +814,95 @@ describe('relay against the local Redpanda (prefixed topics, self-cleaning)', ()
       await admin.disconnect();
     }
   }, 60_000);
+
+  it('relay-cli --once --topic-prefix (#579): publishes to the prefixed topics only, marks the rows, and refuses when the prefixed topics are missing', async (ctx) => {
+    if (brokerDown) return ctx.skip(`broker ${brokerDown}`);
+    const cliPrefix = `${prefix}cli.`;
+    // the start-up check requires every PREFIXED policy topic (never the real ones): create them, 1 partition each
+    await ensureTopics(
+      admin,
+      planTopics(policy, { environment: 'ci', prefix: cliPrefix }).filter(
+        (s) => s.kind === 'event',
+      ),
+    );
+    await drain(hq);
+    const ids = await emit(hq, [storeA, storeB, storeA], 'cli');
+
+    const ok = await runCli('relay-cli.ts', [
+      '--once',
+      '--no-registry',
+      '--topic-prefix',
+      cliPrefix,
+      '--throwaway-db',
+    ]);
+    expect(ok.code, ok.stderr).toBe(0);
+    expect(JSON.parse(ok.stdout.trim().split('\n').at(-1)!)).toMatchObject({
+      relay: 'outbox',
+      batch: 3,
+      published: 3,
+      failed: 0,
+    });
+    expect(await unpublished(hq)).toEqual([]);
+    const onBus = await readTopicToEnd(
+      kafka,
+      `${cliPrefix}store.updated`,
+      `${prefix}cli-read`,
+      20_000,
+    );
+    expect(onBus.map((m) => m.headers?.outbox_id?.toString())).toEqual(ids);
+
+    // replay-cli --topic-prefix --after-seq: only the rows after the given seq, to the prefixed topic, replay-marked
+    const firstSeq = (
+      await hq.query<{ seq: string }>('SELECT seq::text AS seq FROM outbox WHERE id = $1', [ids[0]])
+    ).rows[0]!.seq;
+    const replay = await runCli('replay-cli.ts', [
+      '--topic',
+      'store.updated',
+      '--no-registry',
+      '--topic-prefix',
+      cliPrefix,
+      '--after-seq',
+      firstSeq,
+    ]);
+    expect(replay.code, replay.stderr).toBe(0);
+    expect(JSON.parse(replay.stdout.trim().split('\n').at(-1)!)).toMatchObject({
+      replay: 'outbox',
+      topic: 'store.updated',
+      rows: 2,
+      published: 2,
+    });
+    const after = await readTopicToEnd(
+      kafka,
+      `${cliPrefix}store.updated`,
+      `${prefix}cli-read-2`,
+      20_000,
+    );
+    const replayed = after.slice(3);
+    expect(replayed.map((m) => m.headers?.outbox_id?.toString())).toEqual(ids.slice(1));
+    expect(replayed.every((m) => m.headers?.replay?.toString() === '1')).toBe(true);
+
+    // a prefix whose topics do not exist refuses the start and names the PREFIXED topics
+    const missing = await runCli('relay-cli.ts', [
+      '--once',
+      '--no-registry',
+      '--topic-prefix',
+      `${prefix}none.`,
+      '--throwaway-db',
+    ]);
+    expect(missing.code).toBe(1);
+    expect(missing.stderr).toMatch(
+      new RegExp(`missing topic\\(s\\) on the broker: ${prefix.replace(/\./g, '\\.')}none\\.`),
+    );
+    const missingReplay = await runCli('replay-cli.ts', [
+      '--topic',
+      'store.updated',
+      '--no-registry',
+      '--topic-prefix',
+      `${prefix}none.`,
+    ]);
+    expect(missingReplay.code).toBe(1);
+    expect(missingReplay.stderr).toContain(`${prefix}none.store.updated`);
+  }, 120_000);
 
   it('refuses to start when a required topic is missing on the broker', async (ctx) => {
     if (brokerDown) return ctx.skip(`broker ${brokerDown}`);

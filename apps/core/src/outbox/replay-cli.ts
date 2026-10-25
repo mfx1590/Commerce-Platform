@@ -1,7 +1,8 @@
 // Replay historical outbox rows to the bus (issue #534):
 //
 //   pnpm --filter @platform/core outbox:replay --topic order.placed [--from 2026-10-01T00:00:00Z] [--to <ts>]
-//                                              [--store <store id>] [--dry-run] [--batch 500] [--no-registry]
+//                                              [--store <store id>] [--after-seq <seq>] [--dry-run] [--batch 500]
+//                                              [--no-registry] [--topic-prefix <p>]
 //
 // Republishes PUBLISHED rows of one topic in seq order with the relay's wire format plus `replay: 1` and
 // `replayed_at` headers; writes nothing to the database. `--dry-run` prints the counts only. Same env as the
@@ -17,6 +18,7 @@ import {
 import { closePool, getPool, initDb, organizationClient } from '../lib/db';
 import { coreOrganizationId } from '../http/tenant';
 import { guardPoolClients } from './relay';
+import { CliUsageError, parseTopicPrefix } from './relay-cli';
 import { DEFAULT_REPLAY_BATCH, replayOutbox, type ReplayOptions } from './replay';
 
 export interface ReplayCliArgs {
@@ -27,6 +29,9 @@ export interface ReplayCliArgs {
   dryRun: boolean;
   batchSize: number;
   registry: boolean;
+  /** #579: publish to `<topicPrefix><topic>`; --topic stays the unprefixed event topic. */
+  topicPrefix: string;
+  afterSeq?: string;
 }
 
 export function parseReplayArgs(argv: string[]): ReplayCliArgs {
@@ -34,7 +39,7 @@ export function parseReplayArgs(argv: string[]): ReplayCliArgs {
     const i = argv.indexOf(flag);
     if (i === -1) return undefined;
     const v = argv[i + 1];
-    if (v === undefined || v.startsWith('--')) throw new Error(`${flag} needs a value`);
+    if (v === undefined || v.startsWith('--')) throw new CliUsageError(`${flag} needs a value`);
     return v;
   };
   const date = (flag: string): Date | undefined => {
@@ -42,18 +47,22 @@ export function parseReplayArgs(argv: string[]): ReplayCliArgs {
     if (v === undefined) return undefined;
     const d = new Date(v);
     if (Number.isNaN(d.getTime()))
-      throw new Error(`${flag} needs an RFC-3339 timestamp (got ${v})`);
+      throw new CliUsageError(`${flag} needs an RFC-3339 timestamp (got ${v})`);
     return d;
   };
   const topic = value('--topic');
-  if (!topic) throw new Error('--topic <event topic> is required');
+  if (!topic) throw new CliUsageError('--topic <event topic> is required');
   const batchRaw = value('--batch');
   const batchSize = batchRaw === undefined ? DEFAULT_REPLAY_BATCH : Number(batchRaw);
   if (!Number.isInteger(batchSize) || batchSize <= 0)
-    throw new Error('--batch needs a positive integer');
+    throw new CliUsageError('--batch needs a positive integer');
   const from = date('--from');
   const to = date('--to');
   const storeId = value('--store');
+  const afterSeq = value('--after-seq');
+  if (afterSeq !== undefined && !/^\d{1,19}$/.test(afterSeq)) {
+    throw new CliUsageError(`--after-seq needs a non-negative integer seq (got ${afterSeq})`);
+  }
   return {
     topic,
     ...(from ? { from } : {}),
@@ -62,11 +71,19 @@ export function parseReplayArgs(argv: string[]): ReplayCliArgs {
     dryRun: argv.includes('--dry-run'),
     batchSize,
     registry: !argv.includes('--no-registry'),
+    topicPrefix: parseTopicPrefix(argv),
+    ...(afterSeq !== undefined ? { afterSeq } : {}),
   };
 }
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
   const args = parseReplayArgs(argv);
+  if (args.topicPrefix) {
+    // stderr, so stdout's last line stays the JSON summary
+    console.warn(
+      'outbox-replay: note — --topic-prefix only changes where the replay publishes; a replay never marks rows, so the real consumers are unaffected',
+    );
+  }
   const organizationId = coreOrganizationId();
   await initDb({ startDir: __dirname });
   guardPoolClients(getPool());
@@ -82,6 +99,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       ...(args.from ? { from: args.from } : {}),
       ...(args.to ? { to: args.to } : {}),
       ...(args.storeId ? { storeId: args.storeId } : {}),
+      ...(args.afterSeq !== undefined ? { afterSeq: args.afterSeq } : {}),
+      topicPrefix: args.topicPrefix,
     };
     if (args.dryRun) {
       console.info(JSON.stringify(await replayOutbox(client, { send: async () => {} }, base)));
@@ -89,7 +108,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     }
     const admin = kafka.admin();
     await admin.connect();
-    await assertTopicsPresent(admin, [args.topic]);
+    await assertTopicsPresent(admin, [`${args.topicPrefix}${args.topic}`]);
     await admin.disconnect();
     let schemaIds: Record<string, number> | undefined;
     if (args.registry) {
@@ -116,6 +135,6 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 if (require.main === module) {
   main().catch((err: unknown) => {
     console.error(`outbox-replay failed: ${err instanceof Error ? err.message : String(err)}`);
-    process.exit(1);
+    process.exit(err instanceof CliUsageError ? 2 : 1);
   });
 }

@@ -200,3 +200,15 @@ none, when the handler is idempotent anyway — those are at-least-once only, be
 handler and the mark reruns the handler. Replay from the DLQ reports an entry whose original message is gone
 (a 30-day topic past its retention) as `missing` and keeps the entry; it never tombstones what it did not
 handle. Group timeouts: session 10 s, heartbeat 3 s (sent between retry attempts), rebalance 60 s.
+
+## Consumer groups (#561) and stopping (0.6.3)
+
+The groups on main, listed in `infra/redpanda/topics.policy.json` so their dead-letter topics exist with the
+environment's numbers before the first start: `accounting.ledger` (apps/accounting `LEDGER_GROUP`),
+`engagement.ops`, `engagement.cdp`, `engagement.crm` (apps/engagement `OPS_GROUP_ID`, `CDP_GROUP_ID`,
+`CRM_GROUP_ID`). A new group belongs in that list in the PR that adds it.
+
+`consumer.stop()` stops reading, lets the batch in flight finish and then disconnects the producer. A message that is
+mid-retry when you stop gives up at its next attempt: it is not dead-lettered and its offset is not committed, so
+the next start of the group gets it again (`ConsumerStoppedError` never leaves the SDK; the log line is
+`stopped_mid_message`).

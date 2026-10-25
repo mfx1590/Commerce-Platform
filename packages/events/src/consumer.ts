@@ -103,6 +103,17 @@ export interface DeadLetter {
   failed_at: string;
 }
 
+/**
+ * stop() was called while a message was still being retried: the retries are cut short, the message is neither
+ * dead-lettered nor committed, so the next start of the group gets it again. Never escapes the SDK.
+ */
+export class ConsumerStoppedError extends Error {
+  constructor(message = 'consumer stopped while the message was in flight') {
+    super(message);
+    this.name = 'ConsumerStoppedError';
+  }
+}
+
 /** A misconfigured consumer (e.g. ctx.markProcessed(tx) with a store that cannot mark through a client): thrown out of the batch, never dead-lettered. */
 export class ConsumerConfigurationError extends Error {
   constructor(message: string) {
@@ -148,7 +159,8 @@ export interface ConsumerLogLine {
     | 'retry'
     | 'dead_lettered'
     | 'crashed_before_commit'
-    | 'decode_failed';
+    | 'decode_failed'
+    | 'stopped_mid_message';
   topic?: string;
   partition?: number;
   offset?: string;
@@ -273,7 +285,12 @@ export function createConsumer(opts: ConsumerOptions): EventConsumer {
   }
 
   async function deadLetter(record: DeadLetter): Promise<void> {
-    await producer!.send({
+    // stop() disconnects the producer only after the in-flight batch drained, and a stopping consumer does not
+    // dead-letter; a missing producer here therefore means "stopped": redeliver, never crash on undefined
+    const p = producer;
+    if (!p || stopping)
+      throw new ConsumerStoppedError('dead letter skipped: the consumer is stopping');
+    await p.send({
       topic: dlqTopic,
       acks: -1,
       messages: [
@@ -345,6 +362,8 @@ export function createConsumer(opts: ConsumerOptions): EventConsumer {
     }
 
     for (let attempt = 1; ; attempt++) {
+      // a stop() during the retries cuts them short: no dead letter for a message whose attempts were not spent
+      if (attempt > 1 && stopping) throw new ConsumerStoppedError();
       // another instance of the group may have handled it between two attempts (a rebalance mid-retry)
       if (attempt > 1 && (await processed.has(opts.groupId, outboxId))) {
         stats.duplicates += 1;
@@ -372,10 +391,10 @@ export function createConsumer(opts: ConsumerOptions): EventConsumer {
         return;
       } catch (err) {
         if (err instanceof ConsumerConfigurationError) throw err; // misconfiguration: stop the consumer, no DLQ
+        if (err instanceof ConsumerStoppedError) throw err;
         const errorClass = errorClassOf(err);
         if (attempt >= retries) {
-          stats.dead_lettered += 1;
-          log({ ...base, ...info, event: 'dead_lettered', attempt, error_class: errorClass });
+          if (stopping) throw new ConsumerStoppedError();
           await deadLetter({
             outbox_id: outboxId,
             group_id: opts.groupId,
@@ -388,6 +407,9 @@ export function createConsumer(opts: ConsumerOptions): EventConsumer {
             error_class: errorClass,
             failed_at: new Date().toISOString(),
           });
+          // counted once the record is on the DLQ topic, not before
+          stats.dead_lettered += 1;
+          log({ ...base, ...info, event: 'dead_lettered', attempt, error_class: errorClass });
           return;
         }
         stats.retries += 1;
@@ -398,7 +420,24 @@ export function createConsumer(opts: ConsumerOptions): EventConsumer {
     }
   }
 
+  /** The batch being worked on, so stop() can wait for it before it disconnects the producer. */
+  let inFlight: Promise<void> | undefined;
+
   async function eachBatch(payload: EachBatchPayload): Promise<void> {
+    const work = runBatch(payload);
+    const tracked = work.then(
+      () => undefined,
+      () => undefined,
+    );
+    inFlight = tracked;
+    try {
+      await work;
+    } finally {
+      if (inFlight === tracked) inFlight = undefined;
+    }
+  }
+
+  async function runBatch(payload: EachBatchPayload): Promise<void> {
     const { batch, resolveOffset, heartbeat, isRunning, isStale } = payload;
     // One commit per batch, after its last handled message (resolveOffset per message keeps kafkajs's view
     // exact). A crash mid-batch redelivers the batch's earlier messages, which the processed store turns into
@@ -415,7 +454,21 @@ export function createConsumer(opts: ConsumerOptions): EventConsumer {
     }
     for (const message of batch.messages) {
       if (stopping || !isRunning() || isStale()) break;
-      await handleOne(payload, message);
+      try {
+        await handleOne(payload, message);
+      } catch (err) {
+        if (!(err instanceof ConsumerStoppedError)) throw err;
+        // stopped mid-message: nothing of this batch is committed from here on; the message comes back
+        log({
+          consumer: 'events',
+          group_id: opts.groupId,
+          event: 'stopped_mid_message',
+          topic: batch.topic,
+          partition: batch.partition,
+          offset: message.offset,
+        });
+        return;
+      }
       const ctx = {
         groupId: opts.groupId,
         topic: batch.topic,
@@ -476,13 +529,21 @@ export function createConsumer(opts: ConsumerOptions): EventConsumer {
     log({ consumer: 'events', group_id: opts.groupId, event: 'started' });
   }
 
+  /**
+   * Stops reading, lets the batch in flight finish (a message mid-retry gives up at its next attempt: no dead
+   * letter, no commit — it is redelivered on the next start), and only then disconnects the producer. A message that
+   * is sleeping between attempts finishes that sleep first, so stop() can take up to the backoff maximum (3 s by
+   * default) plus the handler call in progress. Before this
+   * order, stop() cleared the producer first and a dead letter in flight crashed on `undefined` (#552 runs).
+   */
   async function stop(): Promise<void> {
     stopping = true;
     const c = consumer;
     const p = producer;
+    if (c) await c.disconnect().catch(() => {});
+    if (inFlight) await inFlight;
     consumer = undefined;
     producer = undefined;
-    if (c) await c.disconnect().catch(() => {});
     if (p) await p.disconnect().catch(() => {});
     if (c || p) log({ consumer: 'events', group_id: opts.groupId, event: 'stopped' });
   }

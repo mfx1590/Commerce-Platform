@@ -109,7 +109,7 @@ class, the topic, the outbox id and the attempt count — never the payload (no 
 operators read). Compacted so the _latest_ failure per event is what remains, and a successful replay
 writes a tombstone (null value) for that key, which compaction removes: the DLQ is the live list of what
 is still failing. One DLQ per group because retries and replays are a per-consumer decision. The script
-creates the DLQs for the groups listed in `topics.policy.json` (none yet) and the consumer SDK (#533)
+creates the DLQs for the groups listed in `topics.policy.json` (since #561: `accounting.ledger`, `engagement.ops`, `engagement.cdp`, `engagement.crm`) and the consumer SDK (#533)
 creates its own group's DLQ on first start with the same `dlqTopicName`/`ensureTopics` helpers, so a new
 consumer needs no infra change.
 

@@ -22,6 +22,6 @@
   },
   "dlq": {
     "prefix": "dlq.",
-    "consumer_groups": []
+    "consumer_groups": ["accounting.ledger", "engagement.ops", "engagement.cdp", "engagement.crm"]
   }
 }
