@@ -156,3 +156,26 @@ and bounds each; `REPLAY_TEST_ORDERS` scales it down for a quick run. It found a
 relay's `ORDER BY seq` resolved to the select list's `seq::text AS seq` alias and sorted as TEXT ("10" before
 "2"); every earlier test had fewer than ten rows. Both queries now order by the qualified table column (`o.seq`)
 and `relay.test.ts` has a 25-row regression test.
+
+### `--topic-prefix` and `--after-seq` (Integration 4, #579)
+
+Both CLIs take `--topic-prefix <p>` (default empty, Kafka's topic charset): every publish goes to `<p><topic>`, and
+the start-up topic check requires the PREFIXED names — a prefixed run never needs the real topics, and a missing
+prefixed topic still refuses the start, naming the prefixed topics. The schema ids are still looked up by the
+unprefixed `topic@version` (subjects do not change; `--no-registry` keeps working), the replay's `--topic` stays the
+unprefixed event topic, headers and keys are unchanged, and the database side is untouched: rows are read and
+marked exactly as without the flag. It is for tests on a shared broker — window 15's #552 gate spawns
+`outbox:relay --once --topic-prefix <p> --no-registry` against its throwaway database. `relayOnce` /
+`replayOutbox` take the same `topicPrefix` option in-process.
+
+`outbox:replay --after-seq <seq>` replays only the rows after that `seq` (compared as bigint). A replay that stops on
+a failed send names its resume point: `… (last_seq 12345; resume with --after-seq 12345)`.
+
+```bash
+pnpm --filter @platform/core outbox:relay --once --topic-prefix gate-abc123. --no-registry
+pnpm --filter @platform/core outbox:replay --topic order.placed --topic-prefix gate-abc123. --after-seq 12345
+```
+
+Tests: `relay.test.ts` spawns both CLIs against its throwaway database (`DATABASE_URL_APP` pointed at it) on
+`t-<rand>.cli.` topics — the prefixed topic receives exactly the rows' outbox ids, the replay with `--after-seq`
+only the later rows with `replay: 1`, and a prefix without topics exits 1 naming the prefixed topics.

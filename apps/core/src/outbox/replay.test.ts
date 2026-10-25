@@ -18,6 +18,7 @@ import {
   ensureTopics,
   planTopics,
   type DecodedMessage,
+  type EventConsumer,
   type EventEnvelope,
   type TopicPolicy,
 } from '@platform/events';
@@ -196,6 +197,7 @@ describe('replay-cli arguments', () => {
       dryRun: false,
       batchSize: 500,
       registry: true,
+      topicPrefix: '',
     });
     expect(
       parseReplayArgs([
@@ -211,6 +213,10 @@ describe('replay-cli arguments', () => {
         '--batch',
         '50',
         '--no-registry',
+        '--topic-prefix',
+        'gate-x.',
+        '--after-seq',
+        '41',
       ]),
     ).toEqual({
       topic: 'order.placed',
@@ -220,6 +226,8 @@ describe('replay-cli arguments', () => {
       dryRun: true,
       batchSize: 50,
       registry: false,
+      topicPrefix: 'gate-x.',
+      afterSeq: '41',
     });
     expect(() => parseReplayArgs([])).toThrow(/--topic/);
     expect(() => parseReplayArgs(['--topic', 'order.placed', '--from', 'yesterday'])).toThrow(
@@ -229,6 +237,12 @@ describe('replay-cli arguments', () => {
       /positive integer/,
     );
     expect(() => parseReplayArgs(['--topic'])).toThrow(/needs a value/);
+    expect(() => parseReplayArgs(['--topic', 'order.placed', '--after-seq', '-1'])).toThrow(
+      /non-negative integer/,
+    );
+    expect(() =>
+      parseReplayArgs(['--topic', 'order.placed', '--topic-prefix', 'no spaces']),
+    ).toThrow(/not a Kafka topic prefix/);
   });
 });
 
@@ -336,6 +350,23 @@ describe('replayOutbox (database, recording publisher)', () => {
       ).rows,
     ).toBe(1);
     expect(sent).toHaveLength(1); // dry runs sent nothing
+    // --after-seq resumes after a given seq (bigint comparison, not text)
+    const placedSeqs = (
+      await hq.query<{ s: string }>(
+        "SELECT seq::text AS s FROM outbox WHERE topic = 'order.placed' AND published_at IS NOT NULL ORDER BY seq",
+      )
+    ).rows.map((r) => r.s);
+    expect(placedSeqs).toHaveLength(2);
+    const resumed = await replayOutbox(hq, publisher, {
+      organizationId: ORG,
+      topic: 'order.placed',
+      afterSeq: placedSeqs[0]!,
+      topicPrefix: 't.',
+      log: quiet,
+    });
+    expect(resumed).toMatchObject({ rows: 1, published: 1 });
+    expect(sent.at(-1)!.first.outbox_id).toBe(events[3]!.event_id); // order 2's order.placed
+    sent.pop();
     await expect(
       replayOutbox(hq, publisher, { organizationId: ORG, topic: 'invoice.issued', log: quiet }),
     ).rejects.toThrow(/unknown topic/);
@@ -358,6 +389,7 @@ describe('10,000 historical orders through the relay, a consumer and a replay (l
   const prefix = `t-${Math.random().toString(36).slice(2, 8)}.`;
   const kafka = createKafka({ clientId: 'core-replay-10k' });
   const publisher = createKafkaPublisher(kafka);
+  let tenk: EventConsumer | undefined;
   const policy: TopicPolicy = {
     environments: { t: { partitions: 3, replication: 1 } },
     retention: { forever: ['order.', 'payment.'], days_30: [] },
@@ -366,13 +398,20 @@ describe('10,000 historical orders through the relay, a consumer and a replay (l
 
   afterAll(async () => {
     if (brokerDown) return;
+    await tenk?.stop(); // also when an assertion failed mid-test (the in-test stop never ran)
     await publisher.disconnect().catch(() => {});
     const admin = kafka.admin();
     await admin.connect();
     try {
+      const groups = (await admin.listGroups()).groups
+        .map((g) => g.groupId)
+        .filter((g) => g.startsWith(prefix));
+      if (groups.length) await admin.deleteGroups(groups).catch(() => {});
       const mine = (await admin.listTopics()).filter((t) => t.startsWith(prefix));
       if (mine.length) await admin.deleteTopics({ topics: mine, timeout: 30_000 });
-      console.info(`replay.test: deleted ${mine.length} test topic(s) with prefix ${prefix}`);
+      console.info(
+        `replay.test: deleted ${mine.length} test topic(s) and ${groups.length} consumer group(s) with prefix ${prefix}`,
+      );
       expect((await admin.listTopics()).filter((t) => t.startsWith(prefix))).toEqual([]);
     } finally {
       await admin.disconnect();
@@ -428,7 +467,7 @@ describe('10,000 historical orders through the relay, a consumer and a replay (l
     await publisher.connect();
     const batches: string[] = [];
     const seen = new Map<string, string[]>(); // `${store}:${topic}` → `partition@occurred_at` in arrival order
-    const consumer = createConsumer({
+    const consumer = (tenk = createConsumer({
       groupId: 'tenk',
       topics: [...TOPICS],
       topicPrefix: prefix,
@@ -441,7 +480,7 @@ describe('10,000 historical orders through the relay, a consumer and a replay (l
         const k = `${m.envelope.store_id}:${m.envelope.topic}`;
         seen.set(k, [...(seen.get(k) ?? []), `${c.partition}@${m.envelope.occurred_at}`]);
       },
-    });
+    }));
     await consumer.start();
 
     // 3. relay: drain the outbox into the prefixed topics

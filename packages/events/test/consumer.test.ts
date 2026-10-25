@@ -430,6 +430,59 @@ describe.runIf(brokerDown === null)(
       expect(await readDeadLetters('misconfigured', { kafka, topicPrefix: prefix })).toEqual([]);
     }, 60_000);
 
+    it('stop() while a message is mid-retry: stop resolves, nothing is dead-lettered or committed, the next start gets the message again (#552 crash)', async () => {
+      const lines: ConsumerLogLine[] = [];
+      let failures = 0;
+      const first = createConsumer({
+        groupId: 'stopping',
+        topics: [topic],
+        topicPrefix: prefix,
+        kafka,
+        fromBeginning: false,
+        retries: 2, // the dead letter would be due right after the stop: the old order crashed on producer undefined
+        log: (l) => lines.push(l),
+        sleep: (ms) => new Promise((r) => setTimeout(r, Math.max(ms, 400))),
+        handler: async () => {
+          failures += 1;
+          throw new Error('always fails');
+        },
+      });
+      await first.start();
+      await new Promise((r) => setTimeout(r, 1_500));
+      const stuck = event('stopme');
+      await publish(stuck);
+      await until(() => first.stats.retries >= 1, 20_000, 'the first retry');
+      const t0 = Date.now();
+      await first.stop(); // must not throw, must not leave a rejection behind
+      expect(Date.now() - t0).toBeLessThan(15_000);
+      expect(first.stats.dead_lettered).toBe(0);
+      expect(lines.some((l) => l.event === 'stopped_mid_message' && l.offset !== undefined)).toBe(
+        true,
+      );
+      expect(lines.some((l) => l.event === 'dead_lettered')).toBe(false);
+      expect(await readDeadLetters('stopping', { kafka, topicPrefix: prefix })).toEqual([]);
+      expect(failures).toBe(1);
+
+      // the offset was not committed: the same group gets the message again on its next start
+      const seen: string[] = [];
+      const second = track(
+        createConsumer({
+          groupId: 'stopping',
+          topics: [topic],
+          topicPrefix: prefix,
+          kafka,
+          fromBeginning: false,
+          log: quiet,
+          sleep: noWait,
+          handler: async (m) => {
+            seen.push(m.outboxId);
+          },
+        }),
+      );
+      await second.start();
+      await until(() => seen.includes(stuck.event_id), 20_000, 'the redelivery after the stop');
+    }, 60_000);
+
     it('has() is re-checked before every retry: an id another instance marked meanwhile is not retried', async () => {
       const store = createMemoryProcessedStore();
       let attempts = 0;

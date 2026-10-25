@@ -1,6 +1,9 @@
 // The outbox relay as a long-lived process (issue #531):
 //
-//   pnpm --filter @platform/core exec tsx src/outbox/relay-cli.ts [--once] [--batch 500] [--interval-ms 1000]
+//   pnpm --filter @platform/core outbox:relay [--once] [--batch 500] [--interval-ms 1000] [--topic-prefix <p>]
+//   (the same as: pnpm --filter @platform/core exec tsx src/outbox/relay-cli.ts …)
+// --topic-prefix (#579): publish to `<p><topic>` and require the prefixed topics at start; the database side, the
+// schema ids (looked up by the unprefixed topic@version) and the headers are unchanged. For tests on a shared broker.
 //
 // Env: DATABASE_URL_APP (the app role, organization scope — never the owner), CORE_ORGANIZATION_ID (default: the
 // seeded HQ, like every other core job), KAFKA_BROKERS (default 127.0.0.1:19092). Before the first pass it checks
@@ -39,6 +42,27 @@ export interface RelayCliArgs {
   intervalMs: number;
   /** Resolve and stamp schema ids (default true; `--no-registry` turns it off). */
   registry: boolean;
+  /** #579: every publish goes to `<topicPrefix><topic>` (tests on a shared broker); empty = the real topics. */
+  topicPrefix: string;
+}
+
+const TOPIC_PREFIX = /^[A-Za-z0-9._-]{1,200}$/;
+
+/**
+ * `--topic-prefix <p>` (#579): a plain string prefix in Kafka's topic charset, the same rule as the consumer SDK's
+ * `topicPrefix` and `planTopics({ prefix })`. Absent = '' (the real topics). Present without a usable value = error.
+ */
+export function parseTopicPrefix(argv: string[]): string {
+  const i = argv.indexOf('--topic-prefix');
+  if (i === -1) return '';
+  const v = argv[i + 1];
+  if (v === undefined || v.startsWith('--')) throw new Error('--topic-prefix needs a value');
+  if (!TOPIC_PREFIX.test(v)) {
+    throw new Error(
+      `--topic-prefix "${v}" is not a Kafka topic prefix (letters, digits, . _ - only)`,
+    );
+  }
+  return v;
 }
 
 export function parseArgs(argv: string[]): RelayCliArgs {
@@ -54,13 +78,18 @@ export function parseArgs(argv: string[]): RelayCliArgs {
     batchSize: num('--batch', DEFAULT_BATCH_SIZE),
     intervalMs: num('--interval-ms', DEFAULT_INTERVAL_MS),
     registry: !argv.includes('--no-registry'),
+    topicPrefix: parseTopicPrefix(argv),
   };
 }
 
-/** The topics the broker must have before the relay publishes: every event topic of the policy. */
-export function requiredTopics(policyPath = POLICY_PATH): string[] {
+/**
+ * The topics the broker must have before the relay publishes: every event topic of the policy, with the
+ * `--topic-prefix` applied (#579 rule 2: a prefixed run never needs the real topics, and a missing prefixed
+ * topic still refuses the start). Dead-letter topics are never required.
+ */
+export function requiredTopics(policyPath = POLICY_PATH, topicPrefix = ''): string[] {
   const policy = JSON.parse(readFileSync(policyPath, 'utf8')) as TopicPolicy;
-  return planTopics(policy)
+  return planTopics(policy, { prefix: topicPrefix })
     .filter((s) => s.kind === 'event')
     .map((s) => s.name);
 }
@@ -79,7 +108,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   process.once('SIGINT', stop);
   try {
     await admin.connect();
-    await assertTopicsPresent(admin, requiredTopics());
+    await assertTopicsPresent(admin, requiredTopics(POLICY_PATH, args.topicPrefix));
     await admin.disconnect();
     let schemaIds: Record<string, number> | undefined;
     if (args.registry) {
@@ -97,6 +126,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       await relayOnce(client, publisher, {
         organizationId,
         batchSize: args.batchSize,
+        topicPrefix: args.topicPrefix,
         ...(schemaIds ? { schemaIds } : {}),
       });
     } else {
@@ -107,6 +137,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
           organization_id: organizationId,
           batch_size: args.batchSize,
           interval_ms: args.intervalMs,
+          topic_prefix: args.topicPrefix,
           schema_ids: schemaIds ? Object.keys(schemaIds).length : 0,
         }),
       );
@@ -115,6 +146,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         batchSize: args.batchSize,
         intervalMs: args.intervalMs,
         signal: controller.signal,
+        topicPrefix: args.topicPrefix,
         ...(schemaIds ? { schemaIds } : {}),
       });
       console.info(JSON.stringify({ relay: 'outbox', state: 'stopped', ...totals }));

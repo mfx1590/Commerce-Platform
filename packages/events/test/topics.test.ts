@@ -63,10 +63,32 @@ describe('topics.policy.json', () => {
   });
 });
 
+describe('the known consumer groups (#561)', () => {
+  // the group ids the apps export on main: accounting LEDGER_GROUP, engagement OPS_GROUP_ID / CDP_GROUP_ID /
+  // CRM_GROUP_ID. packages/events cannot import apps, so the names are pinned here and listed in the README.
+  const GROUPS = ['accounting.ledger', 'engagement.ops', 'engagement.cdp', 'engagement.crm'];
+
+  it('the policy lists exactly the four groups, so create-topics makes their DLQs with the environment numbers', () => {
+    expect(policy.dlq.consumer_groups).toEqual(GROUPS);
+  });
+
+  it('each gets a compacted, never-expiring dlq.<group> after the event topics; production uses 12 × 3', () => {
+    const dlqs = planTopics(policy).filter((s) => s.kind === 'dlq');
+    expect(dlqs.map((s) => s.name)).toEqual(GROUPS.map((g) => `dlq.${g}`));
+    expect(
+      dlqs.every(
+        (s) => s.configs['cleanup.policy'] === 'compact' && s.configs['retention.ms'] === '-1',
+      ),
+    ).toBe(true);
+    const prod = planTopics(policy, { environment: 'production' }).filter((s) => s.kind === 'dlq');
+    expect(prod.every((s) => s.partitions === 12 && s.replication === 3)).toBe(true);
+  });
+});
+
 describe('planTopics', () => {
   it('derives one topic per EVENT_TOPICS entry, named verbatim, with the policy numbers and configs', () => {
     const plan = planTopics(policy);
-    expect(plan.map((s) => s.name)).toEqual([...EVENT_TOPICS]);
+    expect(plan.filter((s) => s.kind === 'event').map((s) => s.name)).toEqual([...EVENT_TOPICS]);
     const placed = plan.find((s) => s.name === 'order.placed')!;
     expect(placed).toEqual({
       name: 'order.placed',
