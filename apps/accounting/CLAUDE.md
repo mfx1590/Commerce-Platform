@@ -20,7 +20,8 @@ landed by the manager in `packages/db`.
 
 - `pnpm --filter @platform/accounting dev | start | once` — the process (`src/main.ts`): app-role pool,
   organization-scoped client (`CORE_ORGANIZATION_ID`, default the seeded HQ), the consumer, `GET /health` on `PORT`
-  (9003). `once` stops after `ACCOUNTING_ONCE_IDLE_MS` (5 s) without a batch. Needs the stack (Postgres 5433, Redpanda
+  (9003). `once` stops after `ACCOUNTING_ONCE_IDLE_MS` (5 s) without a batch. Group: `ACCOUNTING_GROUP_ID` or
+  `--group <id>` (default `accounting.ledger`; #594). Needs the stack (Postgres 5433, Redpanda
   19092 with the topics created) — `KAFKA_BROKERS`, `DATABASE_URL_APP` from the root `.env`.
 - `pnpm --filter @platform/accounting test` — Vitest: pure posting tests (`src/posting/*.test.ts`), the throwaway
   database tests (`test/ledger.test.ts`, seeded via `@platform/db/testing` + `test/helpers/db.ts`) and the
