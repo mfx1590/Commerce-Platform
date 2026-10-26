@@ -443,3 +443,13 @@
   boots it on :4112.
 - Producer: apps/accounting (window 15, #551). Consumer: later the admin app's Finance screens (window 4).
 - Store API (0.5.8), Admin API (0.4.24) and events unchanged.
+
+## 0.4.29 — 2026-10-26 (Store API 0.5.9, db 0.3.19; CONTRACT CHANGE #607, window 9 P5.8)
+
+- Store API: `GET /store/recommendations` (`listProductRecommendations`, tag `catalog`, publishable key only) and
+  `RecommendationList` (`kind` served + `items` of the existing `ProductSummary`, max 24). `kind`
+  `bought_together` (anchor: `product_id` or cart `variant_ids`, exactly one) | `popular` (store-wide, 7 or 30 days);
+  the response `kind` reports a fallback to popular; 404 for an anchor outside the resolved store. 31 store operations.
+- db 0.3.19: migration 0204 `product_recommendation` (RLS kind `store`, no UPDATE grant, composite keys to
+  `product (store_id, id)`). Producer: apps/core search module + the `index-recommendations` job (window 9);
+  consumer: the storefront rail (#609, window 3). Admin API and events unchanged.
