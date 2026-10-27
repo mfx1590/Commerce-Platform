@@ -2,6 +2,14 @@
 
 ## Unreleased — Phase 5 (window 12)
 
+### 2026-10-27 · the metrics API (#603)
+
+- `apps/core/src/modules/reporting/metrics/`: catalogue, validator, compiler (server-side scope in every statement,
+  parameters only), executor, routes `listMetrics` / `queryMetrics` mounted in `reportingAdminRouter` and failing
+  closed (503) until the contract lands; the `analytics_ro` reader (`@clickhouse/client`, a core runtime dependency
+  landed as a window 1 integration exception). Tests: 25 unit, 11 route, 10 ClickHouse (leak property, escape tests,
+  p95 52–56 ms).
+
 ### 2026-10-27 · the Integration 5 money gate (#602)
 
 - `apps/core/src/modules/reporting/reconcile-gate.test.ts`: the reporting routes are the core side of the bookings and

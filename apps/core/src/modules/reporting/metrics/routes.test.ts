@@ -19,10 +19,19 @@ const ORG = SEED_IDS.organization;
 const A = SEED_IDS.stores.brandA;
 const B = SEED_IDS.stores.brandB;
 const C = SEED_IDS.stores.brandC;
-const POSTED = {
+const POSTED: Record<string, { relation: string; object: string }> = {
   listMetrics: { relation: 'viewer', object: 'store:*' },
   queryMetrics: { relation: 'viewer', object: 'store:*' },
 };
+/** The posted CONTRACT CHANGE's permissions, as the spec will carry them; an unknown operation throws like loadSpec. */
+const postedSpec = (ops: Record<string, { relation: string; object: string }>) => ({
+  permission(op: string) {
+    const p = ops[op];
+    if (!p) throw new Error(`no operation ${op} in admin-api.yaml`);
+    return p;
+  },
+  validateBody: () => {},
+});
 
 let db: TestDatabase;
 let app: express.Express;
@@ -75,7 +84,11 @@ beforeAll(async () => {
   );
   app = express();
   mountCoreMiddleware(app, new DevTokenVerifier(), {
-    moduleRouters: [...moduleAdminRouters(), metricsAdminRouter({ reader, permissions: POSTED })],
+    // ours first: the production list mounts the same paths with the real spec (503 until the contract lands)
+    moduleRouters: [
+      metricsAdminRouter({ reader, spec: postedSpec(POSTED) }),
+      ...moduleAdminRouters(),
+    ],
   });
   app.use(coreErrorHandler);
 }, 240_000);
@@ -172,5 +185,28 @@ describe('queryMetrics', () => {
     const r = await post(q(), 'seed-analyst');
     expect(r.status).toBe(503);
     expect(r.body.rows).toBeUndefined();
+  });
+});
+
+describe('fail closed when the contract does not carry the operations', () => {
+  it('both routes answer 503 before anything runs (no guard, no handler, no ClickHouse)', async () => {
+    const closed = express();
+    mountCoreMiddleware(closed, new DevTokenVerifier(), {
+      moduleRouters: [metricsAdminRouter({ reader, spec: postedSpec({}) })],
+    });
+    closed.use(coreErrorHandler);
+    seen.length = 0;
+    const list = await request(closed)
+      .get('/admin/metrics')
+      .set('Authorization', 'Bearer dev:seed-owner');
+    const query = await request(closed)
+      .post('/admin/metrics/query')
+      .set('Authorization', 'Bearer dev:seed-owner')
+      .send(q());
+    expect([list.status, query.status]).toEqual([503, 503]);
+    expect(list.body.details).toEqual({ operation: 'listMetrics' });
+    expect(query.body.details).toEqual({ operation: 'queryMetrics' });
+    expect(query.body.rows).toBeUndefined();
+    expect(seen).toEqual([]);
   });
 });

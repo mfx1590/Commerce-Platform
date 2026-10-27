@@ -45,3 +45,41 @@ Rules: every read goes through the scoped client from `src/http` (`storeClientFo
 PII in any response; money stays per currency.
 
 Test: `pnpm --filter @platform/core test -- src/modules/reporting`.
+
+## Metrics API (#603, D4) — `metrics/`
+
+`listMetrics` (`GET /admin/metrics`) and `queryMetrics` (`POST /admin/metrics/query`), both `viewer` on `store:*`,
+mounted inside `reportingAdminRouter()`. One query path over ClickHouse for the admin BI and, later, the BI Q&A tool
+(#606). There is no SQL input anywhere.
+
+- **Scope comes from the server.** An HQ principal (any organization relation; all five imply store `viewer` in
+  `infra/openfga/model.fga`) gets every store of the organization. Anyone else gets the stores they view (the OpenFGA
+  scope for real tokens, `role_assignment` for dev tokens). Every compiled statement carries
+  `store_id IN {scope:Array(UUID)}`. A `filters.store_ids` entry outside the scope is a **403** naming the store,
+  never empty rows. A finance metric without `finance` on `organization:hq` is a 403. In both cases nothing reaches
+  ClickHouse.
+- **The vocabulary is closed** (`catalogue.ts`): 13 metrics, 4 dimensions, 4 grains, the limits.
+  - `query.ts` validates; a 400 names the field, a dimension a metric does not accept, or customer counts mixed with
+    money.
+  - `compile.ts` emits one statement per model, every value a server parameter, output columns `out_*` / `m_*`
+    (never a column's own name, the ClickHouse alias-shadow trap).
+  - `execute.ts` merges by key. Ratios are integer half-up and null when the divisor is 0. Totals are per currency,
+    never across currencies. It applies `order_by` / `limit` (1000, `truncated`) and sets `data_as_of`.
+- **The read path** (`reader.ts`) is `analytics_ro` with no per-query settings. The profile sets readonly,
+  10 s, 100 000 rows with throw and 512 MB (infra/clickhouse/users.d). A timeout, an overflow, a missing
+  configuration or ClickHouse being down is a **503** with nothing partial: `internal` + status 503 until the
+  contract's `unavailable` code lands.
+- **Fail closed until the contract is underneath.** The `x-permission` is resolved per request from admin-api.yaml,
+  so an operation the spec does not carry answers 503 before anything runs (tested).
+
+Tests:
+
+- `metrics/metrics.test.ts` (25): the validator, a 500-random-query property (scope in every statement, no request
+  value in SQL text), and the executor.
+- `metrics/routes.test.ts` (11): real core middleware, dev tokens, a recording reader. Covers 401, the scope per role,
+  403 for B from A, 403 for finance, 400, 503, and fail closed.
+- `metrics/metrics-live.test.ts` (10, ClickHouse + Postgres, opt-in like the other live tests). Every metric at every
+  grain. A 300-query leak property (no row of another store, totals = the marts). Two-store exactness. p95 of 200
+  queries < 300 ms (measured 52–56 ms). The `analytics_ro` read path. The scope-escape tests over HTTP: (a) another
+  store → 403, (b) no filter → exactly its own totals, (c) a store dimension → only its own store, (d) finance → 403,
+  and an organization principal sees all three brands.
