@@ -4,7 +4,7 @@
 import { createServer, type Server } from 'node:http';
 import { createKafka, readDeadLetters } from '@platform/events';
 import { createChClient, createRawEventsSink } from './clickhouse.js';
-import { loadConfig } from './config.js';
+import { ConfigError, loadConfig } from './config.js';
 import { createIngest } from './ingest.js';
 import { createIngestMetrics } from './metrics.js';
 import { waitForIdle, type OnceReport } from './once.js';
@@ -12,6 +12,11 @@ import { startTelemetry } from './telemetry.js';
 
 async function main(): Promise<number> {
   const config = loadConfig();
+  // #623: an ingest that cannot honour customer.erased must not run at all
+  if (!config.erasureKey)
+    throw new ConfigError(
+      'ANALYTICS_ERASURE_KEY is required (the erasure list key, from env/Vault)',
+    );
   const telemetry = startTelemetry(); // before the instruments are created, or they stay no-ops
   const client = createChClient(config.clickhouse);
   const kafka = createKafka({ clientId: `analytics-ingest-${config.groupId}` });
@@ -20,6 +25,7 @@ async function main(): Promise<number> {
     kafka,
     sink: createRawEventsSink(client),
     metrics: createIngestMetrics(),
+    erasure: { key: config.erasureKey, ch: client },
   });
 
   let server: Server | undefined;

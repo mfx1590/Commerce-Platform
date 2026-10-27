@@ -147,3 +147,37 @@ production topology: the real relay, the real ledger and this ingest in fresh gr
 against the core's report routes mounted in-process and the Finance API (verifier seam), and checks that every
 identity is 0. It also checks that a forged ledger copy and a changed order are both caught. It runs in the live job
 only.
+
+## Erasure: `customer.erased` (#623)
+
+Orders are kept; the person is not. When a customer is erased, their identifiers leave every readable table and view
+of the analytics store. That covers `email_hash`, `customer_id`, `identity_id`, and the customer ids a referral
+carries, in every schema that has one.
+
+- **At insert, replays included.** The ingest loads `customer_erasures` at start and scrubs every row it classifies
+  against it, before the row is buffered. A replay, a late event or a rebuild can never put an erased identifier back.
+- **On `customer.erased`**, scoped to the event's store (or the whole organization when it has none), after its own
+  batch is acknowledged and before the commit:
+  1. record the erasure and add it to the index;
+  2. flush the insert buffer;
+  3. re-insert that customer's stored rows scrubbed, with a later `ingested_at`, so they win;
+  4. `DELETE` the older versions, so not even a non-FINAL read sees them.
+
+  Every step is idempotent: a crash redelivers and the steps run again.
+
+- **No raw identifier in the erasure list.** `customer_erasures.digest` = HMAC-SHA256 under `ANALYTICS_ERASURE_KEY` (env
+  or Vault) of `<store>:<kind>:<value>`; without the key it links to nobody. **The ingest refuses to start without the
+  key**, and a batch holding a `customer.erased` is never committed by an ingest without an erasure handler (fail
+  closed).
+- **Models.** `fct_order.customer_key` (the pseudonymous key, `email_hash`) is NULL once erased. The erased customer's
+  money stays in every money mart. `mart_customers_daily` counts their orders as `unknown_orders`. A customer is `new`
+  on the day of their first order in a store and `returning` on any later day.
+- **Out of scope:** the bus keeps the original payloads for its retention (windows 13/14).
+
+`erasure.test.ts` covers the digests, the scrub and classify (unit). Against ClickHouse it checks four things:
+
+- the erased hash and id are in no table or view, by a non-FINAL `formatRow` sweep;
+- the other customers are untouched;
+- the money marts are unchanged;
+- a full replay through a fresh ingest keeps the identifiers gone, and an erasure that arrives before the orders
+  scrubs them at insert.

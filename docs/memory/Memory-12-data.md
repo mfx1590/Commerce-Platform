@@ -102,8 +102,15 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   aliases shadowing WHERE columns (renamed out_*); 3b must compare the capture ENTRY size (1100 is net of the fee —
   comparing it alone copies the fee rule); and REAL BUG #627 (window 15): the Finance API serves dates a day early in
   a non-UTC process (queries.ts date() = toISOString on a local-midnight Date). Run the gate with TZ=UTC until then.
-- NEXT after #628: #623 (ClickHouse honours customer.erased; erasure-aware customer key) and #603 build (compiler +
-  server against the posted YAML, locally; the manager lands the contract on integration/phase5-metrics).
+- #628 now carries #601 + #602 (#619 absorbed); the manager's CI commit b128717 is on integration/phase5-reconcile
+  (models.test both describes + the gate, TZ=UTC); he collects 3 green runs. PUSH NOTHING to that branch.
+- #623 IN PROGRESS on `data/phase5-erasure` (cut --no-track from b128717; local commits only): src/erasure.ts (HMAC
+  digest index under ANALYTICS_ERASURE_KEY, scrub at classify, applyErasure = record → flush → re-insert scrubbed →
+  DELETE older versions, before the commit), migration 0004 customer_erasures, fct_order.customer_key +
+  mart_customers_daily (new/returning/unknown), createIngest `erasure: { key, ch }` (main requires the key; a
+  customer.erased batch never commits without a handler), live.test + the gate pass the erasure option,
+  erasure.test.ts (5 unit green; 2 ClickHouse tests NOT YET RUN). Design sent to the manager (2026-10-27, veto window);
+  REQUEST pending: an .env.example row ANALYTICS_ERASURE_KEY (dev word). Then the #603 build.
 - Gotchas: the Finance API `to` is INCLUSIVE, the Admin API report `to` EXCLUSIVE (clients translate);
   getHqFinanceReport has no day dimension (3a asks one day at a time); the order display_id trigger numbers
   display_id 0 (a generated month's display ids collide per store).

@@ -20,6 +20,15 @@ import {
 import { createBatcher, type Batcher, type RowSink } from './batcher.js';
 import type { IngestConfig } from './config.js';
 import { createIngestMetrics, type IngestMetrics } from './metrics.js';
+import type { ChClient } from './clickhouse.js';
+import {
+  applyErasure,
+  createErasureIndex,
+  erasedCustomerOf,
+  loadErasures,
+  type ErasedCustomer,
+  type ErasureIndex,
+} from './erasure.js';
 import { classify, type RawEventRow, type WireBatch } from './rows.js';
 
 export interface IngestLogLine {
@@ -57,6 +66,10 @@ export interface BatchDeps {
   now?: () => Date;
   /** Test seam: called after the insert and the DLQ were acknowledged, before the commit. Throw = a crash. */
   onBeforeCommit?: ((batch: WireBatch) => Promise<void> | void) | undefined;
+  /** #623: scrubs identifiers of erased customers at classification. */
+  erasures?: ErasureIndex | undefined;
+  /** #623: applied for each customer.erased of the batch, after its insert is acknowledged, before the commit. */
+  erase?: ((c: ErasedCustomer) => Promise<unknown>) | undefined;
 }
 
 /** Thrown by an `onBeforeCommit` seam to simulate a crash: the ingest stops taking batches, nothing is committed. */
@@ -81,10 +94,19 @@ export async function processBatch(batch: WireBatch, deps: BatchDeps): Promise<B
   const now = deps.now?.() ?? new Date();
   const rows: RawEventRow[] = [];
   const letters: DeadLetter[] = [];
+  const erased: ErasedCustomer[] = [];
   for (const m of batch.messages) {
-    const c = classify(m, batch, { groupId: deps.groupId, validator: deps.validator, now });
-    if (c.kind === 'row') rows.push(c.row);
-    else letters.push(c.letter);
+    const c = classify(m, batch, {
+      groupId: deps.groupId,
+      validator: deps.validator,
+      now,
+      erasures: deps.erasures,
+    });
+    if (c.kind === 'row') {
+      rows.push(c.row);
+      const e = erasedCustomerOf(c.envelope);
+      if (e) erased.push(e);
+    } else letters.push(c.letter);
   }
   await Promise.all([
     rows.length > 0 ? deps.batcher.add(rows) : Promise.resolve(),
@@ -114,6 +136,12 @@ export async function processBatch(batch: WireBatch, deps: BatchDeps): Promise<B
     });
   }
 
+  // #623: erasures are part of the batch: nothing is committed until every one of them is applied
+  for (const e of erased) {
+    if (!deps.erase)
+      throw new Error('customer.erased without an erasure handler: refusing to commit');
+    await deps.erase(e);
+  }
   await deps.onBeforeCommit?.(batch);
   const last = batch.messages[batch.messages.length - 1]!.offset;
   const next = String(BigInt(last) + 1n);
@@ -158,6 +186,11 @@ export interface IngestOptions {
   metrics?: IngestMetrics;
   log?: Log;
   onBeforeCommit?: BatchDeps['onBeforeCommit'];
+  /**
+   * #623: the erasure key (ANALYTICS_ERASURE_KEY) and the ClickHouse client the erasures are recorded in. Without it a
+   * batch holding a customer.erased is never committed (fail closed): every real deployment passes it.
+   */
+  erasure?: { key: string; ch: ChClient } | undefined;
 }
 
 export function createIngest(opts: IngestOptions): Ingest {
@@ -167,6 +200,7 @@ export function createIngest(opts: IngestOptions): Ingest {
   const validator = opts.validator ?? createValidator();
   const topics = (opts.topics ?? EVENT_TOPICS).map((t) => `${config.topicPrefix}${t}`);
   const stats: IngestStats = { batches: 0, rows: 0, dead_lettered: 0, rows_by_topic: {} };
+  const erasures = opts.erasure ? createErasureIndex(opts.erasure.key) : undefined;
   const batcher = createBatcher<RawEventRow>({
     sink: opts.sink,
     batchSize: config.batchSize,
@@ -246,6 +280,14 @@ export function createIngest(opts: IngestOptions): Ingest {
         metrics,
         log,
         onBeforeCommit: opts.onBeforeCommit,
+        erasures,
+        erase: erasures
+          ? (c) =>
+              applyErasure(
+                { ch: opts.erasure!.ch, index: erasures, flush: () => batcher.flush() },
+                c,
+              )
+          : undefined,
         commit: async (topic, partition, offset) => {
           await consumer.commitOffsets([{ topic, partition, offset }]);
           p.resolveOffset(String(BigInt(offset) - 1n));
@@ -301,6 +343,7 @@ export function createIngest(opts: IngestOptions): Ingest {
     lastBatchAt: () => lastBatchAt,
     async start() {
       stopping = false;
+      if (erasures) await loadErasures(opts.erasure!.ch, erasures);
       await ensureDlq();
       producer = kafka.producer({ allowAutoTopicCreation: false, maxInFlightRequests: 1 });
       await producer.connect();

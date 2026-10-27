@@ -30,6 +30,10 @@ function harness(opts: { batchSize?: number } = {}) {
     validator,
     // a later ingested_at on every call, as on a real clock
     now: () => new Date(Date.parse('2026-10-25T09:00:00Z') + tick++),
+    // #623: erasures are recorded here (the real handler is exercised in erasure.test.ts)
+    erase: async (c) => {
+      trail.push(`erase:${c.eventId}`);
+    },
     commit: async (topic, partition, offset) => {
       trail.push(`commit:${offset}`);
       commits.push({ topic, partition, offset });
@@ -141,6 +145,19 @@ describe('processBatch', () => {
     const r = await processBatch(batchOf([month.events[0]!, bad, month.events[1]!], 20), h.deps);
     expect(r).toMatchObject({ rows: 2, dead: 1, committed: '23' });
     expect(h.dlq.letters.map((l) => l.error_class)).toEqual(['InsertRejectedError']);
+  });
+
+  it('a customer.erased is applied after its insert is acknowledged and before the commit; without a handler nothing commits', async () => {
+    const erased = month.events.find((e) => e.topic === 'customer.erased')!;
+    const h = harness({ batchSize: 2 });
+    await processBatch(batchOf([month.events[0]!, erased], 5), h.deps);
+    expect(h.trail).toEqual(['insert:2', `erase:${erased.event_id}`, 'commit:7']);
+    const strict = harness();
+    const { erase: _erase, ...noHandler } = strict.deps;
+    await expect(processBatch(batchOf([erased], 9), noHandler)).rejects.toThrow(
+      'refusing to commit',
+    );
+    expect(strict.commits).toEqual([]);
   });
 
   it('an empty batch commits nothing', async () => {

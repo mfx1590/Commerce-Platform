@@ -14,6 +14,7 @@ import {
   type RawMessage,
   type Validator,
 } from '@platform/events';
+import { scrubPayload, type ErasureIndex } from './erasure.js';
 
 const KNOWN = new Set(Object.keys(EVENT_SCHEMAS));
 
@@ -97,7 +98,7 @@ export type Classified =
 export function classify(
   message: WireMessage,
   batch: Pick<WireBatch, 'topic' | 'partition'>,
-  ctx: { groupId: string; validator: Validator; now: Date },
+  ctx: { groupId: string; validator: Validator; now: Date; erasures?: ErasureIndex | undefined },
 ): Classified {
   const dead = (
     err: Error,
@@ -156,7 +157,16 @@ export function classify(
       published_at: toClickHouseTime(
         Number.isFinite(publishedMs) ? new Date(publishedMs) : ctx.now,
       ),
-      payload: JSON.stringify(envelope.payload),
+      // an erased customer's identifiers never reach ClickHouse again, replays included (#623)
+      payload: JSON.stringify(
+        ctx.erasures && ctx.erasures.size > 0
+          ? scrubPayload(
+              envelope.payload as unknown as Record<string, unknown>,
+              envelope.store_id,
+              ctx.erasures,
+            ).payload
+          : envelope.payload,
+      ),
       ingested_at: toClickHouseTime(ctx.now),
     };
   } catch (err) {
