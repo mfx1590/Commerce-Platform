@@ -7,6 +7,8 @@ import { niceScale } from '@/app/(hq)/bi/_components/series-chart';
 import {
   biHref,
   currencyTabs,
+  mergeCurrencyTabs,
+  storeLabel,
   dailySeries,
   daysOf,
   defaultWindow,
@@ -133,5 +135,26 @@ describe('chart scale', () => {
     expect(niceScale(0)).toEqual({ max: 4, step: 1 });
     expect(niceScale(9700)).toEqual({ max: 10000, step: 2500 });
     expect(niceScale(3)).toEqual({ max: 4, step: 1 });
+  });
+});
+
+describe('#502 nits', () => {
+  it('a finance-only currency gets a tab after the sales currencies', () => {
+    expect(mergeCurrencyTabs(['EUR', 'GBP'], ['GBP', 'USD', 'EUR', 'CHF'])).toEqual([
+      'EUR',
+      'GBP',
+      'CHF',
+      'USD',
+    ]);
+    expect(mergeCurrencyTabs([], ['USD'])).toEqual(['USD']);
+    expect(pickCurrency(mergeCurrencyTabs(['EUR'], ['USD']), 'USD')).toBe('USD');
+  });
+
+  it('an unknown store is shown by its full id, never a colliding prefix', () => {
+    const stores = [{ store_id: '00000000-0000-4000-8000-000000000031', code: 'brand-a' }];
+    expect(storeLabel(stores, '00000000-0000-4000-8000-000000000031')).toBe('brand-a');
+    expect(storeLabel(stores, '00000000-0000-4000-8000-000000000099')).toBe(
+      '00000000-0000-4000-8000-000000000099',
+    );
   });
 });
