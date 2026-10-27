@@ -29,32 +29,22 @@ const ORG = SEED_IDS.organization;
 const S = SEED_IDS.stores;
 
 /**
- * The service accounts' staff_user ids and Keycloak subjects (#565, #622) — the rows posted for the db seed
- * (`SEED_IDS.serviceAccounts`). Inserted here ON CONFLICT DO NOTHING so the test runs before and after the seed
- * carries them.
+ * The service accounts (#565, #622): their staff_user rows and role_assignment mirrors come with the db seed
+ * (`SEED_IDS.serviceAccounts`), their tuples with tuples.seed.json, their Keycloak clients with the realm export.
  */
 const CLIENTS = {
   'crm-sync': {
-    staffUserId: '00000000-0000-4000-8000-000000000061',
+    staffUserId: SEED_IDS.serviceAccounts.crmSync,
     subject: 'seed-crm-sync',
-    email: 'crm-sync@service.invalid',
-    displayName: 'CRM sync (service)',
     // Env first (CRM_SYNC_CLIENT_*); the dev realm export's dev-only value otherwise (CI has no .env).
     clientId: process.env.CRM_SYNC_CLIENT_ID ?? 'crm-sync',
     secret: process.env.CRM_SYNC_CLIENT_SECRET ?? 'dev-only-crm-sync-secret',
-    roles: [{ relation: 'support', objectType: 'store', objectId: S.brandA }],
   },
   'analytics-sync': {
-    staffUserId: '00000000-0000-4000-8000-000000000062',
+    staffUserId: SEED_IDS.serviceAccounts.analyticsSync,
     subject: 'seed-analytics-sync',
-    email: 'analytics-sync@service.invalid',
-    displayName: 'Analytics sync (service)',
     clientId: process.env.ANALYTICS_SYNC_CLIENT_ID ?? 'analytics-sync',
     secret: process.env.ANALYTICS_SYNC_CLIENT_SECRET ?? 'dev-only-analytics-sync-secret',
-    roles: [
-      { relation: 'analyst', objectType: 'organization', objectId: ORG },
-      { relation: 'finance', objectType: 'organization', objectId: ORG },
-    ],
   },
 } as const;
 
@@ -150,20 +140,16 @@ describe.runIf(live)('service clients (real client-credentials tokens, live Open
   beforeAll(async () => {
     db = await createTestDatabase('platform_service_clients');
     await seed(db.owner, { productsPerStore: 1, log: () => {} });
-    for (const c of Object.values(CLIENTS)) {
-      await db.owner.query(
-        `INSERT INTO staff_user (id, organization_id, keycloak_subject, email, display_name)
-         VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
-        [c.staffUserId, ORG, c.subject, c.email, c.displayName],
-      );
-      for (const r of c.roles) {
-        await db.owner.query(
-          `INSERT INTO role_assignment (organization_id, staff_user_id, relation, object_type, object_id)
-           VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
-          [ORG, c.staffUserId, r.relation, r.objectType, r.objectId],
-        );
-      }
-    }
+    // The seed carries both staff_user rows and their role_assignment mirrors (SEED_IDS.serviceAccounts).
+    const rows = await db.owner.query<{ id: string; keycloak_subject: string }>(
+      'SELECT id, keycloak_subject FROM staff_user WHERE id = ANY($1) ORDER BY id',
+      [Object.values(CLIENTS).map((c) => c.staffUserId)],
+    );
+    expect(rows.rows).toEqual(
+      Object.values(CLIENTS)
+        .map((c) => ({ id: c.staffUserId, keycloak_subject: c.subject }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+    );
     const seeded = await seedOpenFga({ apiUrl: API, storeName: `service-clients-${Date.now()}` });
     fga = seeded.client;
     fgaStoreId = seeded.storeId;
