@@ -1,39 +1,68 @@
-// Read-only guard for service-account clients (#565 / #622, manager decision 2026-10-27).
+// Guards for service-account clients (#565 / #622 read-only, #632 operation allowlist; manager decisions
+// 2026-10-27).
 //
 // A service account's secret lives in ANOTHER app's environment (window 16's CRM sync, window 12's reconcile), so
-// a leak must not be able to write anything — not even what its OpenFGA tuples would allow: `support` on a store
-// also gates updateCustomer / createRefund / createReturn, and a future over-broad tuple must not open a write
-// either. So the token verifier itself refuses every non-safe method (anything but GET / HEAD) for a token whose
-// authorised party is one of these clients, BEFORE any x-permission check runs.
+// a leak must reach exactly the operations its job uses and nothing else:
 //
-// The set is a CODE constant, never configuration: an empty or missing environment must not switch the guard
-// off. The client is identified from the VERIFIED token (`azp`, the client Keycloak issued it to; `client_id` as
-// a fallback), never from anything the caller sends. A caller that does not tell the verifier the request method
-// is refused too (fail closed): it cannot be trusted with a service token.
+// 1. READ-ONLY: every non-safe method (anything but GET / HEAD) is refused, whatever the OpenFGA tuples would
+//    allow (`support` on a store also gates updateCustomer / createRefund / createReturn).
+// 2. OPERATION ALLOWLIST (#632): org-level analyst / finance imply `viewer` on every store, so analytics-sync could
+//    otherwise READ every store's orders, audit log and abandoned carts; crm-sync's `support` reaches more GETs
+//    than the sync needs. Each client may call only the operations listed for it, per API.
+//
+// Both run in the token verifier, BEFORE any x-permission check. The lists are CODE constants, never configuration
+// (an empty environment must not switch a guard off; the guards read private frozen copies, so mutating an
+// exported value changes nothing). The client is identified from the VERIFIED token (`azp`; `client_id` as a
+// fallback), never from anything the caller sends. Fail closed: a caller that does not say which method, which
+// API and which operation the token is presented for is refused.
 import { ApiError } from '../types.js';
 
-/** The guard reads this private list; the exported set is a copy, so mutating it cannot widen the guard. */
-const CLIENTS: readonly string[] = Object.freeze(['crm-sync', 'analytics-sync']);
+/** The APIs whose operations service clients may be allowed: the core's Admin API and the Finance API. */
+export type ServiceApi = 'admin' | 'finance';
+
+const OPERATIONS: Readonly<Record<string, Readonly<Record<ServiceApi, readonly string[]>>>> = Object.freeze({
+  'crm-sync': Object.freeze({
+    admin: Object.freeze(['listCustomers', 'getCustomer']),
+    finance: Object.freeze([] as string[]),
+  }),
+  'analytics-sync': Object.freeze({
+    admin: Object.freeze(['getHqSalesReport', 'getHqFinanceReport']),
+    finance: Object.freeze(['listJournalLines', 'getTrialBalance', 'listPayouts', 'listParkedEvents']),
+  }),
+});
+const CLIENTS: readonly string[] = Object.freeze(Object.keys(OPERATIONS));
 
 /** Service-account clients that may only READ. Adding a client here is a code change, reviewed like one. */
 export const READ_ONLY_SERVICE_CLIENTS: ReadonlySet<string> = new Set(CLIENTS);
 
+/** The operations each service client may call, per API (#632). A copy: the guard reads its own frozen list. */
+export const SERVICE_CLIENT_OPERATIONS: Readonly<Record<string, Record<ServiceApi, string[]>>> =
+  Object.fromEntries(
+    Object.entries(OPERATIONS).map(([c, apis]) => [
+      c,
+      { admin: [...apis.admin], finance: [...apis.finance] },
+    ]),
+  );
+
 /** HTTP methods that never change state. */
 const SAFE_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD']);
 
-/** What a verifier needs to know about the request to apply the guard. */
+/** What a verifier needs to know about the request to apply the service-client guards. */
 export interface StaffRequestContext {
-  /** HTTP method of the request the token is presented with. */
-  method: string;
-  /** The contract operationId, when the caller knows it — for the refusal log line. */
-  operationId?: string;
+  /** HTTP method of the request the token is presented with (undefined = unknown → refused for a service client). */
+  method: string | undefined;
+  /** The contract operationId the request addresses (resolved before routing in the core, #632). */
+  operationId?: string | undefined;
+  /** Which API the operationId belongs to. */
+  api?: ServiceApi | undefined;
 }
 
-/** One refusal, as logged: client id, method and operation only — never a subject, an email or a token. */
+/** One refusal, as logged: client id, method, API and operation only — never a subject, an email or a token. */
 export interface ServiceClientRefusal {
-  event: 'service_client_write_refused';
+  event: 'service_client_write_refused' | 'service_client_operation_refused';
   client_id: string;
   method: string | null;
+  api?: string | null;
   operation_id: string | null;
 }
 
@@ -51,7 +80,7 @@ const defaultLog = (r: ServiceClientRefusal): void => {
 };
 
 /**
- * Throws the 403 for a read-only service client presented with a non-safe method, or with no request context at
+ * Throws the 403 for a read-only service client presented with a non-safe method, or with no request method at
  * all. `details.reason = 'read_only_service_client'` tells this refusal apart from an x-permission 403
  * (`details: { relation, object }`).
  */
@@ -79,6 +108,50 @@ export function assertServiceClientMayCall(
       reason: 'read_only_service_client',
       client_id: clientId,
       method,
+      operation_id: refusal.operation_id,
+    },
+  );
+}
+
+/** True when `clientId` may call `operationId` of `api` (#632). False for anything unknown. */
+export function serviceClientMayCallOperation(
+  clientId: string,
+  api: string | undefined,
+  operationId: string | undefined,
+): boolean {
+  if (!api || !operationId) return false;
+  const apis = OPERATIONS[clientId];
+  if (!apis || !Object.prototype.hasOwnProperty.call(apis, api)) return false;
+  return apis[api as ServiceApi].includes(operationId);
+}
+
+/**
+ * Throws the 403 for a service client whose request is not one of its allowed operations — including a request
+ * whose API or operationId the caller did not resolve (fail closed). `details.reason =
+ * 'service_client_operation_not_allowed'`.
+ */
+export function assertServiceClientOperation(
+  clientId: string,
+  request: StaffRequestContext | undefined,
+  log: (r: ServiceClientRefusal) => void = defaultLog,
+): void {
+  if (serviceClientMayCallOperation(clientId, request?.api, request?.operationId)) return;
+  const refusal: ServiceClientRefusal = {
+    event: 'service_client_operation_refused',
+    client_id: clientId,
+    method: request?.method?.toUpperCase() ?? null,
+    api: request?.api ?? null,
+    operation_id: request?.operationId ?? null,
+  };
+  log(refusal);
+  throw new ApiError(
+    403,
+    'forbidden',
+    `service client ${clientId} may not call ${refusal.operation_id ?? 'an unresolved operation'}`,
+    {
+      reason: 'service_client_operation_not_allowed',
+      client_id: clientId,
+      api: refusal.api,
       operation_id: refusal.operation_id,
     },
   );

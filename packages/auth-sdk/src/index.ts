@@ -94,10 +94,20 @@ export type {
 export { createStaffTokenVerifier, bearerToken } from './jwt/verify.js';
 export {
   READ_ONLY_SERVICE_CLIENTS,
+  SERVICE_CLIENT_OPERATIONS,
   assertServiceClientMayCall,
+  assertServiceClientOperation,
+  serviceClientMayCallOperation,
   readOnlyServiceClientOf,
 } from './jwt/service-clients.js';
-export type { StaffRequestContext, ServiceClientRefusal } from './jwt/service-clients.js';
+export type {
+  StaffRequestContext,
+  ServiceClientRefusal,
+  ServiceApi,
+} from './jwt/service-clients.js';
+// The contract operation matcher (#632): method + raw path → operation, resolved before routing.
+export { createOperationMatcher } from './http/operation-matcher.js';
+export type { OperationMatch, OperationMatcher } from './http/operation-matcher.js';
 export type { StaffTokenVerifier, StaffTokenVerifierOptions, StaffClaims } from './jwt/verify.js';
 export {
   resolveRelations,

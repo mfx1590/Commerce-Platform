@@ -24,6 +24,11 @@ export interface StaffScope {
   scope: 'organization' | 'store';
   /** The read-only service client this scope belongs to (#565 / #622); absent for people. */
   serviceClient?: string;
+  /**
+   * For a service client only: the API + operationId this scope was resolved for (per request, never cached),
+   * so a module that matches the route again can refuse a disagreement (#632).
+   */
+  serviceRequest?: { api: string | undefined; operationId: string | undefined };
 }
 
 export interface ResolveScopeInput {

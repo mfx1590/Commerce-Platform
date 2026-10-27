@@ -3,6 +3,7 @@
 import {
   ApiError,
   assertServiceClientMayCall,
+  assertServiceClientOperation,
   assignRole,
   createKeycloakAdmin,
   forbidden,
@@ -346,13 +347,23 @@ export function createHqRbac(deps: HqRbacDeps) {
     }
     try {
       if (!req.principal) throw new ApiError(401, 'unauthorized', 'Missing bearer token');
-      // Second layer of the read-only service-client guard (#565 / #622): the verifier already refused a write
-      // when the caller passed the method; this module refuses it again from the scope it was handed.
+      // Second layer of the service-client guards (#565 / #622 read-only, #632 allowlist): the verifier already
+      // refused; this module refuses again from the scope it was handed, for ITS matched operation, and refuses
+      // when the operation the middleware resolved before routing is not the one this module matched (a matcher
+      // that disagrees with the router would be a bypass).
       if (req.scope?.serviceClient) {
-        assertServiceClientMayCall(req.scope.serviceClient, {
-          method: req.method,
-          operationId: matched.route.operationId,
-        });
+        const own = { method: req.method, api: 'admin' as const, operationId: matched.route.operationId };
+        assertServiceClientMayCall(req.scope.serviceClient, own);
+        assertServiceClientOperation(req.scope.serviceClient, own);
+        const resolved = req.scope.serviceRequest;
+        if (resolved?.api !== 'admin' || resolved.operationId !== matched.route.operationId) {
+          throw new ApiError(403, 'forbidden', 'service client request resolved to another operation', {
+            reason: 'service_client_operation_mismatch',
+            client_id: req.scope.serviceClient,
+            resolved_operation_id: resolved?.operationId ?? null,
+            operation_id: matched.route.operationId,
+          });
+        }
       }
       if (matched.route.permission) {
         await requirePermission(deps.fga, req.principal, matched.route.permission);
