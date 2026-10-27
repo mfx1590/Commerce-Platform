@@ -160,51 +160,85 @@ export interface BasketSource {
 // `right_line`, and the outputs are `total_baskets` / `product_baskets` / `pa` / `pb` / `pair_baskets` /
 // `sold_units`. clickhouse.test.ts asserts this statically, because none of this SQL has ever executed (the
 // ClickHouse-backed test is skipped until #601 is on main).
-const BASKET_LINES_CTE = `
+/** The table this job reads. Only a test ever substitutes it — see `basketStatements`. */
+export const ORDER_LINES_RELATION = 'fct_order_line';
+
+/**
+ * The four statements, over `relation`. Production always uses `fct_order_line`; the live test passes a literal
+ * row set instead, so the self-join's semantics can be proven on the REAL ClickHouse without writing anything
+ * to the shared database (`analytics_ro` could not anyway). `relation` is never caller input — it is this
+ * module's own constant or a literal the test builds.
+ */
+export function basketStatements(relation: string = ORDER_LINES_RELATION): {
+  totals: string;
+  singles: string;
+  pairs: string;
+  units: string;
+} {
+  const cte = `
   WITH basket_lines AS (
     SELECT DISTINCT order_id, product_id
-    FROM fct_order_line
+    FROM ${relation}
     WHERE store_id = {storeId:UUID}
       AND product_id IS NOT NULL
       AND order_status != 'cancelled'
       AND placed_at >= now() - INTERVAL {lookbackDays:UInt16} DAY
   )`;
-
-/** The real source: three aggregates per store, computed in ClickHouse. */
-export class ClickHouseBasketSource implements BasketSource {
-  readonly kind = 'clickhouse';
-
-  constructor(private readonly client: ClickHouseClient) {}
-
-  async counts(storeId: string, t: Thresholds): Promise<BasketCounts> {
-    const params = { storeId, lookbackDays: t.lookbackDays };
-
-    const totals = await this.client.query<{ total_baskets: string }>(
-      `${BASKET_LINES_CTE} SELECT uniqExact(order_id) AS total_baskets FROM basket_lines`,
-      params,
-    );
-    const basketCount = Number(totals[0]?.total_baskets ?? 0);
-    if (basketCount === 0) return emptyCounts();
-
-    const singleRows = await this.client.query<{ product_id: string; product_baskets: string }>(
-      `${BASKET_LINES_CTE}
+  return {
+    totals: `${cte} SELECT uniqExact(order_id) AS total_baskets FROM basket_lines`,
+    singles: `${cte}
        SELECT product_id, uniqExact(order_id) AS product_baskets
        FROM basket_lines
        GROUP BY product_id`,
-      params,
-    );
-
     // The self-join is the co-occurrence. `left_line.product_id < right_line.product_id` keeps each unordered
     // pair once (half the work, and it is the same key `pairKey` builds); both directions are written by
     // `recommendPairs`. The support floor is pushed down here so the thin pairs never cross the wire.
-    const pairRows = await this.client.query<{ pa: string; pb: string; pair_baskets: string }>(
-      `${BASKET_LINES_CTE}
+    pairs: `${cte}
        SELECT left_line.product_id AS pa, right_line.product_id AS pb, count() AS pair_baskets
        FROM basket_lines AS left_line
        INNER JOIN basket_lines AS right_line ON left_line.order_id = right_line.order_id
        WHERE left_line.product_id < right_line.product_id
        GROUP BY pa, pb
        HAVING pair_baskets >= {minSupport:UInt32}`,
+    units: `SELECT product_id, sum(quantity) AS sold_units
+       FROM ${relation}
+       WHERE store_id = {storeId:UUID}
+         AND product_id IS NOT NULL
+         AND order_status != 'cancelled'
+         AND placed_at >= now() - INTERVAL {days:UInt16} DAY
+       GROUP BY product_id
+       ORDER BY sold_units DESC`,
+  };
+}
+
+/** The real source: four aggregates per store, computed in ClickHouse. */
+export class ClickHouseBasketSource implements BasketSource {
+  readonly kind = 'clickhouse';
+
+  /**
+   * `relation` defaults to `fct_order_line` and is only ever overridden by the live test, which substitutes a
+   * literal row set to prove the self-join on the real engine without writing to the shared database.
+   */
+  constructor(
+    private readonly client: ClickHouseClient,
+    private readonly relation: string = ORDER_LINES_RELATION,
+  ) {}
+
+  async counts(storeId: string, t: Thresholds): Promise<BasketCounts> {
+    const params = { storeId, lookbackDays: t.lookbackDays };
+    const sql = basketStatements(this.relation);
+
+    const totals = await this.client.query<{ total_baskets: string }>(sql.totals, params);
+    const basketCount = Number(totals[0]?.total_baskets ?? 0);
+    if (basketCount === 0) return emptyCounts();
+
+    const singleRows = await this.client.query<{ product_id: string; product_baskets: string }>(
+      sql.singles,
+      params,
+    );
+
+    const pairRows = await this.client.query<{ pa: string; pb: string; pair_baskets: string }>(
+      sql.pairs,
       { ...params, minSupport: t.minSupportBaskets },
     );
 
@@ -216,14 +250,7 @@ export class ClickHouseBasketSource implements BasketSource {
 
   async units(storeId: string, window: PopularWindow): Promise<Map<string, number>> {
     const rows = await this.client.query<{ product_id: string; sold_units: string }>(
-      `SELECT product_id, sum(quantity) AS sold_units
-       FROM fct_order_line
-       WHERE store_id = {storeId:UUID}
-         AND product_id IS NOT NULL
-         AND order_status != 'cancelled'
-         AND placed_at >= now() - INTERVAL {days:UInt16} DAY
-       GROUP BY product_id
-       ORDER BY sold_units DESC`,
+      basketStatements(this.relation).units,
       { storeId, days: window },
     );
     return new Map(rows.map((r) => [r.product_id, Number(r.sold_units)]));

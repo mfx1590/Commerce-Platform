@@ -3,9 +3,12 @@
 //  * the client and the fixture source, over a stubbed fetch — always run. They cover what the aggregation
 //    CONTRACT is (bound parameters, never interpolated SQL), that credentials never reach an error message, the
 //    retry, and that the fixture source applies the same two filters and the same windowing as the SQL.
-//  * one ClickHouse-backed test, SKIPPED with a printed reason until window 12's #601 (PR #619) is on main and
-//    `analytics.fct_order_line` exists. The manager says when; `CORE_RECOMMENDATIONS_CLICKHOUSE_TESTS=1` plus a
-//    reachable ClickHouse turns it on.
+//  * three ClickHouse-backed tests, SKIPPED with a printed reason unless `CORE_RECOMMENDATIONS_CLICKHOUSE_TESTS=1`
+//    and the CLICKHOUSE_* rows point at a ClickHouse with #601's models (#628, merged 2026-10-27). They ran green
+//    on the shared stack on 2026-10-27: the frozen column set, the aggregates agreeing with an independent count,
+//    and the documented lift computed by ClickHouse itself over a literal basket set (the dev data cannot exercise
+//    the self-join — every `fct_order_line.product_id` is NULL there; see the module CHANGELOG).
+import { SEED_IDS } from '@platform/db';
 import { describe, expect, it } from 'vitest';
 import {
   ClickHouseBasketSource,
@@ -14,7 +17,10 @@ import {
   ClickHouseError,
   DEFAULT_THRESHOLDS,
   FixtureBasketSource,
+  liftOf,
   pairKey,
+  recommendPairs,
+  recommendPopular,
   type FixtureLine,
 } from './index';
 
@@ -26,7 +32,11 @@ const CREDS = {
   password: 'readonly-word-alpha',
 };
 
-const STORE = '30000000-0000-4000-8000-000000000031';
+// The stub tests only need *a* uuid; the live tests need the REAL seeded store, so both use it. The invented id
+// this file had before matched no row in ClickHouse, so the live test queried an empty store and passed while
+// proving nothing (found on the first live run, 2026-10-27).
+const BRAND_A = SEED_IDS.stores.brandA;
+const STORE = BRAND_A;
 const NOW = new Date('2026-10-27T12:00:00Z');
 const daysAgo = (n: number) => new Date(NOW.getTime() - n * 86_400_000).toISOString();
 
@@ -354,7 +364,7 @@ describe('FixtureBasketSource (the stand-in until #601 lands)', () => {
 // ---- ClickHouse-backed, skipped with a reason until #601 is on main ----
 const liveReason = (): string | null => {
   if (process.env.CORE_RECOMMENDATIONS_CLICKHOUSE_TESTS !== '1') {
-    return 'CORE_RECOMMENDATIONS_CLICKHOUSE_TESTS is not 1 — window 12 #601 (PR #619) is not on main yet, so analytics.fct_order_line does not exist';
+    return 'CORE_RECOMMENDATIONS_CLICKHOUSE_TESTS is not 1 — these need a reachable ClickHouse with #601 models applied (#628, merged 2026-10-27); set it to 1 with the CLICKHOUSE_* rows to run them';
   }
   if (!clickhouseCredentialsFrom()) {
     return 'CLICKHOUSE_URL / CLICKHOUSE_READONLY_USER / CLICKHOUSE_READONLY_PASSWORD are not set';
@@ -364,14 +374,142 @@ const liveReason = (): string | null => {
 
 describe('against a real ClickHouse (#601 interface)', () => {
   const reason = liveReason();
-  it.skipIf(reason !== null)('reads fct_order_line with the read-only user', async () => {
+
+  it.skipIf(reason !== null)('the fct_order_line interface is still what #601 froze', async () => {
     const creds = clickhouseCredentialsFrom();
     if (!creds) throw new Error('unreachable: the skip guard checked this');
-    const source = new ClickHouseBasketSource(new ClickHouseClient(creds));
-    const counts = await source.counts(STORE, DEFAULT_THRESHOLDS);
-    expect(counts.basketCount).toBeGreaterThanOrEqual(0);
-    const units = await source.units(STORE, 7);
-    expect(units).toBeInstanceOf(Map);
+    const client = new ClickHouseClient(creds);
+    const cols = await client.query<{ name: string }>(
+      `SELECT name FROM system.columns WHERE database = {db:String} AND table = 'fct_order_line'`,
+      { db: creds.database },
+    );
+    // Additive changes are allowed after #601 merged; a column this job reads disappearing is not.
+    expect(cols.length).toBeGreaterThan(0);
+    for (const needed of SOURCE_COLUMNS) {
+      expect(cols.map((c) => c.name)).toContain(needed);
+    }
+  });
+
+  it.skipIf(reason !== null)(
+    'the aggregates execute and their counts are self-consistent',
+    async () => {
+      const creds = clickhouseCredentialsFrom();
+      if (!creds) throw new Error('unreachable: the skip guard checked this');
+      const client = new ClickHouseClient(creds);
+      const source = new ClickHouseBasketSource(client);
+
+      // What the two documented filters leave behind, independently of the source's own SQL.
+      const usable = await client.query<{ lines: string; baskets: string }>(
+        `SELECT count() AS lines, uniqExact(order_id) AS baskets
+       FROM fct_order_line
+       WHERE store_id = {storeId:UUID}
+         AND product_id IS NOT NULL
+         AND order_status != 'cancelled'
+         AND placed_at >= now() - INTERVAL {lookbackDays:UInt16} DAY`,
+        { storeId: BRAND_A, lookbackDays: DEFAULT_THRESHOLDS.lookbackDays },
+      );
+      const usableLines = Number(usable[0]?.lines ?? 0);
+      const usableBaskets = Number(usable[0]?.baskets ?? 0);
+
+      const counts = await source.counts(BRAND_A, DEFAULT_THRESHOLDS);
+      const units = await source.units(BRAND_A, 7);
+
+      // The source must agree with that independent count — this is what alias shadowing would break.
+      expect(counts.basketCount).toBe(usableBaskets);
+      // Invariants that hold at any volume: a product cannot appear in more baskets than exist, and a pair
+      // cannot appear in more baskets than either of its products.
+      for (const [product, n] of counts.singles) {
+        expect(n, `single count for ${product}`).toBeLessThanOrEqual(counts.basketCount);
+        expect(n).toBeGreaterThan(0);
+      }
+      for (const [key, n] of counts.pairs) {
+        const [a, b] = key.split('|') as [string, string];
+        const min = Math.min(counts.singles.get(a) ?? 0, counts.singles.get(b) ?? 0);
+        expect(n, `pair count for ${key} exceeds its products' basket counts`).toBeLessThanOrEqual(
+          min,
+        );
+      }
+      for (const [product, u] of units) expect(u, `units for ${product}`).toBeGreaterThan(0);
+
+      // Loud, because green here must never be mistaken for "recommendations work on this data".
+      console.info(
+        `[search] LIVE ClickHouse: store ${BRAND_A} — ${usableLines} usable line(s), ${counts.basketCount} basket(s), ` +
+          `${counts.singles.size} product(s), ${counts.pairs.size} pair(s) above support, ${units.size} product(s) with 7d units`,
+      );
+      if (usableLines === 0) {
+        console.info(
+          '[search] LIVE ClickHouse: ZERO usable lines — every fct_order_line row has product_id NULL because ' +
+            'dim_variant only knows variants that arrived via product.published/updated, and the dev orders were ' +
+            'placed against SEEDED catalog variants that never went through the bus. The SQL is exercised, but no ' +
+            'recommendation can be computed from this data (see the report on #607).',
+        );
+      } else {
+        // With real data the pipeline must actually produce something.
+        expect(counts.basketCount).toBeGreaterThan(0);
+        expect(counts.singles.size).toBeGreaterThan(0);
+      }
+    },
+  );
+
+  // The dev data cannot exercise the self-join (every product_id is NULL), and a shadowed alias returns WRONG
+  // results rather than an error — so "it ran" is not proof. This runs the SAME statements, on the same real
+  // ClickHouse, over a literal row set whose lift is known by hand, and writes nothing (analytics_ro could not).
+  it.skipIf(reason !== null)('computes the documented lift on the real engine', async () => {
+    const creds = clickhouseCredentialsFrom();
+    if (!creds) throw new Error('unreachable: the skip guard checked this');
+
+    // The worked example: N = 10 baskets, tee in 6, cap in 5, 4 together; mug in 2, scarf in 2, 2 together.
+    const id = (n: number) => `00000000-0000-4000-8000-0000000009${String(n).padStart(2, '0')}`;
+    const [tee, cap, mug, scarf, belt] = [id(1), id(2), id(3), id(4), id(5)];
+    const baskets: string[][] = [
+      [tee, cap],
+      [tee, cap],
+      [tee, cap],
+      [tee, cap],
+      [tee],
+      [tee],
+      [cap],
+      [mug, scarf],
+      [mug, scarf],
+      [belt],
+    ];
+    const rows = baskets.flatMap((products, i) =>
+      products.map(
+        (product) =>
+          `SELECT toUUID('${BRAND_A}') AS store_id, toUUID('${id(50 + i)}') AS order_id, ` +
+          `toNullable(toUUID('${product}')) AS product_id, 'placed' AS order_status, ` +
+          `now() AS placed_at, toUInt32(1) AS quantity`,
+      ),
+    );
+    const literal = `(${rows.join(' UNION ALL ')})`;
+
+    const source = new ClickHouseBasketSource(new ClickHouseClient(creds), literal);
+    const counts = await source.counts(BRAND_A, DEFAULT_THRESHOLDS);
+
+    // Exactly the numbers the pure test asserts — now from ClickHouse's own self-join and GROUP BY.
+    expect(counts.basketCount).toBe(10);
+    expect(counts.singles.get(tee)).toBe(6);
+    expect(counts.singles.get(cap)).toBe(5);
+    expect(counts.singles.get(belt)).toBe(1);
+    // Only tee+cap clears the default support floor of 3; mug+scarf (2 baskets) is filtered by the HAVING.
+    expect([...counts.pairs.entries()]).toEqual([[pairKey(tee, cap), 4]]);
+    expect(liftOf(counts, tee, cap)).toBeCloseTo(4 / 3, 10);
+
+    // And the pure rule over these real counts yields the documented recommendation, both directions.
+    // (Anchors come out sorted by product id, which for these uuids puts `tee` first.)
+    expect(recommendPairs(counts, DEFAULT_THRESHOLDS)).toEqual([
+      { productId: tee, relatedProductId: cap, score: 1.3333 },
+      { productId: cap, relatedProductId: tee, score: 1.3333 },
+    ]);
+
+    // The popular path over the same rows: tee 6 units, cap 5, mug 2, scarf 2, belt 1.
+    const units = await source.units(BRAND_A, 7);
+    expect(units.get(tee)).toBe(6);
+    expect(units.get(cap)).toBe(5);
+    expect(recommendPopular(units, 2)).toEqual([
+      { relatedProductId: tee, score: 6 },
+      { relatedProductId: cap, score: 5 },
+    ]);
   });
 
   if (reason !== null) {
