@@ -1,8 +1,16 @@
 // Keycloak JWT verification (JWKS of the realm, RS256, issuer + audience pinned). Any failure → 401.
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
 import { ApiError } from '../types.js';
+import {
+  assertServiceClientMayCall,
+  readOnlyServiceClientOf,
+  type ServiceClientRefusal,
+  type StaffRequestContext,
+} from './service-clients.js';
 
 export interface StaffTokenVerifierOptions {
+  /** Where a read-only service client's refused write is reported (default: one JSON line on stderr). */
+  onServiceClientRefusal?: (refusal: ServiceClientRefusal) => void;
   /** `KEYCLOAK_URL`, default http://localhost:8180 */
   keycloakUrl?: string;
   /** `KEYCLOAK_REALM_STAFF`, default `staff` */
@@ -19,6 +27,11 @@ export interface StaffClaims {
   email?: string;
   preferredUsername?: string;
   name?: string;
+  /**
+   * Set when the token belongs to a read-only service-account client (`READ_ONLY_SERVICE_CLIENTS`, from the
+   * verified `azp`): such a token only ever passes `verify` with a safe request method (#565 / #622).
+   */
+  serviceClient?: string;
   issuer: string;
   expiresAt: number;
   raw: JWTPayload;
@@ -26,8 +39,15 @@ export interface StaffClaims {
 
 export interface StaffTokenVerifier {
   readonly issuer: string;
-  /** Accepts a raw token or an `Authorization: Bearer …` header value. Throws ApiError(401). */
-  verify(tokenOrHeader: string | undefined | null): Promise<StaffClaims>;
+  /**
+   * Accepts a raw token or an `Authorization: Bearer …` header value. Throws ApiError(401). Pass the request
+   * (`{ method, operationId }`): a read-only service client is refused (403) on any non-GET/HEAD method and
+   * whenever the request is not given; everyone else is unaffected by it.
+   */
+  verify(
+    tokenOrHeader: string | undefined | null,
+    request?: StaffRequestContext,
+  ): Promise<StaffClaims>;
 }
 
 export function bearerToken(header: string | undefined | null): string | null {
@@ -60,7 +80,7 @@ export function createStaffTokenVerifier(opts: StaffTokenVerifierOptions = {}): 
 
   return {
     issuer,
-    async verify(tokenOrHeader) {
+    async verify(tokenOrHeader, request) {
       const token = bearerToken(tokenOrHeader);
       if (!token) throw new ApiError(401, 'unauthorized', 'Missing bearer token');
       let payload: JWTPayload;
@@ -86,6 +106,12 @@ export function createStaffTokenVerifier(opts: StaffTokenVerifierOptions = {}): 
       if (email) claims.email = email;
       if (preferredUsername) claims.preferredUsername = preferredUsername;
       if (name) claims.name = name;
+      // Read-only service clients: refused on any write BEFORE any permission check (#565 / #622).
+      const serviceClient = readOnlyServiceClientOf(payload);
+      if (serviceClient) {
+        assertServiceClientMayCall(serviceClient, request, opts.onServiceClientRefusal);
+        claims.serviceClient = serviceClient;
+      }
       return claims;
     },
   };

@@ -338,6 +338,80 @@
       "defaultClientScopes": ["roles", "basic"],
       "optionalClientScopes": [],
       "protocolMappers": []
+    },
+    {
+      "clientId": "crm-sync",
+      "name": "CRM sync (service account)",
+      "description": "Window 16's CRM sync (#565): reads customers of the stores it syncs through the core Admin API. Service account only; audience core-api; no Keycloak roles (its permissions are OpenFGA tuples). Dev-only secret; production: Vault.",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "dev-only-crm-sync-secret",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "consentRequired": false,
+      "fullScopeAllowed": false,
+      "redirectUris": [],
+      "webOrigins": [],
+      "attributes": {
+        "use.refresh.tokens": "false",
+        "access.token.lifespan": "300"
+      },
+      "defaultClientScopes": ["basic"],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "audience core-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "core-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "analytics-sync",
+      "name": "Analytics sync (service account)",
+      "description": "Window 12's analytics reconcile (#622): reads the HQ sales/finance reports and the Finance API. Service account only; audience core-api; no Keycloak roles (its permissions are OpenFGA tuples). Dev-only secret; production: Vault.",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "dev-only-analytics-sync-secret",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "consentRequired": false,
+      "fullScopeAllowed": false,
+      "redirectUris": [],
+      "webOrigins": [],
+      "attributes": {
+        "use.refresh.tokens": "false",
+        "access.token.lifespan": "300"
+      },
+      "defaultClientScopes": ["basic"],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "audience core-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "core-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
     }
   ],
   "users": [
@@ -473,6 +547,18 @@
       "clientRoles": {
         "realm-management": ["manage-users", "view-users", "query-users"]
       }
+    },
+    {
+      "id": "seed-crm-sync",
+      "username": "service-account-crm-sync",
+      "enabled": true,
+      "serviceAccountClientId": "crm-sync"
+    },
+    {
+      "id": "seed-analytics-sync",
+      "username": "service-account-analytics-sync",
+      "enabled": true,
+      "serviceAccountClientId": "analytics-sync"
     }
   ],
   "attributes": {

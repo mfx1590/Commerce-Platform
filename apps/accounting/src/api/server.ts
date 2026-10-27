@@ -107,7 +107,10 @@ export function createAccountingApi(options: AccountingApiOptions): ApiHandler {
     let operationId = match?.operation.operationId ?? null;
     try {
       if (!match) throw new ApiError(404, 'not_found', 'No such operation');
-      const principal = await options.auth.authenticate(req.headers.authorization);
+      const principal = await options.auth.authenticate(req.headers.authorization, {
+        method: req.method ?? 'GET',
+        operationId: match.operation.operationId,
+      });
       await options.auth.authorize(principal, match.operation.permission);
       const query = readQuery(url, match.operation.queryParams);
       const page = {

@@ -234,3 +234,37 @@ all`, `verifyEmail: true`, brute force on, no client secret, exact https callbac
   a version outside the list is still refused (`unsupported_version`). Without this, the producer switching to
   v2 would have left every erasure unclaimed and the Keycloak user in place. Tests: a v2 event is handled and
   claimed exactly like v1 (unit + live consumer), version 3 is refused.
+
+## Unreleased — 2026-10-27 (auth/phase5, #565 + #622)
+
+- Two confidential service accounts in the staff realm for jobs with no human in the request: `crm-sync`
+  (#565, window 16's CRM sync: `listCustomers` / `getCustomer`) and `analytics-sync` (#622, window 12's
+  reconcile: the HQ sales/finance reports and the Finance API reads). Every user flow off,
+  `fullScopeAllowed: false`, one audience mapper to `core-api`, no Keycloak role; service-account users with
+  fixed ids `seed-crm-sync` / `seed-analytics-sync` = the seeded `staff_user.keycloak_subject`
+  (`SEED_IDS.serviceAccounts`, the manager's db seed). Tuples: crm-sync `support` on brand A only;
+  analytics-sync `analyst` + `finance` on organization:hq. Dev-only secrets in the export, production derivation
+  strips them (`derive-production.mjs` keeps every service account without its secret). Env
+  `CRM_SYNC_CLIENT_*`, `ANALYTICS_SYNC_CLIENT_*`.
+- `infra/keycloak/ensure-service-account.mjs <realm> [clientId …]` generalised (#483 → #565/#622): every
+  service account the export declares, created through partialImport so the service-account user keeps the
+  export's fixed id (a user Keycloak made with a random id is replaced — that user only); idempotent; refuses a
+  non-local Keycloak unless `--allow-remote` (#514 review nit 2); `--target-realm` for measuring on a throw-away
+  realm.
+- Tests: static realm pins for both clients (flags, the single audience mapper, no roles, fixed ids, distinct
+  secrets), production derivation, the seed tuples; `apps/core/src/modules/hq-rbac/test/service-clients.test.ts`
+  (static: the contract operations and their x-permissions; live: real client-credentials tokens through the
+  scope middleware and the contracts' guards — allowed reads pass, brand B / eraseCustomer / updateStore /
+  customer routes / the other client's reads are the contract 403).
+- Read-only guard for service clients (manager decision on #565 finding 1): `READ_ONLY_SERVICE_CLIENTS`
+  (crm-sync, analytics-sync; a code constant, the guard reads a private copy) — the staff token verifier refuses
+  any non-GET/HEAD method from such a token (identified by the verified `azp` / `client_id`), and any call that
+  does not pass the request (fail closed), with 403 `details.reason = 'read_only_service_client'`, before any
+  x-permission check; one JSON log line per refusal (client id, method, operationId; no PII).
+  `verify(token, request?)`, `resolve(authorization, request?)`, `StaffClaims.serviceClient`,
+  `StaffScope.serviceClient`; hq-rbac `handle()` refuses again from the scope. Callers that accept service tokens
+  must pass `{ method, operationId }` (the core's staff-auth and the accounting API: one line each, routed by
+  the manager). Tests: `test/service-client-guard.test.ts` (14 unit, local JWKS); live: crm-sync on
+  updateCustomer / createRefund / createReturn refused by the guard although `support` would allow them,
+  analytics-sync on any write, the second layer, and a human support user unaffected. CONTRACT CHANGE #625 (later
+  wave): a read-only `customer_reader` relation.
