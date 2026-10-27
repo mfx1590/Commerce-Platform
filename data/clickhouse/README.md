@@ -16,7 +16,10 @@ idempotent, so a file that failed halfway can simply run again. A test lints bot
 - `INSERT … SELECT` into a ReplacingMergeTree table (a backfill whose copies fold);
 - `CREATE OR REPLACE VIEW` in models.
 
-`_migrations_lock` keeps two runners apart: the oldest live claim wins (TTL 10 minutes), and the other refuses.
+`_migrations_lock` keeps two runners apart: the oldest LIVE claim wins and the other refuses. A running migration
+renews its claim every 2 minutes, so a run longer than the 10-minute TTL keeps the lock (the longest expected run is
+the 0002 backfill over `raw_events FINAL`: seconds today, minutes at years of history). A claim not renewed for 10
+minutes is a crashed runner's: it no longer counts, and the next runner sweeps it (#628 review, finding 3).
 Materialised views never go in `models/`: re-creating an MV that has no TO table drops its data.
 
 ## raw_events (#600)

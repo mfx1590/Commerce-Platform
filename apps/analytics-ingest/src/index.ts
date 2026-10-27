@@ -13,6 +13,7 @@ export type { ChClient } from './clickhouse.js';
 export {
   DEFAULT_SQL_SOURCES,
   lintSqlFiles,
+  LOCK_RENEW_SECONDS,
   LOCK_TTL_SECONDS,
   migrate,
   MigrationChangedError,
