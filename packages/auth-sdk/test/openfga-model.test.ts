@@ -50,6 +50,12 @@ describe('model.fga (static)', () => {
   });
 });
 
+/** The service accounts' staff_user ids (#565, #622) — posted for SEED_IDS.serviceAccounts. */
+const SA = {
+  crmSync: '00000000-0000-4000-8000-000000000061',
+  analyticsSync: '00000000-0000-4000-8000-000000000062',
+};
+
 describe('tuples.seed.json (static)', () => {
   it('mirrors the seeded role_assignment rows and links every store to organization:hq', () => {
     const expected = [
@@ -64,6 +70,10 @@ describe('tuples.seed.json (static)', () => {
       { user: user(U.storeAdmin), relation: 'store_admin', object: store(S.brandA) },
       { user: user(U.storeAdmin), relation: 'store_admin', object: store(S.brandB) },
       { user: user(U.storeStaff), relation: 'store_staff', object: store(S.brandA) },
+      // Service accounts (#565, #622): SEED_IDS.serviceAccounts once the db seed carries them.
+      { user: user(SA.crmSync), relation: 'support', object: store(S.brandA) },
+      { user: user(SA.analyticsSync), relation: 'analyst', object: ORG },
+      { user: user(SA.analyticsSync), relation: 'finance', object: ORG },
     ];
     const key = (t: { user: string; relation: string; object: string }) =>
       `${t.user}#${t.relation}@${t.object}`;
