@@ -47,3 +47,31 @@ export {
   UnknownEventError,
 } from './rows.js';
 export type { Classified, RawEventRow, WireBatch, WireMessage } from './rows.js';
+export {
+  ApiReadError,
+  createAdminReportsClient,
+  createFinanceClient,
+  inclusiveEnd,
+} from './reconcile/clients.js';
+export type {
+  AdminReportsClient,
+  ApiOptions,
+  Fetch,
+  FinanceClient,
+  JournalLine,
+} from './reconcile/clients.js';
+export { addTo, compare, keyOf, listing } from './reconcile/diff.js';
+export type { Difference, Figures, IdentityResult, Keyed } from './reconcile/diff.js';
+export {
+  assertWindow,
+  checkBookings,
+  checkCashLedger,
+  checkCashReport,
+  checkCopyIntegrity,
+  checkLifetime,
+  checkLineage,
+  pullLedger,
+} from './reconcile/identities.js';
+export type { PulledLedger, ReconcileWindow } from './reconcile/identities.js';
+export { reconcile, renderReport, SHOWN_DIFFERENCES } from './reconcile/run.js';
+export type { ReconcileResult } from './reconcile/run.js';
