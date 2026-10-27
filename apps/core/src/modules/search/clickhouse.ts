@@ -101,10 +101,10 @@ export class ClickHouseClient {
    * so `{storeId:UUID}` in the SQL is a parameter and never text we concatenated.
    */
   async query<T>(sql: string, params: Record<string, string | number> = {}): Promise<T[]> {
-    const search = new URLSearchParams({
-      database: this.database,
-      default_format: 'JSONEachRow',
-    });
+    // `analytics_ro` is `readonly = 1`, which refuses ANY per-query setting ("Cannot modify … in readonly
+    // mode") — the same rule apps/analytics-ingest's read-only client documents. `default_format` IS a setting,
+    // so the format goes in the statement instead; only `database` and the `param_*` bindings are sent.
+    const search = new URLSearchParams({ database: this.database });
     for (const [k, v] of Object.entries(params)) search.set(`param_${k}`, String(v));
     const auth = Buffer.from(`${this.user}:${this.password}`).toString('base64');
 
@@ -114,7 +114,7 @@ export class ClickHouseClient {
         res = await this.fetchImpl(`${this.url}/?${search.toString()}`, {
           method: 'POST',
           headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'text/plain' },
-          body: sql,
+          body: `${sql}\nFORMAT JSONEachRow`,
           signal: AbortSignal.timeout(this.timeoutMs),
         });
       } catch (err) {
@@ -153,8 +153,15 @@ export interface BasketSource {
   units(storeId: string, window: PopularWindow): Promise<Map<string, number>>;
 }
 
-const BASKETS_CTE = `
-  WITH baskets AS (
+// ClickHouse resolves aliases EVERYWHERE in a statement, so an alias may never repeat a name that is already a
+// source column, a table alias or a CTE in the same query (Memory-main global gotcha, three bugs in Phase 5 —
+// "aggregate inside aggregate" in #601, wrong WHERE results in #602, a data-loss path in #623). Every name below
+// is therefore distinct from every other: the CTE is `basket_lines`, its two self-join sides are `left_line` /
+// `right_line`, and the outputs are `total_baskets` / `product_baskets` / `pa` / `pb` / `pair_baskets` /
+// `sold_units`. clickhouse.test.ts asserts this statically, because none of this SQL has ever executed (the
+// ClickHouse-backed test is skipped until #601 is on main).
+const BASKET_LINES_CTE = `
+  WITH basket_lines AS (
     SELECT DISTINCT order_id, product_id
     FROM fct_order_line
     WHERE store_id = {storeId:UUID}
@@ -172,51 +179,54 @@ export class ClickHouseBasketSource implements BasketSource {
   async counts(storeId: string, t: Thresholds): Promise<BasketCounts> {
     const params = { storeId, lookbackDays: t.lookbackDays };
 
-    const totals = await this.client.query<{ baskets: string }>(
-      `${BASKETS_CTE} SELECT uniqExact(order_id) AS baskets FROM baskets`,
+    const totals = await this.client.query<{ total_baskets: string }>(
+      `${BASKET_LINES_CTE} SELECT uniqExact(order_id) AS total_baskets FROM basket_lines`,
       params,
     );
-    const basketCount = Number(totals[0]?.baskets ?? 0);
+    const basketCount = Number(totals[0]?.total_baskets ?? 0);
     if (basketCount === 0) return emptyCounts();
 
-    const singleRows = await this.client.query<{ product_id: string; baskets: string }>(
-      `${BASKETS_CTE}
-       SELECT product_id, uniqExact(order_id) AS baskets FROM baskets GROUP BY product_id`,
+    const singleRows = await this.client.query<{ product_id: string; product_baskets: string }>(
+      `${BASKET_LINES_CTE}
+       SELECT product_id, uniqExact(order_id) AS product_baskets
+       FROM basket_lines
+       GROUP BY product_id`,
       params,
     );
 
-    // The self-join is the co-occurrence. `a.product_id < b.product_id` keeps each unordered pair once (half the
-    // work, and it is the same key `pairKey` builds); both directions are written by `recommendPairs`.
-    const pairRows = await this.client.query<{ a: string; b: string; baskets: string }>(
-      `${BASKETS_CTE}
-       SELECT a.product_id AS a, b.product_id AS b, count() AS baskets
-       FROM baskets AS a
-       INNER JOIN baskets AS b ON a.order_id = b.order_id
-       WHERE a.product_id < b.product_id
-       GROUP BY a, b
-       HAVING baskets >= {minSupport:UInt32}`,
+    // The self-join is the co-occurrence. `left_line.product_id < right_line.product_id` keeps each unordered
+    // pair once (half the work, and it is the same key `pairKey` builds); both directions are written by
+    // `recommendPairs`. The support floor is pushed down here so the thin pairs never cross the wire.
+    const pairRows = await this.client.query<{ pa: string; pb: string; pair_baskets: string }>(
+      `${BASKET_LINES_CTE}
+       SELECT left_line.product_id AS pa, right_line.product_id AS pb, count() AS pair_baskets
+       FROM basket_lines AS left_line
+       INNER JOIN basket_lines AS right_line ON left_line.order_id = right_line.order_id
+       WHERE left_line.product_id < right_line.product_id
+       GROUP BY pa, pb
+       HAVING pair_baskets >= {minSupport:UInt32}`,
       { ...params, minSupport: t.minSupportBaskets },
     );
 
     const counts: BasketCounts = { basketCount, singles: new Map(), pairs: new Map() };
-    for (const r of singleRows) counts.singles.set(r.product_id, Number(r.baskets));
-    for (const r of pairRows) counts.pairs.set(pairKey(r.a, r.b), Number(r.baskets));
+    for (const r of singleRows) counts.singles.set(r.product_id, Number(r.product_baskets));
+    for (const r of pairRows) counts.pairs.set(pairKey(r.pa, r.pb), Number(r.pair_baskets));
     return counts;
   }
 
   async units(storeId: string, window: PopularWindow): Promise<Map<string, number>> {
-    const rows = await this.client.query<{ product_id: string; units: string }>(
-      `SELECT product_id, sum(quantity) AS units
+    const rows = await this.client.query<{ product_id: string; sold_units: string }>(
+      `SELECT product_id, sum(quantity) AS sold_units
        FROM fct_order_line
        WHERE store_id = {storeId:UUID}
          AND product_id IS NOT NULL
          AND order_status != 'cancelled'
          AND placed_at >= now() - INTERVAL {days:UInt16} DAY
        GROUP BY product_id
-       ORDER BY units DESC`,
+       ORDER BY sold_units DESC`,
       { storeId, days: window },
     );
-    return new Map(rows.map((r) => [r.product_id, Number(r.units)]));
+    return new Map(rows.map((r) => [r.product_id, Number(r.sold_units)]));
   }
 }
 

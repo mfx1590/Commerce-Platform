@@ -196,11 +196,24 @@ at 24, so storing more would never be read. The `.env.example` rows are window 1
 `CLICKHOUSE_READONLY_PASSWORD`; `readonly 1`, SELECT-only on `analytics.*`, 10 s and 100 000-row caps). The
 aggregation happens in ClickHouse and only the counts cross the wire — pair counts, per-product basket counts,
 the basket total — which is the only shape that fits those caps on a real catalogue. Every query binds its
-parameters through ClickHouse's `param_*` mechanism, never string interpolation. Two filters, per the manager
-on #601: `product_id IS NOT NULL` (the variant was never published) and `order_status != 'cancelled'`. A basket
-is `order_id` as a SET, so a product on two lines of one order counts once as support; `quantity` feeds the
-popular lists only. `fct_order_line` resolves `product_id` itself through `dim_variant`, so this job needs **no
-Postgres join** for the variant → product mapping.
+parameters through ClickHouse's `param_*` mechanism, never string interpolation.
+
+Two rules this client follows that are easy to get wrong, both from the Memory-main global gotchas:
+
+- **No per-query settings.** `analytics_ro` is `readonly = 1`, which refuses any ("Cannot modify … in readonly
+  mode"), so `default_format` cannot go in the URL — the format is `FORMAT JSONEachRow` in the statement, and
+  only `database` plus the `param_*` bindings are sent. `apps/analytics-ingest`'s read-only client documents the
+  same rule.
+- **No alias may repeat a name the statement already uses.** ClickHouse resolves aliases everywhere in a query,
+  so an output alias that collides with a CTE name, a table alias or a source column silently changes what the
+  query means (three bugs in Phase 5, one of them a data-loss path). Every name here is distinct —
+  `basket_lines`, `left_line` / `right_line`, `total_baskets` / `product_baskets` / `pa` / `pb` /
+  `pair_baskets` / `sold_units` — and `clickhouse.test.ts` asserts it statically, with a mutation check that the
+  assertion really catches the two shapes that bit this phase. Two filters, per the manager
+  on #601: `product_id IS NOT NULL` (the variant was never published) and `order_status != 'cancelled'`. A basket
+  is `order_id` as a SET, so a product on two lines of one order counts once as support; `quantity` feeds the
+  popular lists only. `fct_order_line` resolves `product_id` itself through `dim_variant`, so this job needs **no
+  Postgres join** for the variant → product mapping.
 
 **Write shape.** `rebuildStoreRecommendations` is DELETE + INSERT per (store, kind, window) in one transaction,
 which is what "idempotent re-run" means here: a second run on unchanged data leaves identical rows, and a pair

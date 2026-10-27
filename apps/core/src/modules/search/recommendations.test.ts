@@ -5,6 +5,8 @@
 import { createTenantClient, SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { closePool, initDb } from '../../lib/db';
+import { runIndexRecommendations } from '../../jobs/index-recommendations';
 import {
   countsFromBaskets,
   DEFAULT_THRESHOLDS,
@@ -15,6 +17,7 @@ import {
   rebuildStoreRecommendations,
   recommendPairs,
   recommendPopular,
+  thresholdsFromEnv,
   type FixtureLine,
   type Thresholds,
 } from './index';
@@ -34,6 +37,7 @@ let b: ReturnType<typeof createTenantClient>;
 let productsA: string[];
 let productsB: string[];
 let currencyA: string;
+let storeCodeA: string;
 
 /** One order of the fixture, every line `placed` and `days` old. */
 function order(storeId: string, orderId: string, products: string[], days = 1): FixtureLine[] {
@@ -76,11 +80,17 @@ beforeAll(async () => {
   productsA = recA.map((r) => r.objectID);
   productsB = recB.map((r) => r.objectID);
   currencyA = recA[0]?.currencies[0] as string;
-  expect(productsA.length).toBeGreaterThanOrEqual(4);
+  expect(productsA.length).toBeGreaterThanOrEqual(5);
   expect(productsB.length).toBeGreaterThanOrEqual(2);
+
+  // The job resolves its stores through the shared pool, so it needs the same throwaway database.
+  await initDb({ connectionString: db.app.options.connectionString as string });
+  const codes = await a.query<{ code: string }>(`SELECT code FROM store WHERE id = $1`, [A]);
+  storeCodeA = codes.rows[0]?.code as string;
 }, 120_000);
 
 afterAll(async () => {
+  await closePool();
   await db?.drop();
 });
 
@@ -150,6 +160,32 @@ describe('the lift rule (pure, the worked example from recommendations-types.ts)
       { relatedProductId: 'a', score: 5 },
       { relatedProductId: 'b', score: 5 },
     ]);
+  });
+});
+
+describe('thresholdsFromEnv', () => {
+  it('defaults with an empty environment', () => {
+    expect(thresholdsFromEnv({} as NodeJS.ProcessEnv)).toEqual(DEFAULT_THRESHOLDS);
+  });
+
+  it('refuses a minimum lift at or below 1, which would carry no signal', () => {
+    for (const bad of ['1', '1.0', '0.9', '0']) {
+      expect(() =>
+        thresholdsFromEnv({ CORE_RECOMMENDATIONS_MIN_LIFT: bad } as NodeJS.ProcessEnv),
+      ).toThrow(/greater than 1/);
+    }
+    expect(
+      thresholdsFromEnv({ CORE_RECOMMENDATIONS_MIN_LIFT: '1.5' } as NodeJS.ProcessEnv).minLift,
+    ).toBe(1.5);
+  });
+
+  it('refuses a non-positive or non-integer count', () => {
+    expect(() =>
+      thresholdsFromEnv({ CORE_RECOMMENDATIONS_MIN_SUPPORT: '0' } as NodeJS.ProcessEnv),
+    ).toThrow(/positive integer/);
+    expect(() =>
+      thresholdsFromEnv({ CORE_RECOMMENDATIONS_MAX_PAIRS: '2.5' } as NodeJS.ProcessEnv),
+    ).toThrow(/positive integer/);
   });
 });
 
@@ -268,6 +304,54 @@ describe('rebuild (write side)', () => {
       expect(r.related_product_id).not.toBe(ghost);
       expect(r.product_id).not.toBe(ghost);
     }
+  });
+});
+
+describe('the job, dry run', () => {
+  it('reports the rows a real run would write, not the raw candidate count', async () => {
+    const [p0, p1, p2, p3, p4] = productsA as [string, string, string, string, string];
+    // Default thresholds (minSupport 3, minLift 1.2) over 12 baskets:
+    //   p0+p1  support 2  -> dropped (support), and its lift would be 0.96 anyway
+    //   p2+p3  support 4, lift 4*12/(4*4) = 3.0        -> KEPT, 2 rows (both directions)
+    //   p2+p4 / p3+p4  support 2                        -> dropped (support)
+    // So the raw candidate count is 4 unordered pairs; what a run writes is 2 rows.
+    const lines: FixtureLine[] = [
+      ...order(A, 'o1', [p0, p1], 1),
+      ...order(A, 'o2', [p0, p1], 2),
+      ...order(A, 'o3', [p0], 1),
+      ...order(A, 'o4', [p0], 1),
+      ...order(A, 'o5', [p0], 1),
+      ...order(A, 'o6', [p1], 1),
+      ...order(A, 'o7', [p1], 1),
+      ...order(A, 'o8', [p1], 1),
+      ...order(A, 'o9', [p2, p3], 1),
+      ...order(A, 'o10', [p2, p3], 1),
+      ...order(A, 'o11', [p2, p3, p4], 1),
+      ...order(A, 'o12', [p2, p3, p4], 1),
+    ];
+    const source = new FixtureBasketSource(lines, () => NOW);
+    const counts = await source.counts(A, DEFAULT_THRESHOLDS);
+    expect(counts.pairs.size).toBe(4); // the raw count the dry run must NOT report
+
+    // Earlier tests in this file share the seeded database, so compare against what is there now.
+    const before = await rows(a, A);
+
+    const summary = await runIndexRecommendations({
+      organizationId: ORG,
+      storeCode: storeCodeA,
+      dryRun: true,
+      source,
+      now: NOW,
+    });
+    expect(summary.source).toBe('fixture');
+    expect(summary.results).toHaveLength(1);
+    expect(summary.results[0]?.pairs).toBe(2);
+    // And the popular windows are reported too, instead of a hard-coded zero.
+    expect(summary.results[0]?.popular[30]).toBe(5);
+    expect(summary.results[0]?.popular[7]).toBe(5);
+
+    // A dry run writes nothing: the table is exactly as it was.
+    expect(await rows(a, A)).toEqual(before);
   });
 });
 
