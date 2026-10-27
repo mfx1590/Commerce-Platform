@@ -117,3 +117,33 @@ a printed reason when ClickHouse is down or refuses the configured user, or the 
 
 The generated month (`src/testing/month.ts`) is built from the schemas themselves: every topic and version of
 `@platform/events`, seeded, validated with the real validator. A new topic is covered the day it lands.
+
+## Reconcile: the Integration 5 money identities (#602)
+
+`pnpm --filter @platform/analytics-ingest reconcile --from 2026-10-01 --to 2026-11-01 [--store <uuid>] [--json]`
+pulls the ledger's own journal lines through the Finance API into ClickHouse (`ledger_lines`, read as
+`fct_ledger_line`), runs every identity and prints one table per identity with the first 20 differences. Exit 0
+only when every difference is 0 (1 on a difference, 2 on a usage or read error). It reads ONLY public APIs over HTTP:
+the core's `getHqSalesReport` / `getHqFinanceReport` (`CORE_URL`, `CORE_TOKEN`: analyst and finance, e.g. owner)
+and the Finance API (`ACCOUNTING_URL`, `ACCOUNTING_TOKEN`: finance), plus ClickHouse (`CLICKHOUSE_*`). No posting
+rule exists in this package: the ledger side is always the ledger's lines or its own aggregates (D7).
+
+| Identity                          | Left                                     | Right                                                                                                              | Key                                              |
+| --------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
+| 1 bookings                        | `mart_bookings_daily`                    | core `getHqSalesReport`                                                                                            | store × UTC day × currency                       |
+| 2a copy integrity (lines)         | Finance API `listJournalLines` as served | `fct_ledger_line`                                                                                                  | legal entity × currency × day × account          |
+| 2a copy integrity (trial balance) | Finance API `getTrialBalance`            | `fct_ledger_line`                                                                                                  | legal entity × currency × account                |
+| 2b lineage                        | revenue lines (4000/4010/4090)           | `raw_events` shipment.shipped / refund.issued; every shipment.shipped has lines unless parked (`listParkedEvents`) | line / event                                     |
+| 2c lifetime invariant             | order.placed `total − tax`               | ledger 4000 + 4010 of its shipments                                                                                | fully shipped, never cancelled, unrefunded order |
+| 3a captures and fees              | `mart_cash_daily`                        | core `getHqFinanceReport`, one UTC day at a time                                                                   | store × day × currency                           |
+| 3b PSP clearing                   | `raw_events` payment.captured            | ledger 1100 debits from payment.captured                                                                           | legal entity × currency × day                    |
+| 3c payouts                        | Finance API `listPayouts`                | ledger 1000 debits from psp.payout                                                                                 | legal entity × currency                          |
+
+A key present on one side only is compared against 0, so a missing row is a difference. Mind the dates: the Admin
+API reports take `[from, to)`, the Finance API `[from, to]`; the clients translate.
+
+**The gate** is `apps/core/src/modules/reporting/reconcile-gate.test.ts`. It sends the generated month through the
+production topology: the real relay, the real ledger and this ingest in fresh groups. It then runs `reconcile`
+against the core's report routes mounted in-process and the Finance API (verifier seam), and checks that every
+identity is 0. It also checks that a forged ledger copy and a changed order are both caught. It runs in the live job
+only.

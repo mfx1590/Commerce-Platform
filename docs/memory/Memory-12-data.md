@@ -79,6 +79,23 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   THROWAWAY core DB only (refuse unless current_database() is a throwaway, the #595 guard), its own test (projected
   month → the core's report functions = event counts and sums). One PR for #602 + projection, Fable-reviewed. Ask for
   the machine before the gate's live run.
+- #602 PROGRESS (branch integration/phase5-reconcile, local commit 593cabf, NOT pushed): writeMonthToCoreDb
+  (test-utils, 6/6 green vs the rpt_* views); migration 0003 ledger_lines + model fct_ledger_line; reconcile library
+  (clients, diff, identities 1/2a/2b/2c/3a/3b/3c, run, reconcile-cli), 58 unit tests green. NEXT: the gate test.
+  ASKED the manager (2026-10-27): put the gate in apps/core/src/modules/reporting/reconcile-gate.test.ts (core HTTP
+  in-process via mountCoreMiddleware + dev tokens, core's relay CLI, @platform/accounting Finance API with the
+  verifier seam), which adds 3 devDependencies to window 1's apps/core/package.json — apps/core has no package
+  exports, so nothing outside it can mount its report routes. APPROVED (manager 2026-10-27) with conditions:
+  devDeps only as a separate commit (71f0488, subject "core (window 1 path, integration exception): …", list it in
+  the PR body); one-way edge (checked: nothing imports core; prod deploy unaffected; image manifests ok); live job
+  only via probe + require-live-tests; dev tokens for core, verifier seam for Finance; run the core FULL suite once.
+- Gate written: 40941b2 apps/core/src/modules/reporting/reconcile-gate.test.ts (title 'Integration 5 gate: the
+  generated month through the real relay, ledger and ingest, every identity at 0'; 3 tests incl. "fails when it
+  should"); outbox via withEvents (core lint forbids raw outbox INSERTs). Docs committed. NOT YET RUN LIVE: asked
+  the manager for the machine (gate + core full suite). Nothing pushed.
+- Gotchas: the Finance API `to` is INCLUSIVE, the Admin API report `to` EXCLUSIVE (clients translate);
+  getHqFinanceReport has no day dimension (3a asks one day at a time); the order display_id trigger numbers
+  display_id 0 (a generated month's display ids collide per store).
 - Gotcha repeated: `String.replace(x, str)` expands `$'` / `$&` in the replacement (a YAML pattern `'^[A-Z]{3}$'` did it);
   always pass a function: `replace(x, () => str)`.
 - Machine: last runs 2026-10-25, 15/15 three times on the merged head; machine free reported.

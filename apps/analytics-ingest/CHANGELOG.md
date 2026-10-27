@@ -1,5 +1,13 @@
 # Changelog — @platform/analytics-ingest
 
+## 0.4.0 — unreleased (#602)
+
+- `reconcile` (`src/reconcile/`, `src/reconcile-cli.ts`): the Finance API and HQ report clients (generated contract types;
+  inclusive vs exclusive `to`), the ledger pull into `ledger_lines` (migration 0003) / `fct_ledger_line` (model 350),
+  the identities 1, 2a, 2b, 2c, 3a, 3b, 3c, the runner and the report (first 20 differences, exit 0 only at 0). No
+  posting rule anywhere (D7). Unit tests: the diff, the paging, the date conventions, errors, the report.
+- The gate lives in apps/core/src/modules/reporting/reconcile-gate.test.ts (the core report routes in-process).
+
 ## 0.3.0 — unreleased (#601)
 
 - #601 P5.2 models in `data/clickhouse/models/`: staging views for 10 topic versions, `dim_variant`, `dim_store`,
