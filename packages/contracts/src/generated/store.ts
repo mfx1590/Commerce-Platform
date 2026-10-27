@@ -110,8 +110,9 @@ export interface paths {
          *     shorter than `limit`, or empty — the caller hides the rail when `items` is empty. When the anchor has no
          *     pairs above the threshold the server falls back to the popular list; the response's `kind` is the kind
          *     that was actually served, which is how the caller (and its analytics event) can tell a fallback from a
-         *     real co-occurrence list without a second field. A `product_id` or `variant_ids` that is not of the
-         *     resolved store (or not published) is a 404, as on getProduct.
+         *     real co-occurrence list without a second field. A `product_id` that is not of the resolved store (or not
+         *     published) is a 404, as on getProduct; so are `variant_ids` none of which are. In a mixed `variant_ids` list the
+         *     entries outside the resolved store are ignored (a cart may hold stale lines).
          */
         get: operations["listProductRecommendations"];
         put?: never;
