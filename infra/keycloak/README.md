@@ -58,10 +58,12 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
     (`SEED_IDS.serviceAccounts`, packages/db), which the scope middleware and the Finance API look up.
     Tuples (infra/openfga/tuples.seed.json): crm-sync `support` on store brand A only (per store, never on
     organization:hq — adding a store to the sync is a visible tuple); analytics-sync `analyst` and `finance`
-    on organization:hq (two tuples; neither implies the other). Note what those relations also allow:
-    `support` on a store gates `updateCustomer`, `createRefund` and `createReturn` too (no read-only customer
-    relation exists); `analyst`/`finance` on the organization give `viewer` on every store (reads only — no
-    write in either contract is gated by them). Env: `CRM_SYNC_CLIENT_ID` / `CRM_SYNC_CLIENT_SECRET`,
+    on organization:hq (two tuples; neither implies the other). **Both are READ-ONLY by code**: auth-sdk's
+    `READ_ONLY_SERVICE_CLIENTS` makes the staff token verifier refuse any non-GET/HEAD request from them (403
+    `read_only_service_client`, before any permission check), because `support` on a store also gates
+    `updateCustomer`, `createRefund` and `createReturn` (a read-only relation is CONTRACT CHANGE #625, later
+    wave). `analyst`/`finance` on the organization give `viewer` on every store — reads only, accepted; no
+    write in either contract is gated by them, and the guard makes that structural. Env: `CRM_SYNC_CLIENT_ID` / `CRM_SYNC_CLIENT_SECRET`,
     `ANALYTICS_SYNC_CLIENT_ID` / `ANALYTICS_SYNC_CLIENT_SECRET`; dev-only secrets in the export, production
     from Vault.
 - **Applying a service account to a running stack** (never a reimport — it deletes the realm first, for

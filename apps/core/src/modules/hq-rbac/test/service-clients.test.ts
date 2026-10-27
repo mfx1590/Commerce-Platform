@@ -16,10 +16,11 @@ import {
   type PermissionRelation,
   type StaffScope,
 } from '@platform/auth-sdk';
+import { staffToken } from '@platform/auth-sdk/testing';
 import { seed, SEED_IDS } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createStaffScopeMiddleware } from '../index.js';
+import { createHqRbac, createStaffScopeMiddleware } from '../index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const KC = process.env.KEYCLOAK_URL ?? 'http://localhost:8180';
@@ -133,6 +134,7 @@ describe.runIf(live)('service clients (real client-credentials tokens, live Open
   let fgaStoreId: string;
   const scopes = new Map<keyof typeof CLIENTS, StaffScope>();
   const tokens = new Map<keyof typeof CLIENTS, string>();
+  let mw: ReturnType<typeof createStaffScopeMiddleware>;
 
   /** Decides one operation for a scope, as the core's permission middleware does (the contract 403 or pass). */
   const decide = (scope: StaffScope, operationId: string, storeId: string = S.brandA) => {
@@ -165,7 +167,7 @@ describe.runIf(live)('service clients (real client-credentials tokens, live Open
     const seeded = await seedOpenFga({ apiUrl: API, storeName: `service-clients-${Date.now()}` });
     fga = seeded.client;
     fgaStoreId = seeded.storeId;
-    const mw = createStaffScopeMiddleware({
+    mw = createStaffScopeMiddleware({
       pool: db.app,
       fga,
       organizationId: ORG,
@@ -174,7 +176,11 @@ describe.runIf(live)('service clients (real client-credentials tokens, live Open
     for (const name of Object.keys(CLIENTS) as (keyof typeof CLIENTS)[]) {
       const token = await serviceToken(name);
       tokens.set(name, token);
-      scopes.set(name, await mw.resolve(`Bearer ${token}`));
+      // A read, as the core's middleware will present it (the request context is what the guard needs).
+      scopes.set(
+        name,
+        await mw.resolve(`Bearer ${token}`, { method: 'GET', operationId: 'listCustomers' }),
+      );
     }
   }, 120_000);
 
@@ -193,6 +199,7 @@ describe.runIf(live)('service clients (real client-credentials tokens, live Open
       expect((claims.realm_access as { roles?: string[] } | undefined)?.roles ?? []).toEqual([]);
       expect(claims.resource_access ?? {}).toEqual({});
       expect(scopes.get(name)!.userId).toBe(CLIENTS[name].staffUserId);
+      expect(scopes.get(name)!.serviceClient).toBe(CLIENTS[name].clientId);
     },
   );
 
@@ -262,6 +269,81 @@ describe.runIf(live)('service clients (real client-credentials tokens, live Open
           code: 'forbidden',
         });
       }
+    }
+  });
+
+  // The read-only guard (#565 / #622): refused by the VERIFIER before any x-permission check — the 403's
+  // details.reason names the layer (an x-permission 403 carries { relation, object } instead).
+  it.each([
+    ['PATCH', 'updateCustomer'],
+    ['POST', 'createRefund'],
+    ['POST', 'createReturn'],
+  ])(
+    'crm-sync: %s %s is refused by the read-only guard, although support on brand A would allow it',
+    async (method, operationId) => {
+      // The permission alone WOULD let it through — which is exactly why the guard exists.
+      await expect(decide(scopes.get('crm-sync')!, operationId)).resolves.toBeUndefined();
+      await expect(
+        mw.resolve(`Bearer ${tokens.get('crm-sync')!}`, { method, operationId }),
+      ).rejects.toMatchObject({
+        status: 403,
+        code: 'forbidden',
+        details: {
+          reason: 'read_only_service_client',
+          client_id: 'crm-sync',
+          method,
+          operation_id: operationId,
+        },
+      });
+    },
+  );
+
+  it.each(['POST', 'PATCH', 'PUT', 'DELETE'])(
+    'analytics-sync: any %s is refused by the guard',
+    async (method) => {
+      await expect(
+        mw.resolve(`Bearer ${tokens.get('analytics-sync')!}`, {
+          method,
+          operationId: 'updateStore',
+        }),
+      ).rejects.toMatchObject({
+        status: 403,
+        details: { reason: 'read_only_service_client', client_id: 'analytics-sync' },
+      });
+    },
+  );
+
+  it('fail closed: a service-client token presented without the request method is refused', async () => {
+    await expect(mw.resolve(`Bearer ${tokens.get('crm-sync')!}`)).rejects.toMatchObject({
+      status: 403,
+      details: { reason: 'read_only_service_client', method: null },
+    });
+  });
+
+  it('second layer: hq-rbac refuses a write from a service-client scope even when handed one', async () => {
+    const rbac = createHqRbac({ pool: db.app, fga });
+    const scope = scopes.get('analytics-sync')!;
+    const res = await rbac.handle({
+      method: 'POST',
+      path: '/admin/users',
+      principal: { userId: scope.userId, subject: scope.subject, organizationId: ORG },
+      scope,
+      body: { email: 'nobody@service.invalid', display_name: 'Nobody' },
+    });
+    expect(res).toMatchObject({
+      status: 403,
+      body: { code: 'forbidden', details: { reason: 'read_only_service_client' } },
+    });
+  });
+
+  it('a human support user on the same routes is unaffected by the guard (only its permissions decide)', async () => {
+    const human = await mw.resolve(`Bearer ${await staffToken('support')}`, {
+      method: 'PATCH',
+      operationId: 'updateCustomer',
+    });
+    expect(human.serviceClient).toBeUndefined();
+    for (const op of ['updateCustomer', 'createRefund', 'createReturn']) {
+      await expect(decide(human, op), op).resolves.toBeUndefined();
     }
   });
 });

@@ -75,6 +75,18 @@ await requirePermission('store_admin', 'store:{storeId}')(scope, req.params, { f
   either realm setting changes, that reset must be measured before anything relies on it. Only the
   account-console request was measured; an address changed by staff through the admin API was not.
 
+### Read-only service clients (#565 / #622)
+
+`READ_ONLY_SERVICE_CLIENTS` (`crm-sync`, `analytics-sync`) is a CODE constant, never configuration. A staff
+token whose verified `azp` (or `client_id`) is one of them passes `verify(token, { method, operationId })` only
+for GET / HEAD; any other method — and a call that does not pass the request at all (fail closed) — is a 403
+`forbidden` with `details.reason = 'read_only_service_client'`, raised by the verifier BEFORE any
+x-permission check, and logged as one JSON line (client id, method, operationId; no subject, no email; route
+it with `onServiceClientRefusal`). `StaffClaims.serviceClient` / `StaffScope.serviceClient` mark such a
+principal; hq-rbac refuses its writes a second time from the scope. People's tokens are untouched. Every
+caller that accepts service tokens must pass `{ method: req.method, operationId }` — the scope middleware's
+`resolve(authorization, request)` and `verifier.verify(token, request)` take it.
+
 ### Checks and scope (OpenFGA)
 
 - `can(subject, relation, object, { fga }?)` → boolean. `object === 'store:*'` means "any store the subject
