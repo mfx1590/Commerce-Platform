@@ -200,6 +200,9 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   `apps/admin/src/app/(store)/[storeId]/bi/**` → window 12 for the store-admin view (the (hq) layout refuses
   store-only principals). Building meanwhile: HQ period dashboards on the existing metrics, the #502 nits
   (finance currency without sales, per-day refunds chart, codeOf fallback), the BI data layer.
+- 697d60c (#628 finding 3: lock renewal + stale sweep) verified live 2026-10-27 (models 11 + migrations 15 = 26/26
+  on real ClickHouse, TZ=UTC); data/phase5-bi merged with main and PUSHED. #631 fixes pushed separately as
+  17af186 on data/phase5-erasure (code e6760df; live 28/28 + gate 3/3).
 
 ## #601 notes (2026-10-25)
 - Local branch has #617 (origin/integration/phase5-month-fixture) merged in, to code against `@platform/test-utils`.
