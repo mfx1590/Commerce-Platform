@@ -1,6 +1,6 @@
 # Memory 9 — Search, media, promotions
 Window: 9 · Key: `search` · Branch prefix: `search/` · Model: Opus 5
-Last updated: 2026-10-25 · Contracts: **contracts-v0.4.28** on main · Branch: `search/phase5` (cut from origin/main `cadaeba`) · Status: **#607 BUILT (2026-10-27), wave 2.** Contract landed on `integration/phase5-recommendations` 897b9bc (draft PR #621); my code is on `search/phase5` on top of a merge of that branch. Job + read path + router + 43 tests, gates green. REQUEST #624 filed (window 1, route mount). Next: the manager puts my commits on #621; #609's REQUEST goes to window 3 only after my API merges. Phase 2 is complete and merged (2.1–2.5 via #160, #166, #188, #208, #211).
+Last updated: 2026-10-25 · Contracts: **contracts-v0.4.28** on main · Branch: `search/phase5` (cut from origin/main `cadaeba`) · Status: **IDLE — #607 code accepted and in #621.** `d4c0c7b` (job + read path + router + 43 tests, all gates green) is in #621 `integration/phase5-recommendations`, with the manager's `225d0d2` on top; its review is Fable's, after ~14:00 UTC 2026-10-27. REQUEST #624 filed (window 1, route mount). Waiting on the manager for two things only: switch on the ClickHouse test when #619 lands, file #609 to window 3 when #621 merges. Phase 2 is complete and merged (2.1–2.5 via #160, #166, #188, #208, #211).
 
 ## PHASE 5 DOCKET (written by the manager, 2026-10-25, Manager session nine) — READ THIS FIRST ON RESUME
 You reopen in Phase 5 wave 2 for **#607** P5.8 recommendations (plan `docs/plan/phase5-plan.md` D10; tracking #612).
@@ -79,7 +79,19 @@ Algolia index per brand synced from product.published events, merchandising rule
 - [x] **Step 3 — REQUEST #624 filed** (window 1): mount `recommendationsRouter()` after `mountStoreRoutes(...)` and
   **before the fallback proxy** (a catch-all on `/store`), two options given (a `moduleStoreRouters()` seam, or one
   line); `.env.example` rows; `apps/core` CLAUDE.md/CHANGELOG rows. Nothing in it blocks the PR.
-- [ ] **Step 4 — window 3's rail (#609)**: REQUEST only once my API is MERGED. Not filed yet.
+- [x] **Step 2 ACCEPTED (manager, 2026-10-27).** `d4c0c7b` is in **#621** (`integration/phase5-recommendations`,
+  fast-forwarded; he confirmed the merge-instead-of-rewrite was the right call). On top of it he added **225d0d2**:
+  quotes my `variant_ids` description AND four older Admin API descriptions a comma had truncated the same way
+  (his scan found them), plus a spec-test guard (no object key with whitespace in any spec, mutation-tested) — so
+  that trap is closed repo-wide. His other decisions:
+  - **`--fixture` DECLINED.** #619 lands today after its Fable review; the real rows then come from the generated
+    month through the ingest, which is what Integration 5's access matrix should use. **Not two data paths** — do
+    not build a second one.
+  - #624 (the mount, before the fallback proxy) stays with window 1.
+  - Do NOT open a `search/phase5` → main PR. Do not merge main again now.
+- [ ] **Step 4 — on the manager's word, in this order:** switch on the ClickHouse-backed test
+  (`CORE_RECOMMENDATIONS_CLICKHOUSE_TESTS=1`) when he says #619 has landed; file the #609 REQUEST to window 3 once
+  **#621 merges**. #621's review is Fable's, after ~14:00 UTC 2026-10-27. Nothing to do until then.
 - [ ] Earlier plan, kept for reference:
   1. The job file MUST export a `config` (Medusa's job loader — see the #202/#203 gotcha below); the heavy lifting
      goes in `modules/search/recommendations/` so it is testable without booting Medusa.
@@ -178,11 +190,19 @@ Also published: `dim_variant` (store_id, variant_id, product_id, sku, last_seen_
   must be mounted after `mountStoreRoutes(...)` and **before the fallback proxy**, which is a catch-all on `/store` —
   mounted after it, a module router is never reached and, with `CORE_STORE_API_FALLBACK=1`, the Prism mock answers
   plausibly instead of 404ing. REQUEST #624 asks window 1 for the seam.
+- **`origin/main` moves during a long build — re-fetch before claiming what is or is not on it** (2026-10-27).
+  I fetched at the start of the turn (tip `cadaeba`), built for an hour, and then told the manager that merging the
+  integration branch had "brought in wave 1, which is not on main yet". Wrong: main had advanced past `cadaeba`
+  meanwhile and wave 1 (#613, #614, #617, #618) was already there, which is also why the 13 ownership "violations"
+  were phantom. `git fetch` costs nothing; a confident claim about another branch's contents from a stale ref costs
+  the manager a correction. Verify with `git merge-base --is-ancestor <sha> origin/main` right before saying it.
 - **A comma inside an unquoted scalar in a YAML FLOW mapping (`{ ... }`) silently truncates it** (2026-10-27): my
   `variant_ids` description "Cart line variant ids, comma-separated; …" became just "Cart line variant ids" in the
   landed spec and in `src/generated/store.ts` — no parse error, no CI failure, the rest simply vanished. The repo's
   parameter style is all flow mappings, so QUOTE any description containing a comma. Reported to the manager while
-  #621 was still a draft.
+  #621 was still a draft; he fixed mine **and four older Admin API descriptions with the same truncation**, and added
+  a spec-test guard (no object key with whitespace in any spec). So the guard now catches it — but write
+  comma-containing descriptions quoted anyway.
 - **`git switch -c search/phase5 origin/main` sets the new branch's upstream to `origin/main`, so a bare `git push`
   from a freshly cut window branch targets MAIN** (2026-10-25). Branch protection is not available on this repo, so
   it would succeed. Push the first time explicitly — `git push origin <branch>:refs/heads/<branch>` — then
