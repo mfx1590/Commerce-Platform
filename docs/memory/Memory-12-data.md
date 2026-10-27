@@ -126,6 +126,11 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   customer events' envelope aggregate_id IS the customer id → scrubbed too (scrubAggregateId); processes check
   excludes queryID(); mart_customers_daily count columns allowed in the PII-name test. Then: erasure 9 + models 11
   + live 4 = 24/24 TWICE, gate 3/3 every identity 0, cleanup 0/0/0/0, root lint/typecheck/prettier green.
+- #631 Fable review fixes 1–4 DONE in e6760df (one push to data/phase5-erasure; the manager cherry-picks onto
+  integration/phase5-erasure): multipart params (no identifier in any URL; recording-HTTP-server test),
+  requested_by scrubbed when requested_by_type = customer, a direct short-read guard test (no DELETE/OPTIMIZE/commit),
+  assertSingleReplica (best effort: ONE replica in Phase 5). Live 2026-10-27 at TZ=UTC: erasure 13 + live 4 +
+  models 11 = 28/28, gate 3/3, no analytics_test_* left.
 - Gotchas: the Finance API `to` is INCLUSIVE, the Admin API report `to` EXCLUSIVE (clients translate);
   getHqFinanceReport has no day dimension (3a asks one day at a time); the order display_id trigger numbers
   display_id 0 (a generated month's display ids collide per store).
