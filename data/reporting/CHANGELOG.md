@@ -1,5 +1,12 @@
 # Changelog — data/reporting
 
+## Unreleased — Phase 5 (window 12)
+
+### 2026-10-27 · the Integration 5 money gate (#602)
+
+- `apps/core/src/modules/reporting/reconcile-gate.test.ts`: the reporting routes are the core side of the bookings and
+  cash identities (`getHqSalesReport`, `getHqFinanceReport`), read over HTTP by `reconcile` on the generated month.
+
 ## Unreleased — Phase 3 (window 12)
 
 ### 2026-10-18 · BI section in the admin (#480)

@@ -1,5 +1,6 @@
 // `pnpm --filter @platform/analytics-ingest ch:migrate`: applies data/clickhouse SQL to CLICKHOUSE_DATABASE.
-import { createChClient, migrate, readSqlFiles } from './clickhouse.js';
+import { createChClient } from './clickhouse.js';
+import { migrate, readSqlFiles } from './migrations.js';
 import { loadConfig } from './config.js';
 
 const config = loadConfig();
