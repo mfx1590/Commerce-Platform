@@ -296,6 +296,11 @@ reference_type?, reference_id?, expected_minor?, actual_minor?, difference_minor
   question (asked 2026-10-23). `test/erp.test.ts` has a
   `describe.runIf(odooUp)` block that authenticates and lists companies / accounts when `ODOO_URL` answers, skipped
   with the reason otherwise; the live sync is waived to the launch checklist until then.
+- **Launch checklist: re-run `erp:sync` on a clean Odoo after #627.** Before #627 the sync sent each move dated
+  `entry_date.toISOString()` of a local-midnight Date, so a sync run east of UTC dated EVERY move one day early. The
+  dev Odoo has two such runs from this UTC+2/+3 laptop: Integration 4 (2026-10-25, company 5, 147 moves, all checked:
+  Odoo date = entry date − 1 day) and the #575 live proof (2026-10-24, 148 fixture moves). Dev data only; nothing to
+  repair now, but no Odoo written before #627 is a trustworthy copy of the books.
 
 ## Finance read API (#551)
 
@@ -318,6 +323,13 @@ contract's.
   parameters are a 400 `validation_error` naming them (the contract's shared `BadRequest`); a legal entity or payout outside the organization is a 404.
   Money is integer minor with its currency; nothing is summed across currencies. Logs carry operation id, status and
   duration — never a body.
+- **Dates are text, never a Date (#627)** — node-postgres parses a `date` column as LOCAL midnight, so formatting it
+  (`toISOString()`) served every day one day early east of UTC. Every date column (`entry_date`, the first / last /
+  oldest-unposted entry dates, `arrival_date`, `available_on`) is selected `::text`, and the formatter throws on a Date
+  so a missing cast fails loudly. The Odoo sync sends `entry_date::text` as the move date (the same bug would have
+  dated moves in Odoo a day early). Timestamps (`timestamptz`) are instants and stay `toISOString()`. The image pins
+  `TZ=UTC` as defence in depth; `test/timezones.test.ts` proves the answers are identical under UTC, Asia/Tokyo and
+  America/Los_Angeles.
 
 ## Month replay gate (#552, the Integration 4 accounting gate)
 
@@ -387,7 +399,7 @@ ledger).
 
 ## Tests
 
-`pnpm --filter @platform/accounting test` — 98 tests in eleven files:
+`pnpm --filter @platform/accounting test` — 101 tests in twelve files:
 
 - `src/posting/posting.test.ts` — pure: the arithmetic, the worked example of every topic above, partial shipments,
   proportional refunds and cancellations, every defect class, the netted life of one order, the late shipment, event
@@ -415,6 +427,9 @@ ledger).
   in another currency left alone and skipped, a re-run creating and writing nothing, a remote host refused before any
   call unless `--allow-remote`); a live block for the dev-stack Odoo (skipped with the reason when it is down).
 - `src/config.test.ts` — the consumer group: default, env, `--group` in both spellings, invalid names refused.
+- `test/timezones.test.ts` — #627: the Finance API and the Odoo sync (mock) under UTC, Asia/Tokyo and
+  America/Los_Angeles give identical dates equal to the database's `::text` dates (with a check that the zone really
+  changed and that an uncast `date` read still shows the bug).
 - `src/api/spec.test.ts` — the contract as loaded (seven reads, all finance, 401/403) and the route matcher.
 - `src/api/auth.test.ts` — dev tokens never accepted in production, refused without the flag, accepted with it; an
   unknown subject 401; the permission service unreachable → 503 fail closed; a refusal → the contract's 403.
