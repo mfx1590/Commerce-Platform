@@ -18,6 +18,7 @@
     "bootstrap": "tsx scripts/bootstrap.ts"
   },
   "dependencies": {
+    "@clickhouse/client": "1.24.1",
     "@medusajs/cli": "2.20.1",
     "@medusajs/draft-order": "2.20.1",
     "@medusajs/framework": "2.20.1",
