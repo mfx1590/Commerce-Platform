@@ -161,6 +161,23 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   cleanup 0 CH / 0 PG. The dev `analytics` DB has only migration 0001 (models never applied there) → the
   compiled-query-through-analytics_ro step skips with a printed reason; reading + readonly refusal proven.
 
+## #604 IN PROGRESS (2026-10-27; branch data/phase5-bi, cut --no-track from data/phase5-metrics 71827d4; local)
+- data/phase5-metrics PUSHED at 71827d4; the manager cuts integration/phase5-metrics after #621 (contracts 0.4.29),
+  lands the #603 YAML as 0.4.30 / Admin API 0.4.25 (+ `unavailable`), my commits incl. a977b43 on top, Fable review.
+  ON HIS WORD: do the one-line `internal` → `unavailable` switch (execute.ts, reader.ts) on that branch.
+- Shared `analytics` DB migrated (manager's go): 0002–0004 + all models applied, raw 460 unchanged, backfill 144;
+  analytics_ro now runs compiled queries there (metrics-live read path closed).
+- b416c38: the alias-shadow lint (apps/analytics-ingest/src/sql-lint.ts + test): catches the 3 Phase 5 bugs, found 2
+  more (staging `store_id IS NOT NULL` read the assumeNotNull alias → filters moved into a subquery;
+  fct_order_line inner variant_id alias → variant_id_in, expression repeated); migration 0002 = the one FROZEN
+  exception (applied, harmless). Model SQL changed → asked for the machine for a re-verification run
+  (models, erasure, live, gate) BEFORE building on it.
+- Asked the manager (to fold into the #603 contract before it lands): (1) `live_orders` + `live_bookings_minor`
+  from live_orders_minute (day/total, store); (2) CSV via `Accept: text/csv` on queryMetrics; (3) ownership row
+  `apps/admin/src/app/(store)/[storeId]/bi/**` → window 12 for the store-admin view (the (hq) layout refuses
+  store-only principals). Building meanwhile: HQ period dashboards on the existing metrics, the #502 nits
+  (finance currency without sales, per-day refunds chart, codeOf fallback), the BI data layer.
+
 ## #601 notes (2026-10-25)
 - Local branch has #617 (origin/integration/phase5-month-fixture) merged in, to code against `@platform/test-utils`.
 - Built: `data/clickhouse/migrations/0002_orders_minute.sql` (orders_minute_events RMT + mv_orders_minute + backfill),
