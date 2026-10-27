@@ -2,14 +2,16 @@
 // (email_hash, customer_id, identity_id, and the customer ids a referral carries) leave every readable table and view.
 //
 //   * At insert time, every row the ingest classifies is checked against the erasure index and the matching fields
-//     are set to null BEFORE it is buffered (`scrubEnvelope`), so a replay can never resurrect them.
+//     are set to null BEFORE it is buffered (`scrubPayload` in classify), so a replay can never resurrect them.
 //   * On customer.erased (`applyErasure`), after its own batch is acknowledged and before the commit:
-//       1. the digests are recorded in `customer_erasures` and added to the index (rows classified from now on are
+//       1. the digests are added to the index and recorded in `customer_erasures` (rows classified from now on are
 //          scrubbed);
 //       2. the insert buffer is flushed (every row classified before 1 is now in ClickHouse);
 //       3. the store's rows that still reference the customer are read FINAL, re-inserted scrubbed with a later
 //          ingested_at (the ReplacingMergeTree version, so the scrubbed copy wins), and
-//       4. the older versions are deleted (lightweight DELETE), so not even a non-FINAL read shows the identifier.
+//       4. the older versions are deleted (lightweight DELETE) and the affected partitions are optimised FINAL, so the
+//          bytes are physically gone, not only masked.
+// No identifier is ever in SQL text (server-side parameters, then event ids) and query logging is off throughout.
 // Money is untouched: only identifier fields change.
 //
 // The index holds HMAC-SHA256 digests under the erasure key, never a raw identifier (see migrations/0004).
@@ -150,7 +152,16 @@ export interface ErasureResult {
   rewritten: number;
 }
 
-/** Steps 1–4 above. Throws (the batch is not committed and comes back) if any step fails; every step is idempotent. */
+/**
+ * Every erasure statement runs with query logging OFF: an identifier in a statement (or in its parameters) would
+ * otherwise land in system.query_log for its TTL. Identifiers never appear in the SQL text either: they travel as
+ * server-side parameters, and every later statement works on event ids only.
+ */
+export const ERASURE_SETTINGS = { log_queries: 0 } as const;
+
+const PARTITION_ID = /^[0-9a-z_]+$/;
+
+/** Steps 1–5. Throws (the batch is not committed and comes back) if any step fails; every step is idempotent. */
 export async function applyErasure(
   deps: ApplyErasureDeps,
   c: ErasedCustomer,
@@ -162,46 +173,68 @@ export async function applyErasure(
       'customer.erased carries an identifier that is not a uuid or hash',
     );
 
-  // 1. record + index
+  // 1 + 2, atomically with respect to classification: the index changes and the buffer is cut IN THE SAME
+  // SYNCHRONOUS TICK. classify → buffer is synchronous too (processBatch), so every row classified before this line
+  // is in the buffer being flushed, and every row classified after it is scrubbed: no row can fall between the two.
   const digests = c.identifiers.map((i) => deps.index.digest(store, i.kind, i.value));
-  await deps.ch.insert({
-    table: 'customer_erasures',
-    format: 'JSONEachRow',
-    values: digests.map((digest) => ({
-      digest,
-      organization_id: c.organizationId,
-      event_id: c.eventId,
-      erased_at: toClickHouseTime(new Date(c.erasedAt)),
-    })),
-  });
   deps.index.add(digests);
+  const flushed = deps.flush();
+  await Promise.all([
+    flushed,
+    deps.ch.insert({
+      table: 'customer_erasures',
+      format: 'JSONEachRow',
+      clickhouse_settings: ERASURE_SETTINGS,
+      values: digests.map((digest) => ({
+        digest,
+        organization_id: c.organizationId,
+        event_id: c.eventId,
+        erased_at: toClickHouseTime(new Date(c.erasedAt)),
+      })),
+    }),
+  ]);
 
-  // 2. nothing classified before the index changed may still be in the buffer
-  await deps.flush();
+  // 3. which stored rows (any version, so non-FINAL) still name the customer: identifiers as parameters only
+  const params: Record<string, unknown> = {
+    org: c.organizationId,
+    store: c.storeId,
+  };
+  const conditions: string[] = [];
+  for (const [field, kind] of Object.entries(IDENTIFIER_FIELDS))
+    c.identifiers
+      .filter((i) => i.kind === kind)
+      .forEach((i) => {
+        const name = `v${conditions.length}`;
+        params[name] = i.value;
+        conditions.push(`JSONExtractString(payload, '${field}') = {${name}:String}`);
+      });
+  if (conditions.length === 0) return { digests: digests.length, rewritten: 0 };
+  const scope = c.storeId ? 'store_id = {store:UUID}' : 'organization_id = {org:UUID}';
+  const hits = await (
+    await deps.ch.query({
+      query: `SELECT DISTINCT toString(event_id) AS id, _partition_id AS part FROM ${table}
+              WHERE ${scope} AND (${conditions.join(' OR ')})`,
+      format: 'JSONEachRow',
+      query_params: params,
+      clickhouse_settings: ERASURE_SETTINGS,
+    })
+  ).json<{ id: string; part: string }>();
+  if (hits.length === 0) return { digests: digests.length, rewritten: 0 };
+  const ids = [...new Set(hits.map((h) => h.id))];
+  const parts = [...new Set(hits.map((h) => h.part))];
 
-  // 3. rewrite what is already stored
-  const conditions = Object.entries(IDENTIFIER_FIELDS)
-    .flatMap(([field, kind]) =>
-      c.identifiers
-        .filter((i) => i.kind === kind)
-        .map((i) => `JSONExtractString(payload, '${field}') = '${i.value}'`),
-    )
-    .join(' OR ');
-  if (conditions === '') return { digests: digests.length, rewritten: 0 };
-  const scope = c.storeId
-    ? `store_id = toUUID('${c.storeId}')`
-    : `organization_id = toUUID('${c.organizationId}')`;
+  // 4. re-insert the latest version of each, scrubbed, one millisecond after any version it may have
   const stored = await (
     await deps.ch.query({
       query: `SELECT topic, version, toString(event_id) AS event_id, toString(organization_id) AS organization_id,
                      if(isNull(store_id), NULL, toString(store_id)) AS store_id, aggregate_type, aggregate_id,
                      toString(occurred_at) AS occurred_at, toString(published_at) AS published_at, payload
-              FROM ${table} FINAL WHERE ${scope} AND (${conditions})`,
+              FROM ${table} FINAL WHERE event_id IN {ids:Array(UUID)}`,
       format: 'JSONEachRow',
+      query_params: { ids },
+      clickhouse_settings: ERASURE_SETTINGS,
     })
   ).json<Omit<RawEventRow, 'ingested_at'>>();
-  if (stored.length === 0) return { digests: digests.length, rewritten: 0 };
-  // one millisecond after any version a row may already have (ingested_at is the version column)
   const at = toClickHouseTime(new Date((deps.now?.() ?? new Date()).getTime() + 1));
   const rows: RawEventRow[] = stored.map((r) => ({
     ...r,
@@ -211,12 +244,26 @@ export async function applyErasure(
     ),
     ingested_at: at,
   }));
-  await deps.ch.insert({ table, format: 'JSONEachRow', values: rows });
-
-  // 4. the older versions go, so a non-FINAL read cannot see them either
-  const ids = rows.map((r) => `toUUID('${r.event_id}')`).join(', ');
-  await deps.ch.command({
-    query: `DELETE FROM ${table} WHERE ${scope} AND event_id IN (${ids}) AND ingested_at < toDateTime64('${at}', 3, 'UTC')`,
+  await deps.ch.insert({
+    table,
+    format: 'JSONEachRow',
+    values: rows,
+    clickhouse_settings: ERASURE_SETTINGS,
   });
+
+  // 5. hide the older versions at once (lightweight DELETE), then rewrite the affected partitions so the bytes are
+  //    physically gone (a lightweight DELETE only masks rows until a merge); bounded: only these partitions
+  await deps.ch.command({
+    query: `DELETE FROM ${table} WHERE event_id IN {ids:Array(UUID)} AND ingested_at < {at:DateTime64(3, 'UTC')}`,
+    query_params: { ids, at },
+    clickhouse_settings: ERASURE_SETTINGS,
+  });
+  for (const p of parts) {
+    if (!PARTITION_ID.test(p)) throw new ErasureConfigError(`unexpected partition id ${p}`);
+    await deps.ch.command({
+      query: `OPTIMIZE TABLE ${table} PARTITION ID '${p}' FINAL`,
+      clickhouse_settings: ERASURE_SETTINGS,
+    });
+  }
   return { digests: digests.length, rewritten: rows.length };
 }

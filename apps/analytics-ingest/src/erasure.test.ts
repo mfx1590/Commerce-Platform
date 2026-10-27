@@ -9,7 +9,7 @@
 //         erasure that arrives BEFORE the orders (a rebuild) scrubs them at insert.
 import { createHash } from 'node:crypto';
 import { createValidator, makeEvent, type EventEnvelopeV1Base } from '@platform/events';
-import { generateMonth, ORG, STORE_A, STORE_B } from '@platform/test-utils';
+import { generateMonth, ORG, rng, STORE_A, STORE_B, uuidFrom } from '@platform/test-utils';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createBatcher } from './batcher.js';
 import { createChClient, createRawEventsSink, type ChClient } from './clickhouse.js';
@@ -224,11 +224,19 @@ describe.runIf(skip === null)('customer.erased in ClickHouse (#623)', () => {
     );
     const hits: string[] = [];
     for (const { name } of objects) {
-      const [r] = await q(
-        ch,
-        `SELECT count() AS n FROM ${String(name)} WHERE position(formatRow('JSONEachRow', *), '${value}') > 0`,
-      );
-      if (Number(r!.n) > 0) hits.push(`${String(name)}: ${r!.n}`);
+      // the value as a parameter with logging off (the test must not put it in query_log itself), and
+      // apply_deleted_mask = 0: rows a lightweight DELETE only masked are counted too (physical removal)
+      const r = (
+        await (
+          await ch.query({
+            query: `SELECT count() AS n FROM ${String(name)} WHERE position(formatRow('JSONEachRow', *), {v:String}) > 0`,
+            format: 'JSONEachRow',
+            query_params: { v: value },
+            clickhouse_settings: { log_queries: 0, apply_deleted_mask: 0 },
+          })
+        ).json<{ n: string }>()
+      )[0]!;
+      if (Number(r.n) > 0) hits.push(`${String(name)}: ${r.n}`);
     }
     return hits;
   }
@@ -294,5 +302,93 @@ describe.runIf(skip === null)('customer.erased in ClickHouse (#623)', () => {
     const index = createErasureIndex(KEY);
     await ingestInto(ch, index)([erasure, ...created, ...owned, ...others]);
     for (const v of [HASHES[0]!, CUSTOMERS[0]!]) expect(await sweep(ch, db, v), v).toEqual([]);
+  });
+
+  it('no identifier reaches the query log: every erasure statement is parameterised and runs with log_queries = 0', async () => {
+    const ch = await freshDatabase();
+    const now = String((await q(ch, 'SELECT toString(now64(3)) AS now'))[0]!.now);
+    await ingestInto(ch, createErasureIndex(KEY))([...created, ...owned, erasure]);
+    await ch.command({ query: 'SYSTEM FLUSH LOGS' });
+    for (const log of ['query_log', 'query_views_log', 'processes']) {
+      const exists = await q(
+        ch,
+        `SELECT count() AS n FROM system.tables WHERE database = 'system' AND name = '${log}'`,
+      );
+      if (Number(exists[0]!.n) === 0) continue;
+      const timeFilter =
+        log === 'processes' ? '1' : "event_time >= toDateTime({since:String}, 'UTC')";
+      const queryCol = log === 'query_views_log' ? 'view_query' : 'query';
+      const r = (
+        await (
+          await ch.query({
+            query: `SELECT count() AS n FROM system.${log} WHERE ${timeFilter} AND (position(${queryCol}, {h:String}) > 0 OR position(${queryCol}, {c:String}) > 0)`,
+            format: 'JSONEachRow',
+            query_params: { since: now.slice(0, 19), h: HASHES[0]!, c: CUSTOMERS[0]! },
+            clickhouse_settings: { log_queries: 0 },
+          })
+        ).json<{ n: string }>()
+      )[0]!;
+      expect(Number(r.n), log).toBe(0);
+    }
+  });
+
+  it('converges under random cross-partition interleavings: orders and their erasure in parallel, every seed', async () => {
+    const ch = await freshDatabase();
+    const db = made.at(-1)!;
+    const index = createErasureIndex(KEY);
+    const SEEDS = 15;
+    for (let seed = 1; seed <= SEEDS; seed++) {
+      const random = rng(seed * 7_919);
+      const customer = uuidFrom(random);
+      const emailHash = hash(`${customer}@example.test`);
+      const orders = placed
+        .filter((e) => e.store_id === erasedStore)
+        .slice(0, 6)
+        .map((e) => ({
+          ...e,
+          event_id: uuidFrom(random),
+          payload: {
+            ...(e.payload as object),
+            order_id: uuidFrom(random),
+            customer_id: customer,
+            email_hash: emailHash,
+          },
+        })) as EventEnvelopeV1Base[];
+      const gone = {
+        ...erasure,
+        event_id: uuidFrom(random),
+        aggregate_id: customer,
+        payload: { ...(erasure.payload as object), customer_id: customer, email_hash: emailHash },
+      } as EventEnvelopeV1Base;
+      // a buffer that flushes at random sizes and times, and a sink with random latency
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      const sink = createRawEventsSink(ch);
+      const batcher = createBatcher<RawEventRow>({
+        sink: {
+          insert: async (rows) => (await sleep(Math.floor(random() * 25)), sink.insert(rows)),
+        },
+        batchSize: 1 + Math.floor(random() * 3),
+        flushMs: 5 + Math.floor(random() * 25),
+      });
+      const deps: BatchDeps = {
+        groupId: 'analytics.raw',
+        batcher,
+        dlq: new FakeDlq(),
+        validator,
+        erasures: index,
+        erase: (c) => applyErasure({ ch, index, flush: () => batcher.flush() }, c),
+        commit: async () => {},
+      };
+      // every event in its own "partition", all at once, at random offsets
+      await Promise.all(
+        [...orders, gone].map(async (e, i) => {
+          await sleep(Math.floor(random() * 40));
+          await processBatch({ topic: e.topic, partition: i, messages: [toWire(e, i)] }, deps);
+        }),
+      );
+      await batcher.flush();
+      for (const v of [emailHash, customer])
+        expect(await sweep(ch, db, v), `seed ${seed}: ${v}`).toEqual([]);
+    }
   });
 });

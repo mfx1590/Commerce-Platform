@@ -173,6 +173,32 @@ carries, in every schema that has one.
   money stays in every money mart. `mart_customers_daily` counts their orders as `unknown_orders`. A customer is `new`
   on the day of their first order in a store and `returning` on any later day.
 - **Out of scope:** the bus keeps the original payloads for its retention (windows 13/14).
+- **No identifier in SQL text or logs.** The rows to scrub are found with server-side parameters, and every later
+  statement uses event ids only. Every erasure statement runs with `log_queries = 0`. A test checks that
+  `system.query_log`, `query_views_log` and `processes` hold neither the hash nor the customer id afterwards.
+- **Physical removal.** The lightweight `DELETE` hides the old versions at once. `OPTIMIZE TABLE raw_events PARTITION
+ID '<p>' FINAL` then rewrites only the affected partitions (bounded), so the bytes are gone too. The test sweep reads
+  with `apply_deleted_mask = 0`.
+- **No race with classification.** The index update and the start of the buffer flush happen in the same synchronous
+  tick, and classify → buffer is synchronous. So every row is either classified after the update (scrubbed at insert)
+  or already in the buffer being flushed (scrubbed by the rewrite). A randomised test interleaves a customer's orders
+  and their erasure across partitions (15 seeds, random latency and buffer sizes) and checks they converge every time.
+
+### Rotating `ANALYTICS_ERASURE_KEY`
+
+A new key cannot match the old digests, so rotation rebuilds the list from the durable source of erasures: the
+core's OUTBOX (`customer.erased` rows), replayed by the core's `outbox:replay` (#595). The bus is not that source:
+`customer.*` topics keep 30 days, #629.
+
+1. Stop the ingest, set the new key (Vault), and note the time T.
+2. `pnpm --filter @platform/core outbox:replay --topic customer.erased` republishes every erasure.
+3. Start the ingest. It consumes the replayed erasures and records them under the new key. Each re-scrub is a no-op
+   for rows already scrubbed. An order of an erased customer that lands before its replayed erasure is scrubbed when
+   the erasure arrives, so the rebuild converges.
+4. Once the replay has drained, `DELETE FROM customer_erasures WHERE recorded_at < T`: the old digests match nothing
+   now.
+
+This needs the outbox to keep `customer.erased` rows; any outbox pruning must exempt them.
 
 `erasure.test.ts` covers the digests, the scrub and classify (unit). Against ClickHouse it checks four things:
 
