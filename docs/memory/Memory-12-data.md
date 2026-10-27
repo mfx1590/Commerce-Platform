@@ -138,6 +138,25 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   always pass a function: `replace(x, () => str)`.
 - Machine: last runs 2026-10-25, 15/15 three times on the merged head; machine free reported.
 
+## #603 IN PROGRESS (2026-10-27; branch data/phase5-metrics, cut --no-track from 18bdad4; local commits)
+- #623 landed by the manager as PR #631 (my ab0b01b + 993d6fe key in .env.example/CI + 18bdad4 CI pins
+  'customer.erased in ClickHouse (#623)'); stacked on #628; Fable review after the reset.
+- Built in apps/core/src/modules/reporting/metrics/: catalogue.ts (13 metrics, closed enums, limits), query.ts
+  (validator), compile.ts (one statement per source; scope `store_id IN {scope:Array(UUID)}` always; parameters
+  only; out_*/m_* aliases), execute.ts (merge, ratios half-up/null, per-currency totals, order/limit, data_as_of,
+  503 fail-closed — 'internal' + status 503 until the contract's `unavailable` code lands), routes.ts
+  (metricsAdminRouter: scope = org stores for HQ relations, else visibleStoreIds; 403 outside scope / finance
+  metric without finance; NOT mounted until the contract lands — permissions injected in tests);
+  reporting/testing/metrics-queries.ts (seeded randomQuery). Tests: metrics.test 25 (validator, 500-query property:
+  scope everywhere + no value in SQL text, executor), routes.test 10 (dev tokens + recording reader),
+  metrics-live.test 5 (every metric × grain on CH, 300-query leak, two-store exactness, p95 < 300 ms, analytics_ro
+  read path) — NOT YET RUN (machine).
+- ASKED the manager: core runtime dependency `@clickhouse/client` 1.24.1 (window 1 path, separate commit) for the
+  production reader; analytics_ro profile limits (readonly, max_execution_time, max_result_rows) in step 0's
+  users.xml or a REQUEST. Until then the router takes an injected reader.
+- Suggestion queued for the next PR: a static lint over data/clickhouse/** for aliases equal to a column used in the
+  same statement's WHERE/ON (the alias-shadow class).
+
 ## #601 notes (2026-10-25)
 - Local branch has #617 (origin/integration/phase5-month-fixture) merged in, to code against `@platform/test-utils`.
 - Built: `data/clickhouse/migrations/0002_orders_minute.sql` (orders_minute_events RMT + mv_orders_minute + backfill),
