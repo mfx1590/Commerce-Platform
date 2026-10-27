@@ -17,6 +17,7 @@ import {
   type ScopeCache,
   type StaffScope,
   type StaffTokenVerifier as JwtVerifier,
+  type StaffRequestContext,
 } from '@platform/auth-sdk';
 import { createStaffScopeMiddleware, type StaffScopeMiddleware } from '../modules/hq-rbac';
 import type { Actor } from '../lib/audit';
@@ -40,9 +41,13 @@ export interface StaffIdentity {
   fga?: OpenFgaClient;
 }
 
-/** What a verifier implements: bearer token → verified identity, or throw (401 / 503). */
+/**
+ * What a verifier implements: bearer token → verified identity, or throw (401 / 503). `request` carries the HTTP
+ * method so auth-sdk's read-only service-client guard (#565 / #622) can refuse a write before any permission
+ * check — and refuses a service token outright without it.
+ */
 export interface StaffTokenVerifier {
-  verify(token: string): Promise<StaffIdentity>;
+  verify(token: string, request?: StaffRequestContext): Promise<StaffIdentity>;
 }
 
 /** Explicit opt-in for the Phase 1 dev tokens. Enabling is never derived from NODE_ENV; production always refuses. */
@@ -115,7 +120,7 @@ export class KeycloakStaffTokenVerifier implements StaffTokenVerifier {
     return this.middleware;
   }
 
-  async verify(token: string): Promise<StaffIdentity> {
+  async verify(token: string, request?: StaffRequestContext): Promise<StaffIdentity> {
     if (token.startsWith(DEV_PREFIX)) {
       throw unauthorized(
         `dev tokens are not accepted (set ${DEV_TOKENS_FLAG}=1 locally; never in production)`,
@@ -123,7 +128,7 @@ export class KeycloakStaffTokenVerifier implements StaffTokenVerifier {
     }
     let scope: StaffScope;
     try {
-      scope = await this.scopeMiddleware().resolve(token);
+      scope = await this.scopeMiddleware().resolve(token, request);
     } catch (err) {
       throw fromApiError(err);
     }
@@ -146,11 +151,11 @@ export function composeStaffTokenVerifier(
   dev: StaffTokenVerifier = new DevTokenVerifier(),
 ): StaffTokenVerifier {
   return {
-    verify(token) {
+    verify(token, request) {
       if (token.startsWith(DEV_PREFIX) && devTokensEnabled() && !isProduction()) {
         return dev.verify(token);
       }
-      return keycloak.verify(token);
+      return keycloak.verify(token, request);
     },
   };
 }
@@ -255,8 +260,9 @@ export async function resolveStaffPrincipal(
   authorization: string | undefined,
   verifier: StaffTokenVerifier,
   requestId: string,
+  request?: StaffRequestContext,
 ): Promise<StaffPrincipal> {
-  const identity = await verifier.verify(parseBearer(authorization));
+  const identity = await verifier.verify(parseBearer(authorization), request);
   if (identity.scope) return principalFromScope(identity.scope, identity.fga, requestId);
 
   // Dev token: `staff_user` → `role_assignment` rows (Phase 1 stub, ADR 0002 evaluated in permissions.ts).
@@ -312,7 +318,10 @@ export async function resolveStaffPrincipal(
 /** Express middleware for the `/admin` namespace: attaches `req.principal` or fails with 401 (503 fail closed). */
 export function staffAuthMiddleware(verifier: StaffTokenVerifier): RequestHandler {
   return (req, _res, next) => {
-    resolveStaffPrincipal(req.headers.authorization, verifier, requestIdOf(req))
+    // The method lets auth-sdk refuse a read-only service client's write before any permission check (#565 / #622).
+    resolveStaffPrincipal(req.headers.authorization, verifier, requestIdOf(req), {
+      method: req.method,
+    })
       .then((p) => {
         req.principal = p;
         next();
