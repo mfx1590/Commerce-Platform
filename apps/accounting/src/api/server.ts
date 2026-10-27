@@ -108,7 +108,9 @@ export function createAccountingApi(options: AccountingApiOptions): ApiHandler {
     try {
       if (!match) throw new ApiError(404, 'not_found', 'No such operation');
       const principal = await options.auth.authenticate(req.headers.authorization, {
-        method: req.method ?? 'GET',
+        // As is: a missing method fails closed in auth-sdk's service-client guards (#632).
+        method: req.method,
+        api: 'finance',
         operationId: match.operation.operationId,
       });
       await options.auth.authorize(principal, match.operation.permission);
