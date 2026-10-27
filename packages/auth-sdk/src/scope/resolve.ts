@@ -22,6 +22,8 @@ export interface StaffScope {
   storeIds: string[];
   /** `organization` when any organization relation is held, else `store` (storeIds may be empty). */
   scope: 'organization' | 'store';
+  /** The read-only service client this scope belongs to (#565 / #622); absent for people. */
+  serviceClient?: string;
 }
 
 export interface ResolveScopeInput {

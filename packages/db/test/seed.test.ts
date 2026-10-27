@@ -54,7 +54,7 @@ describe('seed data', () => {
       'store_staff',
       'support',
     ]);
-    expect((await hq.query('SELECT id FROM staff_user')).rowCount).toBe(7);
+    expect((await hq.query('SELECT id FROM staff_user')).rowCount).toBe(9); // 7 people + 2 service accounts (#565, #622)
   });
 
   it('topUpStock raises every low level to the floor, writes the ledger, leaves reservations and is idempotent', async () => {

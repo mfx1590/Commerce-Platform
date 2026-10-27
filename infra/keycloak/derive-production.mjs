@@ -28,7 +28,7 @@ export const REALMS = ['staff', 'customers'];
 /** Clients that exist only for local development and never reach a production realm. */
 const DEV_ONLY_CLIENTS = new Set(['test-cli']);
 /** Confidential service accounts: kept, their dev secret dropped (generated at import, stored in Vault). */
-const SERVICE_ACCOUNT_CLIENTS = new Set(['core-admin']);
+const SERVICE_ACCOUNT_CLIENTS = new Set(['core-admin', 'crm-sync', 'analytics-sync']);
 
 /** Deep copy through JSON: the inputs are JSON documents, and the ESLint env here predates structuredClone. */
 const clone = (v) => JSON.parse(JSON.stringify(v));

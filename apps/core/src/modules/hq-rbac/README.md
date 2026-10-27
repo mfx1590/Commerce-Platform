@@ -84,6 +84,11 @@ unreachable. Typecheck: `pnpm --filter @platform/auth-sdk typecheck` (runs `tsc 
 
 ## Scope middleware (task 1.4)
 
+`resolve(authorization, { method, operationId })` — pass the request: the verifier refuses a read-only
+service client (crm-sync, analytics-sync; #565 / #622) on any non-GET/HEAD method, and when the request is
+not given, with 403 `read_only_service_client` before the cache and any permission check; the scope it
+returns carries `serviceClient`, and `handle()` refuses a write from such a scope again (second layer).
+
 ```ts
 import { createStaffScopeMiddleware, toTenantContext } from './modules/hq-rbac/index.js';
 const scopeMw = createStaffScopeMiddleware({ pool, fga, organizationId: HQ_ORGANIZATION_ID });

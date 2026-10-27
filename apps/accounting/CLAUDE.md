@@ -95,3 +95,5 @@ keycloakUrl?, keycloakRealm?, verifier?, permission? })`; `loadApiSpec(path?)` /
   `DEFAULT app.current_organization_id()` (0202 has it).
 - Tests on a shared broker: pass `groupId` + `topicPrefix` so a test never joins the real `accounting.ledger` group.
 - `pg` bigint columns arrive as strings: every amount read from SQL goes through `Number()`.
+- `pg` parses a `date` column as LOCAL midnight: select every date column `::text`, never format a `date` Date
+  (`toISOString()` is a day early east of UTC, #627). `timestamptz` Dates are instants and safe.

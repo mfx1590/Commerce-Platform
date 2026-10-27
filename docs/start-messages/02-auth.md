@@ -1,15 +1,24 @@
-# Start message — Window 2: Auth & RBAC (Phase 1)
-Paste into a Claude Code session opened inside the worktree `../wt-auth` (create it with `./scripts/new-window.sh 2 1`). Model: Sonnet (strongest for the OpenFGA model).
+# Start message — Window 2: Auth & RBAC (Phase 5, fresh session)
+Paste into a NEW Claude Code session opened IN the folder `C:\Users\mehdi\Desktop\wt-auth` (worktree option OFF).
+Earlier versions of this file are in git history.
 
 ---
 
-You are window 2 — AUTH (Auth & RBAC). Read, in this order: CLAUDE.md, docs/ownership.md, docs/memory/Memory-main.md (status + global gotchas only), docs/memory/Memory-2-auth.md, docs/domain.md, and the GitHub issues labelled window:auth. Then write .claude/CLAUDE.local.md containing exactly:
-"I am window 2 (auth). I write only: packages/auth-sdk/**, infra/keycloak/**, infra/openfga/**, apps/core/src/modules/hq-rbac/**. Contracts are frozen at the tag named in Memory-main. My memory file is docs/memory/Memory-2-auth.md."
+You are window 2 — AUTH (Keycloak, OpenFGA, auth-sdk, hq-rbac), Phase 5, a FRESH session continuing a task the previous window-2 session started. Your manager is the repo-root session "Manager session nine".
 
-Mission this phase: Keycloak realms (staff with MFA + SSO, customers per brand), OpenFGA authorization model, tuple management API, scope-resolution middleware (JWT → allowed store_ids + permissions), append-only audit log, and packages/auth-sdk exposing can(user, action, resource) and allowedStores(user). Prove a store_admin of two stores gets 403 on every finance route.
+Read, in this order: CLAUDE.md, .claude/CLAUDE.local.md, docs/ownership.md (row `auth/`), docs/memory/Memory-main.md (the first two bullets under "Current status" and "Global gotchas" only), docs/memory/Memory-2-auth.md (its "In progress" section holds the full #632 state), then GitHub issue #632 and the Fable review comment on PR #626 that led to it.
 
-Work on branch auth/phase1, one task from the Next list at a time, in order. For each task: plan briefly, implement, test, update docs/memory/Memory-2-auth.md, commit, open a PR with the acceptance criteria in the description. Never merge your own PR. If a contract does not fit, open an issue titled "CONTRACT CHANGE: <what>" with the exact diff and continue against a local mock. Never edit files outside your owned paths; never edit Memory-main or other memory files.
+Then:
+1. `git fetch origin` and work on `integration/phase5-allowlist` (an integration/ branch, because it carries the labelled window 1/15 exception commits; the previous session pushed it): `git switch --no-track -c phase5-allowlist origin/integration/phase5-allowlist`. Push ONLY with `git push origin HEAD:refs/heads/integration/phase5-allowlist`, never a bare push. `pnpm install --frozen-lockfile`, rebuild the workspace packages, then `pnpm --filter @platform/auth-sdk fga:seed`. No docker commands.
+2. Build #632 exactly as the manager approved (recorded in your memory file):
+   - one enforcement point in the staff token verifier (next to the read-only guard), with a per-client allowlist code constant keyed by api (`admin` | `finance`);
+   - in the core, a pre-routing `matchOperation(method, path)` over admin-api.yaml, with a test that walks EVERY operation and asserts an exact, unambiguous match (literal segments beat parameters; trailing slash, encoding and case as Express handles them);
+   - hq-rbac's second layer refuses a service client when its own matched operationId differs;
+   - accounting passes `req.method` as is plus `api: 'finance'`;
+   - integration-exception commits for window 1/15 files, labelled in the subject;
+   - the `provision:service-accounts` CLI (dry-run, prints ids only, refuses without OPENFGA_STORE_ID) and the production section of infra/keycloak/README;
+   - tests: allowed reads 200; analytics-sync on listOrders → 403 with reason `service_client_operation_not_allowed` from THIS layer; humans unaffected; the full core + accounting suites.
+3. Rules: one window measures at a time, so ask the manager for "the machine" before any live or long run and report "machine free" after; nothing secret-shaped in tests; no closing keyword next to an issue number in a commit message unless that commit finishes the issue; never reimport a realm; additive changes to the shared Keycloak/OpenFGA only.
+4. One PR "Closes #632", acceptance criteria in the body, the exception commits listed. Message the manager when the PR is up (number + head sha) and when checks finish. Update your memory file after every task and before every commit.
 
-Memory rule: after every completed task and before every commit, update your memory file (move the task to Done with the commit sha, rewrite In progress and Next, add Decisions and Gotchas) and commit it together with the code. If context grows long, update the memory file first, then run /compact. If a task looks like more than ~20 tool calls, stop, write the plan under In progress, and ask me to confirm.
-
-Begin by summarising the Mission and Next list in five lines and confirming your owned paths, then start task 1.
+Start by summarising in five lines where the previous session stopped and what you'll build first.
