@@ -162,9 +162,19 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   compiled-query-through-analytics_ro step skips with a printed reason; reading + readonly refusal proven.
 
 ## PAUSED (owner's call, 2026-10-27) until the manager messages after the weekly reset (~17:00 local)
-- data/phase5-bi is LOCAL ONLY (not pushed): b416c38 (alias-shadow lint + model fixes, unit-green, NOT live-verified)
-  and bf70837 (two #502 nits, made before the pause message). On resume: ask for the machine, re-verify models +
-  erasure + live + gate on b416c38, then push. Do NOT start more of #604 until the manager says so.
+- data/phase5-bi PUSHED at d3425bf after the manager's one re-verification run (2026-10-27): models 11 + erasure 9 +
+  live 4 = 24/24, gate 3/3 every identity 0, metrics-live 10/10 (p95 41 ms), cleanup 0/0/0. Carries b416c38 (the lint
+  + the two model fixes; NOT in #628, they ride in my next PR) and bf70837 (two #502 nits). Machine free reported.
+- MANAGER DECISIONS for #604 (fold into the #603 landing as 0.4.30), to act on AFTER the reset:
+  (1) live metrics in queryMetrics named `live_orders` + `live_placed_minor` (placed as they arrive, cancellations
+  included; description "live, not bookings; use bookings_minor for the books"), dimension store, grains day/total
+  only (400 otherwise), same scope + 503 — POST THE EXACT YAML DELTA on #603;
+  (2) CSV via `Accept: text/csv` on queryMetrics, same validation/scope/403s (400/403/503 stay JSON); CSV INJECTION
+  guard: a text cell starting with = + - @ or tab/CR gets a leading ', RFC 4180 quoting; test with a product titled
+  =HYPERLINK(...); row cap = max_rows (no export-everything path) — in the same YAML delta;
+  (3) the manager adds the ownership row apps/admin/src/app/(store)/[storeId]/bi/** (+ test/e2e paths) → window 12;
+  the store rail entry = a REQUEST to window 4.
+  Order after the reset: I post the YAML delta → he lands contract + ownership → I build #604. Build nothing before.
 
 ## #604 IN PROGRESS (2026-10-27; branch data/phase5-bi, cut --no-track from data/phase5-metrics 71827d4; local)
 - data/phase5-metrics PUSHED at 71827d4; the manager cuts integration/phase5-metrics after #621 (contracts 0.4.29),
