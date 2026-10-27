@@ -21,6 +21,8 @@ export interface ChClient {
     format: 'JSONEachRow';
     query_params?: QueryParams;
     clickhouse_settings?: QuerySettings;
+    /** Parameters (and the SQL) in the multipart BODY, not the URL: identifiers never reach an access log. */
+    use_multipart_params?: boolean;
   }): Promise<{ json<T>(): Promise<T[]> }>;
   insert(p: {
     table: string;

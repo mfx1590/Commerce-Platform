@@ -23,7 +23,14 @@ export {
 export type { MigrateResult, SqlFile, SqlKind, SqlSource } from './migrations.js';
 export { ConfigError, DEFAULT_GROUP, loadConfig } from './config.js';
 export type { ClickHouseConfig, IngestConfig } from './config.js';
-export { consoleLog, createIngest, processBatch, SimulatedCrash } from './ingest.js';
+export {
+  assertSingleReplica,
+  consoleLog,
+  createIngest,
+  processBatch,
+  SecondReplicaError,
+  SimulatedCrash,
+} from './ingest.js';
 export type {
   BatchDeps,
   BatchResult,

@@ -8,6 +8,8 @@
 //         mart is unchanged; a full replay (a fresh ingest that loads the erasures) keeps everything gone; and an
 //         erasure that arrives BEFORE the orders (a rebuild) scrubs them at insert.
 import { createHash } from 'node:crypto';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { createValidator, makeEvent, type EventEnvelopeV1Base } from '@platform/events';
 import { generateMonth, ORG, rng, STORE_A, STORE_B, uuidFrom } from '@platform/test-utils';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -23,7 +25,7 @@ import {
   scrubPayload,
   type ErasureIndex,
 } from './erasure.js';
-import { processBatch, type BatchDeps } from './ingest.js';
+import { assertSingleReplica, processBatch, SecondReplicaError, type BatchDeps } from './ingest.js';
 import { migrate, readSqlFiles } from './migrations.js';
 import { classify, type RawEventRow, type WireBatch } from './rows.js';
 import { clickHouseSkipReason, throwawayDatabase } from './testing/clickhouse-gate.js';
@@ -167,6 +169,130 @@ describe('erasure index and scrub (pure)', () => {
   });
 });
 
+describe('the #631 review fixes (pure / transport)', () => {
+  it('requested_by is scrubbed only when it names the CUSTOMER (requested_by_type customer)', () => {
+    const idx = createErasureIndex(KEY);
+    idx.add([idx.digest(STORE_A, 'customer', CUSTOMERS[0]!)]);
+    const byCustomer = {
+      customer_id: CUSTOMERS[0],
+      requested_by: CUSTOMERS[0],
+      requested_by_type: 'customer',
+    };
+    expect(scrubPayload(byCustomer, STORE_A, idx).payload).toEqual({
+      customer_id: null,
+      requested_by: null,
+      requested_by_type: 'customer',
+    });
+    // a staff request names a staff user, never the customer: it stays (even if the ids collided)
+    const byStaff = {
+      customer_id: CUSTOMERS[0],
+      requested_by: CUSTOMERS[0],
+      requested_by_type: 'staff',
+    };
+    expect(scrubPayload(byStaff, STORE_A, idx).payload.requested_by).toBe(CUSTOMERS[0]);
+  });
+
+  it('the identifiers never appear in a request URL (multipart params), only in the request body', async () => {
+    const seen: { url: string; body: string }[] = [];
+    const server = createServer((req, res) => {
+      let body = '';
+      req.on('data', (c: Buffer) => (body += c.toString('utf8')));
+      req.on('end', () => {
+        seen.push({ url: req.url ?? '', body });
+        res.writeHead(200, { 'content-type': 'text/plain', 'x-clickhouse-summary': '{}' });
+        res.end('');
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const port = (server.address() as AddressInfo).port;
+    const ch = createChClient(
+      {
+        url: `http://127.0.0.1:${port}`,
+        username: 'word',
+        password: 'word',
+        database: 'analytics_test_url',
+      },
+      'analytics_test_url',
+    );
+    try {
+      const index = createErasureIndex(KEY);
+      await applyErasure({ ch, index, flush: async () => {} }, erasedCustomerOf(erasure)!);
+    } finally {
+      await ch.close();
+      await new Promise((r) => server.close(r));
+    }
+    expect(seen.length).toBeGreaterThan(0);
+    for (const v of [HASHES[0]!, CUSTOMERS[0]!])
+      for (const s of seen) expect(decodeURIComponent(s.url), v).not.toContain(v);
+    // ...and the lookup did send them, in its body
+    expect(seen.some((s) => s.body.includes(HASHES[0]!) && s.body.includes(CUSTOMERS[0]!))).toBe(
+      true,
+    );
+  });
+
+  it('the guard: a short read-back means NO delete, the error surfaces, and the batch is not committed', async () => {
+    const commands: string[] = [];
+    const fake: ChClient = {
+      async command({ query }) {
+        commands.push(query);
+      },
+      async query({ query }) {
+        // the lookup finds one event, but the read-back returns nothing (as the alias bug did)
+        const rows = query.includes('SELECT DISTINCT')
+          ? [{ id: owned[0]!.event_id, part: '202610' }]
+          : [];
+        return { json: async <T>() => rows as T[] };
+      },
+      async insert() {},
+      async close() {},
+    };
+    const index = createErasureIndex(KEY);
+    await expect(
+      applyErasure({ ch: fake, index, flush: async () => {} }, erasedCustomerOf(erasure)!),
+    ).rejects.toThrow('nothing deleted');
+    expect(commands.filter((c) => c.startsWith('DELETE') || c.startsWith('OPTIMIZE'))).toEqual([]);
+
+    const commits: string[] = [];
+    const batcher = createBatcher<RawEventRow>({
+      sink: { insert: async () => {} },
+      batchSize: 1,
+      flushMs: 5,
+    });
+    await expect(
+      processBatch(
+        { topic: 'customer.erased', partition: 0, messages: [toWire(erasure, 0)] },
+        {
+          groupId: 'analytics.raw',
+          batcher,
+          dlq: new FakeDlq(),
+          validator,
+          erasures: index,
+          erase: (c) => applyErasure({ ch: fake, index, flush: () => batcher.flush() }, c),
+          commit: async (_t, _p, o) => {
+            commits.push(o);
+          },
+        },
+      ),
+    ).rejects.toThrow('nothing deleted');
+    expect(commits).toEqual([]);
+  });
+
+  it('refuses to start next to another live member of its group (one replica: the index is per process)', async () => {
+    const admin = (members: number, state = 'Stable') => ({
+      describeGroups: async () => ({
+        groups: [
+          { groupId: 'analytics.raw', state, members: Array.from({ length: members }, () => ({})) },
+        ],
+      }),
+    });
+    await expect(assertSingleReplica(admin(1), 'analytics.raw')).rejects.toBeInstanceOf(
+      SecondReplicaError,
+    );
+    await expect(assertSingleReplica(admin(0, 'Empty'), 'analytics.raw')).resolves.toBeUndefined();
+    await expect(assertSingleReplica(admin(0, 'Dead'), 'analytics.raw')).resolves.toBeUndefined();
+  });
+});
+
 // ---- ClickHouse ------------------------------------------------------------------------------------------------
 
 const cfg = loadConfig(process.env, []).clickhouse;
@@ -232,6 +358,7 @@ describe.runIf(skip === null)('customer.erased in ClickHouse (#623)', () => {
             query: `SELECT count() AS n FROM ${String(name)} WHERE position(formatRow('JSONEachRow', *), {v:String}) > 0`,
             format: 'JSONEachRow',
             query_params: { v: value },
+            use_multipart_params: true,
             clickhouse_settings: { log_queries: 0, apply_deleted_mask: 0 },
           })
         ).json<{ n: string }>()
@@ -327,6 +454,7 @@ describe.runIf(skip === null)('customer.erased in ClickHouse (#623)', () => {
             query: `SELECT count() AS n FROM system.${log} WHERE ${timeFilter} AND (position(${queryCol}, {h:String}) > 0 OR position(${queryCol}, {c:String}) > 0)`,
             format: 'JSONEachRow',
             query_params: { since: now.slice(0, 19), h: HASHES[0]!, c: CUSTOMERS[0]! },
+            use_multipart_params: true,
             clickhouse_settings: { log_queries: 0 },
           })
         ).json<{ n: string }>()
