@@ -162,12 +162,83 @@ The job needs `DATABASE_URL_APP` (runs as `platform_app` through `tenantClient`)
 (default: seeded HQ). Exit code 1 when any selected store failed or was skipped. A full reindex of a 200-product
 store is one batch; `--batch <n>` tunes it.
 
+## Recommendations (task P5.8, #607 — contract change landed as db 0204 + Store API 0.5.9)
+
+"Frequently bought together" and "popular in store", computed from ClickHouse `fct_order_line` (window 12's
+#601) by `src/jobs/index-recommendations.ts`, stored in Postgres `product_recommendation`, served by the Store
+API. No vendor, no embeddings (plan D10).
+
+**Why lift and not raw co-occurrence.** A store's best seller co-occurs with everything, so raw counts recommend
+the same few products on every page. Lift divides the observed co-occurrence by what independence predicts:
+
+```
+lift(a, b) = P(a and b) / (P(a) * P(b)) = baskets(a, b) * N / (baskets(a) * baskets(b))
+```
+
+**Why a minimum support as well.** Lift is loudest where the evidence is thinnest, so a pair must also appear in
+at least `minSupportBaskets` baskets.
+
+**Worked example** (the numbers in `recommendations-types.ts` and in the tests). One store, lookback window,
+N = 10 baskets: tee in 6, cap in 5, 4 together; mug in 2, scarf in 2, 2 together.
+
+| pair      | support   | lift                     | outcome                                                                      |
+| --------- | --------- | ------------------------ | ---------------------------------------------------------------------------- |
+| tee + cap | 4 baskets | 4 × 10 / (6 × 5) = 1.333 | **kept**, `score` 1.3333, both directions                                    |
+| mug+scarf | 2 baskets | 2 × 10 / (2 × 2) = 5.0   | **dropped** — support 2 < 3, highest lift in the store and still meaningless |
+
+Thresholds (env, defaults in brackets): `CORE_RECOMMENDATIONS_LOOKBACK_DAYS` [90],
+`CORE_RECOMMENDATIONS_MIN_SUPPORT` [3], `CORE_RECOMMENDATIONS_MIN_LIFT` [1.2],
+`CORE_RECOMMENDATIONS_MAX_PAIRS` [24], `CORE_RECOMMENDATIONS_MAX_POPULAR` [24],
+`CORE_RECOMMENDATIONS_CRON` [`30 3 * * *`]. The two caps default to 24 because the contract's `limit` is capped
+at 24, so storing more would never be read. The `.env.example` rows are window 1's (REQUEST filed with #607).
+
+**ClickHouse side** (`clickhouse.ts`): the READ-ONLY user (`CLICKHOUSE_READONLY_USER` /
+`CLICKHOUSE_READONLY_PASSWORD`; `readonly 1`, SELECT-only on `analytics.*`, 10 s and 100 000-row caps). The
+aggregation happens in ClickHouse and only the counts cross the wire — pair counts, per-product basket counts,
+the basket total — which is the only shape that fits those caps on a real catalogue. Every query binds its
+parameters through ClickHouse's `param_*` mechanism, never string interpolation. Two filters, per the manager
+on #601: `product_id IS NOT NULL` (the variant was never published) and `order_status != 'cancelled'`. A basket
+is `order_id` as a SET, so a product on two lines of one order counts once as support; `quantity` feeds the
+popular lists only. `fct_order_line` resolves `product_id` itself through `dim_variant`, so this job needs **no
+Postgres join** for the variant → product mapping.
+
+**Write shape.** `rebuildStoreRecommendations` is DELETE + INSERT per (store, kind, window) in one transaction,
+which is what "idempotent re-run" means here: a second run on unchanged data leaves identical rows, and a pair
+that fell below the threshold disappears instead of lingering (an upsert would leave it). Migration 0204
+revokes UPDATE for the app role so this stays the only write shape. Same-store is guarded three times: the
+INSERT joins `product` on (store_id, id), 0204's composite foreign keys make a cross-store pair impossible, and
+RLS scopes the client.
+
+**Read shape.** `listProductRecommendations` filters to published, in-stock, same-store products through
+`loadSearchRecords` — the same read model the index and the Store API product list use, so a rail can never show
+something the catalogue would not. Published and stock are deliberately NOT filtered at write time: they change
+many times a day and the rebuild is nightly. The list can therefore come back shorter than `limit`, or empty
+(the caller hides the rail). When an anchor has no usable pairs the server serves the popular list and the
+response's `kind` says `popular` — that is how the rail and #609's analytics event see a fallback, with no extra
+field. `product_id` / `variant_ids` outside this store or unpublished → 404, as on `getProduct`.
+
+Not mounted yet: the Store API chain is window 1's and there is no store-side `moduleStoreRouters()` yet, so
+`GET /store/recommendations` 404s until window 1 mounts `recommendationsRouter()` (REQUEST filed with #607).
+
+```bash
+# rebuild every store (nightly cron does this; needs the ClickHouse read-only credentials)
+pnpm --filter @platform/core exec tsx src/jobs/index-recommendations.ts
+# one store, or see the thresholds' effect without writing
+pnpm --filter @platform/core exec tsx src/jobs/index-recommendations.ts --store brand-a --dry-run
+```
+
 ## Public API (`index.ts`)
 
 `fullReindex`, `syncFromOutbox`, `syncUntilCaughtUp`, `ensureIndexSettings`, `readCursor`, `loadSearchRecords`,
 `buildRecord`, `indexNameFor`, `replicaNameFor`, `primarySettings`, `replicaSettings`, `AlgoliaIndexClient`,
 `FakeIndexClient` (for other windows' tests), `algoliaCredentialsFor`, and the types `IndexClient`,
 `SearchRecord`, `StoreIndexTarget`, `SyncResult`, `ReindexResult`.
+
+Recommendations (P5.8): `rebuildStoreRecommendations`, `listProductRecommendations`,
+`recommendationsRouter`, `RECOMMENDATIONS_PATH`, `thresholdsFromEnv`, `DEFAULT_THRESHOLDS`,
+`ClickHouseClient`, `ClickHouseBasketSource`, `FixtureBasketSource`, `clickhouseCredentialsFrom`, the pure
+`countsFromBaskets` / `liftOf` / `recommendPairs` / `recommendPopular`, and the types `BasketSource`,
+`BasketCounts`, `Thresholds`, `RecommendationKind`, `PopularWindow`, `RebuildResult`, `FixtureLine`.
 
 ## Tests
 
@@ -178,6 +249,23 @@ store is one batch; `--batch <n>` tunes it.
 - `algolia-client.test.ts` — REST shaping against a fake fetch (batches of 1000, headers, URL encoding, browse
   cursor loop, 404 settings → `{}`, task polling, key never in errors).
 - `search-live.test.ts` — real Algolia round trip on a throwaway index; skips without credentials.
+- `recommendations.test.ts` — the lift rule on the hand-made basket set above (both directions kept, the
+  high-lift thin pair dropped, a product twice in one basket counted once), then on a seeded throwaway
+  database: both kinds and both windows written, a byte-identical re-run, a pair falling below support removed,
+  store isolation (one fixture holding brand A and brand B orders produces no cross-brand row either way), the
+  composite keys refusing a cross-store INSERT outright, a product ClickHouse knows but Postgres does not
+  skipped, and the read path — pair list, anchor never recommended back, a cart of anchors merged, the popular
+  fallback reported in `kind`, the 7- vs 30-day windows, `limit`, unpublished dropped, out of stock dropped,
+  404 for a foreign anchor, 400 for a currency the store does not have.
+- `recommendations-http.test.ts` — the route over a tenant stub: the contract's query rules (no anchor, both
+  anchors, non-uuid anchor, bad `variant_ids`, `window_days` not 7/30, `limit` above 24, unknown `kind`) and
+  the answers (pair list, store-wide popular with no anchor, a cart of variant ids, 404, `limit`).
+- `clickhouse.test.ts` — the client over a stubbed fetch (parameters bound through `param_*` and never
+  interpolated, JSONEachRow parsing, credentials kept out of errors, 500 retried, the three aggregates, no pair
+  query when the store has no baskets), the read-only credential rule, and the fixture source's filters and
+  windows. The one ClickHouse-backed test **skips with a printed reason** until window 12's #601 (PR #619) is on
+  main and `analytics.fct_order_line` exists; `CORE_RECOMMENDATIONS_CLICKHOUSE_TESTS=1` plus a reachable
+  ClickHouse turns it on. A green local run is therefore not evidence that the ClickHouse seam works.
 - `merchandising.test.ts` — seeded database (migration 0130): router with dev-token principals
   (store_staff read / store_admin write, 403), validation (foreign category / product ids, pinned+buried,
   weights), one rule per scope (409), get/patch/delete, brand-b never sees brand-a's rule, publish → fake

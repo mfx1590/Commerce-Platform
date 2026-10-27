@@ -116,3 +116,44 @@ export type {
   StoreIndexTarget,
   SyncResult,
 } from './types';
+// ---- recommendations (task P5.8, #607; contract change landed as db 0204 + Store API 0.5.9) ----
+export {
+  countsFromBaskets,
+  DEFAULT_THRESHOLDS,
+  emptyCounts,
+  liftOf,
+  PAIR_WINDOW_DAYS,
+  pairKey,
+  POPULAR_WINDOWS,
+  recommendPairs,
+  recommendPopular,
+  roundScore,
+  SCORE_DECIMALS,
+  splitPairKey,
+  thresholdsFromEnv,
+  type BasketCounts,
+  type PairRecommendation,
+  type PopularRecommendation,
+  type PopularWindow,
+  type RecommendationKind,
+  type Thresholds,
+} from './recommendations-types';
+export {
+  ClickHouseBasketSource,
+  ClickHouseClient,
+  clickhouseCredentialsFrom,
+  ClickHouseError,
+  FixtureBasketSource,
+  type BasketSource,
+  type ClickHouseClientOptions,
+  type ClickHouseCredentials,
+  type FixtureLine,
+} from './clickhouse';
+export {
+  listProductRecommendations,
+  rebuildStoreRecommendations,
+  type ListRecommendationsInput,
+  type RebuildResult,
+  type RecommendationContext,
+} from './recommendations';
+export { recommendationsRouter, RECOMMENDATIONS_PATH } from './recommendations-http';

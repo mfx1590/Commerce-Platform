@@ -1,6 +1,6 @@
 # Memory 9 — Search, media, promotions
 Window: 9 · Key: `search` · Branch prefix: `search/` · Model: Opus 5
-Last updated: 2026-10-25 · Contracts: **contracts-v0.4.28** on main · Branch: `search/phase5` (cut from origin/main `cadaeba`) · Status: **IDLE, WAITING FOR THE MANAGER'S INTEGRATION SHA.** #607 step 1 is done: the contract diff is posted AND accepted (manager, 2026-10-25); he lands it after the 10-27 17:00 local weekly reset and activates me then. No code written. Phase 2 is complete and merged (2.1–2.5 via #160, #166, #188, #208, #211).
+Last updated: 2026-10-25 · Contracts: **contracts-v0.4.28** on main · Branch: `search/phase5` (cut from origin/main `cadaeba`) · Status: **#607 BUILT (2026-10-27), wave 2.** Contract landed on `integration/phase5-recommendations` 897b9bc (draft PR #621); my code is on `search/phase5` on top of a merge of that branch. Job + read path + router + 43 tests, gates green. REQUEST #624 filed (window 1, route mount). Next: the manager puts my commits on #621; #609's REQUEST goes to window 3 only after my API merges. Phase 2 is complete and merged (2.1–2.5 via #160, #166, #188, #208, #211).
 
 ## PHASE 5 DOCKET (written by the manager, 2026-10-25, Manager session nine) — READ THIS FIRST ON RESUME
 You reopen in Phase 5 wave 2 for **#607** P5.8 recommendations (plan `docs/plan/phase5-plan.md` D10; tracking #612).
@@ -58,9 +58,29 @@ Algolia index per brand synced from product.published events, merchandising rule
      gap is closed, see "ClickHouse interface" below.
   4. **Scheduling: stop here.** Do not build step 2 before the reset; the contract lands in the same integration
      landing as these decisions.
-- [ ] **Step 2 — the job** `apps/core/src/jobs/index-recommendations.ts` + the read path in `modules/search/`.
-  **NOT STARTED ON PURPOSE** (manager decision 4): waits for the reset and the integration sha. Plan, so it
-  survives a /compact:
+- [x] **Step 2 — BUILT 2026-10-27** on `search/phase5`, cut by MERGING `origin/integration/phase5-recommendations`
+  (897b9bc) rather than rebasing: the branch was already pushed, so rebasing or cherry-picking would have needed a
+  force push, which CLAUDE.md forbids. `cadaeba` is an ancestor of 897b9bc, so the merge is clean and keeps history.
+  Told the manager. Files (all mine):
+  - `recommendations-types.ts` — thresholds + the pure maths (counts, lift, support, both directions, popular
+    ordering). No I/O, so the rule is testable from a hand-made basket set.
+  - `clickhouse.ts` — SELECT-only HTTP client (no SDK; `param_*` binding, credentials never in an error, 500
+    retried) + `ClickHouseBasketSource` (aggregates IN ClickHouse: pair counts / singles / basket total, because
+    the read-only profile caps results at 100 000 rows and 10 s) + `FixtureBasketSource` (the stand-in until #601).
+  - `recommendations.ts` — `rebuildStoreRecommendations` (DELETE+INSERT per store/kind/window in one transaction;
+    the INSERT joins `product` on (store_id, id) so a product ClickHouse knows but Postgres dropped is skipped) and
+    `listProductRecommendations` (published/in-stock/same-store via `loadSearchRecords`, popular fallback reported
+    in `kind`, 404 foreign anchor, 400 unknown currency).
+  - `recommendations-http.ts` — `recommendationsRouter()`, NOT mounted (REQUEST #624).
+  - `apps/core/src/jobs/index-recommendations.ts` — Medusa job (`config` + `default`) + CLI `--store` / `--dry-run`;
+    with no ClickHouse credentials it logs why and writes nothing.
+  - Tests 20 + 12 + 11 (1 skipped with a printed reason). Gates green: core lint, core typecheck, root
+    `prettier --check .`.
+- [x] **Step 3 — REQUEST #624 filed** (window 1): mount `recommendationsRouter()` after `mountStoreRoutes(...)` and
+  **before the fallback proxy** (a catch-all on `/store`), two options given (a `moduleStoreRouters()` seam, or one
+  line); `.env.example` rows; `apps/core` CLAUDE.md/CHANGELOG rows. Nothing in it blocks the PR.
+- [ ] **Step 4 — window 3's rail (#609)**: REQUEST only once my API is MERGED. Not filed yet.
+- [ ] Earlier plan, kept for reference:
   1. The job file MUST export a `config` (Medusa's job loader — see the #202/#203 gotcha below); the heavy lifting
      goes in `modules/search/recommendations/` so it is testable without booting Medusa.
   2. ClickHouse `fct_order_line` read with the READ-ONLY user, against a fixture of the #601 columns below. Keep
@@ -151,6 +171,18 @@ Also published: `dim_variant` (store_id, variant_id, product_id, sku, last_seen_
   secret-shaped in tests (words, never hex/digit tails — gitleaks scans every branch's history); no closing keyword
   next to an issue number in a commit message unless that commit finishes the issue; merge main before pushing.
 - **No docker commands from this window, ever** — the manager runs the shared stack.
+- **`inventory_level.available` is `GENERATED ALWAYS AS (on_hand - reserved) STORED`** (migration 0007): a test that
+  wants a product out of stock sets `on_hand = 0, reserved = 0`, never `available` ("column can only be updated to
+  DEFAULT", 2026-10-27).
+- **There is no store-side router seam in apps/core** (only `moduleAdminRouters()`): a Store API route from a module
+  must be mounted after `mountStoreRoutes(...)` and **before the fallback proxy**, which is a catch-all on `/store` —
+  mounted after it, a module router is never reached and, with `CORE_STORE_API_FALLBACK=1`, the Prism mock answers
+  plausibly instead of 404ing. REQUEST #624 asks window 1 for the seam.
+- **A comma inside an unquoted scalar in a YAML FLOW mapping (`{ ... }`) silently truncates it** (2026-10-27): my
+  `variant_ids` description "Cart line variant ids, comma-separated; …" became just "Cart line variant ids" in the
+  landed spec and in `src/generated/store.ts` — no parse error, no CI failure, the rest simply vanished. The repo's
+  parameter style is all flow mappings, so QUOTE any description containing a comma. Reported to the manager while
+  #621 was still a draft.
 - **`git switch -c search/phase5 origin/main` sets the new branch's upstream to `origin/main`, so a bare `git push`
   from a freshly cut window branch targets MAIN** (2026-10-25). Branch protection is not available on this repo, so
   it would succeed. Push the first time explicitly — `git push origin <branch>:refs/heads/<branch>` — then

@@ -3,6 +3,31 @@
 The app-level `apps/core/CHANGELOG.md` and the module row in `apps/core/CLAUDE.md` belong to window 1; this
 file is the module's own history (linked from the PRs).
 
+## Phase 5 — search/phase5 (contracts-v0.4.29)
+
+### 2026-10-27 · P5.8 recommendations (#607)
+
+- `recommendations-types.ts` — thresholds and the pure maths: co-occurrence counts from baskets, lift, the
+  minimum-support rule, both directions per pair, the popular ordering. No I/O, so the rule is testable from a
+  hand-made basket set. Worked example in the README and in the file header.
+- `clickhouse.ts` — a SELECT-only ClickHouse HTTP client (no SDK, parameters bound through `param_*`,
+  credentials never in an error) plus two basket sources behind one interface: `ClickHouseBasketSource`
+  (aggregates in ClickHouse, only counts cross the wire) and `FixtureBasketSource` (the stand-in until window
+  12's #601 is on main, and what the unit tests use). Reads `fct_order_line` per the interface fixed on #601:
+  `product_id` comes from `dim_variant`, so no Postgres join; `product_id IS NULL` and
+  `order_status = 'cancelled'` lines are skipped.
+- `recommendations.ts` — `rebuildStoreRecommendations` (DELETE + INSERT per store/kind/window in one
+  transaction through the tenant client; the INSERT joins `product` so a product this store does not have is
+  skipped) and `listProductRecommendations` (published / in-stock / same-store through `loadSearchRecords`, the
+  popular fallback reported in the response's `kind`, 404 for a foreign or unpublished anchor, 400 for a
+  currency the store does not have).
+- `recommendations-http.ts` — `recommendationsRouter()` for Store API 0.5.9 `GET /store/recommendations`.
+  **Not mounted**: the Store API chain is window 1's and has no store-side router seam yet (REQUEST filed).
+- `src/jobs/index-recommendations.ts` (window 9's path) — the Medusa scheduled job (`config` + `default`, as
+  every file in `src/jobs` must export) and a CLI with `--store` / `--dry-run`. With no ClickHouse credentials
+  it logs why and exits without writing.
+- Tests: 20 + 12 + 11 (one skipped with a printed reason until #601 lands).
+
 ## Phase 2 — search/phase2 (contracts-v0.3)
 
 ### 2026-09-15 · docs cleanup after contracts-v0.4.1 (last Phase 2 change)
