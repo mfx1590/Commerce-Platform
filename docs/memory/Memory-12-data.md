@@ -161,6 +161,11 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   cleanup 0 CH / 0 PG. The dev `analytics` DB has only migration 0001 (models never applied there) → the
   compiled-query-through-analytics_ro step skips with a printed reason; reading + readonly refusal proven.
 
+## PAUSED (owner's call, 2026-10-27) until the manager messages after the weekly reset (~17:00 local)
+- data/phase5-bi is LOCAL ONLY (not pushed): b416c38 (alias-shadow lint + model fixes, unit-green, NOT live-verified)
+  and bf70837 (two #502 nits, made before the pause message). On resume: ask for the machine, re-verify models +
+  erasure + live + gate on b416c38, then push. Do NOT start more of #604 until the manager says so.
+
 ## #604 IN PROGRESS (2026-10-27; branch data/phase5-bi, cut --no-track from data/phase5-metrics 71827d4; local)
 - data/phase5-metrics PUSHED at 71827d4; the manager cuts integration/phase5-metrics after #621 (contracts 0.4.29),
   lands the #603 YAML as 0.4.30 / Admin API 0.4.25 (+ `unavailable`), my commits incl. a977b43 on top, Fable review.
