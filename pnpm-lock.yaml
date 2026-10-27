@@ -209,6 +209,9 @@ importers:
 
   apps/core:
     dependencies:
+      '@clickhouse/client':
+        specifier: 1.24.1
+        version: 1.24.1
       '@medusajs/cli':
         specifier: 2.20.1
         version: 2.20.1(@types/node@20.19.43)
