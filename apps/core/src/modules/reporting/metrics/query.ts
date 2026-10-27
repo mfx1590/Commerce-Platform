@@ -105,6 +105,15 @@ export function parseMetricQuery(body: unknown): MetricQuery {
           metric: m,
           dimension: d,
         });
+  // live metrics (D6) answer only per day or for the whole window
+  for (const m of metrics) {
+    const grains = METRICS[m].grains;
+    if (grains && !grains.includes(b.grain as Grain))
+      throw validationError(`${m} accepts only the grains ${grains.join(', ')}`, {
+        metric: m,
+        grain: b.grain,
+      });
+  }
   // a count without a currency next to money would put per-currency and currency-less rows in one answer
   const money = metrics.some((m) => METRICS[m].currency_bound);
   const customerCounts = metrics.filter((m) => METRICS[m].source?.id === 'customers');

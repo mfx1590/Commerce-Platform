@@ -5,8 +5,9 @@ import { describe, expect, it } from 'vitest';
 import { AppError } from '../../../lib/errors';
 import { METRIC_IDS, type MetricId } from './catalogue';
 import { compileMetricQuery } from './compile';
+import { csvText, renderMetricCsv } from './csv';
 import { executeMetricQuery, scopedEverywhere, type MetricsReader } from './execute';
-import { parseMetricQuery } from './query';
+import { parseMetricQuery, type MetricQuery } from './query';
 import { randomQuery, rng } from '../testing/metrics-queries';
 
 const A = '00000000-0000-4000-8000-000000000031';
@@ -231,5 +232,108 @@ describe('executeMetricQuery', () => {
       const r = await executeMetricQuery(reader, q({ metrics: [m] }), [A]);
       expect(r.rows, m).toEqual([]);
     }
+  });
+});
+
+describe('live metrics (#604 delta)', () => {
+  it('answer only per day or for the whole window, and only by store', () => {
+    expect(
+      parseMetricQuery({ ...base, metrics: ['live_orders', 'live_placed_minor'], grain: 'day' })
+        .metrics,
+    ).toEqual(['live_orders', 'live_placed_minor']);
+    expect(
+      code(() => parseMetricQuery({ ...base, metrics: ['live_orders'], grain: 'week' })),
+    ).toMatchObject({
+      code: 'validation_error',
+      details: { metric: 'live_orders', grain: 'week' },
+    });
+    expect(
+      code(() =>
+        parseMetricQuery({ ...base, metrics: ['live_placed_minor'], dimensions: ['product'] }),
+      ),
+    ).toMatchObject({
+      code: 'validation_error',
+    });
+  });
+
+  it('read the per-event live table FINAL, scoped, and count orders exactly', () => {
+    const c = compileMetricQuery(
+      parseMetricQuery({ ...base, metrics: ['live_orders', 'live_placed_minor'], grain: 'total' }),
+      [A],
+    );
+    expect(c.sources).toHaveLength(1);
+    expect(c.sources[0]!.sql).toContain('FROM orders_minute_events FINAL');
+    expect(c.sources[0]!.sql).toContain('uniqExact(order_id) AS m_live_orders');
+    expect(c.sources[0]!.sql).toContain('store_id IN {scope:Array(UUID)}');
+  });
+});
+
+describe('CSV (#604 delta)', () => {
+  const result = (rows: Record<string, unknown>[], extra: Partial<MetricQuery> = {}) => ({
+    query: {
+      ...parseMetricQuery({
+        ...base,
+        metrics: ['captured_minor', 'fee_minor'],
+        dimensions: ['store', 'provider'],
+      }),
+      ...extra,
+    },
+    generated_at: '2026-10-27T09:00:00Z',
+    data_as_of: null,
+    truncated: false,
+    rows: rows as never,
+    currency_totals: [],
+  });
+
+  it('columns in contract order, RFC 4180 quoting, integers bare, null empty, CRLF', () => {
+    const csv = renderMetricCsv(
+      result([
+        {
+          period: '2026-10-01',
+          currency: 'EUR',
+          store_id: A,
+          product_id: null,
+          refund_reason: null,
+          provider: 'stripe',
+          values: { captured_minor: 12200, fee_minor: null },
+        },
+        {
+          period: '2026-10-02',
+          currency: 'EUR',
+          store_id: A,
+          product_id: null,
+          refund_reason: null,
+          provider: 'say "hi", ok',
+          values: { captured_minor: -5, fee_minor: 7 },
+        },
+      ]),
+    );
+    expect(csv).toBe(
+      '"period","currency","store_id","provider","captured_minor","fee_minor"\r\n' +
+        `"2026-10-01","EUR","${A}","stripe",12200,\r\n` +
+        `"2026-10-02","EUR","${A}","say ""hi"", ok",-5,7\r\n`,
+    );
+  });
+
+  it('neutralises formula injection in every text cell (a provider named =HYPERLINK(...))', () => {
+    const csv = renderMetricCsv(
+      result([
+        {
+          period: '2026-10-01',
+          currency: 'EUR',
+          store_id: A,
+          product_id: null,
+          refund_reason: null,
+          provider: '=HYPERLINK("https://x.test","y")',
+          values: { captured_minor: 1, fee_minor: 0 },
+        },
+      ]),
+    );
+    expect(csv.split('\r\n')[1]).toBe(
+      `"2026-10-01","EUR","${A}","'=HYPERLINK(""https://x.test"",""y"")",1,0`,
+    );
+    for (const start of ['=', '+', '-', '@', '\t', '\r'])
+      expect(csvText(`${start}1+1`)).toBe(`"'${start}1+1"`);
+    expect(csvText('stripe')).toBe('"stripe"');
   });
 });

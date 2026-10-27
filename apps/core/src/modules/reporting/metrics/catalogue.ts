@@ -17,6 +17,8 @@ export const METRIC_IDS = [
   'captured_minor',
   'fee_minor',
   'recognised_minor',
+  'live_orders',
+  'live_placed_minor',
 ] as const;
 export type MetricId = (typeof METRIC_IDS)[number];
 
@@ -39,7 +41,7 @@ export const LIMITS = {
 } as const;
 
 /** The models a metric reads (one compiled query per source per request). */
-export type SourceId = 'bookings' | 'refunds' | 'lines' | 'customers' | 'cash' | 'ledger';
+export type SourceId = 'bookings' | 'refunds' | 'lines' | 'customers' | 'cash' | 'ledger' | 'live';
 
 export interface MetricDefinition {
   id: MetricId;
@@ -54,6 +56,8 @@ export interface MetricDefinition {
   dimensions: readonly Dimension[];
   /** An additive metric: its source, and the aggregate over that source's model. */
   source?: { id: SourceId; sql: string };
+  /** Grains the metric accepts; every grain when omitted. */
+  grains?: readonly Grain[];
   /** A ratio computed from other metrics per row and per currency total (never summed). */
   derived?: { inputs: readonly MetricId[] };
 }
@@ -207,6 +211,32 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     available: true,
     dimensions: ['store'],
     source: { id: 'ledger', sql: 'sum(revenue_minor)' },
+  },
+  live_orders: {
+    id: 'live_orders',
+    label: 'Orders (live)',
+    description:
+      'Live, not bookings: orders as they are placed, cancellations included, for the live tiles; use orders for the books.',
+    unit: 'count',
+    currency_bound: false,
+    finance: false,
+    available: true,
+    dimensions: ['store'],
+    grains: ['day', 'total'],
+    source: { id: 'live', sql: 'uniqExact(order_id)' },
+  },
+  live_placed_minor: {
+    id: 'live_placed_minor',
+    label: 'Placed (live)',
+    description:
+      'Live, not bookings: order totals as they are placed, cancellations included; use bookings_minor for the books.',
+    unit: 'minor',
+    currency_bound: true,
+    finance: false,
+    available: true,
+    dimensions: ['store'],
+    grains: ['day', 'total'],
+    source: { id: 'live', sql: 'sum(total_minor)' },
   },
 };
 
