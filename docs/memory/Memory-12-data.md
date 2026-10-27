@@ -55,7 +55,32 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
 - #601 P5.2 models: PR #619 (Closes #601; code commits 0b3b265, 0a0d6b8, a6b8e42 on top of the merge of main 05cf71f;
   head = this memory commit). Review = a FABLE review after the weekly reset (2026-10-27 14:00 UTC); the manager pins
   the 11 models.test titles in the CI live step on the integration landing. Push NOTHING more unless the review asks.
-- IDLE after this (weekly usage 84%): NO #602 work until the manager activates wave 2 after the reset.
+- WAVE 2 ON (manager 2026-10-27): keep building on data/phase5; the next PR carries the #601 commits until #619 merges.
+- #603: CONTRACT CHANGE POSTED 2026-10-27 (issue comment 6438446364): listMetrics GET /admin/metrics + queryMetrics
+  POST /admin/metrics/query, both `viewer` on `store:*` (ListObjects scope = today's store-report access);
+  finance metrics need `finance` on organization:hq; store_id outside scope → 403; new 503 `unavailable`
+  response + ERROR_CODE; schemas MetricId/Dimension/Grain/Definition/Catalogue/Query/Row/Result. Checked on a
+  reverted working copy: redocly +0 errors; contracts tests fail only on the op count 135 → 137 (4 asserts).
+  Open: keep new/returning customers (needs a hashed customer key in fct_order) or drop. Waiting for the decision.
+- #602: test-architecture plan SENT 2026-10-27 (one gate test, real relay feeding both consumers; ledger via the
+  public createLedgerConsumer + the Finance API in-process with the verifier seam; checks 2a/2b/2c; cash vs
+  getHqFinanceReport + PSP clearing + listPayouts; bookings vs getHqSalesReport). GAP: the rpt_* views need core
+  order/payment rows the month lacks → asked for `writeMonthToCoreDb` in test-utils (REQUEST) or dev-only bookings.
+  NO #602 code until the answer.
+- MANAGER DECISIONS 2026-10-27: (A) #603 contract ACCEPTED as posted; KEEP new/returning customers keyed by
+  order.placed `email_hash` (an additive fct_order column no operation returns), ERASURE-AWARE from the start (an
+  erased customer's key → NULL → counted 'unknown'). The manager lands the contract on integration/phase5-metrics
+  after the reset (Fable review); build the compiler + server against the posted YAML LOCALLY, push no contract file.
+  NEW #623 (P5.12, mine): ClickHouse must honour customer.erased (raw payloads keep email_hash/customer_id) —
+  launch blocker, schedule right after #602.
+  (B) #602 architecture ACCEPTED. I write `writeMonthToCoreDb` in packages/test-utils on branch
+  `integration/phase5-reconcile` (cut from data/phase5; integration/* may write anywhere): a PURE projection
+  (payload → order/payment/refund rows + cancellation status, no business rule, no derived amount), owner pool into a
+  THROWAWAY core DB only (refuse unless current_database() is a throwaway, the #595 guard), its own test (projected
+  month → the core's report functions = event counts and sums). One PR for #602 + projection, Fable-reviewed. Ask for
+  the machine before the gate's live run.
+- Gotcha repeated: `String.replace(x, str)` expands `$'` / `$&` in the replacement (a YAML pattern `'^[A-Z]{3}$'` did it);
+  always pass a function: `replace(x, () => str)`.
 - Machine: last runs 2026-10-25, 15/15 three times on the merged head; machine free reported.
 
 ## #601 notes (2026-10-25)
