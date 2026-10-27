@@ -90,8 +90,9 @@ describe('the boot refuses a bad consent-mode configuration (#590)', () => {
       ENGAGEMENT_CDP_CONSENT_MODE_BRANDA: 'strict',
     });
 
-    // 1. It really exits. This is the assertion the defect would have failed: the process used to stay up.
-    expect(r.code).toBe(1);
+    // 1. It really exits, with 2 — the configuration-refusal code since #599, so a supervisor does not
+    //    restart a process whose environment has already been refused. (It used to stay up at all: #590.)
+    expect(r.code).toBe(2);
 
     // 2. The crash line names the class AND the variable, so an operator can act on it. The message is
     //    printed for this class only, and only because it is built from variable names and store codes.
@@ -106,6 +107,24 @@ describe('the boot refuses a bad consent-mode configuration (#590)', () => {
     expect(r.stdout).not.toContain('"event":"started"');
   }, 90_000);
 
+  it('EXITS 2 when the DLQ watch would not cover a group this process runs (#599)', async () => {
+    // The failure the whole issue is about, at the boot: an explicit watch list that omits a group being
+    // consumed. Nothing starts, and the message names the group rather than making an operator diff two
+    // variables.
+    const r = await boot({
+      DATABASE_URL_APP: appUrl,
+      ENGAGEMENT_CDP_ENABLED: '1',
+      ENGAGEMENT_CDP_GROUP_ID: 'engagement.cdp.int4',
+      ENGAGEMENT_DLQ_GROUPS: 'engagement.ops, engagement.cdp',
+    });
+    expect(r.code).toBe(2);
+    const crash = crashLine(r.stderr);
+    expect(crash?.error_class).toBe('ConfigRefusedError');
+    expect(String(crash?.message)).toContain('engagement.cdp.int4');
+    expect(crash?.exit).toBe(2);
+    expect(r.stdout).not.toContain('"event":"started"');
+  }, 90_000);
+
   it('EXITS NON-ZERO on an unknown mode value, before it needs a database at all', async () => {
     // The same class, from `resolveConfig` rather than from the store check — so the entry point's handling
     // covers every consent-mode failure and not just the one the review found.
@@ -114,7 +133,7 @@ describe('the boot refuses a bad consent-mode configuration (#590)', () => {
       ENGAGEMENT_CDP_ENABLED: '1',
       ENGAGEMENT_CDP_CONSENT_MODE: 'strcit',
     });
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(2);
     const crash = crashLine(r.stderr);
     expect(crash?.error_class).toBe('ConsentModeConfigError');
     expect(String(crash?.message)).toContain('ENGAGEMENT_CDP_CONSENT_MODE');

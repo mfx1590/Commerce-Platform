@@ -1,0 +1,37 @@
+<!-- Laptop profile for the local ClickHouse (Phase 5, #612 step 0). Docker Desktop on the dev laptop dies under memory
+     pressure, so the server stays well inside the container's mem_limit (docker-compose.yml). -->
+<clickhouse>
+    <max_server_memory_usage_to_ram_ratio>0.75</max_server_memory_usage_to_ram_ratio>
+    <mark_cache_size>268435456</mark_cache_size>
+    <uncompressed_cache_size>0</uncompressed_cache_size>
+    <index_mark_cache_size>67108864</index_mark_cache_size>
+    <max_concurrent_queries>50</max_concurrent_queries>
+    <!-- System tables hold the writer's query text (INSERT payloads included): readable only with an explicit grant,
+         so analytics_ro (SELECT on analytics.* only) cannot see them. -->
+    <access_control_improvements>
+        <select_from_system_db_requires_grant>true</select_from_system_db_requires_grant>
+        <select_from_information_schema_requires_grant>true</select_from_information_schema_requires_grant>
+    </access_control_improvements>
+    <!-- Logs nobody reads on a laptop; they grow without bound on a long-lived volume. -->
+    <metric_log remove="1"/>
+    <asynchronous_metric_log remove="1"/>
+    <trace_log remove="1"/>
+    <text_log remove="1"/>
+    <part_log remove="1"/>
+    <processors_profile_log remove="1"/>
+    <query_thread_log remove="1"/>
+    <query_views_log remove="1"/>
+    <latency_log remove="1"/>
+    <error_log remove="1"/>
+    <logger>
+        <level>warning</level>
+        <console>1</console>
+    </logger>
+    <!-- System log tables grow without bound on a long-lived dev volume; keep a week. -->
+    <query_log replace="1">
+        <database>system</database>
+        <table>query_log</table>
+        <engine>ENGINE = MergeTree PARTITION BY event_date ORDER BY event_time TTL event_date + INTERVAL 7 DAY</engine>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+    </query_log>
+</clickhouse>

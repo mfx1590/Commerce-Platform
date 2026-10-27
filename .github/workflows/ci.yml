@@ -398,6 +398,14 @@ jobs:
       DATABASE_URL: postgres://platform:platform@localhost:5433/platform
       DATABASE_URL_APP: postgres://platform_app:platform_app@localhost:5433/platform
       MOCK_API_URL: http://localhost:4010
+      # ClickHouse (Phase 5, #600/#612): the compose `analytics` profile. 127.0.0.1, never localhost. Writer = the
+      # migrator and the ingest; analytics_ro = the read-only user (infra/clickhouse/users.d). Local words, not keys.
+      CLICKHOUSE_URL: http://127.0.0.1:18123
+      CLICKHOUSE_DATABASE: analytics
+      CLICKHOUSE_USER: platform
+      CLICKHOUSE_PASSWORD: platform
+      CLICKHOUSE_READONLY_USER: analytics_ro
+      CLICKHOUSE_READONLY_PASSWORD: analytics_ro
     steps:
       - uses: actions/checkout@v4
         if: needs.changes.outputs.e2e == 'true'
@@ -416,7 +424,7 @@ jobs:
         if: needs.changes.outputs.e2e == 'true'
         run: >-
           docker compose -f infra/docker/docker-compose.yml -f infra/ci/compose.keycloak-events.yml
-          up -d postgres redis keycloak openfga redpanda
+          --profile analytics up -d postgres redis keycloak openfga redpanda clickhouse
       - name: the auth stack is really up (the live suites skip silently otherwise)
         if: needs.changes.outputs.e2e == 'true'
         run: bash infra/ci/wait-for-auth-stack.sh
@@ -458,6 +466,17 @@ jobs:
           pnpm exec turbo run build --filter='@platform/accounting^...'
           pnpm --filter @platform/accounting exec vitest run test/month-replay.test.ts             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/accounting-gate.json"
           node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/accounting-gate.json"             'Integration 4 gate: a generated month replayed into a fresh accounting.ledger group (local Redpanda)'
+      # The analytics ingest live block (Phase 5, #600): every topic into ClickHouse raw_events exactly once, the DLQ of an
+      # overridden group, a full replay into a fresh group, and a crash between insert and commit. It creates its own
+      # prefixed topics and a throwaway analytics_test_<word> database and removes both; require-live-tests makes a
+      # probe that misses (ClickHouse user, port, broker) fail the step instead of skipping it.
+      - name: analytics ingest live block (Redpanda + ClickHouse) — and it really ran
+        if: needs.changes.outputs.e2e == 'true'
+        run: |
+          for i in $(seq 1 60); do curl -sf --max-time 3 -u "$CLICKHOUSE_USER:$CLICKHOUSE_PASSWORD" "$CLICKHOUSE_URL/?query=SELECT%201" >/dev/null && break; sleep 2; done
+          pnpm exec turbo run build --filter='@platform/analytics-ingest^...'
+          pnpm --filter @platform/analytics-ingest exec vitest run src/live.test.ts             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/analytics-live.json"
+          node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/analytics-live.json"             'live ingest (local Redpanda + ClickHouse)'
       # One command covers both suites: packages/auth-sdk/vitest.config.ts already collects
       # ../../apps/core/src/modules/hq-rbac/test/**, which is how window 2 wired them.
       # Through turbo, not `pnpm --filter ... test`, so `dependsOn: ^build` builds @platform/db and
@@ -536,7 +555,7 @@ jobs:
         run: bash infra/ci/run-e2e.sh
       - name: keycloak and openfga logs on failure
         if: failure() && needs.changes.outputs.e2e == 'true'
-        run: docker compose -f infra/docker/docker-compose.yml logs --tail=100 keycloak openfga redpanda
+        run: docker compose -f infra/docker/docker-compose.yml --profile analytics logs --tail=100 keycloak openfga redpanda clickhouse
       - uses: actions/upload-artifact@v4
         if: failure() && needs.changes.outputs.e2e == 'true'
         with:

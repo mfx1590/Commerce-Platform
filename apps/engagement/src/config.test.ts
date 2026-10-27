@@ -1,6 +1,7 @@
 import { SEED_IDS } from '@platform/db';
 import { describe, expect, it } from 'vitest';
 import { KNOWN_GROUPS, resolveConfig, storeEnvKey } from './config.js';
+import { ConfigRefusedError } from './config-error.js';
 import { assertConsentModeOverridesKnown, ConsentModeConfigError } from './consent-mode.js';
 import { buildCdpAdapter, buildCrmAdapter, buildTokenProvider, buildTransport } from './main.js';
 
@@ -402,6 +403,50 @@ describe('assertConsentModeOverridesKnown (#586)', () => {
   });
 });
 
+describe('every configuration refusal is a ConfigRefusedError (#599)', () => {
+  // The exit-2 claim is only true while this holds: the entry point decides the code and the printing from
+  // the CLASS, so a refusal that throws a plain Error exits 1 and keeps its message to itself. The #613
+  // review found the claim wider than the code; this is what keeps them together as config.ts grows.
+  const prod = { ENGAGEMENT_TRANSPORT: 'slack', SLACK_OPS_WEBHOOK_URL: WEBHOOK };
+  const cases: { what: string; env: Record<string, string>; nodeEnv?: string }[] = [
+    { what: 'a missing database URL', env: {} },
+    { what: 'an unknown transport', env: { ...base, ENGAGEMENT_TRANSPORT: 'carrier-pigeon' } },
+    { what: 'slack without a webhook', env: { ...base, ENGAGEMENT_TRANSPORT: 'slack' } },
+    { what: 'the dev transport in production', env: { ...base }, nodeEnv: 'production' },
+    { what: 'a bad group id', env: { ...base, ENGAGEMENT_CDP_GROUP_ID: 'Engagement.Cdp' } },
+    { what: 'a bad integer', env: { ...base, ENGAGEMENT_DLQ_THRESHOLD: 'a few' } },
+    { what: 'an unknown CDP adapter', env: { ...base, ENGAGEMENT_CDP_ADAPTER: 'segment' } },
+    { what: 'an unknown CRM adapter', env: { ...base, ENGAGEMENT_CRM_ADAPTER: 'salesforce' } },
+    {
+      what: 'an unknown token provider',
+      env: { ...base, ENGAGEMENT_CRM_TOKEN_PROVIDER: 'magic' },
+    },
+    {
+      what: 'dev tokens in production',
+      env: { ...base, ...prod, ENGAGEMENT_DEV_TOKENS: '1' },
+      nodeEnv: 'production',
+    },
+    {
+      what: 'the memory CDP adapter in production',
+      env: { ...base, ...prod, ENGAGEMENT_CDP_ENABLED: '1' },
+      nodeEnv: 'production',
+    },
+    {
+      what: 'a watch list that omits a running group',
+      env: { ...base, ENGAGEMENT_DLQ_GROUPS: 'accounting.ledger' },
+    },
+    { what: 'an unknown consent mode', env: { ...base, ENGAGEMENT_CDP_CONSENT_MODE: 'strcit' } },
+  ];
+
+  for (const c of cases) {
+    it(`refuses ${c.what} with a ConfigRefusedError`, () => {
+      expect(() =>
+        resolveConfig({ env: c.env, ...(c.nodeEnv ? { nodeEnv: c.nodeEnv } : {}), argv: [] }),
+      ).toThrow(ConfigRefusedError);
+    });
+  }
+});
+
 describe('the consumer groups are overridable per module (#594)', () => {
   it('defaults to the three constants, and watches exactly those', () => {
     const c = resolveConfig({ env: base, argv: [] });
@@ -452,6 +497,32 @@ describe('the consumer groups are overridable per module (#594)', () => {
     expect(c.groups.ops).toBe('engagement.ops');
   });
 
+  it('REFUSES an explicit watch list that omits a group this process runs (#599)', () => {
+    // The one way left to split the consumers from the watch once they share `groups`: an explicit list that
+    // leaves one out. More groups than we run is fine (production must list every group on the bus); fewer
+    // means this process consumes a topic whose dead letters are nobody's.
+    expect(() =>
+      resolveConfig({
+        env: {
+          ...base,
+          ENGAGEMENT_CDP_ENABLED: '1',
+          ENGAGEMENT_CDP_GROUP_ID: 'engagement.cdp.int4',
+          ENGAGEMENT_DLQ_GROUPS: 'engagement.ops, engagement.cdp',
+        },
+        argv: [],
+      }),
+    ).toThrow(/does not watch engagement\.cdp\.int4, which this process consumes/);
+  });
+
+  it('does not require the group of a DISABLED module to be watched (#599)', () => {
+    // The CDP is off here, so nothing consumes `engagement.cdp` and leaving it out of the list is correct.
+    const c = resolveConfig({
+      env: { ...base, ENGAGEMENT_DLQ_GROUPS: 'engagement.ops' },
+      argv: [],
+    });
+    expect(c.dlq.groups).toEqual(['engagement.ops']);
+  });
+
   it('still honours an explicit ENGAGEMENT_DLQ_GROUPS over the groups it runs', () => {
     // Production must list every group on the bus, other windows' included, and that stays the operator's
     // call — the override is only the DEFAULT.
@@ -459,11 +530,14 @@ describe('the consumer groups are overridable per module (#594)', () => {
       env: {
         ...base,
         ENGAGEMENT_CDP_GROUP_ID: 'engagement.cdp.int4',
-        ENGAGEMENT_DLQ_GROUPS: 'accounting.ledger, engagement.cdp.int4',
+        // `engagement.ops` is in the list because this process RUNS it: #599 refuses a list that omits a
+        // group being consumed. The point of the test is unchanged — an explicit list wins over the default,
+        // and it may name other windows' groups.
+        ENGAGEMENT_DLQ_GROUPS: 'accounting.ledger, engagement.ops, engagement.cdp.int4',
       },
       argv: [],
     });
-    expect(c.dlq.groups).toEqual(['accounting.ledger', 'engagement.cdp.int4']);
+    expect(c.dlq.groups).toEqual(['accounting.ledger', 'engagement.ops', 'engagement.cdp.int4']);
   });
 });
 

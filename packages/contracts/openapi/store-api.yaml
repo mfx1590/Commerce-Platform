@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Store API
-  version: 0.5.8
+  version: 0.5.9
   description: |
     Storefront-facing API. Every request carries `X-Publishable-Key` (a `store_api_key` of type `publishable`),
     which resolves the store and sales channel; the core refuses requests without it. Customer-authenticated
@@ -14,6 +14,7 @@ info:
     0.5.4 adds the optional `Store.payment.methods` (`card` | `invoice`) the checkout may offer (#354/#358, additive).
     0.5.5 adds `voided` to the order's `payment_status` (authorized → voided when the order is cancelled; terminal; #466, additive).
     0.5.6 adds customer self-service — updateMyAddress, deleteMyAddress (200 with the remaining addresses), requestMyExport and deleteMe (#482, additive).
+    0.5.9 adds GET /store/recommendations — listProductRecommendations and RecommendationList (#607, additive).
 servers:
   - url: http://localhost:4010
     description: Prism mock (pnpm mock)
@@ -192,6 +193,81 @@ paths:
                 summary: { count: 1, average: 5 }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /store/recommendations:
+    get:
+      tags: [catalog]
+      operationId: listProductRecommendations
+      summary: Recommended products for a product page or a cart
+      description: |
+        Precomputed per store by the nightly recommendations job: `bought_together` is co-occurrence with lift
+        above a minimum support, `popular` is units sold over the last 7 or 30 days.
+
+        The product-detail page sends `product_id`; the cart sends `variant_ids` (its line items' variant ids,
+        whose products are used as the anchors and are never recommended back). `kind=bought_together` needs
+        exactly one of the two: neither or both is a 400 `validation_error`. `kind=popular` is store-wide and
+        ignores both.
+
+        Only published, in-stock products of the resolved store are ever returned, so the list can come back
+        shorter than `limit`, or empty — the caller hides the rail when `items` is empty. When the anchor has no
+        pairs above the threshold the server falls back to the popular list; the response's `kind` is the kind
+        that was actually served, which is how the caller (and its analytics event) can tell a fallback from a
+        real co-occurrence list without a second field. A `product_id` or `variant_ids` that is not of the
+        resolved store (or not published) is a 404, as on getProduct.
+      parameters:
+        - {
+            name: kind,
+            in: query,
+            schema: { type: string, enum: [bought_together, popular], default: bought_together },
+          }
+        - {
+            name: product_id,
+            in: query,
+            schema: { type: string, format: uuid },
+            description: The anchor product (product-detail page),
+          }
+        - {
+            name: variant_ids,
+            in: query,
+            schema: { type: array, items: { type: string, format: uuid }, maxItems: 100 },
+            explode: false,
+            style: form,
+            description: Cart line variant ids,
+            comma-separated; their products are the anchors,
+          }
+        - {
+            name: window_days,
+            in: query,
+            schema: { type: integer, enum: [7, 30], default: 30 },
+            description: Which popular window; ignored for kind=bought_together,
+          }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 24, default: 8 } }
+        - { $ref: '#/components/parameters/Currency' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecommendationList' }
+              examples:
+                boughtTogether:
+                  value:
+                    kind: bought_together
+                    items:
+                      - id: 30000000-0000-4000-8000-000000000201
+                        handle: classic-tee
+                        title: Classic Tee
+                        thumbnail_url: https://res.cloudinary.com/demo/image/upload/classic-tee.jpg
+                        price: { amount_minor: 1999, currency: EUR }
+                        compare_at_price: null
+                        category_handle: t-shirts
+                        tags: [basics]
+                fellBackToPopular:
+                  value:
+                    kind: popular
+                    items: []
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /store/carts:
     post:
       tags: [cart]
@@ -1440,6 +1516,21 @@ components:
             - type: 'null'
         category_handle: { type: [string, 'null'] }
         tags: { type: array, items: { type: string } }
+
+    RecommendationList:
+      type: object
+      required: [kind, items]
+      properties:
+        kind:
+          {
+            type: string,
+            enum: [bought_together, popular],
+            description: The kind actually served; popular for a request of bought_together means the anchor had no pairs above the threshold,
+          }
+        items:
+          type: array
+          maxItems: 24
+          items: { $ref: '#/components/schemas/ProductSummary' }
 
     Product:
       type: object

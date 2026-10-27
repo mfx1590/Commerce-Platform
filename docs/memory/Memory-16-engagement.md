@@ -16,6 +16,18 @@ Never touches:
 Bus consumers for engagement, each an adapter + dev sink/mock (no external accounts exist): ops alerts to Slack, a CDP tracking plan + RudderStack mapper, CRM sync (Twenty), a support-context API for agents (Chatwoot-shaped). Consent-gated, erase-aware, no PII from events.
 
 ## Done
+- **#599 (Phase 5 wave 1, group overrides vs the DLQ watch) — FIXED, PR #613** (code commit `53d8fd7`, head =
+  the memory commit; branch `engagement/phase5` off main `f70f590`). The bug was mine, recorded at
+  Integration 4: `--drain` passed `config.groups` to its consumers while the long-running path built them
+  inline with no group id, and `dlq.groups` had started defaulting to `config.groups` — so an override
+  without `--drain` consumed one group and watched another's DLQ. Fixed structurally: **`buildConsumers()` in
+  `main.ts` is the only place a consumer is constructed**, called by both modes, differing only in
+  `fromBeginning` and the drain's per-batch hook. Plus `resolveConfig` refuses an explicit
+  `ENGAGEMENT_DLQ_GROUPS` that omits a running group (more is fine, fewer is refused), configuration
+  refusals exit **2** (`ConfigRefusedError`, which `ConsentModeConfigError` extends), and the drain report
+  says `ran` rather than a constant `enabled.ops`. `src/main.test.ts` states the invariant — every group a
+  consumer RUNS is watched — over six configurations, with no broker and no database. Verified 441/441 with
+  the broker up (21 files, 112 s) and 432/9 offline; package 0.6.1.
 - **#553 16.1 apps/engagement service + ops alerts — MERGED 2026-10-23.** PR #562 (code commit d186210; head = the memory commit a2e9abc) went in through the manager integration PR **#563 = 7c41d82**, which added the Dockerfile COPY lines (f0a1d59, check-image-manifests 17/17); #553 closed. My PR itself was marked merged, not merged directly — the integration PR is what lands a new service. Branch engagement/phase4, 5 commits: 065d0a3 service + ops alerts · fe9f910 merge main 653d817 · 1e1a9d8 drop the 0202 copy (#557 landed) · f6824f6 memory · d186210 live-test isolation + a dedupe test that actually tests dedupe.
   Delivered: `@platform/engagement` 0.1.0 at apps/engagement — `src/ops/{rules,consumer,rate-limit,dlq-watch,store-codes}.ts`, `src/transport/{types,dev-sink,slack}.ts`, `src/{config,main,types,index}.ts`, README + CHANGELOG + CLAUDE.md, scripts dev/start/once. Group `engagement.ops` over payment.failed / refund.failed / return.requested on the events-v1 SDK, marks in the shared `consumer_processed` via `createPgProcessedStore` + an organization-scoped client; 4 rules (incl. `dlq-depth`); dev JSON-lines sink + Slack webhook; rate limit per (rule, store); DLQ depth poll.
   Verified: **71/71 on three consecutive full-suite runs** with the broker up (~26 s each, "deleted 12 topic(s) with prefix t-eng-<random>" + the afterAll assertion that none remains); 68 passed / 3 skipped with the broker unreachable (the printed-reason path); package + root typecheck (24/24), root lint, check-ownership OK, prettier clean. Machine was granted for the live run and released.
@@ -165,7 +177,46 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **Never commit a 64-hex email_hash fixture.** The `sha256` $def needs a real 64-hex value, so a word will not validate — compute it: `createHash('sha256').update('…').digest('hex')`, which is what apps/core does. I had three such literals before catching it; one would have reddened every open PR.
 - `pg` is deliberately NOT a dependency of this app: for a pool type use `Parameters<typeof createTenantClient>[0]`.
 
-## RESUME HERE — 2026-10-25: INTEGRATION 4 DONE, PHASE 4 CLOSED, WINDOW 16 IDLE
+## RESUME HERE — 2026-10-25: Phase 5 wave 1 (#599) FIXED, PR open
+
+**Manager session NINE is the manager now** (session eight stood down). Phase 5 started: plan
+`docs/plan/phase5-plan.md`, tracking **#612**. My wave-1 task was **#599** and it is done on branch
+`engagement/phase5` (cut from main `f70f590`). **Wave 3 (after the weekly reset) is #610 — support reply
+drafts, default OFF. Nothing to do for it yet.**
+
+**PR #613 (code commit `53d8fd7`; head = this memory commit).** The #613 review was a BLOCK on the record
+only — the code read as mergeable — for exactly this line being absent. Its other four points are fixed in
+the same push: every `resolveConfig` refusal is now a `ConfigRefusedError` (so the exit-2 claim matches the
+code, 16 of them), the stale `exit(1)` paragraph in `apps/engagement/CLAUDE.md` is rewritten, and the
+`started` / `stopped` log lines print the RESOLVED group id instead of the module constant — the same drift
+as #599, one level down, in `ops/cdp/crm consumer.ts`. Item 5 (a test that `main()` calls `buildConsumers`)
+is a follow-up by the manager's decision, not in this PR.
+
+**#599, the bug I recorded at Integration 4 and then fixed.** The drain passed `config.groups` to its
+consumers; the long-running path built them inline with no group id, while `dlq.groups` had started
+defaulting to `config.groups`. So an override without `--drain` consumed one group and watched another's
+DLQ. **The fix is structural: `buildConsumers` in `main.ts` is now the only place a consumer is constructed**
+and therefore the only place a group is chosen; both modes call it and may differ only in `fromBeginning`
+and the drain's per-batch hook. Chosen over "refuse the overrides unless `--drain`" because the override is
+about WHICH group, never about which path read it — and window 12's #600 copies this pattern. Plus:
+`resolveConfig` refuses an explicit `ENGAGEMENT_DLQ_GROUPS` that omits a running group (more is fine, fewer
+is refused), and **a configuration refusal now exits 2** (`ConfigRefusedError`, which `ConsentModeConfigError`
+extends) so a supervisor does not restart an environment already refused.
+
+**Verified:** 441/441 with the broker up (21 files, 112 s, live blocks self-cleaning: cdp 30 / crm 21 / ops
+12) before the review fixes, and **445 passed / 9 skipped offline** after them; typecheck, lint, prettier,
+ownership clean. Package 0.6.1. Machine granted and returned.
+
+**`src/main.test.ts` is the new pattern to copy:** it states the invariant — every group a consumer RUNS is a
+group the watch WATCHES — over six configurations including the broken one, with no broker and no database,
+because constructing a consumer connects to nothing. A test that reads a shipped object's `groupId` is worth
+more than one that re-derives what the code should have done.
+
+**The lesson, now twice over:** when one path gains a defaulted value, check every OTHER path that reads it.
+
+<!-- The Integration 4 / Phase 4 record below still holds; its operational notes are still accurate. -->
+
+## Integration 4 and Phase 4 (closed 2026-10-25)
 
 **#598 MERGED = `b2a967a`** (Integration 4 step 3; Opus review = MERGE). **#594 closed, Phase 4 closed**,
 tags `contracts-v0.4.28` and `events-v1.1`. Window 16 is idle; the manager writes if anything comes up.

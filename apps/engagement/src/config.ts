@@ -7,6 +7,15 @@
 import { SEED_IDS } from '@platform/db';
 import { CDP_GROUP_ID } from './cdp/consumer.js';
 import type { ConsentMode } from './consent.js';
+// EVERY refusal in this file is a `ConfigRefusedError`, so the entry point prints its message and exits 2
+// (#599 review): the restart-loop argument is the same for all of them — a process refused for a missing
+// `DATABASE_URL_APP` will be refused again on the next restart, and so will one refused for a bad adapter.
+// THE RULE THAT KEEPS THAT SAFE: a message here may NAME any variable, and may echo a VALUE only from a
+// variable whose values are enumerable or numeric (a mode, an adapter, a group id, a port). Never echo the
+// value of one that carries a credential — `DATABASE_URL_APP`, `SLACK_OPS_WEBHOOK_URL`, `TWENTY_API_KEY`,
+// `RUDDERSTACK_WRITE_KEY`, `CHATWOOT_WEBHOOK_SECRET`, `ENGAGEMENT_CRM_MOCK_TOKEN` — because these messages
+// are printed to the log.
+import { ConfigRefusedError } from './config-error.js';
 import {
   CONSENT_MODE_ENV,
   parseConsentMode,
@@ -143,7 +152,7 @@ const GROUP_ID = /^[a-z][a-z0-9_.-]*$/;
 function groupFrom(raw: string | undefined, fallback: string, what: string): string {
   const value = raw?.trim() || fallback;
   if (!GROUP_ID.test(value)) {
-    throw new Error(`${what} must match ${GROUP_ID.source} (got "${value}")`);
+    throw new ConfigRefusedError(`${what} must match ${GROUP_ID.source} (got "${value}")`);
   }
   return value;
 }
@@ -160,7 +169,7 @@ function intFrom(raw: string | undefined, fallback: number, what: string): numbe
   if (raw === undefined || raw.trim() === '') return fallback;
   const n = Number(raw);
   if (!Number.isInteger(n) || n < 1) {
-    throw new Error(`${what} must be an integer >= 1 (got ${JSON.stringify(raw)})`);
+    throw new ConfigRefusedError(`${what} must be an integer >= 1 (got ${JSON.stringify(raw)})`);
   }
   return n;
 }
@@ -176,21 +185,23 @@ export function resolveConfig(opts: ResolveOptions = {}): EngagementConfig {
   const isProduction = nodeEnv === 'production';
 
   const databaseUrlApp = env.DATABASE_URL_APP?.trim() ?? '';
-  if (!databaseUrlApp) throw new Error('DATABASE_URL_APP is required');
+  if (!databaseUrlApp) throw new ConfigRefusedError('DATABASE_URL_APP is required');
 
   const transportRaw = (env.ENGAGEMENT_TRANSPORT?.trim() || 'dev') as TransportName;
   if (transportRaw !== 'dev' && transportRaw !== 'slack') {
-    throw new Error(`ENGAGEMENT_TRANSPORT must be "dev" or "slack" (got "${transportRaw}")`);
+    throw new ConfigRefusedError(
+      `ENGAGEMENT_TRANSPORT must be "dev" or "slack" (got "${transportRaw}")`,
+    );
   }
   if (isProduction && transportRaw === 'dev') {
-    throw new Error(
+    throw new ConfigRefusedError(
       'ENGAGEMENT_TRANSPORT=dev is refused in production (alerts would go to a local file)',
     );
   }
 
   const slackWebhookUrl = env.SLACK_OPS_WEBHOOK_URL?.trim() || undefined;
   if (transportRaw === 'slack' && !slackWebhookUrl) {
-    throw new Error('ENGAGEMENT_TRANSPORT=slack requires SLACK_OPS_WEBHOOK_URL');
+    throw new ConfigRefusedError('ENGAGEMENT_TRANSPORT=slack requires SLACK_OPS_WEBHOOK_URL');
   }
 
   const cdp = resolveCdp(env, isProduction);
@@ -215,6 +226,23 @@ export function resolveConfig(opts: ResolveOptions = {}): EngagementConfig {
     .filter(Boolean);
 
   const drainIdleMs = intFrom(env.ENGAGEMENT_DRAIN_IDLE_MS, 10_000, 'ENGAGEMENT_DRAIN_IDLE_MS');
+
+  // #599: the watch may cover MORE groups than this process runs — production must list every group on the
+  // bus, other windows' included — but never FEWER. A group this process consumes whose dead letters nobody
+  // reads is the failure this whole issue is about, and an explicit `ENGAGEMENT_DLQ_GROUPS` is the one way
+  // left to create it now that the consumers and the watch share `groups`.
+  const running = [
+    consumerGroups.ops,
+    ...(cdp.enabled ? [consumerGroups.cdp] : []),
+    ...(crm.enabled ? [consumerGroups.crm] : []),
+  ];
+  const unwatched = running.filter((g) => !groups.includes(g));
+  if (unwatched.length > 0) {
+    throw new ConfigRefusedError(
+      `ENGAGEMENT_DLQ_GROUPS does not watch ${unwatched.join(', ')}, which this process consumes: ` +
+        `its dead letters would be nobody's (watching: ${groups.join(', ') || '(none)'})`,
+    );
+  }
 
   return {
     databaseUrlApp,
@@ -266,7 +294,7 @@ function resolveSupport(
   const enabled = (env.ENGAGEMENT_SUPPORT_ENABLED?.trim() || '0') === '1';
   const devTokens = (env.ENGAGEMENT_DEV_TOKENS?.trim() || '0') === '1';
   if (devTokens && isProduction) {
-    throw new Error('ENGAGEMENT_DEV_TOKENS=1 is refused in production');
+    throw new ConfigRefusedError('ENGAGEMENT_DEV_TOKENS=1 is refused in production');
   }
   const secret = env.CHATWOOT_WEBHOOK_SECRET?.trim() || undefined;
   return {
@@ -287,10 +315,12 @@ function resolveCrm(env: Record<string, string | undefined>, isProduction: boole
   const enabled = (env.ENGAGEMENT_CRM_ENABLED?.trim() || '0') === '1';
   const adapter = (env.ENGAGEMENT_CRM_ADAPTER?.trim() || 'memory') as CrmAdapterName;
   if (adapter !== 'memory' && adapter !== 'twenty') {
-    throw new Error(`ENGAGEMENT_CRM_ADAPTER must be "memory" or "twenty" (got "${adapter}")`);
+    throw new ConfigRefusedError(
+      `ENGAGEMENT_CRM_ADAPTER must be "memory" or "twenty" (got "${adapter}")`,
+    );
   }
   if (enabled && isProduction && adapter === 'memory') {
-    throw new Error(
+    throw new ConfigRefusedError(
       'ENGAGEMENT_CRM_ADAPTER=memory is refused in production (nothing would be synced)',
     );
   }
@@ -298,7 +328,7 @@ function resolveCrm(env: Record<string, string | undefined>, isProduction: boole
   const tokenProvider = (env.ENGAGEMENT_CRM_TOKEN_PROVIDER?.trim() || 'mock') as
     'mock' | 'client_credentials';
   if (tokenProvider !== 'mock' && tokenProvider !== 'client_credentials') {
-    throw new Error(
+    throw new ConfigRefusedError(
       `ENGAGEMENT_CRM_TOKEN_PROVIDER must be "mock" or "client_credentials" (got "${tokenProvider}")`,
     );
   }
@@ -306,13 +336,13 @@ function resolveCrm(env: Record<string, string | undefined>, isProduction: boole
   // process must not even carry it, and "it was only set, not used" is not a defence for a credential.
   const mockToken = env.ENGAGEMENT_CRM_MOCK_TOKEN?.trim() || undefined;
   if (mockToken && isProduction) {
-    throw new Error(
+    throw new ConfigRefusedError(
       'ENGAGEMENT_CRM_MOCK_TOKEN is refused in production (it is a dev stand-in for the crm-sync principal, #565)',
     );
   }
 
   if (enabled && isProduction && tokenProvider === 'mock') {
-    throw new Error(
+    throw new ConfigRefusedError(
       'ENGAGEMENT_CRM_TOKEN_PROVIDER=mock is refused in production (no real service principal)',
     );
   }
@@ -330,7 +360,9 @@ function resolveCrm(env: Record<string, string | undefined>, isProduction: boole
   const baseUrl = env.TWENTY_BASE_URL?.trim() || undefined;
   const apiKey = env.TWENTY_API_KEY?.trim() || undefined;
   if (enabled && (!baseUrl || !apiKey)) {
-    throw new Error('ENGAGEMENT_CRM_ADAPTER=twenty requires TWENTY_BASE_URL and TWENTY_API_KEY');
+    throw new ConfigRefusedError(
+      'ENGAGEMENT_CRM_ADAPTER=twenty requires TWENTY_BASE_URL and TWENTY_API_KEY',
+    );
   }
   return {
     ...base,
@@ -371,10 +403,12 @@ function resolveCdp(env: Record<string, string | undefined>, isProduction: boole
     overrides.get(storeEnvKey(storeCode)) ?? consentMode;
   const adapter = (env.ENGAGEMENT_CDP_ADAPTER?.trim() || 'memory') as CdpAdapterName;
   if (adapter !== 'memory' && adapter !== 'rudderstack') {
-    throw new Error(`ENGAGEMENT_CDP_ADAPTER must be "memory" or "rudderstack" (got "${adapter}")`);
+    throw new ConfigRefusedError(
+      `ENGAGEMENT_CDP_ADAPTER must be "memory" or "rudderstack" (got "${adapter}")`,
+    );
   }
   if (enabled && isProduction && adapter === 'memory') {
-    throw new Error(
+    throw new ConfigRefusedError(
       'ENGAGEMENT_CDP_ADAPTER=memory is refused in production (nothing would be sent)',
     );
   }
@@ -385,7 +419,7 @@ function resolveCdp(env: Record<string, string | undefined>, isProduction: boole
   const writeKey = env.RUDDERSTACK_WRITE_KEY?.trim() || undefined;
   const dataPlaneUrl = env.RUDDERSTACK_DATA_PLANE_URL?.trim() || undefined;
   if (enabled && (!writeKey || !dataPlaneUrl)) {
-    throw new Error(
+    throw new ConfigRefusedError(
       'ENGAGEMENT_CDP_ADAPTER=rudderstack requires RUDDERSTACK_WRITE_KEY and RUDDERSTACK_DATA_PLANE_URL',
     );
   }

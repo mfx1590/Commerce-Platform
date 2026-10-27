@@ -1,6 +1,6 @@
 # Memory 12 — Data platform, BI & AI
-Window: 12 · Key: `data` · Branch prefix: `data/` · Branch: `data/phase3`
-Last updated: 2026-10-18 · Contracts: contracts-v0.4.22 (Admin API 0.4.19), db 0.3.8 · Status: Phase 3 reporting v1 — 12.1 and 12.2 merged; 12.3 (#480) built, PR waits for the ownership row on main
+Window: 12 · Key: `data` · Branch prefix: `data/` · Branch: `data/phase5` (from main cadaeba, 2026-10-25)
+Last updated: 2026-10-25 · Model: Opus 5.5 · Status: Phase 5 wave 1 — #600 ingest built, PR next; #601 models after it
 
 ## PHASE 5 DOCKET (written by the manager, 2026-10-25, Manager session nine) — READ THIS FIRST ON RESUME
 Phase 3 reporting v1 is done (#478–#480). Phase 5 = data platform and AI; you are its main window. Plan and the
@@ -27,8 +27,8 @@ Owned paths (write), per docs/ownership.md row `data/`:
 Route mounting = REQUEST to window 1 (`src/http/module-routers.ts`); admin rail, shell, `apps/admin/src/lib/**`, the
 section catalogue, apps/admin README/CHANGELOG = window 4. apps/core CHANGELOG and `src/http/**` = window 1.
 Migrations, contracts, events, docs (except this file) = main window via `CONTRACT CHANGE:`.
-Manager: "Manager session seven" (local_484d7727-b945-48ba-bb27-0366bd2bbdcc) since 2026-10-18; six
-(local_08108b05-…) retired. Plan before building, report PR up (number + head sha), report checks done.
+Manager: "Manager session nine" (local_7d042551-aad2-4845-9b2e-e0ad20f9e01e) since 2026-10-25; seven and eight
+retired. Plan before building, report PR up (number + head sha), report checks done.
 
 ## Mission — Phase 3 (reporting v1, manager decision 2026-10-16: option C)
 security_invoker views read through the tenant-scoped client → Admin API report operations under existing OpenFGA
@@ -47,15 +47,33 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   `apps/admin/test-contract/bi/bi.test.ts` (4, Prism); core: analyst reads a store's stock test,
   REFUND_REASONS.includes.
 
-## In progress
-- #480: PR #502 (Closes #480), reviewed: BLOCK only on this record, fixed by this memory commit; the manager queues it
-  once checks are green. Push NOTHING else and do not merge main again (the queue does that). `apps/admin/e2e/bi/bi.spec.ts` ran ONCE on the kept core with the manager's go (2026-10-18): 2 passed
-  (store-admin 403; owner sees brands A, B, C, finance card, EUR tab). First invocation failed on two spec locators
-  (the HQ layout guard answers a store-only user before the BI guard; the shell has its own img), fixed and re-run.
-  Core stopped afterwards, "machine free" reported.
+## In progress — Phase 5
+- #600 P5.1 ingest on `data/phase5`: built — `apps/analytics-ingest/src/{config,rows,batcher,ingest,clickhouse,metrics,
+  once,telemetry,main,migrate-cli,index}.ts`, `data/clickhouse/migrations/0001_raw_events.sql` + `data/clickhouse/README.md`;
+  41 unit tests green; `src/live.test.ts` (4 tests) opt-in `ANALYTICS_LIVE=1` (CI always).
+  PR #616 (Closes #600; code commit 0949769; head = this memory commit). Landing (manager 2026-10-25): push NOTHING
+  more; the manager cuts `integration/phase5-ingest` from this head after #614, adds the CI step "analytics ingest
+  live block — and it really ran" (pins my 4 live test TITLES via require-live-tests.mjs: never rename them), needs
+  3 consecutive green runs; the integration PR merges and marks #616 merged. An independent Opus review is running:
+  code fixes, if any, go to data/phase5 and the manager re-cuts. #601: read/design only until the review is back.
+  Still owed: message the manager when every check on #616 has finished.
+- Live, with the manager's machine (2026-10-25): `ANALYTICS_LIVE=1` live.test 4/4 green (~17 s, self-cleaned);
+  dev stack: `ch:migrate` on `analytics` (applied 0001, second run nothing) → `--once` group analytics.raw: 460 rows =
+  the outbox's 460 published rows, 22 topic@versions equal row for row, 0 dead letters → full replay under group
+  analytics.raw.proof-replay: FINAL still 460 per topic (raw 617 before merge). PII: 0 e-mail shapes; the only key
+  hit is customer.updated `changed_fields: ["first_name","last_name"]` (field NAMES, not values).
+- Manager answers (2026-10-25): eachBatch loop ACCEPTED (README states why; per-partition commit after ack; heartbeat
+  during flush; same group for DLQ); writer `platform`/reader `analytics_ro` (readonly=1: no per-query settings on
+  the read path → `createChReader`); DDL tests on `analytics_test_<word>`, never drop `analytics`; CI ClickHouse
+  wiring = the manager's commit on top of my #600 head. REQUEST #615 (window 14) for analytics.raw in the DLQ
+  policy. #601: `mart_recognised_daily` DROPPED (ledger lines in #602); `fct_order_line.product_id` via `dim_variant`
+  from product.published/updated `variants[]` (BINDING for window 9) — read the two manager comments on #601 first.
 
-## Next — Phase 3
-- [ ] After #480: ask the manager for the next docket (reporting v1 is then complete).
+## Next — Phase 5
+- [ ] #600 live proof (machine) → counts into the PR body.
+- [ ] #601 models: `data/clickhouse/models/` applied by the same runner (add the dir to `DEFAULT_SQL_DIRS`); the #552
+      month is `generateMonth` in apps/accounting/src/posting/fixtures.ts, NOT in @platform/accounting's public API →
+      REQUEST to window 15 to export it (or a `fixtures` subpath) before #601 tests can use it.
 - [ ] Nits from the #502 review, for the next PR (not #502): a finance currency with no sales cannot be reached
       through the tabs (bi-report.tsx ~271, tabs come from sales only); no per-day refunds chart; `codeOf` falls back
       to `id.slice(0, 8)`.
@@ -81,13 +99,27 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
 - My CHANGELOG is `data/reporting/CHANGELOG.md`; the BI section's doc is `(hq)/bi/README.md`.
 - STANDING RULE (manager 2026-10-18): after ANY edit to a contract yaml in packages/contracts run
   `pnpm --filter @platform/contracts generate` and commit the generated files.
+- #600 (mine, 2026-10-25, reported to the manager for veto): the ingest runs its OWN kafkajs eachBatch loop, not the
+  SDK's createConsumer — the SDK is per-message with a per-batch commit (no cross-partition size/time flush that
+  commits after the ClickHouse ack) and it SKIPS unknown topics/versions, which #600 wants in the DLQ. Reuses the SDK's
+  decodeMessage, DeadLetter shape, planTopics/ensureTopics for dlq.<group>, readDeadLetters, createValidator.
+- #600: no processed store — ReplacingMergeTree(ingested_at) ORDER BY (topic, event_id) is the dedupe; readers count
+  with FINAL. PARTITION BY toYYYYMM(occurred_at) is safe for folding (a copy has the same occurred_at).
+- #600: the group id is resolved once in loadConfig; consumer, `dlqTopic` and the --once DLQ count all read it (#599).
+- #600: the test month is generated from the event SCHEMAS (`src/testing/month.ts`, every topic@version, validated),
+  so the ingest/PII tests need nothing from apps/accounting.
 
 ## Blocked / waiting
-- PR for #480: the manager's review and merge.
+- #600 live proof: step 0 (ClickHouse rows in .env) + the machine.
 - apps/core/CHANGELOG.md and apps/core/src/http/README.md call HQ finance `analyst` (it is `finance`): window 1's
   files, the manager routes it to window 1 — not mine.
 
 ## Gotchas learned
+- 2026-10-25: a live test that runs whenever the services answer WILL run inside a plain `vitest run` once the shared
+  stack has them (ClickHouse appeared on 18123 mid-session; one unasked ~30 s attempt, failed at auth, nothing
+  written, reported). Live blocks are opt-in (`ANALYTICS_LIVE=1`, CI always) AND probe with the configured user.
+- No python on this machine; Git-Bash `cat > file` without a heredoc waits on stdin forever (hung a command).
+- ClickHouse `/ping` answers without credentials: probe with `SELECT 1` and the configured user.
 - The local owner role `platform` is SUPERUSER + BYPASSRLS (checked in pg_roles), so it owns the views: a view
   WITHOUT security_invoker returns every store to a store client (mutation-tested: 11 of 21 tests fail with
   `security_invoker = false`). Never assume an owner-defined view is safe.
@@ -112,6 +144,8 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
 ## How to run & test this package
 - Setup once per worktree: `pnpm install --frozen-lockfile`, `pnpm -r --filter "./packages/*" build`,
   `pnpm --filter @platform/auth-sdk fga:seed`.
+- Ingest: `npx vitest run` from apps/analytics-ingest (~3 s, live block skipped); with the machine:
+  `ANALYTICS_LIVE=1 npx vitest run src/live.test.ts`; `pnpm --filter @platform/analytics-ingest ch:migrate | once`.
 - Core reporting: `DATABASE_URL=postgres://platform:platform@127.0.0.1:5433/platform DATABASE_URL_APP=postgres://platform_app:platform_app@127.0.0.1:5433/platform npx vitest run src/modules/reporting` from apps/core (~20 s).
 - Admin BI: `npx vitest run test/bi` and `npx vitest run --config vitest.contract.config.ts test-contract/bi` from
   apps/admin.
