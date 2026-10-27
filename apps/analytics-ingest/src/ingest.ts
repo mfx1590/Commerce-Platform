@@ -156,6 +156,37 @@ export async function processBatch(batch: WireBatch, deps: BatchDeps): Promise<B
 
 // ---- kafkajs wiring ----------------------------------------------------------------------------------------
 
+/** Thrown when another live member already consumes the group: two replicas would each hold their own erasure index. */
+export class SecondReplicaError extends Error {
+  constructor(groupId: string, members: number) {
+    super(
+      `consumer group ${groupId} already has ${members} live member(s): the analytics ingest runs as ONE replica (its erasure index is per process)`,
+    );
+    this.name = 'SecondReplicaError';
+  }
+}
+
+/**
+ * Phase 5 runs ONE ingest replica: the erasure index is loaded at start and kept in memory, so a second replica
+ * would not see the other's erasures until it restarts. Refuses to start when the group already has live members.
+ * Best effort by construction: two processes starting in the same instant can both see an empty group (kafkajs
+ * offers no atomic "join only if alone"); the multi-replica fix (a periodic index refresh + re-scrub) is on
+ * docs/launch-checklist.md.
+ */
+export async function assertSingleReplica(
+  admin: {
+    describeGroups(
+      groupIds: string[],
+    ): Promise<{ groups: { groupId: string; state: string; members: unknown[] }[] }>;
+  },
+  groupId: string,
+): Promise<void> {
+  const { groups } = await admin.describeGroups([groupId]);
+  const g = groups.find((x) => x.groupId === groupId);
+  if (g && g.state !== 'Dead' && g.state !== 'Empty' && g.members.length > 0)
+    throw new SecondReplicaError(groupId, g.members.length);
+}
+
 export interface IngestStats {
   batches: number;
   rows: number;
@@ -343,7 +374,17 @@ export function createIngest(opts: IngestOptions): Ingest {
     lastBatchAt: () => lastBatchAt,
     async start() {
       stopping = false;
-      if (erasures) await loadErasures(opts.erasure!.ch, erasures);
+      if (erasures) {
+        // the erasure index is per process (loaded here): one replica only in Phase 5 (README, Erasure)
+        const admin = kafka.admin();
+        await admin.connect();
+        try {
+          await assertSingleReplica(admin, config.groupId);
+        } finally {
+          await admin.disconnect();
+        }
+        await loadErasures(opts.erasure!.ch, erasures);
+      }
       await ensureDlq();
       producer = kafka.producer({ allowAutoTopicCreation: false, maxInFlightRequests: 1 });
       await producer.connect();

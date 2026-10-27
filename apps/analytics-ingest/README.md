@@ -176,6 +176,20 @@ carries, in every schema that has one.
 - **No identifier in SQL text or logs.** The rows to scrub are found with server-side parameters, and every later
   statement uses event ids only. Every erasure statement runs with `log_queries = 0`. A test checks that
   `system.query_log`, `query_views_log` and `processes` hold neither the hash nor the customer id afterwards.
+  The lookup that carries the identifiers sends its parameters (and its SQL) in the multipart BODY
+  (`use_multipart_params`). In the URL (`param_v0=<hash>`) they would reach HTTP trace logs and any proxy or
+  load-balancer access log, which `log_queries = 0` does not cover. A test runs the real client against a recording
+  server and asserts that no URL carries them.
+- **Every identifier field.** `email_hash`, `customer_id`, `identity_id`, `referrer_customer_id`,
+  `referee_customer_id`, the envelope `aggregate_id` of a customer event, and `requested_by` when
+  `requested_by_type = 'customer'` (customer.export_requested v2, customer.export_ready; v1 and staff requests name a
+  staff user, which stays).
+- **ONE replica in Phase 5.** The erasure index is per process, loaded at start, so a second replica would not see
+  the other's erasures until it restarts. Before joining, the ingest describes its consumer group and refuses to
+  start (`SecondReplicaError`) when the group already has live members. That is best effort: kafkajs offers no atomic
+  "join only if alone", so two processes started in the same instant can both see an empty group. Deploy it as a
+  single replica (no autoscaling). The multi-replica fix, a periodic index refresh + re-scrub, is on
+  docs/launch-checklist.md.
 - **Physical removal.** The lightweight `DELETE` hides the old versions at once. `OPTIMIZE TABLE raw_events PARTITION
 ID '<p>' FINAL` then rewrites only the affected partitions (bounded), so the bytes are gone too. The test sweep reads
   with `apply_deleted_mask = 0`.

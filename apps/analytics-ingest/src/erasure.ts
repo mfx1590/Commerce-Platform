@@ -97,6 +97,18 @@ export function scrubPayload(
     out ??= { ...payload };
     out[field] = null;
   }
+  // customer.export_requested v2 / customer.export_ready: requested_by is the CUSTOMER id when requested_by_type is
+  // 'customer' (a staff user id otherwise, which stays)
+  const by = payload.requested_by;
+  if (
+    payload.requested_by_type === 'customer' &&
+    typeof by === 'string' &&
+    by !== '' &&
+    (index.has(store, 'customer', by) || (extra !== undefined && matches(extra, 'customer', by)))
+  ) {
+    out ??= { ...payload };
+    out.requested_by = null;
+  }
   return out ? { payload: out, changed: true } : { payload, changed: false };
 }
 
@@ -226,6 +238,16 @@ export async function applyErasure(
         params[name] = i.value;
         conditions.push(`JSONExtractString(payload, '${field}') = {${name}:String}`);
       });
+  // an export requested by the customer themself names them in requested_by
+  c.identifiers
+    .filter((i) => i.kind === 'customer')
+    .forEach((i) => {
+      const name = `v${conditions.length}`;
+      params[name] = i.value;
+      conditions.push(
+        `(JSONExtractString(payload, 'requested_by_type') = 'customer' AND JSONExtractString(payload, 'requested_by') = {${name}:String})`,
+      );
+    });
   // a customer event's aggregate_id IS the customer id
   c.identifiers
     .filter((i) => i.kind === 'customer' || i.kind === 'identity')
@@ -243,6 +265,9 @@ export async function applyErasure(
       format: 'JSONEachRow',
       query_params: params,
       clickhouse_settings: ERASURE_SETTINGS,
+      // the identifiers travel in the multipart body: in the URL (param_v0=<hash>) they would reach HTTP trace logs
+      // and any proxy or load-balancer access log, which log_queries = 0 does not cover
+      use_multipart_params: true,
     })
   ).json<{ id: string; part: string }>();
   if (hits.length === 0) return { digests: digests.length, rewritten: 0 };
