@@ -7,8 +7,9 @@
 //   2c recognised, lifetime: per fully shipped, never cancelled, unrefunded order, Σ revenue on 4000 + 4010 = the
 //      order's total − tax from order.placed (whatever the release rounding, remainder or VAT split)
 //   3a cash: mart_cash_daily = the core's getHqFinanceReport (rpt_payments_daily), per store × day × currency
-//   3b cash: captures in raw_events = the ledger's PSP-clearing debits (1100, source payment.captured), per legal
-//      entity × currency × day
+//   3b cash: captures in raw_events = the size of the ledger's capture entries (Σ debits of the lines sourced from
+//      payment.captured: 1100 net of the fee + 6100 the fee; a balanced entry, so = the gross captured), per legal
+//      entity × currency × day. Comparing 1100 alone would need the fee rule, which D7 forbids copying.
 //   3c cash: the PSP's payouts (listPayouts) = the ledger's bank debits (1000, source psp.payout), per legal entity ×
 //      currency
 // No posting rule is implemented here: the ledger side is always the ledger's own lines or its own aggregates.
@@ -104,12 +105,12 @@ export async function checkBookings(
   const left: Keyed = new Map();
   for (const r of await q(
     ch,
-    `SELECT toString(store_id) AS store_id, toString(day) AS day, currency, ${SALES_FIELDS.join(', ')}
+    `SELECT toString(store_id) AS out_store, toString(day) AS out_day, currency, ${SALES_FIELDS.join(', ')}
      FROM mart_bookings_daily WHERE day >= toDate('${w.from}') AND day < toDate('${w.to}')${storeFilter(w)}`,
   ))
     addTo(
       left,
-      keyOf({ store: r.store_id, day: r.day, currency: r.currency }),
+      keyOf({ store: r.out_store, day: r.out_day, currency: r.currency }),
       figures(r, SALES_FIELDS),
     );
   const right: Keyed = new Map();
@@ -281,7 +282,7 @@ export async function checkLifetime(ch: ChClient, w: ReconcileWindow): Promise<I
         WHERE r.account_code IN ('4000', '4010')
         GROUP BY s.order_id
      )
-     SELECT toString(o.order_id) AS order_id, o.currency AS currency,
+     SELECT toString(o.order_id) AS out_order, o.currency AS out_currency,
             o.total_minor - o.tax_minor AS expected_minor, rv.revenue_minor AS revenue_minor
      FROM fct_order AS o
      INNER JOIN complete AS c ON c.order_id = o.order_id
@@ -294,7 +295,7 @@ export async function checkLifetime(ch: ChClient, w: ReconcileWindow): Promise<I
   const left: Keyed = new Map();
   const right: Keyed = new Map();
   for (const r of rows) {
-    const key = keyOf({ order: r.order_id, currency: r.currency });
+    const key = keyOf({ order: r.out_order, currency: r.out_currency });
     left.set(key, { net_minor: int(r.expected_minor, 'expected_minor') });
     right.set(key, { net_minor: int(r.revenue_minor ?? 0, 'revenue_minor') });
   }
@@ -327,13 +328,13 @@ export async function checkCashReport(
   const left: Keyed = new Map();
   for (const r of await q(
     ch,
-    `SELECT toString(store_id) AS store_id, toString(day) AS day, currency, ${CASH_FIELDS.map((f) => `sum(${f}) AS ${f}`).join(', ')}
+    `SELECT toString(store_id) AS out_store, toString(day) AS out_day, currency, ${CASH_FIELDS.map((f) => `sum(${f}) AS ${f}`).join(', ')}
      FROM mart_cash_daily WHERE day >= toDate('${w.from}') AND day < toDate('${w.to}')${storeFilter(w)}
-     GROUP BY store_id, day, currency`,
+     GROUP BY out_store, out_day, currency`,
   ))
     addTo(
       left,
-      keyOf({ store: r.store_id, day: r.day, currency: r.currency }),
+      keyOf({ store: r.out_store, day: r.out_day, currency: r.currency }),
       figures(r, CASH_FIELDS),
     );
   // the finance report has no day dimension: ask it one UTC day at a time
@@ -382,7 +383,7 @@ export async function checkCashLedger(
     ch,
     `SELECT toString(legal_entity_id) AS le, currency, toString(entry_date) AS day, sum(debit_minor) AS amount_minor
      FROM fct_ledger_line
-     WHERE account_code = '1100' AND source_topic = 'payment.captured'
+     WHERE source_topic = 'payment.captured'
        AND entry_date >= toDate('${w.from}') AND entry_date < toDate('${w.to}')
      GROUP BY le, currency, day`,
   ))
@@ -392,8 +393,11 @@ export async function checkCashLedger(
       figures(r, ['amount_minor']),
     );
   const psp = compare(
-    '3b cash: captures = PSP clearing debits',
-    { left: 'raw_events payment.captured', right: 'ledger 1100 debits (payment.captured)' },
+    '3b cash: captures = the ledger capture entries',
+    {
+      left: 'raw_events payment.captured',
+      right: 'ledger Σ debits of payment.captured entries (1100 + 6100)',
+    },
     captured,
     clearing,
     ['amount_minor'],

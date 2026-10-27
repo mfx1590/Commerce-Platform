@@ -12,7 +12,8 @@ SELECT
     debit_minor,
     credit_minor,
     credit_minor - debit_minor                          AS revenue_minor,
-    account_code IN ('4000', '4010', '4090')            AS is_revenue,
+    -- a plain String compare: IN on a LowCardinality column yields LowCardinality(UInt8), which a view may not create
+    CAST(account_code AS String) IN ('4000', '4010', '4090') AS is_revenue,
     currency,
     source_event_id,
     source_topic,

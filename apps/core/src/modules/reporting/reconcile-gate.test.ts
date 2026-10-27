@@ -15,7 +15,8 @@
 //   4. the gate can fail: a tampered ClickHouse ledger line and a tampered core order are both caught.
 // Runs in the live job only: opt-in (ANALYTICS_LIVE=1 on a laptop, with the machine; CI=true in the live job), then
 // skipped with a printed reason when ClickHouse refuses the configured user or the broker is down — so the unit job
-// (CI=true, no ClickHouse) skips it after one quick probe. Heavy modules load inside the suite only. Self-cleaning
+// (CI=true, no ClickHouse) skips it after one quick probe. Run it with TZ=UTC (CI is UTC) until #627 lands: the
+// Finance API serves dates a day early in a non-UTC process, and this gate catches that (check 2a fails). Heavy modules load inside the suite only. Self-cleaning
 // (the database, the ClickHouse database, the prefixed topics and groups).
 import { execFile } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
@@ -355,7 +356,7 @@ describe.runIf(skip === null)(
         '2b recognised: lineage',
         '2c recognised: lifetime invariant',
         '3a cash: captures and fees',
-        '3b cash: captures = PSP clearing debits',
+        '3b cash: captures = the ledger capture entries',
         '3c cash: payouts = bank debits',
       ]);
       // every identity compared something real (3c: the month has no PSP payouts, both sides empty)
