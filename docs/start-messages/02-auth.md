@@ -10,7 +10,7 @@ Read, in this order: CLAUDE.md, .claude/CLAUDE.local.md, docs/ownership.md (row 
 
 Then:
 1. `git fetch origin` and work on `integration/phase5-allowlist` (an integration/ branch, because it carries the labelled window 1/15 exception commits; the previous session pushed it): `git switch --no-track -c phase5-allowlist origin/integration/phase5-allowlist`. Push ONLY with `git push origin HEAD:refs/heads/integration/phase5-allowlist`, never a bare push. `pnpm install --frozen-lockfile`, rebuild the workspace packages, then `pnpm --filter @platform/auth-sdk fga:seed`. No docker commands.
-2. Build #632 exactly as the manager approved (recorded in your memory file):
+2. STATUS (2026-10-27): #632 is already BUILT and pushed on integration/phase5-allowlist (7 commits, unit/static green; see Memory-2). Your job: ask the manager for THE MACHINE, run the live suites (auth-sdk full incl. service-clients + provisioning live, core full, accounting full), fix anything they find, then open ONE PR "Closes #632" listing the three labelled exception commits. For reference, what was built and must stay true:
    - one enforcement point in the staff token verifier (next to the read-only guard), with a per-client allowlist code constant keyed by api (`admin` | `finance`);
    - in the core, a pre-routing `matchOperation(method, path)` over admin-api.yaml, with a test that walks EVERY operation and asserts an exact, unambiguous match (literal segments beat parameters; trailing slash, encoding and case as Express handles them);
    - hq-rbac's second layer refuses a service client when its own matched operationId differs;
