@@ -406,6 +406,8 @@ jobs:
       CLICKHOUSE_PASSWORD: platform
       CLICKHOUSE_READONLY_USER: analytics_ro
       CLICKHOUSE_READONLY_PASSWORD: analytics_ro
+      # The erasure-list HMAC key (#623), a local word: the tests pass their own, a spawned ingest CLI reads this one.
+      ANALYTICS_ERASURE_KEY: dev-only-analytics-erasure-key
     steps:
       - uses: actions/checkout@v4
         if: needs.changes.outputs.e2e == 'true'
