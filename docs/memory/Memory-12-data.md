@@ -111,6 +111,14 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   customer.erased batch never commits without a handler), live.test + the gate pass the erasure option,
   erasure.test.ts (5 unit green; 2 ClickHouse tests NOT YET RUN). Design sent to the manager (2026-10-27, veto window);
   REQUEST pending: an .env.example row ANALYTICS_ERASURE_KEY (dev word). Then the #603 build.
+- #623 design ACCEPTED (manager 2026-10-27) with amendments, all built in fc43596 (local): A no identifier in SQL
+  text (query_params, then event ids) + log_queries=0 on every erasure statement + a query_log/query_views_log/
+  processes sweep test; B OPTIMIZE TABLE raw_events PARTITION ID '<p>' FINAL for affected partitions + the sweep reads
+  with apply_deleted_mask=0; C index.add and the flush start in ONE synchronous tick + a 15-seed cross-partition
+  interleaving test; D the manager lands ANALYTICS_ERASURE_KEY=dev-only-analytics-erasure-key in .env.example + CI;
+  rotation documented (rebuild from the core OUTBOX via outbox:replay --topic customer.erased: the bus keeps
+  customer.* only 30 days); always fail closed; E bus retention = #629 (window 14 + lawyer list).
+  NEXT: the live run (erasure.test 4 ClickHouse tests + models + live + gate) once window 15 frees the machine.
 - Gotchas: the Finance API `to` is INCLUSIVE, the Admin API report `to` EXCLUSIVE (clients translate);
   getHqFinanceReport has no day dimension (3a asks one day at a time); the order display_id trigger numbers
   display_id 0 (a generated month's display ids collide per store).
