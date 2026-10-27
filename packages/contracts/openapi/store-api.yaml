@@ -231,8 +231,7 @@ paths:
             schema: { type: array, items: { type: string, format: uuid }, maxItems: 100 },
             explode: false,
             style: form,
-            description: Cart line variant ids,
-            comma-separated; their products are the anchors,
+            description: 'Cart line variant ids, comma-separated; their products are the anchors',
           }
         - {
             name: window_days,

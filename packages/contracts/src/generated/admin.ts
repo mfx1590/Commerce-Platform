@@ -2287,7 +2287,7 @@ export interface components {
             /** Format: uri */
             upload_url: string;
             cloud_name: string;
-            /** @description public key id */
+            /** @description public key id, not a secret */
             api_key: string;
             timestamp: number;
             /** @description SHA-1 over the sorted signed params + api secret (server side) */
@@ -2378,7 +2378,7 @@ export interface components {
             name: string;
             /** @enum {string} */
             type: "percentage" | "fixed_amount" | "free_shipping" | "buy_x_get_y";
-            /** @description basis points for percentage */
+            /** @description basis points for percentage, minor units for fixed_amount */
             value?: number;
             currency?: string | null;
             rules?: components["schemas"]["PromotionRules"];
@@ -2404,7 +2404,7 @@ export interface components {
         /** @description Every PromotionInput property except `code` and `type` (immutable), all optional (0.4.1, */
         PromotionPatch: {
             name?: string;
-            /** @description basis points for percentage */
+            /** @description basis points for percentage, minor units for fixed_amount */
             value?: number;
             currency?: string | null;
             rules?: components["schemas"]["PromotionRules"];
@@ -3323,7 +3323,7 @@ export interface components {
             shipping_minor: number;
             tax_minor: number;
             total_minor: number;
-            /** @description succeeded refunds of these orders */
+            /** @description succeeded refunds of these orders, whenever refunded */
             refunded_minor: number;
             /** @description total_minor − refunded_minor */
             net_minor: number;

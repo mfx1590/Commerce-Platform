@@ -453,3 +453,8 @@
 - db 0.3.19: migration 0204 `product_recommendation` (RLS kind `store`, no UPDATE grant, composite keys to
   `product (store_id, id)`). Producer: apps/core search module + the `index-recommendations` job (window 9);
   consumer: the storefront rail (#609, window 3). Admin API and events unchanged.
+- Five flow-mapping descriptions were silently cut at an unquoted comma (YAML ends a flow-mapping value at a
+  comma; the rest became a bogus key): Store API `variant_ids` (#607, found by window 9) and four older Admin API
+  ones (`MediaUploadParams.api_key`, `PromotionInput/PromotionPatch.value`, `SalesFigures.refunded_minor`).
+  Now quoted; descriptions only, no behaviour change. New spec-test guard: no object key with whitespace in any
+  spec (mutation-tested); `js-yaml` 4.3.2 + `@types/js-yaml` as contracts devDependencies for it.

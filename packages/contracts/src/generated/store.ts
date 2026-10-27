@@ -1143,7 +1143,7 @@ export interface operations {
                 kind?: "bought_together" | "popular";
                 /** @description The anchor product (product-detail page) */
                 product_id?: string;
-                /** @description Cart line variant ids */
+                /** @description Cart line variant ids, comma-separated; their products are the anchors */
                 variant_ids?: string[];
                 /** @description Which popular window; ignored for kind=bought_together */
                 window_days?: 7 | 30;
