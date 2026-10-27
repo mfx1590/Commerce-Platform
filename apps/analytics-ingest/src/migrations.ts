@@ -138,18 +138,60 @@ export class MigrationChangedError extends Error {
   }
 }
 
-/** A claim older than this is a crashed runner's and no longer counts. */
+/**
+ * A claim whose holder has not renewed it for this long is a crashed runner's: it no longer counts, and the next
+ * acquire sweeps it. A LIVE runner renews its claim every LOCK_RENEW_SECONDS, so a migration that runs longer than
+ * the TTL keeps the lock (#628 review, finding 3). The longest expected run is the 0002 backfill over raw_events FINAL:
+ * seconds at today's volume, minutes at years of history — the renewal, not the TTL, is what covers it; the TTL only
+ * bounds how long a CRASHED runner blocks the next one.
+ */
 export const LOCK_TTL_SECONDS = 600;
+export const LOCK_RENEW_SECONDS = 120;
 
-async function acquireLock(db: ChClient, holder: string): Promise<void> {
+export interface LockOptions {
+  ttlSeconds?: number;
+  renewSeconds?: number;
+}
+
+/**
+ * The claim table: one row per claim and per renewal; a holder is live while its newest `renewed_at` is within the
+ * TTL, and the winner is the live holder with the OLDEST first claim (renewals never change who holds the lock).
+ */
+async function ensureLockTable(db: ChClient): Promise<void> {
   await db.command({
-    query: `CREATE TABLE IF NOT EXISTS _migrations_lock (holder String, acquired_at DateTime64(3, 'UTC') DEFAULT now64(3)) ENGINE = MergeTree ORDER BY acquired_at`,
+    query: `CREATE TABLE IF NOT EXISTS _migrations_lock (holder String, acquired_at DateTime64(3, 'UTC') DEFAULT now64(3), renewed_at DateTime64(3, 'UTC') DEFAULT now64(3)) ENGINE = MergeTree ORDER BY acquired_at`,
   });
+  // a lock table from before the renewal (#600 – #623) gains the column; its rows count as renewed when acquired
+  await db.command({
+    query: `ALTER TABLE _migrations_lock ADD COLUMN IF NOT EXISTS renewed_at DateTime64(3, 'UTC') DEFAULT acquired_at`,
+  });
+}
+
+async function acquireLock(db: ChClient, holder: string, ttl: number): Promise<void> {
+  await ensureLockTable(db);
+  // sweep the claims of runners that stopped renewing (crashed), never our own
+  const stale = (
+    await (
+      await db.query({
+        query: `SELECT holder FROM _migrations_lock GROUP BY holder HAVING max(renewed_at) <= now64(3) - toIntervalSecond({ttl:UInt32})`,
+        format: 'JSONEachRow',
+        query_params: { ttl },
+      })
+    ).json<{ holder: string }>()
+  )
+    .map((r) => r.holder)
+    .filter((h) => h !== holder);
+  if (stale.length > 0)
+    await db.command({
+      query: 'DELETE FROM _migrations_lock WHERE holder IN {stale:Array(String)}',
+      query_params: { stale },
+    });
   await db.insert({ table: '_migrations_lock', values: [{ holder }], format: 'JSONEachRow' });
   const live = await (
     await db.query({
-      query: `SELECT holder FROM _migrations_lock WHERE acquired_at > now64(3) - INTERVAL ${LOCK_TTL_SECONDS} SECOND ORDER BY acquired_at, holder LIMIT 1`,
+      query: `SELECT holder, min(acquired_at) AS first_claim FROM _migrations_lock GROUP BY holder HAVING max(renewed_at) > now64(3) - toIntervalSecond({ttl:UInt32}) ORDER BY first_claim, holder LIMIT 1`,
       format: 'JSONEachRow',
+      query_params: { ttl },
     })
   ).json<{ holder: string }>();
   const winner = live[0]?.holder;
@@ -159,9 +201,22 @@ async function acquireLock(db: ChClient, holder: string): Promise<void> {
   }
 }
 
+/** Keeps a live claim live while the migration runs; returns the stop function. */
+function renewLock(db: ChClient, holder: string, everySeconds: number): () => void {
+  const timer = setInterval(() => {
+    void db
+      .insert({ table: '_migrations_lock', values: [{ holder }], format: 'JSONEachRow' })
+      .catch(() => undefined); // a missed renewal is retried at the next tick; only a dead runner stops renewing
+  }, everySeconds * 1000);
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
+
 async function releaseLock(db: ChClient, holder: string): Promise<void> {
-  // the holder is a uuid we generated: safe to inline
-  await db.command({ query: `DELETE FROM _migrations_lock WHERE holder = '${holder}'` });
+  await db.command({
+    query: 'DELETE FROM _migrations_lock WHERE holder = {holder:String}',
+    query_params: { holder },
+  });
 }
 
 // ---- migrate -----------------------------------------------------------------------------------------------
@@ -183,13 +238,14 @@ export async function migrate(
   db: ChClient,
   database: string,
   files: readonly SqlFile[] = readSqlFiles(),
-  opts: { holder?: string } = {},
+  opts: { holder?: string } & LockOptions = {},
 ): Promise<MigrateResult> {
   const problems = lintSqlFiles(files);
   if (problems.length > 0) throw new Error(`refusing to migrate:\n${problems.join('\n')}`);
   await admin.command({ query: `CREATE DATABASE IF NOT EXISTS ${assertIdentifier(database)}` });
   const holder = opts.holder ?? randomUUID();
-  await acquireLock(db, holder);
+  await acquireLock(db, holder, opts.ttlSeconds ?? LOCK_TTL_SECONDS);
+  const stopRenewing = renewLock(db, holder, opts.renewSeconds ?? LOCK_RENEW_SECONDS);
   try {
     await db.command({
       query: `CREATE TABLE IF NOT EXISTS _migrations (name String, checksum String, applied_at DateTime64(3, 'UTC') DEFAULT now64(3)) ENGINE = ReplacingMergeTree(applied_at) ORDER BY name`,
@@ -226,6 +282,7 @@ export async function migrate(
     }
     return result;
   } finally {
+    stopRenewing();
     await releaseLock(db, holder);
   }
 }
