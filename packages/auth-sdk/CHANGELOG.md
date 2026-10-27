@@ -268,3 +268,25 @@ all`, `verifyEmail: true`, brute force on, no client secret, exact https callbac
   updateCustomer / createRefund / createReturn refused by the guard although `support` would allow them,
   analytics-sync on any write, the second layer, and a human support user unaffected. CONTRACT CHANGE #625 (later
   wave): a read-only `customer_reader` relation.
+
+## Unreleased — 2026-10-27 (auth/phase5-allowlist, #632)
+
+- Operation allowlist per service client: `SERVICE_CLIENT_OPERATIONS` (crm-sync admin `listCustomers` /
+  `getCustomer`; analytics-sync admin `getHqSalesReport` / `getHqFinanceReport`, finance `listJournalLines` /
+  `getTrialBalance` / `listPayouts` / `listParkedEvents`), `serviceClientMayCallOperation`,
+  `assertServiceClientOperation`; the staff token verifier refuses any other operation, or an unresolved one,
+  with 403 `service_client_operation_not_allowed` after the read-only check. `StaffRequestContext.api`
+  (`'admin' | 'finance'`), `ServiceApi`, refusal event `service_client_operation_refused`.
+- `createOperationMatcher` (`src/http/operation-matcher.ts`): contract operation from method + raw path, Express
+  4 semantics, literal-first, ambiguity refused at construction.
+- hq-rbac: `StaffScope.serviceRequest` (per request, never cached) and `handle()` refuses a mismatch between the
+  operation resolved before routing and its own (`service_client_operation_mismatch`), then applies the
+  allowlist to its own operation.
+- Integration exceptions (labelled commits): apps/core `staffAuthMiddleware` resolves the Admin API operation
+  before routing and passes `{ method, api: 'admin', operationId }` (+ a core test); apps/accounting passes
+  `api: 'finance'` and `req.method` as is.
+- `provision:service-accounts` / `provisionServiceAccounts` / `SERVICE_ACCOUNTS`: production staff_user rows +
+  role assignments, idempotent, dry run.
+- Tests: `test/operation-matcher.test.ts`, allowlist cases in `test/service-client-guard.test.ts`,
+  `test/service-accounts-provision.test.ts`; hq-rbac `test/operation-matcher.test.ts` (every operation, Express
+  agreement, allowlist safety) and the live allowlist cases in `test/service-clients.test.ts`.
