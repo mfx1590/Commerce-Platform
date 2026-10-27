@@ -14,8 +14,16 @@ export interface PeriodQuery {
 
 const n = (v: string | number | null | undefined): number =>
   v === null || v === undefined ? 0 : Number(v);
-const date = (v: Date | string | null): string | null =>
-  v === null ? null : v instanceof Date ? v.toISOString().slice(0, 10) : v;
+/**
+ * A `date` column, already text. node-postgres parses `date` as LOCAL midnight, so formatting a Date served every
+ * day one day early east of UTC (#627). Every date column is selected `::text` (`YYYY-MM-DD`, no time zone
+ * anywhere); a Date reaching this function is a query that forgot the cast, and it fails loudly instead of shifting.
+ */
+const date = (v: string | null): string | null => {
+  if (v !== null && typeof v !== 'string')
+    throw new TypeError('a date column must be selected ::text (#627)');
+  return v;
+};
 const ts = (v: Date | null): string | null => (v === null ? null : v.toISOString());
 
 /** The legal entity exists in the caller's organization (RLS decides what "exists" means). */
@@ -33,16 +41,16 @@ export async function listLegalEntityBooks(q: Queryable) {
     currencies: string[] | null;
     entries: string;
     unposted_entries: string;
-    first_entry_date: Date | null;
-    last_entry_date: Date | null;
+    first_entry_date: string | null;
+    last_entry_date: string | null;
     odoo_company_id: number | null;
   }>(
     `SELECT le.id AS legal_entity_id, le.code, le.name, le.currency AS reporting_currency, le.odoo_company_id,
             (SELECT array_agg(DISTINCT e.currency ORDER BY e.currency) FROM ledger_entry e WHERE e.legal_entity_id = le.id) AS currencies,
             (SELECT count(*)::text FROM ledger_entry e WHERE e.legal_entity_id = le.id) AS entries,
             (SELECT count(*)::text FROM ledger_entry e WHERE e.legal_entity_id = le.id AND e.posted_to_erp_at IS NULL) AS unposted_entries,
-            (SELECT min(e.entry_date) FROM ledger_entry e WHERE e.legal_entity_id = le.id) AS first_entry_date,
-            (SELECT max(e.entry_date) FROM ledger_entry e WHERE e.legal_entity_id = le.id) AS last_entry_date
+            (SELECT min(e.entry_date)::text FROM ledger_entry e WHERE e.legal_entity_id = le.id) AS first_entry_date,
+            (SELECT max(e.entry_date)::text FROM ledger_entry e WHERE e.legal_entity_id = le.id) AS last_entry_date
        FROM legal_entity le ORDER BY le.code`,
   );
   return r.rows.map((row) => ({
@@ -151,7 +159,7 @@ export async function listJournalLines(q: Queryable, legalEntityId: string, f: J
     legal_entity_id: string;
     store_id: string | null;
     journal: string;
-    entry_date: Date;
+    entry_date: string;
     account_code: string;
     account_name: string | null;
     debit_minor: string;
@@ -166,7 +174,7 @@ export async function listJournalLines(q: Queryable, legalEntityId: string, f: J
     created_at: Date;
     total: string;
   }>(
-    `SELECT e.id, e.legal_entity_id, e.store_id, e.journal, e.entry_date, e.account_code, a.name AS account_name,
+    `SELECT e.id, e.legal_entity_id, e.store_id, e.journal, e.entry_date::text AS entry_date, e.account_code, a.name AS account_name,
             e.debit_minor::text, e.credit_minor::text, e.currency, e.source_event_id, e.source_topic, e.reference_type,
             e.reference_id, e.posted_to_erp_at, e.erp_reference, e.created_at, count(*) OVER()::text AS total
        FROM ledger_entry e
@@ -248,7 +256,7 @@ interface PayoutRow {
   provider_payout_id: string;
   currency: string;
   amount_minor: string;
-  arrival_date: Date;
+  arrival_date: string;
   status: string;
   line_count: number;
   matched_count: number;
@@ -260,7 +268,7 @@ interface PayoutRow {
 }
 
 const PAYOUT_SELECT = `SELECT p.id, p.legal_entity_id, p.provider, p.provider_payout_id, p.currency, p.amount_minor::text,
-            p.arrival_date, p.status, p.line_count, p.matched_count, p.posted_at, p.imported_at, p.reconciled_at,
+            p.arrival_date::text AS arrival_date, p.status, p.line_count, p.matched_count, p.posted_at, p.imported_at, p.reconciled_at,
             (SELECT count(*)::text FROM psp_payout_line l WHERE l.payout_id = p.id AND l.match_status <> 'matched') AS discrepancy_count`;
 
 const payoutOf = (row: PayoutRow) => ({
@@ -323,7 +331,7 @@ export async function getPayout(
     fee_minor: string;
     net_minor: string;
     currency: string;
-    available_on: Date | null;
+    available_on: string | null;
     matched_reference_type: string | null;
     matched_reference_id: string | null;
     match_status: string;
@@ -331,8 +339,8 @@ export async function getPayout(
     total: string;
   }>(
     `SELECT id, provider_txn_id, kind, provider_reference, amount_minor::text, fee_minor::text, net_minor::text, currency,
-            available_on, matched_reference_type, matched_reference_id, match_status, difference_minor::text, count(*) OVER()::text AS total
-       FROM psp_payout_line WHERE payout_id = $1 ORDER BY available_on, provider_txn_id
+            available_on::text AS available_on, matched_reference_type, matched_reference_id, match_status, difference_minor::text, count(*) OVER()::text AS total
+       FROM psp_payout_line l WHERE l.payout_id = $1 ORDER BY l.available_on, l.provider_txn_id
       LIMIT $2 OFFSET $3`,
     [payoutId, p.limit, (p.page - 1) * p.limit],
   );
@@ -369,7 +377,7 @@ export async function erpSyncStatus(q: Queryable, legalEntityId: string) {
     unmapped_codes: string[] | null;
     entries: string;
     posted_entries: string;
-    oldest_unposted_entry_date: Date | null;
+    oldest_unposted_entry_date: string | null;
     last_posted_at: Date | null;
   }>(
     `SELECT le.odoo_company_id,
@@ -378,7 +386,7 @@ export async function erpSyncStatus(q: Queryable, legalEntityId: string) {
             (SELECT array_agg(a.code ORDER BY a.code) FROM ledger_account a WHERE a.legal_entity_id = le.id AND a.erp_account_id IS NULL) AS unmapped_codes,
             (SELECT count(*)::text FROM ledger_entry e WHERE e.legal_entity_id = le.id) AS entries,
             (SELECT count(*)::text FROM ledger_entry e WHERE e.legal_entity_id = le.id AND e.posted_to_erp_at IS NOT NULL) AS posted_entries,
-            (SELECT min(e.entry_date) FROM ledger_entry e WHERE e.legal_entity_id = le.id AND e.posted_to_erp_at IS NULL) AS oldest_unposted_entry_date,
+            (SELECT min(e.entry_date)::text FROM ledger_entry e WHERE e.legal_entity_id = le.id AND e.posted_to_erp_at IS NULL) AS oldest_unposted_entry_date,
             (SELECT max(e.posted_to_erp_at) FROM ledger_entry e WHERE e.legal_entity_id = le.id) AS last_posted_at
        FROM legal_entity le WHERE le.id = $1`,
     [legalEntityId],
