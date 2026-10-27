@@ -1,6 +1,6 @@
 # Memory 9 — Search, media, promotions
 Window: 9 · Key: `search` · Branch prefix: `search/` · Model: Opus 5
-Last updated: 2026-10-25 · Contracts: **contracts-v0.4.28** on main · Branch: `search/phase5` (cut from origin/main `cadaeba`) · Status: **#621 review fixes pushed; otherwise IDLE.** The Fable review of #621 was MERGE with three findings; all three are fixed plus a fourth the audit found (the read client sent a readonly-forbidden setting). 50 tests, full core suite 1235 passed / 9 skipped. REQUEST #624 open (window 1, route mount). Waiting on the manager for two things only: switch on the ClickHouse test when #619 lands, file #609 to window 3 when #621 merges. Phase 2 is complete and merged (2.1–2.5 via #160, #166, #188, #208, #211).
+Last updated: 2026-10-27 · Contracts: **contracts-v0.4.29** (landed on `integration/phase5-recommendations`; 0.4.28 was the last tag on main when I started) · Branch: `search/phase5` · Status: **IDLE — everything of mine is in #621.** The Fable review of #621 was MERGE with three findings; all three are fixed plus a fourth the audit found (the read client sent a readonly-forbidden setting). 50 tests, full core suite 1235 passed / 9 skipped. My commits in #621: `4d8d9ba` (= my e978019) and `8fc70e5` (= my 86d0fc5, cherry-picked 2026-10-27); a targeted Fable re-review of 8fc70e5, then CI, then the queue after #626/#628. REQUEST #624 open (window 1, route mount). **Two triggers, both the manager's word: #628 landing → switch on `CORE_RECOMMENDATIONS_CLICKHOUSE_TESTS`; #621 merging → file #609 for window 3.** Phase 2 is complete and merged (2.1–2.5 via #160, #166, #188, #208, #211).
 
 ## PHASE 5 DOCKET (written by the manager, 2026-10-25, Manager session nine) — READ THIS FIRST ON RESUME
 You reopen in Phase 5 wave 2 for **#607** P5.8 recommendations (plan `docs/plan/phase5-plan.md` D10; tracking #612).
@@ -106,7 +106,9 @@ Algolia index per brand synced from product.published events, merchandising rule
   assertion really catches both shapes from the gotcha. Tests 24 + 12 + 14 (1 skipped). Full core suite
   **1235 passed / 9 skipped, exit 0**; core lint, core typecheck, root `prettier --check .` clean.
 - [ ] **Step 4 — on the manager's word, in this order:** switch on the ClickHouse-backed test
-  (`CORE_RECOMMENDATIONS_CLICKHOUSE_TESTS=1`) when he says #619 has landed; file the #609 REQUEST to window 3 once
+  (`CORE_RECOMMENDATIONS_CLICKHOUSE_TESTS=1`) when he says **#628** has landed — he said #619 on 10-27 and then
+  corrected the trigger to **#628**, so wait for his word and do not infer it from an issue number; file the
+  #609 REQUEST to window 3 once
   **#621 merges**. #621's review is Fable's, after ~14:00 UTC 2026-10-27. Nothing to do until then.
 - [ ] Earlier plan, kept for reference:
   1. The job file MUST export a `config` (Medusa's job loader — see the #202/#203 gotcha below); the heavy lifting
