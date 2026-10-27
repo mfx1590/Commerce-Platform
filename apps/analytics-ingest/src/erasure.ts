@@ -100,6 +100,24 @@ export function scrubPayload(
   return out ? { payload: out, changed: true } : { payload, changed: false };
 }
 
+/** A customer event's aggregate_id is the customer id: erased like the payload field (an empty string, the column is not nullable). */
+export function scrubAggregateId(
+  aggregateType: string,
+  aggregateId: string,
+  store: string | null,
+  index: ErasureIndex,
+  extra?: ErasedCustomer,
+): string {
+  if (aggregateType !== 'customer' || aggregateId === '') return aggregateId;
+  for (const kind of ['customer', 'identity'] as const)
+    if (
+      index.has(store, kind, aggregateId) ||
+      (extra !== undefined && matches(extra, kind, aggregateId))
+    )
+      return '';
+  return aggregateId;
+}
+
 export interface ErasedCustomer {
   organizationId: string;
   /** null = every store of the organization. */
@@ -208,6 +226,14 @@ export async function applyErasure(
         params[name] = i.value;
         conditions.push(`JSONExtractString(payload, '${field}') = {${name}:String}`);
       });
+  // a customer event's aggregate_id IS the customer id
+  c.identifiers
+    .filter((i) => i.kind === 'customer' || i.kind === 'identity')
+    .forEach((i) => {
+      const name = `v${conditions.length}`;
+      params[name] = i.value;
+      conditions.push(`(aggregate_type = 'customer' AND aggregate_id = {${name}:String})`);
+    });
   if (conditions.length === 0) return { digests: digests.length, rewritten: 0 };
   const scope = c.storeId ? 'store_id = {store:UUID}' : 'organization_id = {org:UUID}';
   const hits = await (
@@ -226,9 +252,10 @@ export async function applyErasure(
   // 4. re-insert the latest version of each, scrubbed, one millisecond after any version it may have
   const stored = await (
     await deps.ch.query({
-      query: `SELECT topic, version, toString(event_id) AS event_id, toString(organization_id) AS organization_id,
-                     if(isNull(store_id), NULL, toString(store_id)) AS store_id, aggregate_type, aggregate_id,
-                     toString(occurred_at) AS occurred_at, toString(published_at) AS published_at, payload
+      // raw columns, NO aliases: an alias named like a column (toString(event_id) AS event_id) would shadow it in the
+      // WHERE and match nothing (JSON renders UUIDs and DateTime64 as strings anyway)
+      query: `SELECT topic, version, event_id, organization_id, store_id, aggregate_type, aggregate_id, occurred_at,
+                     published_at, payload
               FROM ${table} FINAL WHERE event_id IN {ids:Array(UUID)}`,
       format: 'JSONEachRow',
       query_params: { ids },
@@ -236,8 +263,14 @@ export async function applyErasure(
     })
   ).json<Omit<RawEventRow, 'ingested_at'>>();
   const at = toClickHouseTime(new Date((deps.now?.() ?? new Date()).getTime() + 1));
+  // never delete what was not rewritten: every matched event must come back scrubbed first
+  if (new Set(stored.map((r) => r.event_id)).size !== ids.length)
+    throw new ErasureConfigError(
+      `erasure: matched ${ids.length} events but read back ${stored.length}; nothing deleted`,
+    );
   const rows: RawEventRow[] = stored.map((r) => ({
     ...r,
+    aggregate_id: scrubAggregateId(r.aggregate_type, r.aggregate_id, r.store_id, deps.index, c),
     payload: JSON.stringify(
       scrubPayload(JSON.parse(r.payload) as Record<string, unknown>, r.store_id, deps.index, c)
         .payload,

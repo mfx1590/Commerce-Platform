@@ -119,6 +119,13 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   rotation documented (rebuild from the core OUTBOX via outbox:replay --topic customer.erased: the bus keeps
   customer.* only 30 days); always fail closed; E bus retention = #629 (window 14 + lawyer list).
   NEXT: the live run (erasure.test 4 ClickHouse tests + models + live + gate) once window 15 frees the machine.
+- #623 LIVE (manager's machine, 2026-10-27): the first run found a DATA-LOSS bug — applyErasure's re-read used
+  `toString(event_id) AS event_id`, which shadowed the column in `WHERE event_id IN (…)` (the 3rd alias-shadow of
+  this phase), so nothing was re-inserted and the DELETE removed the erased customer's orders. Fixed (raw columns,
+  no aliases) + a GUARD: never DELETE unless every matched event was read back and re-inserted scrubbed. Also:
+  customer events' envelope aggregate_id IS the customer id → scrubbed too (scrubAggregateId); processes check
+  excludes queryID(); mart_customers_daily count columns allowed in the PII-name test. Then: erasure 9 + models 11
+  + live 4 = 24/24 TWICE, gate 3/3 every identity 0, cleanup 0/0/0/0, root lint/typecheck/prettier green.
 - Gotchas: the Finance API `to` is INCLUSIVE, the Admin API report `to` EXCLUSIVE (clients translate);
   getHqFinanceReport has no day dimension (3a asks one day at a time); the order display_id trigger numbers
   display_id 0 (a generated month's display ids collide per store).
@@ -222,6 +229,10 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   files, the manager routes it to window 1 — not mine.
 
 ## Gotchas learned
+- ClickHouse ALIAS SHADOWING (bit three times in Phase 5): an output alias with a column's name (`toString(x) AS x`,
+  `coalesce(sum(f),0) AS f`) replaces the column in WHERE / GROUP BY / other expressions of the same SELECT. Never
+  alias a column to its own name; select raw columns (JSON renders UUID/DateTime64 as strings) or use out_* names.
+- A destructive step (DELETE) must be guarded by a read-back of what the constructive step (re-insert) wrote.
 - CI's `lint + typecheck` job runs `format:check` (prettier) over the WHOLE repo; a package's `eslint` does not.
   data/clickhouse/README.md failed it on #616/#618 (manager fixed it in 5069bd2 on the integration branch). Before
   every push: `pnpm exec prettier --check .` at the root. Expect a README conflict with 5069bd2 when merging main.

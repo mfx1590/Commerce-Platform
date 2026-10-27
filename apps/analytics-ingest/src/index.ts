@@ -75,3 +75,21 @@ export {
 export type { PulledLedger, ReconcileWindow } from './reconcile/identities.js';
 export { reconcile, renderReport, SHOWN_DIFFERENCES } from './reconcile/run.js';
 export type { ReconcileResult } from './reconcile/run.js';
+export {
+  applyErasure,
+  createErasureIndex,
+  erasedCustomerOf,
+  ERASURE_SETTINGS,
+  ErasureConfigError,
+  IDENTIFIER_FIELDS,
+  loadErasures,
+  scrubAggregateId,
+  scrubPayload,
+} from './erasure.js';
+export type {
+  ApplyErasureDeps,
+  ErasedCustomer,
+  ErasureIndex,
+  ErasureResult,
+  IdentifierKind,
+} from './erasure.js';

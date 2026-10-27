@@ -14,7 +14,7 @@ import {
   type RawMessage,
   type Validator,
 } from '@platform/events';
-import { scrubPayload, type ErasureIndex } from './erasure.js';
+import { scrubAggregateId, scrubPayload, type ErasureIndex } from './erasure.js';
 
 const KNOWN = new Set(Object.keys(EVENT_SCHEMAS));
 
@@ -152,7 +152,14 @@ export function classify(
       organization_id: envelope.organization_id,
       store_id: envelope.store_id,
       aggregate_type: envelope.aggregate_type,
-      aggregate_id: envelope.aggregate_id,
+      aggregate_id: ctx.erasures
+        ? scrubAggregateId(
+            envelope.aggregate_type,
+            envelope.aggregate_id,
+            envelope.store_id,
+            ctx.erasures,
+          )
+        : envelope.aggregate_id,
       occurred_at: toClickHouseTime(new Date(envelope.occurred_at)),
       published_at: toClickHouseTime(
         Number.isFinite(publishedMs) ? new Date(publishedMs) : ctx.now,

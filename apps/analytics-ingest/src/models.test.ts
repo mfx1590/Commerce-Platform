@@ -386,7 +386,13 @@ describe.runIf(skip === null)('ClickHouse models on the generated month', () => 
     );
     // the one allowed: the pseudonymous, erasure-aware customer key (#623), in the order staging view and fct_order
     // only, never returned by any operation; erasure.test.ts proves it goes NULL for an erased customer
-    const allowed = new Set(['stg_order_placed_v1.customer_key', 'fct_order.customer_key']);
+    const allowed = new Set([
+      'stg_order_placed_v1.customer_key',
+      'fct_order.customer_key',
+      // counts, not identifiers (#603 new vs returning)
+      'mart_customers_daily.new_customers',
+      'mart_customers_daily.returning_customers',
+    ]);
     expect(rows.filter((r) => !allowed.has(`${r.table}.${r.name}`))).toEqual([]);
   });
 });

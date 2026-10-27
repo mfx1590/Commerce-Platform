@@ -315,8 +315,11 @@ describe.runIf(skip === null)('customer.erased in ClickHouse (#623)', () => {
         `SELECT count() AS n FROM system.tables WHERE database = 'system' AND name = '${log}'`,
       );
       if (Number(exists[0]!.n) === 0) continue;
+      // processes lists this very query (its parameters included): exclude it
       const timeFilter =
-        log === 'processes' ? '1' : "event_time >= toDateTime({since:String}, 'UTC')";
+        log === 'processes'
+          ? 'query_id != queryID()'
+          : "event_time >= toDateTime({since:String}, 'UTC')";
       const queryCol = log === 'query_views_log' ? 'view_query' : 'query';
       const r = (
         await (
