@@ -219,7 +219,7 @@ describe.runIf(fgaUp && dbUp)('hq-rbac roles (live Postgres + OpenFGA)', () => {
     expect(await check(U.storeAdmin, 'store_admin', `store:${S.brandC}`)).toBe(false);
   });
 
-  it('owner lists users (7 seeded, searchable, paged) and a user’s roles', async () => {
+  it('owner lists users (9 seeded: 7 people + 2 service accounts, #565 / #622; searchable, paged) and a user’s roles', async () => {
     const all = await rbac.handle({ method: 'GET', path: '/admin/users', principal: owner });
     expect(all?.status).toBe(200);
     const page = all!.body as {
@@ -228,7 +228,7 @@ describe.runIf(fgaUp && dbUp)('hq-rbac roles (live Postgres + OpenFGA)', () => {
       total: number;
       items: { email: string }[];
     };
-    expect(page.total).toBe(7);
+    expect(page.total).toBe(9);
     expect(page.items.map((u) => u.email)).toContain('store-admin@example.com');
 
     const q = await rbac.handle({

@@ -32,6 +32,11 @@ export const SEED_IDS = {
     support: '00000000-0000-4000-8000-000000000046',
     analyst: '00000000-0000-4000-8000-000000000047',
   },
+  /** Service accounts (#565, #622): staff_user rows whose Keycloak user is a client's service account. */
+  serviceAccounts: {
+    crmSync: '00000000-0000-4000-8000-000000000061',
+    analyticsSync: '00000000-0000-4000-8000-000000000062',
+  },
   /** Plain publishable keys for local dev (`X-Publishable-Key`). Hashed in the database. */
   publishableKeys: {
     brandA: 'pk_brand-a_dev_00000000000000000000',
@@ -448,6 +453,29 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
       ['id', 'organization_id', 'keycloak_subject', 'email', 'display_name'],
       USERS.map((u) => [u.id, org, `seed-${u.key}`, u.email, u.name]),
     );
+    // Service accounts (#565, #622): the realm export pins each client's service-account user to `seed-<clientId>`,
+    // so the token's sub resolves to these rows. Least privilege lives in the role rows below (no Keycloak roles).
+    await bulk(
+      tx,
+      'staff_user',
+      ['id', 'organization_id', 'keycloak_subject', 'email', 'display_name'],
+      [
+        [
+          SEED_IDS.serviceAccounts.crmSync,
+          org,
+          'seed-crm-sync',
+          'crm-sync@service.invalid',
+          'CRM sync (service)',
+        ],
+        [
+          SEED_IDS.serviceAccounts.analyticsSync,
+          org,
+          'seed-analytics-sync',
+          'analytics-sync@service.invalid',
+          'Analytics sync (service)',
+        ],
+      ],
+    );
     await bulk(
       tx,
       'store',
@@ -497,8 +525,20 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
       ['organization_id', 'staff_user_id', 'relation', 'object_type', 'object_id'],
       USERS.flatMap((u) => u.objectIds.map((o) => [org, u.id, u.relation, u.objectType, o])),
     );
+    // The mirror of the service accounts' OpenFGA tuples (ADR 0002): crm-sync support on brand A; analytics-sync
+    // analyst + finance on the organization (neither implies the other in model.fga).
+    await bulk(
+      tx,
+      'role_assignment',
+      ['organization_id', 'staff_user_id', 'relation', 'object_type', 'object_id'],
+      [
+        [org, SEED_IDS.serviceAccounts.crmSync, 'support', 'store', SEED_IDS.stores.brandA],
+        [org, SEED_IDS.serviceAccounts.analyticsSync, 'analyst', 'organization', org],
+        [org, SEED_IDS.serviceAccounts.analyticsSync, 'finance', 'organization', org],
+      ],
+    );
   });
-  log('organization, legal entities, warehouses, stores, 7 staff users');
+  log('organization, legal entities, warehouses, stores, 7 staff users, 2 service accounts');
 
   for (const s of STORES) {
     const storeId = SEED_IDS.stores[s.key];

@@ -3,7 +3,13 @@
 // subject must be an active staff_user, and the operation's `x-permission` (`finance` on `organization:hq`) is asked
 // of OpenFGA for that staff_user.id — a store admin, however many stores, is a 403. OpenFGA unreachable = 503, fail
 // closed. UI gating is a convenience; this is the boundary.
-import { bearerToken, can, createStaffTokenVerifier, isApiError } from '@platform/auth-sdk';
+import {
+  bearerToken,
+  can,
+  createStaffTokenVerifier,
+  isApiError,
+  type StaffRequestContext,
+} from '@platform/auth-sdk';
 import type { ScopedClient } from '@platform/db';
 
 export class ApiError extends Error {
@@ -24,8 +30,15 @@ export interface Principal {
 }
 
 export interface FinanceAuth {
-  /** 401 without a valid token / active staff row; the principal otherwise. */
-  authenticate(authorization: string | undefined): Promise<Principal>;
+  /**
+   * 401 without a valid token / active staff row; the principal otherwise. `request` (method + operationId) lets
+   * auth-sdk's read-only service-client guard (#565 / #622) refuse a write with 403 — and a service token outright
+   * without it.
+   */
+  authenticate(
+    authorization: string | undefined,
+    request?: StaffRequestContext,
+  ): Promise<Principal>;
   /** 403 (contract shape, details { relation, object }) unless OpenFGA grants the relation; 503 when it cannot answer. */
   authorize(principal: Principal, permission: { relation: string; object: string }): Promise<void>;
 }
@@ -36,7 +49,7 @@ export interface FinanceAuthOptions {
   keycloakUrl?: string;
   keycloakRealm?: string;
   /** Test seam; default `createStaffTokenVerifier`. */
-  verifier?: { verify(token: string): Promise<{ subject: string }> };
+  verifier?: { verify(token: string, request?: StaffRequestContext): Promise<{ subject: string }> };
   /** Test seam; default auth-sdk's `can(staffUserId, relation, object)` against OpenFGA. */
   permission?: (staffUserId: string, relation: string, object: string) => Promise<boolean>;
   env?: NodeJS.ProcessEnv;
@@ -55,7 +68,7 @@ export function createFinanceAuth(options: FinanceAuthOptions): FinanceAuth {
       can(staffUserId, relation as Parameters<typeof can>[1], object));
 
   return {
-    async authenticate(authorization) {
+    async authenticate(authorization, request) {
       const token = bearerToken(authorization);
       if (!token) throw new ApiError(401, 'unauthorized', 'Missing bearer token');
       let subject: string;
@@ -76,8 +89,11 @@ export function createFinanceAuth(options: FinanceAuthOptions): FinanceAuth {
           ...(options.keycloakRealm ? { realm: options.keycloakRealm } : {}),
         });
         try {
-          subject = (await verifier.verify(token)).subject;
+          subject = (await verifier.verify(token, request)).subject;
         } catch (err) {
+          // The read-only service-client guard's 403 keeps its code and details (the reason names the layer).
+          if (isApiError(err) && err.status === 403)
+            throw new ApiError(403, 'forbidden', err.message, err.details);
           if (isApiError(err)) throw new ApiError(err.status, 'unauthorized', err.message);
           throw err;
         }
