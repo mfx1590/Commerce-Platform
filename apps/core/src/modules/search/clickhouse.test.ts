@@ -44,6 +44,61 @@ function stubFetch(bodies: string[]) {
 
 const jsonl = (rows: unknown[]) => rows.map((r) => JSON.stringify(r)).join('\n');
 
+/**
+ * Every name a statement binds. ClickHouse resolves aliases everywhere in a query, so an output alias that
+ * repeats a CTE name, a table alias or a source column silently changes what the statement means (Memory-main
+ * global gotcha: three bugs in Phase 5, one of them a data-loss path). None of this SQL has ever executed, so
+ * the guard is static.
+ */
+function namesOf(sql: string): { scope: Set<string>; outputs: Set<string> } {
+  const scope = new Set<string>();
+  for (const m of sql.matchAll(/\bWITH\s+(\w+)\s+AS\s*\(/g)) scope.add(m[1] as string);
+  for (const m of sql.matchAll(/\b(?:FROM|JOIN)\s+[\w.]+\s+AS\s+(\w+)/g)) scope.add(m[1] as string);
+  const outputs = new Set<string>();
+  for (const m of sql.matchAll(/\bAS\s+(\w+)/g)) {
+    const before = sql.slice(0, m.index).trimEnd();
+    // Skip the two alias-DECLARING forms; what is left is a SELECT output alias.
+    if (/\b(?:WITH|FROM|JOIN)\s+[\w.]+$/.test(before) || /\bWITH$/.test(before)) continue;
+    outputs.add(m[1] as string);
+  }
+  return { scope, outputs };
+}
+
+/** The `fct_order_line` columns this job reads (#601's binding interface). */
+const SOURCE_COLUMNS = [
+  'organization_id',
+  'store_id',
+  'order_id',
+  'order_line_item_id',
+  'variant_id',
+  'product_id',
+  'sku',
+  'quantity',
+  'unit_price_minor',
+  'discount_minor',
+  'tax_minor',
+  'total_minor',
+  'currency',
+  'placed_at',
+  'order_status',
+  'source_event_id',
+];
+
+/** Asserts a statement aliases nothing to a name it already uses for something else. */
+function expectNoAliasShadowing(sql: string): void {
+  const { scope, outputs } = namesOf(sql);
+  for (const out of outputs) {
+    expect(
+      scope,
+      `output alias "${out}" collides with a CTE or table alias in: ${sql}`,
+    ).not.toContain(out);
+    expect(
+      SOURCE_COLUMNS,
+      `output alias "${out}" repeats a fct_order_line column in: ${sql}`,
+    ).not.toContain(out);
+  }
+}
+
 describe('ClickHouseClient', () => {
   it('binds parameters through param_* and never interpolates them into the SQL', async () => {
     const { impl, calls } = stubFetch([jsonl([{ n: '1' }])]);
@@ -53,11 +108,26 @@ describe('ClickHouseClient', () => {
     const call = calls[0] as { url: string; sql: string };
     expect(call.url).toContain(`param_storeId=${STORE}`);
     expect(call.url).toContain('param_lookbackDays=90');
-    expect(call.url).toContain('default_format=JSONEachRow');
     expect(call.url).toContain('database=analytics');
     // The store id is a parameter, not part of the statement.
-    expect(call.sql).toBe('SELECT {storeId:UUID} AS n');
+    expect(call.sql).toContain('SELECT {storeId:UUID} AS n');
     expect(call.sql).not.toContain(STORE);
+  });
+
+  it('sends no per-query setting, because analytics_ro is readonly = 1', async () => {
+    const { impl, calls } = stubFetch([jsonl([{ n: '1' }])]);
+    const client = new ClickHouseClient({ ...CREDS, fetchImpl: impl });
+    await client.query('SELECT 1 AS n');
+
+    const call = calls[0] as { url: string; sql: string };
+    // `default_format` is a SETTING: a readonly user answers "Cannot modify … in readonly mode". The format
+    // belongs in the statement instead. Only `database` and the param_* bindings may be in the URL.
+    expect(call.url).not.toContain('default_format');
+    expect(call.sql.trimEnd().endsWith('FORMAT JSONEachRow')).toBe(true);
+    const settings = [...new URL(call.url).searchParams.keys()].filter(
+      (k) => k !== 'database' && !k.startsWith('param_'),
+    );
+    expect(settings).toEqual([]);
   });
 
   it('parses JSONEachRow and ignores blank lines', async () => {
@@ -95,12 +165,12 @@ describe('ClickHouseClient', () => {
 
   it('builds the three aggregates a rebuild needs', async () => {
     const { impl, calls } = stubFetch([
-      jsonl([{ baskets: '10' }]),
+      jsonl([{ total_baskets: '10' }]),
       jsonl([
-        { product_id: 'p1', baskets: '6' },
-        { product_id: 'p2', baskets: '5' },
+        { product_id: 'p1', product_baskets: '6' },
+        { product_id: 'p2', product_baskets: '5' },
       ]),
-      jsonl([{ a: 'p1', b: 'p2', baskets: '4' }]),
+      jsonl([{ pa: 'p1', pb: 'p2', pair_baskets: '4' }]),
     ]);
     const source = new ClickHouseBasketSource(new ClickHouseClient({ ...CREDS, fetchImpl: impl }));
     const counts = await source.counts(STORE, DEFAULT_THRESHOLDS);
@@ -113,11 +183,50 @@ describe('ClickHouseClient', () => {
       expect(c.sql).toContain("order_status != 'cancelled'");
       expect(c.sql).toContain('product_id IS NOT NULL');
     }
-    expect(calls[2]?.sql).toContain('HAVING baskets >= {minSupport:UInt32}');
+    expect(calls[2]?.sql).toContain('HAVING pair_baskets >= {minSupport:UInt32}');
+  });
+
+  it('aliases nothing to a name the same statement already uses (ClickHouse alias shadowing)', async () => {
+    const { impl, calls } = stubFetch([
+      jsonl([{ total_baskets: '10' }]),
+      jsonl([{ product_id: 'p1', product_baskets: '6' }]),
+      jsonl([{ pa: 'p1', pb: 'p2', pair_baskets: '4' }]),
+    ]);
+    const source = new ClickHouseBasketSource(new ClickHouseClient({ ...CREDS, fetchImpl: impl }));
+    await source.counts(STORE, DEFAULT_THRESHOLDS);
+    await source.units(STORE, 7);
+
+    expect(calls.length).toBe(4);
+    for (const c of calls) expectNoAliasShadowing(c.sql);
+  });
+
+  it('the shadowing guard itself catches the shapes that bit Phase 5', () => {
+    // The exact bug this file shipped with: the output aliases repeated the table aliases, and `baskets`
+    // repeated the CTE name.
+    expect(() =>
+      expectNoAliasShadowing(
+        `WITH baskets AS (SELECT order_id, product_id FROM fct_order_line)
+         SELECT a.product_id AS a, b.product_id AS b, count() AS baskets
+         FROM baskets AS a INNER JOIN baskets AS b ON a.order_id = b.order_id
+         GROUP BY a, b`,
+      ),
+    ).toThrow();
+    // The gotcha's other shape: a computed value aliased to a source column's name.
+    expect(() =>
+      expectNoAliasShadowing(`SELECT toString(product_id) AS product_id FROM fct_order_line`),
+    ).toThrow();
+    // And it passes the real thing.
+    expect(() =>
+      expectNoAliasShadowing(
+        `WITH basket_lines AS (SELECT order_id, product_id FROM fct_order_line)
+         SELECT left_line.product_id AS pa, count() AS pair_baskets
+         FROM basket_lines AS left_line GROUP BY pa`,
+      ),
+    ).not.toThrow();
   });
 
   it('asks for no pair work at all when the store has no baskets', async () => {
-    const { impl, calls } = stubFetch([jsonl([{ baskets: '0' }])]);
+    const { impl, calls } = stubFetch([jsonl([{ total_baskets: '0' }])]);
     const source = new ClickHouseBasketSource(new ClickHouseClient({ ...CREDS, fetchImpl: impl }));
     const counts = await source.counts(STORE, DEFAULT_THRESHOLDS);
     expect(counts.basketCount).toBe(0);

@@ -5,6 +5,25 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 5 — search/phase5 (contracts-v0.4.29)
 
+### 2026-10-27 · #621 review fixes (Fable review = MERGE, three findings)
+
+- **`clickhouse.ts` alias shadowing (the review's finding, and it was wider than the line flagged).** The pair
+  query aliased its outputs `a` / `b`, the same names as its two table aliases, and all three CTE queries
+  aliased a count to `baskets` — the CTE's own name. ClickHouse resolves aliases everywhere in a statement, so
+  none of this meant what it reads as (Memory-main: three bugs in Phase 5, one a data-loss path). Every name is
+  now distinct: `basket_lines`, `left_line` / `right_line`, `total_baskets` / `product_baskets` / `pa` / `pb` /
+  `pair_baskets` / `sold_units`. A static test asserts no output alias repeats a CTE name, a table alias or an
+  `fct_order_line` column, in every statement the source builds — with a mutation check that the assertion
+  catches both shapes from the gotcha. None of this SQL has executed yet, so a static guard is the only guard.
+- **`clickhouse.ts` sent a per-query setting** (found while auditing for the above, not in the review).
+  `default_format` is a ClickHouse _setting_, and `analytics_ro` is `readonly = 1`, which refuses any — the
+  first real query would have failed. The format moved into the statement (`FORMAT JSONEachRow`); only
+  `database` and the `param_*` bindings remain in the URL, matching `apps/analytics-ingest`'s read-only client.
+- **`CORE_RECOMMENDATIONS_MIN_LIFT` ≤ 1 is now a configuration error** with a message that says why (1.0 means
+  "no more likely than chance", so such a floor recommends pairs carrying no signal). Was: only ≤ 0 refused.
+- **The dry run reported the raw candidate count**, not what a run would write, and hard-coded the popular
+  windows to 0. It now reports post-threshold rows for both kinds, so `--dry-run` is comparable with a real run.
+
 ### 2026-10-27 · P5.8 recommendations (#607)
 
 - `recommendations-types.ts` — thresholds and the pure maths: co-occurrence counts from baskets, lift, the

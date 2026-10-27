@@ -1,6 +1,6 @@
 # Memory 9 — Search, media, promotions
 Window: 9 · Key: `search` · Branch prefix: `search/` · Model: Opus 5
-Last updated: 2026-10-25 · Contracts: **contracts-v0.4.28** on main · Branch: `search/phase5` (cut from origin/main `cadaeba`) · Status: **IDLE — #607 code accepted and in #621.** `d4c0c7b` (job + read path + router + 43 tests, all gates green) is in #621 `integration/phase5-recommendations`, with the manager's `225d0d2` on top; its review is Fable's, after ~14:00 UTC 2026-10-27. REQUEST #624 filed (window 1, route mount). Waiting on the manager for two things only: switch on the ClickHouse test when #619 lands, file #609 to window 3 when #621 merges. Phase 2 is complete and merged (2.1–2.5 via #160, #166, #188, #208, #211).
+Last updated: 2026-10-25 · Contracts: **contracts-v0.4.28** on main · Branch: `search/phase5` (cut from origin/main `cadaeba`) · Status: **#621 review fixes pushed; otherwise IDLE.** The Fable review of #621 was MERGE with three findings; all three are fixed plus a fourth the audit found (the read client sent a readonly-forbidden setting). 50 tests, full core suite 1235 passed / 9 skipped. REQUEST #624 open (window 1, route mount). Waiting on the manager for two things only: switch on the ClickHouse test when #619 lands, file #609 to window 3 when #621 merges. Phase 2 is complete and merged (2.1–2.5 via #160, #166, #188, #208, #211).
 
 ## PHASE 5 DOCKET (written by the manager, 2026-10-25, Manager session nine) — READ THIS FIRST ON RESUME
 You reopen in Phase 5 wave 2 for **#607** P5.8 recommendations (plan `docs/plan/phase5-plan.md` D10; tracking #612).
@@ -89,6 +89,22 @@ Algolia index per brand synced from product.published events, merchandising rule
     not build a second one.
   - #624 (the mount, before the fallback proxy) stays with window 1.
   - Do NOT open a `search/phase5` → main PR. Do not merge main again now.
+- [x] **#621 REVIEW FIXES (2026-10-27, Fable review = MERGE with three findings; one push, as asked).**
+  1. **Alias shadowing in `clickhouse.ts` — wider than the line flagged.** The reviewer caught
+     `a.product_id AS a` / `b.product_id AS b` over the table aliases `a`/`b`; the audit he asked for found that
+     **all three CTE queries** also aliased a count to `baskets`, the CTE's own name. Now every name is distinct:
+     `basket_lines`, `left_line`/`right_line`, `total_baskets`/`product_baskets`/`pa`/`pb`/`pair_baskets`/
+     `sold_units`. The `units` query was already clean.
+  2. **A FOURTH defect the audit turned up, not in the review: the client sent a per-query SETTING.**
+     `default_format=JSONEachRow` in the URL — `default_format` is a ClickHouse setting and `analytics_ro` is
+     `readonly = 1`, which refuses any, so the first real query would have failed. Now `FORMAT JSONEachRow` is in
+     the statement and only `database` + `param_*` go in the URL; a test asserts no other URL key is ever sent.
+  3. `CORE_RECOMMENDATIONS_MIN_LIFT <= 1` is now a config error with the reason.
+  4. The dry run reports post-threshold rows for both kinds instead of the raw candidate count and a hard-coded 0.
+  Static guard added (the SQL has never executed): every statement the source builds is checked for an output
+  alias repeating a CTE name, a table alias or an `fct_order_line` column, **with a mutation check** that the
+  assertion really catches both shapes from the gotcha. Tests 24 + 12 + 14 (1 skipped). Full core suite
+  **1235 passed / 9 skipped, exit 0**; core lint, core typecheck, root `prettier --check .` clean.
 - [ ] **Step 4 — on the manager's word, in this order:** switch on the ClickHouse-backed test
   (`CORE_RECOMMENDATIONS_CLICKHOUSE_TESTS=1`) when he says #619 has landed; file the #609 REQUEST to window 3 once
   **#621 merges**. #621's review is Fable's, after ~14:00 UTC 2026-10-27. Nothing to do until then.
@@ -183,6 +199,19 @@ Also published: `dim_variant` (store_id, variant_id, product_id, sku, last_seen_
   secret-shaped in tests (words, never hex/digit tails — gitleaks scans every branch's history); no closing keyword
   next to an issue number in a commit message unless that commit finishes the issue; merge main before pushing.
 - **No docker commands from this window, ever** — the manager runs the shared stack.
+- **ClickHouse: never alias anything to a name the statement already uses** (repo-wide gotcha, three Phase 5 bugs,
+  one a data-loss path; I added a fourth in #621). Aliases resolve EVERYWHERE in a ClickHouse query, so an output
+  alias that repeats a CTE name, a table alias or a source column silently changes the meaning. My bug was
+  `SELECT a.product_id AS a … FROM baskets AS a` **and** `count() AS baskets` inside `WITH baskets AS (…)`. When SQL
+  cannot be executed yet, write a STATIC test over the generated statements and mutation-check the assertion —
+  otherwise the guard can pass while being broken.
+- **A ClickHouse read client must send NO per-query setting**: `analytics_ro` is `readonly = 1` and refuses any
+  ("Cannot modify … in readonly mode"). `default_format` IS a setting, so the format belongs in the statement
+  (`FORMAT JSONEachRow`); only `database` and `param_*` may be URL parameters. `apps/analytics-ingest/src/clickhouse.ts`
+  has the approved reader (`createReadOnlyClient`) and documents the same rule — read it before writing another one.
+- **When a reviewer names one instance of a known bug class, audit the whole file for the class** (2026-10-27):
+  the #621 review flagged one pair of aliases; the same class was in three more statements, and auditing for it is
+  what uncovered the readonly-settings bug too. Both were in code that has never executed.
 - **`inventory_level.available` is `GENERATED ALWAYS AS (on_hand - reserved) STORED`** (migration 0007): a test that
   wants a product out of stock sets `on_hand = 0, reserved = 0`, never `available` ("column can only be updated to
   DEFAULT", 2026-10-27).

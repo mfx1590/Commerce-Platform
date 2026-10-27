@@ -23,9 +23,13 @@ import {
   ClickHouseBasketSource,
   ClickHouseClient,
   clickhouseCredentialsFrom,
+  POPULAR_WINDOWS,
   rebuildStoreRecommendations,
+  recommendPairs,
+  recommendPopular,
   thresholdsFromEnv,
   type BasketSource,
+  type PopularWindow,
   type RebuildResult,
 } from '../modules/search';
 import { closePool, initDb, organizationClient, tenantClient } from '../lib/db';
@@ -99,12 +103,19 @@ export async function runIndexRecommendations(opts: RunOptions = {}): Promise<Ru
   for (const store of stores) {
     const client = tenantClient({ organizationId, storeIds: [store.id] });
     if (opts.dryRun) {
-      // Same computation, no transaction: useful to see the thresholds' effect before a first real run.
+      // Same computation, no transaction: what a real run WOULD write, so the number is comparable with the
+      // `pairs` a real run reports. `counts.pairs.size` would be the raw candidate count before the lift floor
+      // (and counts one row per unordered pair, not the two directions that get stored).
       const counts = await source.counts(store.id, thresholds);
+      const popular: Record<PopularWindow, number> = { 7: 0, 30: 0 };
+      for (const window of POPULAR_WINDOWS) {
+        const units = await source.units(store.id, window);
+        popular[window] = recommendPopular(units, thresholds.maxPopularPerStore).length;
+      }
       results.push({
         storeId: store.id,
-        pairs: counts.pairs.size,
-        popular: { 7: 0, 30: 0 },
+        pairs: recommendPairs(counts, thresholds).length,
+        popular,
       });
       continue;
     }

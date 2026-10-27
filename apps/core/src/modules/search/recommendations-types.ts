@@ -74,9 +74,11 @@ export function thresholdsFromEnv(env: NodeJS.ProcessEnv = process.env): Thresho
   let minLift = DEFAULT_THRESHOLDS.minLift;
   if (minLiftRaw !== undefined && minLiftRaw.trim() !== '') {
     const n = Number(minLiftRaw);
-    if (!Number.isFinite(n) || n <= 0) {
+    // A lift of 1.0 means "no more likely than chance", so a floor at or below 1 would recommend pairs that
+    // carry no signal at all — it is a configuration mistake, not a loose setting. Refuse it loudly.
+    if (!Number.isFinite(n) || n <= 1) {
       throw new Error(
-        `CORE_RECOMMENDATIONS_MIN_LIFT must be a positive number (got ${minLiftRaw})`,
+        `CORE_RECOMMENDATIONS_MIN_LIFT must be a number greater than 1 — 1.0 means "no more likely than chance", so a floor of ${minLiftRaw} would recommend pairs with no signal (default ${DEFAULT_THRESHOLDS.minLift})`,
       );
     }
     minLift = n;
