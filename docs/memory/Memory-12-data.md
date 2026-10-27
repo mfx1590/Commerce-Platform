@@ -91,8 +91,19 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   only via probe + require-live-tests; dev tokens for core, verifier seam for Finance; run the core FULL suite once.
 - Gate written: 40941b2 apps/core/src/modules/reporting/reconcile-gate.test.ts (title 'Integration 5 gate: the
   generated month through the real relay, ledger and ingest, every identity at 0'; 3 tests incl. "fails when it
-  should"); outbox via withEvents (core lint forbids raw outbox INSERTs). Docs committed. NOT YET RUN LIVE: asked
-  the manager for the machine (gate + core full suite). Nothing pushed.
+  should"); outbox via withEvents (core lint forbids raw outbox INSERTs). Docs committed.
+- #602: PR #628 (Closes #602; branch integration/phase5-reconcile; code commits 593cabf, 71f0488, 40941b2, 5cbb473,
+  1710359 + the merge of main; head = this memory commit). Live with the machine (2026-10-27): TZ=UTC gate 3/3,
+  TWICE in a row, every identity 0 (bookings 69 keys, 2a 750 + 33, 2b 282, 2c 97, 3a 73, 3b 73, 3c 0 — no payouts
+  in the month); fails-when-it-should green; ~33 s; cleanup 0/0/0/0; core full suite 1175 passed + onboarding
+  (beforeAll DB-creation timeout under load, 11/11 alone). Machine free reported. The manager adds the CI step
+  (require-live-tests, the gate title) on top of the head and collects 3 green runs; Fable review.
+- The first live runs found: LowCardinality(UInt8) from `IN` on a LowCardinality column (cast to String); output
+  aliases shadowing WHERE columns (renamed out_*); 3b must compare the capture ENTRY size (1100 is net of the fee —
+  comparing it alone copies the fee rule); and REAL BUG #627 (window 15): the Finance API serves dates a day early in
+  a non-UTC process (queries.ts date() = toISOString on a local-midnight Date). Run the gate with TZ=UTC until then.
+- NEXT after #628: #623 (ClickHouse honours customer.erased; erasure-aware customer key) and #603 build (compiler +
+  server against the posted YAML, locally; the manager lands the contract on integration/phase5-metrics).
 - Gotchas: the Finance API `to` is INCLUSIVE, the Admin API report `to` EXCLUSIVE (clients translate);
   getHqFinanceReport has no day dimension (3a asks one day at a time); the order display_id trigger numbers
   display_id 0 (a generated month's display ids collide per store).
