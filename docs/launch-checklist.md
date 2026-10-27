@@ -20,6 +20,10 @@ issue; tick it only with a link to the evidence.
 
 - [ ] **ClickHouse honours customer.erased (#623, PR #631).** No real customer data may reach ClickHouse before it
       lands. `ANALYTICS_ERASURE_KEY` set from the secrets manager; rotation procedure in apps/analytics-ingest README.
+- [ ] **The analytics ingest runs as ONE replica** until the erasure index refreshes across replicas (a periodic
+      reload + re-scrub; Fable review of #631). A second replica would keep writing an erased customer's rows.
+- [ ] The ClickHouse HTTP endpoint is not logged with full request URLs by any proxy/LB (identifiers are sent as
+      multipart params since #631's fix; keep it that way).
 - [ ] **Bus retention vs erasure (#629):** bounded retention for topics carrying pseudonymous ids; outbox pruning,
       if ever added, exempts `customer.erased`.
 - [ ] Migration backfills that assume BYPASSRLS (#497) fixed before any cloud database.
