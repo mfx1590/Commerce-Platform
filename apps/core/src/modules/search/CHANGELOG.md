@@ -5,6 +5,28 @@ file is the module's own history (linked from the PRs).
 
 ## Phase 5 — search/phase5 (contracts-v0.4.29)
 
+### 2026-10-27 · first live run against real ClickHouse (#628 merged; the machine, granted)
+
+- **The SQL is proven on the real engine, and the dev data cannot exercise it.** `fct_order_line` has 144 rows
+  whose columns match #601's frozen set exactly, but **every row has `product_id` NULL**: all 144 carry a
+  `variant_id`, `dim_variant` holds only 2 rows (built from the 5 `product.published` events in the dev data),
+  the order lines reference SEEDED catalog variants that never went through the bus, and the join matches 0. The
+  model behaves as documented (NULL when a variant was never published); the dev catalogue simply predates the
+  bus. So the job computes 0 recommendations there — correctly.
+- **Two defects the live run exposed.** (1) The live test hardcoded a store id (`30000000-…-0031`) that matches
+  no row; the real one is `SEED_IDS.stores.brandA` = `00000000-…-0031`. It had been querying an empty store and
+  passing on `basketCount >= 0` — a green that proved nothing. It now uses `SEED_IDS`, cross-checks the source's
+  `basketCount` against an independent count, and asserts invariants that hold at any volume. (2) "It ran" was
+  never proof anyway, because a shadowed alias returns WRONG results rather than an error, and zero rows cannot
+  be wrong.
+- **So the same statements now run against a literal row set on the real ClickHouse** (25.8, read-only, nothing
+  written — `analytics_ro` could not): ClickHouse's own self-join and GROUP BY return basket total 10, tee 6,
+  cap 5, the single pair tee+cap at 4 baskets with mug+scarf correctly dropped by the HAVING floor, lift
+  1.3333, and both stored directions — the same numbers the pure test asserts. `basketStatements(relation)`
+  exists for exactly this substitution; production always passes `fct_order_line`.
+- `index-recommendations --dry-run` ran end to end through `analytics_ro` over 6 stores in 5.9 s with no errors,
+  which also confirms the `default_format` fix: the first real query would otherwise have been refused.
+
 ### 2026-10-27 · #621 review fixes (Fable review = MERGE, three findings)
 
 - **`clickhouse.ts` alias shadowing (the review's finding, and it was wider than the line flagged).** The pair

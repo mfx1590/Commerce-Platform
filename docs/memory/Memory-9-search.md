@@ -1,6 +1,6 @@
 # Memory 9 — Search, media, promotions
 Window: 9 · Key: `search` · Branch prefix: `search/` · Model: Opus 5
-Last updated: 2026-10-27 · Contracts: **contracts-v0.4.29** (landed on `integration/phase5-recommendations`; 0.4.28 was the last tag on main when I started) · Branch: `search/phase5` · Status: **IDLE — everything of mine is in #621.** The Fable review of #621 was MERGE with three findings; all three are fixed plus a fourth the audit found (the read client sent a readonly-forbidden setting). 50 tests, full core suite 1235 passed / 9 skipped. My commits in #621: `4d8d9ba` (= my e978019) and `8fc70e5` (= my 86d0fc5, cherry-picked 2026-10-27); a targeted Fable re-review of 8fc70e5, then CI, then the queue after #626/#628. REQUEST #624 open (window 1, route mount). **Two triggers, both the manager's word: #628 landing → switch on `CORE_RECOMMENDATIONS_CLICKHOUSE_TESTS`; #621 merging → file #609 for window 3.** Phase 2 is complete and merged (2.1–2.5 via #160, #166, #188, #208, #211).
+Last updated: 2026-10-27 · Contracts: **contracts-v0.4.29** (landed on `integration/phase5-recommendations`; 0.4.28 was the last tag on main when I started) · Branch: `search/phase5` · Status: **STOPPED for the day (owner on battery, 2026-10-27). Live ClickHouse run done and GREEN; machine free.** The SQL is proven on the real engine; **the dev data yields zero recommendations because every `fct_order_line.product_id` is NULL** (see the live-run entry — this blocks #609's rail and Integration 5's recommendation checks until the catalogue is published through the bus). The Fable review of #621 was MERGE with three findings; all three are fixed plus a fourth the audit found (the read client sent a readonly-forbidden setting). 50 tests, full core suite 1235 passed / 9 skipped. My commits in #621: `4d8d9ba` (= my e978019) and `8fc70e5` (= my 86d0fc5, cherry-picked 2026-10-27); a targeted Fable re-review of 8fc70e5, then CI, then the queue after #626/#628. REQUEST #624 open (window 1, route mount). **Two triggers, both the manager's word: #628 landing → switch on `CORE_RECOMMENDATIONS_CLICKHOUSE_TESTS`; #621 merging → file #609 for window 3.** Phase 2 is complete and merged (2.1–2.5 via #160, #166, #188, #208, #211).
 
 ## PHASE 5 DOCKET (written by the manager, 2026-10-25, Manager session nine) — READ THIS FIRST ON RESUME
 You reopen in Phase 5 wave 2 for **#607** P5.8 recommendations (plan `docs/plan/phase5-plan.md` D10; tracking #612).
@@ -105,6 +105,30 @@ Algolia index per brand synced from product.published events, merchandising rule
   alias repeating a CTE name, a table alias or an `fct_order_line` column, **with a mutation check** that the
   assertion really catches both shapes from the gotcha. Tests 24 + 12 + 14 (1 skipped). Full core suite
   **1235 passed / 9 skipped, exit 0**; core lint, core typecheck, root `prettier --check .` clean.
+- [x] **LIVE CLICKHOUSE RUN DONE (2026-10-27, trigger 1; #628 merged `89ee372`; the machine was granted and is
+  FREE again).** All green, and it found two defects of mine plus one blocking DATA gap that is not mine.
+  - **THE BLOCKING FINDING, for #609 and Integration 5: `fct_order_line.product_id` is NULL on all 144 dev rows,
+    so the job computes ZERO recommendations from dev data.** Not a bug in #601 or in my SQL: every line HAS a
+    `variant_id`, but `dim_variant` holds only **2** rows (from the 5 `product.published` events in the dev data),
+    the order lines point at SEEDED catalog variants that never went through the bus, and the join matches 0.
+    `dim_variant` behaves exactly as documented (NULL when a variant was never published). **Nothing will appear in
+    a rail until the catalogue is published through the bus or the generated month is used.** Diagnosis queries are
+    in the report on the manager's thread; re-derive with `SELECT countIf(product_id IS NULL) FROM fct_order_line`
+    and `SELECT count() FROM dim_variant`.
+  - **My defect 1: the live test hardcoded a store id that exists nowhere** (`30000000-…-0031`; the real one is
+    `SEED_IDS.stores.brandA` = `00000000-…-0031`). It queried an empty store and passed on `basketCount >= 0` — a
+    green proving nothing. Now uses `SEED_IDS`, cross-checks `basketCount` against an independent count, and
+    asserts volume-independent invariants (pair count <= min of its products' counts; single <= basket total).
+  - **My defect 2 (the deeper one): "the SQL executed" is NOT proof for this bug class.** A shadowed alias returns
+    WRONG results, not an error, and with zero rows nothing can be wrong. So the same statements now also run
+    against a LITERAL row set on the real engine (read-only, no writes — `analytics_ro` cannot write anyway):
+    ClickHouse's own self-join returns 10 baskets, tee 6, cap 5, pair tee+cap 4 with mug+scarf dropped by the
+    HAVING floor, lift 1.3333, both directions. `basketStatements(relation)` exists for that substitution only.
+  - Also confirmed live: the frozen #601 column set is present; `--dry-run` ran through `analytics_ro` over 6
+    stores in 5.9 s with no error, which is independent proof of the `default_format`/readonly fix.
+  - **This worktree's `.env` had NO `CLICKHOUSE_*` rows** (the copy taken 10-25 predates them, and the main
+    checkout's `.env` still lacks them): I appended the six rows from `.env.example`, which is where the local word
+    credentials live. Any window needing ClickHouse must do the same.
 - [ ] **Step 4 — on the manager's word, in this order:** switch on the ClickHouse-backed test
   (`CORE_RECOMMENDATIONS_CLICKHOUSE_TESTS=1`) when he says **#628** has landed — he said #619 on 10-27 and then
   corrected the trigger to **#628**, so wait for his word and do not infer it from an issue number; file the
@@ -201,6 +225,14 @@ Also published: `dim_variant` (store_id, variant_id, product_id, sku, last_seen_
   secret-shaped in tests (words, never hex/digit tails — gitleaks scans every branch's history); no closing keyword
   next to an issue number in a commit message unless that commit finishes the issue; merge main before pushing.
 - **No docker commands from this window, ever** — the manager runs the shared stack.
+- **"The SQL executed without error" is NOT proof for silent-result bug classes** (2026-10-27, the live run).
+  Alias shadowing returns WRONG rows, not an error, and the dev data had zero usable rows, so the first live green
+  proved nothing at all — worse, the test pointed at a store id that did not exist, so it would have stayed green
+  forever. Two rules: assert against an INDEPENDENT count of the same thing, never just `>= 0`; and where the real
+  data cannot exercise the logic, run the SAME statements over a literal row set on the REAL engine (read-only) so
+  the semantics are proven even when the warehouse is empty.
+- **Check an id against the live data before trusting a live test** (same run): a hardcoded uuid that matches no
+  row turns a live test into an expensive no-op. Use `SEED_IDS`, and have the test print the counts it saw.
 - **ClickHouse: never alias anything to a name the statement already uses** (repo-wide gotcha, three Phase 5 bugs,
   one a data-loss path; I added a fourth in #621). Aliases resolve EVERYWHERE in a ClickHouse query, so an output
   alias that repeats a CTE name, a table alias or a source column silently changes the meaning. My bug was

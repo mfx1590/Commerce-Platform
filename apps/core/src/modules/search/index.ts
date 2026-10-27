@@ -139,11 +139,13 @@ export {
   type Thresholds,
 } from './recommendations-types';
 export {
+  basketStatements,
   ClickHouseBasketSource,
   ClickHouseClient,
   clickhouseCredentialsFrom,
   ClickHouseError,
   FixtureBasketSource,
+  ORDER_LINES_RELATION,
   type BasketSource,
   type ClickHouseClientOptions,
   type ClickHouseCredentials,
