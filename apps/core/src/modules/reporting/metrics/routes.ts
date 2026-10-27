@@ -25,6 +25,7 @@ import {
 } from '../../../http';
 import { AppError } from '../../../lib/errors';
 import { catalogueFor, METRICS } from './catalogue';
+import { renderMetricCsv } from './csv';
 import { executeMetricQuery, type MetricsReader } from './execute';
 import { parseMetricQuery } from './query';
 import { sharedMetricsReader } from './reader';
@@ -134,7 +135,17 @@ export function metricsAdminRouter(opts: MetricsRouterOptions = {}): Router {
           metric: finance[0],
         });
       const scope = q.filters.store_ids ?? stores;
-      res.json(await executeMetricQuery(reader(), q, scope));
+      const result = await executeMetricQuery(reader(), q, scope);
+      // text/csv only when the client prefers it over JSON (the default stays JSON); errors stay JSON either way
+      if (req.accepts(['application/json', 'text/csv']) === 'text/csv') {
+        res
+          .status(200)
+          .type('text/csv; charset=utf-8')
+          .set('X-Truncated', String(result.truncated))
+          .send(renderMetricCsv(result));
+        return;
+      }
+      res.json(result);
     }),
   );
 

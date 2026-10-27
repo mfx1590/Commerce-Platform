@@ -41,6 +41,12 @@ const SOURCES: Readonly<Record<SourceId, SourceSpec>> = {
     day: 'day',
     columns: { store: 'store_id', currency: 'currency', provider: 'provider' },
   },
+  // the live tiles (D6): one row per order.placed event, read FINAL so a redelivered event counts once
+  live: {
+    from: 'orders_minute_events FINAL',
+    day: "toDate(minute, 'UTC')",
+    columns: { store: 'store_id', currency: 'currency' },
+  },
   ledger: {
     from: 'fct_ledger_line',
     day: 'entry_date',

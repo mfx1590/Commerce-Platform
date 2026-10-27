@@ -107,7 +107,7 @@ describe.runIf(skip === null)('metrics API on ClickHouse (#603)', () => {
 
   it('every metric runs on ClickHouse at every grain', async () => {
     for (const m of Object.keys(METRICS) as MetricId[])
-      for (const grain of ['day', 'week', 'month', 'total'])
+      for (const grain of METRICS[m].grains ?? ['day', 'week', 'month', 'total'])
         await executeMetricQuery(
           reader,
           parseMetricQuery({ metrics: [m], grain, from: '2026-10-01', to: '2026-11-01' }),

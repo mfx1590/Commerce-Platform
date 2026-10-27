@@ -210,3 +210,22 @@ describe('fail closed when the contract does not carry the operations', () => {
     expect(seen).toEqual([]);
   });
 });
+
+describe('queryMetrics as text/csv', () => {
+  it('Accept: text/csv answers CSV with X-Truncated; JSON stays the default; a 403 stays JSON', async () => {
+    const csv = await post(q({ dimensions: ['store'] }), 'seed-analyst').set('Accept', 'text/csv');
+    expect(csv.status).toBe(200);
+    expect(csv.headers['content-type']).toMatch(/^text\/csv/);
+    expect(csv.headers['x-truncated']).toBe('false');
+    expect(csv.text).toBe('"period","currency","store_id","bookings_minor","orders"\r\n');
+    const json = await post(q(), 'seed-analyst');
+    expect(json.headers['content-type']).toMatch(/^application\/json/);
+    const denied = await post(q({ filters: { store_ids: [B] } }), 'metrics-admin-a').set(
+      'Accept',
+      'text/csv',
+    );
+    expect(denied.status).toBe(403);
+    expect(denied.headers['content-type']).toMatch(/^application\/json/);
+    expect(denied.body.code).toBe('forbidden');
+  });
+});

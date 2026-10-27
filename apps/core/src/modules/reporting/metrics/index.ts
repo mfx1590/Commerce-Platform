@@ -9,3 +9,4 @@ export { executeMetricQuery, scopedEverywhere } from './execute';
 export type { MetricResult, MetricRow, MetricsReader } from './execute';
 export { METRICS_PATH, METRICS_QUERY_PATH, metricsAdminRouter, metricsScope } from './routes';
 export type { MetricsRouterOptions } from './routes';
+export { csvText, renderMetricCsv } from './csv';
