@@ -27,6 +27,7 @@
     "fga:seed": "tsx scripts/fga-seed.ts",
     "fga:reconcile": "tsx scripts/fga-reconcile.ts",
     "roles": "tsx scripts/roles.ts",
+    "provision:service-accounts": "tsx scripts/provision-service-accounts.ts",
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {

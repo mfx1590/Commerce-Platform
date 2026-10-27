@@ -7,7 +7,10 @@ const op = (operationId: string) => ({ operationId });
 const paths = {
   '/admin/stores/{storeId}/customers': { get: op('listCustomers') },
   '/admin/stores/{storeId}/customers/export': { get: op('exportCustomers') },
-  '/admin/stores/{storeId}/customers/{customerId}': { get: op('getCustomer'), patch: op('updateCustomer') },
+  '/admin/stores/{storeId}/customers/{customerId}': {
+    get: op('getCustomer'),
+    patch: op('updateCustomer'),
+  },
   '/admin/me': { get: op('getMe'), parameters: [] },
 };
 const m = createOperationMatcher(paths);

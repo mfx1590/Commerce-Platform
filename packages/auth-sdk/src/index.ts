@@ -57,6 +57,15 @@ export type {
   ObjectType,
 } from './roles/service.js';
 
+// Production provisioning of the crm-sync / analytics-sync service accounts (#632; `provision:service-accounts`).
+export { provisionServiceAccounts, SERVICE_ACCOUNTS } from './roles/service-accounts.js';
+export type {
+  ServiceAccount,
+  ProvisionServiceAccountsInput,
+  ProvisionServiceAccountsReport,
+  ProvisionedAssignment,
+} from './roles/service-accounts.js';
+
 // inviteUser (#415) and the Keycloak admin service-account client it and the session revocation use.
 export { inviteUser } from './roles/invite.js';
 export type { InviteUserInput, InviteUserDeps, InviteUserResult } from './roles/invite.js';

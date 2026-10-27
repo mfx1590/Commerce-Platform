@@ -232,10 +232,21 @@ describe('operation allowlist per service client (#632, unit, local JWKS)', () =
       ).rejects.toMatchObject({
         status: 403,
         code: 'forbidden',
-        details: { reason: 'service_client_operation_not_allowed', client_id: client, api, operation_id: operationId },
+        details: {
+          reason: 'service_client_operation_not_allowed',
+          client_id: client,
+          api,
+          operation_id: operationId,
+        },
       });
       expect(refusals).toEqual([
-        { event: 'service_client_operation_refused', client_id: client, method: 'GET', api, operation_id: operationId },
+        {
+          event: 'service_client_operation_refused',
+          client_id: client,
+          method: 'GET',
+          api,
+          operation_id: operationId,
+        },
       ]);
       const line = JSON.stringify(refusals);
       expect(line).not.toContain(`seed-${client}`);
@@ -246,8 +257,14 @@ describe('operation allowlist per service client (#632, unit, local JWKS)', () =
   it.each([
     ['no api', { method: 'GET', operationId: 'listCustomers' }],
     ['no operationId (unmatched path)', { method: 'GET', api: 'admin' as const }],
-    ['an unknown api', { method: 'GET', api: 'store' as unknown as 'admin', operationId: 'listCustomers' }],
-    ['an inherited property name', { method: 'GET', api: 'admin' as const, operationId: 'constructor' }],
+    [
+      'an unknown api',
+      { method: 'GET', api: 'store' as unknown as 'admin', operationId: 'listCustomers' },
+    ],
+    [
+      'an inherited property name',
+      { method: 'GET', api: 'admin' as const, operationId: 'constructor' },
+    ],
   ])('fail closed: %s is refused', async (_label, request) => {
     await expect(verifier.verify(await token({ azp: 'crm-sync' }), request)).rejects.toMatchObject({
       status: 403,
@@ -257,7 +274,11 @@ describe('operation allowlist per service client (#632, unit, local JWKS)', () =
 
   it('the read-only check runs first: a write to an allowed operation is still read_only_service_client', async () => {
     await expect(
-      verifier.verify(await token({ azp: 'crm-sync' }), { method: 'POST', api: 'admin', operationId: 'listCustomers' }),
+      verifier.verify(await token({ azp: 'crm-sync' }), {
+        method: 'POST',
+        api: 'admin',
+        operationId: 'listCustomers',
+      }),
     ).rejects.toMatchObject({ status: 403, details: { reason: 'read_only_service_client' } });
   });
 

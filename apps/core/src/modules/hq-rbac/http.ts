@@ -353,16 +353,25 @@ export function createHqRbac(deps: HqRbacDeps) {
       // the router would be a bypass), reason service_client_operation_mismatch; then its own operation against
       // the allowlist.
       if (req.scope?.serviceClient) {
-        const own = { method: req.method, api: 'admin' as const, operationId: matched.route.operationId };
+        const own = {
+          method: req.method,
+          api: 'admin' as const,
+          operationId: matched.route.operationId,
+        };
         assertServiceClientMayCall(req.scope.serviceClient, own);
         const resolved = req.scope.serviceRequest;
         if (resolved?.api !== 'admin' || resolved.operationId !== matched.route.operationId) {
-          throw new ApiError(403, 'forbidden', 'service client request resolved to another operation', {
-            reason: 'service_client_operation_mismatch',
-            client_id: req.scope.serviceClient,
-            resolved_operation_id: resolved?.operationId ?? null,
-            operation_id: matched.route.operationId,
-          });
+          throw new ApiError(
+            403,
+            'forbidden',
+            'service client request resolved to another operation',
+            {
+              reason: 'service_client_operation_mismatch',
+              client_id: req.scope.serviceClient,
+              resolved_operation_id: resolved?.operationId ?? null,
+              operation_id: matched.route.operationId,
+            },
+          );
         }
         assertServiceClientOperation(req.scope.serviceClient, own);
       }

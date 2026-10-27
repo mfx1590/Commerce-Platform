@@ -410,7 +410,11 @@ describe.runIf(live)('service clients (real client-credentials tokens, live Open
       api: 'admin',
       operationId: 'getHqSalesReport',
     });
-    const b = await cached.resolve(t, { method: 'GET', api: 'finance', operationId: 'listPayouts' });
+    const b = await cached.resolve(t, {
+      method: 'GET',
+      api: 'finance',
+      operationId: 'listPayouts',
+    });
     expect(a.serviceRequest).toEqual({ api: 'admin', operationId: 'getHqSalesReport' });
     expect(b.serviceRequest).toEqual({ api: 'finance', operationId: 'listPayouts' });
   });

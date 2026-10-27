@@ -54,9 +54,10 @@ describe('every contract operation matches exactly itself (#632)', () => {
       expect(new Set(ids).size).toBe(ids.length);
       for (const o of matcher.operations) {
         const path = concrete(o.template, (i) => `v${i}x`);
-        expect(matcher.match(o.method.toUpperCase(), path)?.operationId, `${o.method} ${path}`).toBe(
-          o.operationId,
-        );
+        expect(
+          matcher.match(o.method.toUpperCase(), path)?.operationId,
+          `${o.method} ${path}`,
+        ).toBe(o.operationId);
       }
     });
   }
@@ -71,13 +72,15 @@ describe('every contract operation matches exactly itself (#632)', () => {
           const sb = segmentsOf(b.template);
           if (sa.length !== sb.length) continue;
           // b has a literal exactly where a has a parameter, everything else compatible → b wins on b's path.
-          const witness = sa.map((s, i) =>
-            !isParam(s) ? s : !isParam(sb[i]!) ? sb[i]! : `w${i}`,
-          );
-          if (!sb.every((s, i) => isParam(s) || s.toLowerCase() === witness[i]!.toLowerCase())) continue;
-          if (!sa.every((s, i) => isParam(s) || s.toLowerCase() === witness[i]!.toLowerCase())) continue;
+          const witness = sa.map((s, i) => (!isParam(s) ? s : !isParam(sb[i]!) ? sb[i]! : `w${i}`));
+          if (!sb.every((s, i) => isParam(s) || s.toLowerCase() === witness[i]!.toLowerCase()))
+            continue;
+          if (!sa.every((s, i) => isParam(s) || s.toLowerCase() === witness[i]!.toLowerCase()))
+            continue;
           const winner = rankOf(a.template).join() < rankOf(b.template).join() ? a : b;
-          expect(matcher.match(a.method, '/' + witness.join('/'))?.operationId).toBe(winner.operationId);
+          expect(matcher.match(a.method, '/' + witness.join('/'))?.operationId).toBe(
+            winner.operationId,
+          );
           pairs++;
         }
       }
@@ -185,7 +188,8 @@ describe('allowlisted operations are never chosen over an overlapping operation 
             );
             if (!compatible) continue;
             const witness =
-              '/' + sa.map((s, i) => (!isParam(s) ? s : !isParam(sb[i]!) ? sb[i]! : `w${i}`)).join('/');
+              '/' +
+              sa.map((s, i) => (!isParam(s) ? s : !isParam(sb[i]!) ? sb[i]! : `w${i}`)).join('/');
             // A path both could serve must never resolve to the allowed one: a router that registered b first
             // would run b while the guard allowed a.
             expect(matcher.match(a!.method, witness)?.operationId, `${witness}`).not.toBe(id);

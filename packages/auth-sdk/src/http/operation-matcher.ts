@@ -67,7 +67,9 @@ function overlap(a: Segment[], b: Segment[]): boolean {
  * Builds a matcher over an OpenAPI `paths` object. Throws when two templates of one method are ambiguous (could
  * match the same path with equal precedence).
  */
-export function createOperationMatcher(paths: Record<string, Record<string, unknown>>): OperationMatcher {
+export function createOperationMatcher(
+  paths: Record<string, Record<string, unknown>>,
+): OperationMatcher {
   const compiled: Compiled[] = [];
   for (const [template, ops] of Object.entries(paths)) {
     for (const [method, op] of Object.entries(ops ?? {})) {
@@ -83,13 +85,19 @@ export function createOperationMatcher(paths: Record<string, Record<string, unkn
       const b = compiled[j]!;
       if (a.method !== b.method || !overlap(a.segments, b.segments)) continue;
       if (compareRank(rank(a.segments), rank(b.segments)) === 0) {
-        throw new Error(`ambiguous operations ${a.method.toUpperCase()} ${a.template} / ${b.template}`);
+        throw new Error(
+          `ambiguous operations ${a.method.toUpperCase()} ${a.template} / ${b.template}`,
+        );
       }
     }
   }
 
   return {
-    operations: compiled.map(({ operationId, template, method }) => ({ operationId, template, method })),
+    operations: compiled.map(({ operationId, template, method }) => ({
+      operationId,
+      template,
+      method,
+    })),
     match(rawMethod, rawPath) {
       if (typeof rawMethod !== 'string' || typeof rawPath !== 'string') return null;
       let method = rawMethod.toLowerCase();

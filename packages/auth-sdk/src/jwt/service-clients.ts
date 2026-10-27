@@ -20,16 +20,22 @@ import { ApiError } from '../types.js';
 /** The APIs whose operations service clients may be allowed: the core's Admin API and the Finance API. */
 export type ServiceApi = 'admin' | 'finance';
 
-const OPERATIONS: Readonly<Record<string, Readonly<Record<ServiceApi, readonly string[]>>>> = Object.freeze({
-  'crm-sync': Object.freeze({
-    admin: Object.freeze(['listCustomers', 'getCustomer']),
-    finance: Object.freeze([] as string[]),
-  }),
-  'analytics-sync': Object.freeze({
-    admin: Object.freeze(['getHqSalesReport', 'getHqFinanceReport']),
-    finance: Object.freeze(['listJournalLines', 'getTrialBalance', 'listPayouts', 'listParkedEvents']),
-  }),
-});
+const OPERATIONS: Readonly<Record<string, Readonly<Record<ServiceApi, readonly string[]>>>> =
+  Object.freeze({
+    'crm-sync': Object.freeze({
+      admin: Object.freeze(['listCustomers', 'getCustomer']),
+      finance: Object.freeze([] as string[]),
+    }),
+    'analytics-sync': Object.freeze({
+      admin: Object.freeze(['getHqSalesReport', 'getHqFinanceReport']),
+      finance: Object.freeze([
+        'listJournalLines',
+        'getTrialBalance',
+        'listPayouts',
+        'listParkedEvents',
+      ]),
+    }),
+  });
 const CLIENTS: readonly string[] = Object.freeze(Object.keys(OPERATIONS));
 
 /** Service-account clients that may only READ. Adding a client here is a code change, reviewed like one. */
