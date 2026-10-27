@@ -256,3 +256,15 @@ all`, `verifyEmail: true`, brute force on, no client secret, exact https callbac
   (static: the contract operations and their x-permissions; live: real client-credentials tokens through the
   scope middleware and the contracts' guards — allowed reads pass, brand B / eraseCustomer / updateStore /
   customer routes / the other client's reads are the contract 403).
+- Read-only guard for service clients (manager decision on #565 finding 1): `READ_ONLY_SERVICE_CLIENTS`
+  (crm-sync, analytics-sync; a code constant, the guard reads a private copy) — the staff token verifier refuses
+  any non-GET/HEAD method from such a token (identified by the verified `azp` / `client_id`), and any call that
+  does not pass the request (fail closed), with 403 `details.reason = 'read_only_service_client'`, before any
+  x-permission check; one JSON log line per refusal (client id, method, operationId; no PII).
+  `verify(token, request?)`, `resolve(authorization, request?)`, `StaffClaims.serviceClient`,
+  `StaffScope.serviceClient`; hq-rbac `handle()` refuses again from the scope. Callers that accept service tokens
+  must pass `{ method, operationId }` (the core's staff-auth and the accounting API: one line each, routed by
+  the manager). Tests: `test/service-client-guard.test.ts` (14 unit, local JWKS); live: crm-sync on
+  updateCustomer / createRefund / createReturn refused by the guard although `support` would allow them,
+  analytics-sync on any write, the second layer, and a human support user unaffected. CONTRACT CHANGE #625 (later
+  wave): a read-only `customer_reader` relation.
