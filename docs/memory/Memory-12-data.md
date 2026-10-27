@@ -156,6 +156,15 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   users.xml or a REQUEST. Until then the router takes an injected reader.
 - Suggestion queued for the next PR: a static lint over data/clickhouse/** for aliases equal to a column used in the
   same statement's WHERE/ON (the alias-shadow class).
+- Manager (2026-10-27): APPROVED @clickhouse/client 1.24.1 as a core runtime dep → separate commit a977b43 (window 1
+  path, he lands it with the contract); profile limits already in infra/clickhouse/users.d (readonly, 10 s, 100k rows
+  throw, 512 MB). Conditions done: x-permission resolved PER REQUEST, an operation missing from the spec → 503
+  before anything runs (tested); routes now MOUNTED in reportingAdminRouter (503 on this branch until the contract);
+  reader.ts creates the analytics_ro client lazily from env (missing config → 503). Scope-escape tests (a)–(d) + org
+  sees 3 brands over HTTP on real CH data.
+- LIVE (machine, 2026-10-27): metrics-live 10/10 twice; p95 52 / 56 ms (p50 38–40); 300-query leak property clean;
+  cleanup 0 CH / 0 PG. The dev `analytics` DB has only migration 0001 (models never applied there) → the
+  compiled-query-through-analytics_ro step skips with a printed reason; reading + readonly refusal proven.
 
 ## #601 notes (2026-10-25)
 - Local branch has #617 (origin/integration/phase5-month-fixture) merged in, to code against `@platform/test-utils`.

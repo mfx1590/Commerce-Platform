@@ -7,6 +7,8 @@
 //   * p95 latency over 200 random queries < 300 ms (measured, printed);
 //   * the READ path: one compiled query through `analytics_ro` on `analytics` (readonly = 1, no per-query settings).
 // Opt-in like the other ClickHouse tests (ANALYTICS_LIVE=1 with the machine; CI=true), skipped with a printed reason.
+import type { Express } from 'express';
+import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { METRICS, type MetricId } from './catalogue';
 import { compileMetricQuery } from './compile';
@@ -190,16 +192,148 @@ describe.runIf(skip === null)('metrics API on ClickHouse (#603)', () => {
     expect(p95).toBeLessThan(300);
   });
 
-  it('the read path: a compiled query runs as analytics_ro on analytics (readonly, no per-query settings)', async (ctx) => {
+  it('the read path: analytics_ro reads with no per-query settings, is refused a write, and runs a compiled query', async (ctx) => {
     if (!ro) return ctx.skip();
+    // reading is accepted without any per-query setting (the profile carries readonly and the limits)
+    const r = await (
+      await ro.query({ query: 'SELECT count() AS n FROM raw_events', format: 'JSONEachRow' })
+    ).json<{ n: string }>();
+    expect(Number(r[0]!.n)).toBeGreaterThanOrEqual(0);
+    // readonly = 1: a write through the reader is refused by the server
+    await expect(
+      ro
+        .query({
+          query: 'CREATE TABLE ro_write_probe (x UInt8) ENGINE = Memory',
+          format: 'JSONEachRow',
+        })
+        .then((x) => x.json()),
+    ).rejects.toThrow();
+    // a compiled query, when the shared database carries the models (it is migrated by the deploy, not by tests)
+    const marts = await (
+      await ro.query({
+        query:
+          "SELECT count() AS n FROM system.tables WHERE database = currentDatabase() AND name = 'mart_bookings_daily'",
+        format: 'JSONEachRow',
+      })
+    ).json<{ n: string }>();
+    if (Number(marts[0]!.n) === 0) {
+      console.warn(
+        'metrics-live.test: the shared analytics database has no models yet (ch:migrate not run on it): the compiled query through analytics_ro is skipped; reading and the readonly refusal are proven above',
+      );
+      return;
+    }
     const q = parseMetricQuery({
       metrics: ['orders'],
       grain: 'total',
       from: '2026-01-01',
       to: '2027-01-01',
     });
-    // the dev database may hold anything or nothing: the point is that the read path is accepted
     await expect(executeMetricQuery(ro, q, [A])).resolves.toMatchObject({ truncated: false });
     expect(compileMetricQuery(q, [A]).sources).toHaveLength(1);
+  });
+
+  describe('a store-scoped principal cannot escape its scope over HTTP (the real router, real data)', () => {
+    let pg: { drop(): Promise<void> } | undefined;
+    let app: Express;
+    let closePg: () => Promise<void> = async () => {};
+    const ask = (subject: string, body: Record<string, unknown>) =>
+      request(app)
+        .post('/admin/metrics/query')
+        .set('Authorization', `Bearer dev:${subject}`)
+        .send({ grain: 'total', from: '2026-10-01', to: '2027-01-01', ...body });
+
+    beforeAll(async () => {
+      const express = (await import('express')).default;
+      const { createOrganizationClient, SEED_IDS } = await import('@platform/db');
+      const { createReportingDatabase } = await import('../testing/fixtures');
+      const { coreErrorHandler, DevTokenVerifier } = await import('../../../http');
+      const { closePool, initDb } = await import('../../../lib/db');
+      const { mountCoreMiddleware } = await import('../../../server');
+      const { metricsAdminRouter } = await import('./routes');
+      process.env.CORE_DEV_TOKENS = '1';
+      const db = await createReportingDatabase('metrics_live');
+      pg = db;
+      await initDb({ connectionString: db.app.options.connectionString! });
+      closePg = async () => {
+        await closePool();
+        await db.drop();
+      };
+      const hq = createOrganizationClient(db.app, { organizationId: SEED_IDS.organization });
+      const user = await hq.query<{ id: string }>(
+        `INSERT INTO staff_user (organization_id, keycloak_subject, email, display_name, status)
+         VALUES ($1, 'escape-admin-a', 'escape-admin-a@example.test', 'Escape admin A', 'active') RETURNING id`,
+        [SEED_IDS.organization],
+      );
+      await hq.query(
+        `INSERT INTO role_assignment (organization_id, staff_user_id, relation, object_type, object_id)
+         VALUES ($1, $2, 'store_admin', 'store', $3)`,
+        [SEED_IDS.organization, user.rows[0]!.id, A],
+      );
+      const posted = { relation: 'viewer', object: 'store:*' };
+      app = express();
+      mountCoreMiddleware(app, new DevTokenVerifier(), {
+        moduleRouters: [
+          metricsAdminRouter({
+            reader,
+            spec: { permission: () => posted, validateBody: () => {} },
+          }),
+        ],
+      });
+      app.use(coreErrorHandler);
+    }, 240_000);
+
+    afterAll(async () => {
+      if (pg) await closePg();
+    });
+
+    it('(a) store_ids of another store → 403, nothing read', async () => {
+      const r = await ask('escape-admin-a', {
+        metrics: ['bookings_minor'],
+        filters: { store_ids: [B] },
+      });
+      expect(r.status).toBe(403);
+      expect(r.body.details).toEqual({ relation: 'viewer', object: `store:${B}` });
+    });
+
+    it('(b) no store_ids → exactly the totals of its own store (equal to store A asked for directly)', async () => {
+      const mine = await ask('escape-admin-a', { metrics: ['bookings_minor', 'refunds_minor'] });
+      const direct = await executeMetricQuery(
+        reader,
+        parseMetricQuery({
+          metrics: ['bookings_minor', 'refunds_minor'],
+          grain: 'total',
+          from: '2026-10-01',
+          to: '2027-01-01',
+        }),
+        [A],
+      );
+      expect(mine.status).toBe(200);
+      expect(mine.body.currency_totals).toEqual(direct.currency_totals);
+      expect(mine.body.currency_totals.length).toBeGreaterThan(0);
+    });
+
+    it('(c) a store dimension → only its own store appears', async () => {
+      const r = await ask('escape-admin-a', {
+        metrics: ['bookings_minor', 'units'],
+        dimensions: ['store'],
+      });
+      expect(r.status).toBe(200);
+      expect(r.body.rows.length).toBeGreaterThan(0);
+      expect(new Set(r.body.rows.map((x: { store_id: string }) => x.store_id))).toEqual(
+        new Set([A]),
+      );
+    });
+
+    it('(d) a finance metric without finance → 403', async () => {
+      const r = await ask('escape-admin-a', { metrics: ['captured_minor'] });
+      expect(r.status).toBe(403);
+      expect(r.body.details).toMatchObject({ relation: 'finance', object: 'organization:hq' });
+    });
+
+    it('an organization principal sees all three brands', async () => {
+      const r = await ask('seed-analyst', { metrics: ['bookings_minor'], dimensions: ['store'] });
+      expect(r.status).toBe(200);
+      expect(new Set(r.body.rows.map((x: { store_id: string }) => x.store_id)).size).toBe(3);
+    });
   });
 });

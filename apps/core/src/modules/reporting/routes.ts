@@ -25,6 +25,7 @@ import {
   storeSalesReport,
   storeStockReport,
 } from './service';
+import { metricsAdminRouter } from './metrics';
 
 export const STORE_SALES_REPORT_PATH = '/admin/stores/:storeId/reports/sales';
 export const STORE_STOCK_REPORT_PATH = '/admin/stores/:storeId/reports/stock';
@@ -99,6 +100,10 @@ export function reportingAdminRouter(): Router {
       res.json(await hqFinanceReport(organizationClientFor(requirePrincipal(req)), window(req)));
     }),
   );
+
+  // #603: listMetrics / queryMetrics (metrics/routes.ts). Their x-permission resolves per request and fails closed
+  // (503) while the operations are not in admin-api.yaml.
+  r.use(metricsAdminRouter());
 
   return r;
 }

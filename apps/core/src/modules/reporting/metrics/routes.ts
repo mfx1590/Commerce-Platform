@@ -9,8 +9,7 @@
 //   * There is no SQL input anywhere: the body is a closed-vocabulary MetricQuery (query.ts) compiled by compile.ts.
 //
 // The operations' x-permission is read from admin-api.yaml at construction, as every module router does; until the
-// contract lands (integration/phase5-metrics) the router is built with `permissions` given explicitly (tests) and is
-// not mounted.
+// contract lands (integration/phase5-metrics) the two routes answer 503 (fail closed; tests inject the spec).
 import { Router, type Request, type RequestHandler } from 'express';
 import {
   can,
@@ -28,6 +27,7 @@ import { AppError } from '../../../lib/errors';
 import { catalogueFor, METRICS } from './catalogue';
 import { executeMetricQuery, type MetricsReader } from './execute';
 import { parseMetricQuery } from './query';
+import { sharedMetricsReader } from './reader';
 
 export const METRICS_PATH = '/admin/metrics';
 export const METRICS_QUERY_PATH = '/admin/metrics/query';
@@ -35,11 +35,17 @@ export const METRICS_QUERY_PATH = '/admin/metrics/query';
 type Operation = 'listMetrics' | 'queryMetrics';
 type PermissionSpec = { relation: string; object: string };
 
+/** The slice of the loaded spec the router uses (tests replace it to prove the fail-closed path). */
+export interface MetricsSpec {
+  permission(operationId: string): PermissionSpec;
+  validateBody(operationId: string, body: unknown): void;
+}
+
 export interface MetricsRouterOptions {
-  /** The read-only ClickHouse client (analytics_ro). */
-  reader: MetricsReader;
-  /** The operations' x-permission; read from admin-api.yaml when omitted. */
-  permissions?: Record<Operation, PermissionSpec>;
+  /** The read-only ClickHouse client (analytics_ro); created from the environment on first use when omitted. */
+  reader?: MetricsReader;
+  /** admin-api.yaml when omitted. */
+  spec?: MetricsSpec;
 }
 
 type StaffPrincipal = ReturnType<typeof requirePrincipal>;
@@ -64,16 +70,31 @@ export async function metricsScope(p: StaffPrincipal): Promise<{ id: string; cod
 const forbidden = (message: string, details: Record<string, unknown>) =>
   new AppError('forbidden', message, details);
 
-export function metricsAdminRouter(opts: MetricsRouterOptions): Router {
-  const spec = loadSpec('admin-api.yaml');
-  const permissionOf = (op: Operation): PermissionSpec =>
-    opts.permissions?.[op] ?? spec.permission(op);
-  const guard = (op: Operation): RequestHandler => {
-    const perm = permissionOf(op);
-    return requirePermission(perm.relation as never, (req: Request) =>
-      resolveObject(perm.object, req.params),
-    );
-  };
+export function metricsAdminRouter(opts: MetricsRouterOptions = {}): Router {
+  const spec: MetricsSpec = opts.spec ?? loadSpec('admin-api.yaml');
+  const reader = (): MetricsReader => opts.reader ?? sharedMetricsReader();
+  // x-permission is resolved per request (cached once found), and an operation the spec does not have FAILS CLOSED:
+  // a 503 before anything runs, never an unguarded route (the contract lands on integration/phase5-metrics).
+  const guards = new Map<Operation, RequestHandler>();
+  const guard =
+    (op: Operation): RequestHandler =>
+    (req, res, next) => {
+      let g = guards.get(op);
+      if (!g) {
+        let perm: PermissionSpec;
+        try {
+          perm = spec.permission(op);
+        } catch {
+          next(new AppError('internal', `${op} is not in the contract`, { operation: op }, 503));
+          return;
+        }
+        g = requirePermission(perm.relation as never, (r: Request) =>
+          resolveObject(perm.object, r.params),
+        );
+        guards.set(op, g);
+      }
+      g(req, res, next);
+    };
   const r = Router();
 
   r.get(
@@ -93,7 +114,7 @@ export function metricsAdminRouter(opts: MetricsRouterOptions): Router {
     guard('queryMetrics'),
     handle(async (req, res) => {
       const p = requirePrincipal(req);
-      if (!opts.permissions) spec.validateBody('queryMetrics', req.body);
+      spec.validateBody('queryMetrics', req.body);
       const q = parseMetricQuery(req.body);
       const stores = (await metricsScope(p)).map((s) => s.id);
       if (stores.length === 0)
@@ -113,7 +134,7 @@ export function metricsAdminRouter(opts: MetricsRouterOptions): Router {
           metric: finance[0],
         });
       const scope = q.filters.store_ids ?? stores;
-      res.json(await executeMetricQuery(opts.reader, q, scope));
+      res.json(await executeMetricQuery(reader(), q, scope));
     }),
   );
 
