@@ -70,9 +70,11 @@ RUN pnpm --filter "$APP" --prod --legacy deploy /out
 FROM node:${NODE_VERSION} AS runtime
 ARG PNPM_VERSION
 RUN npm install -g pnpm@${PNPM_VERSION} && npm cache clean --force
+# TZ=UTC: defence in depth for #627 (the service selects every date column ::text and never formats a local Date)
 ENV NODE_ENV=production \
     APP_NAME=@platform/accounting \
-    PORT=9003
+    PORT=9003 \
+    TZ=UTC
 WORKDIR /app
 COPY --from=build --chown=node:node /out ./
 COPY --chmod=0755 infra/docker/entrypoint.sh /usr/local/bin/platform-entrypoint

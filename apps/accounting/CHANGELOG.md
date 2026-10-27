@@ -1,5 +1,14 @@
 # Changelog — @platform/accounting
 
+## 0.6.6 — 2026-10-27 (#627)
+
+- Fix: in a process whose time zone is not UTC, every `date` was served (and sent to Odoo) one day EARLY east of
+  UTC. node-postgres parses `date` as local midnight; `toISOString()` shifted it. Every date column is now selected
+  `::text` (Finance API: `entry_date`, `first_entry_date` / `last_entry_date`, `oldest_unposted_entry_date`,
+  `arrival_date`, `available_on`; ERP sync: the move `date`), and the API formatter throws on a Date. Timestamps are
+  unchanged (instants). Dockerfile: `ENV TZ=UTC` (defence in depth).
+- Tests: 101 (+3, `test/timezones.test.ts`: UTC, Asia/Tokyo, America/Los_Angeles).
+
 ## 0.6.5 — 2026-10-25 (Integration 4, Refs #594)
 
 - The month replay gate (`test/month-replay.test.ts`) spawns the REAL apps/core CLIs: `relay-cli --once
