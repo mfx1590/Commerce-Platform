@@ -175,6 +175,14 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   (3) the manager adds the ownership row apps/admin/src/app/(store)/[storeId]/bi/** (+ test/e2e paths) → window 12;
   the store rail entry = a REQUEST to window 4.
   Order after the reset: I post the YAML delta → he lands contract + ownership → I build #604. Build nothing before.
+- AFTER THE RESET (2026-10-27): delta POSTED on #603 (comment 6444596272; checked: redocly baseline, op count only).
+  Built on data/phase5-bi (local, not pushed): 51bcc4d core live metrics (orders_minute_events FINAL, uniqExact,
+  day/total, store) + CSV (csv.ts: RFC 4180, injection guard, X-Truncated; route via req.accepts) + tests (metrics 31,
+  routes 12); the admin BI data layer `(hq)/bi/_lib/metrics.ts` (query bodies, currency tabs, money views,
+  store series, live tiles, freshness) + test/bi/metrics.test.ts (BI total 41). NEXT once the contract lands:
+  the typed `queryMetrics` call in `_api.ts`, the dashboard components + live tile polling, the store view under
+  (store)/[storeId]/bi, the per-day refunds chart (refunds_minor grain day), CSV download, the e2e that writes an
+  order; machine for metrics-live (live metrics on real CH) and the event→tile p95.
 
 ## #604 IN PROGRESS (2026-10-27; branch data/phase5-bi, cut --no-track from data/phase5-metrics 71827d4; local)
 - data/phase5-metrics PUSHED at 71827d4; the manager cuts integration/phase5-metrics after #621 (contracts 0.4.29),
