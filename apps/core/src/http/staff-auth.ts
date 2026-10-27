@@ -13,6 +13,8 @@ import type { Relation } from '@platform/contracts';
 import type { ScopedClient } from '@platform/db';
 import {
   createOpenFgaClient,
+  createOperationMatcher,
+  type OperationMatcher,
   type OpenFgaClient,
   type ScopeCache,
   type StaffScope,
@@ -23,6 +25,7 @@ import { createStaffScopeMiddleware, type StaffScopeMiddleware } from '../module
 import type { Actor } from '../lib/audit';
 import { getPool, organizationClient, tenantClient } from '../lib/db';
 import { AppError, fromApiError } from '../lib/errors';
+import { loadSpec } from './openapi';
 import { requestIdOf } from './request-id';
 import { coreOrganizationId } from './tenant';
 
@@ -315,12 +318,24 @@ export async function resolveStaffPrincipal(
   });
 }
 
+let adminOperations: OperationMatcher | undefined;
+
+/** Admin API operation addressed by method + raw original path (`/admin/...`), resolved before routing (#632). */
+function adminOperationOf(method: string, originalUrl: string): string | undefined {
+  adminOperations ??= createOperationMatcher(loadSpec('admin-api.yaml').doc.paths);
+  return adminOperations.match(method, originalUrl)?.operationId;
+}
+
 /** Express middleware for the `/admin` namespace: attaches `req.principal` or fails with 401 (503 fail closed). */
 export function staffAuthMiddleware(verifier: StaffTokenVerifier): RequestHandler {
   return (req, _res, next) => {
-    // The method lets auth-sdk refuse a read-only service client's write before any permission check (#565 / #622).
+    // Method + contract operation let auth-sdk refuse a service client's write (#565 / #622) or any operation
+    // outside its allowlist (#632) before any permission check. The operation is matched on the ORIGINAL path
+    // (this middleware is mounted at `/admin`, so `req.path` is mount-stripped); unmatched = none = refused.
     resolveStaffPrincipal(req.headers.authorization, verifier, requestIdOf(req), {
       method: req.method,
+      api: 'admin',
+      operationId: adminOperationOf(req.method, req.originalUrl),
     })
       .then((p) => {
         req.principal = p;
