@@ -1,7 +1,8 @@
-// Static checks on the OpenAPI documents (text-level, dependency-free). Runtime checks live in contract.test.ts.
+// Static checks on the OpenAPI documents (text-level; js-yaml only for the flow-mapping guard at the end). Runtime checks live in contract.test.ts.
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { load as parseYaml } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
 import { ERROR_CODES, RELATIONS } from '../src/index.js';
 
@@ -160,7 +161,7 @@ describe('store-api.yaml', () => {
   });
 
   it('0.3.0: listProducts and getProduct accept an optional ISO-4217 currency query', () => {
-    expect(text).toMatch(/version: 0\.5\.8/);
+    expect(text).toMatch(/version: 0\.5\.9/);
     expect(text).toMatch(/Currency:\n\s+name: currency\n\s+in: query/);
     expect(text).toMatch(/pattern: '\^\[A-Z\]\{3\}\$'/);
     for (const id of ['listProducts', 'getProduct']) {
@@ -193,7 +194,7 @@ describe('store-api.yaml customer self-service (0.5.6, #482)', () => {
     text.slice(text.indexOf(`\n  ${path}:\n`), text.indexOf(`\n  ${next}:\n`));
 
   it('the four operations exist on the right paths with the right methods', () => {
-    expect(ops.length).toBe(30); // 26 at 0.5.6; +getMyConsents / putMyConsents at 0.5.7 (#489); +listMyExports / getMyExport at 0.5.8 (#498)
+    expect(ops.length).toBe(31); // 26 at 0.5.6; +getMyConsents / putMyConsents at 0.5.7 (#489); +listMyExports / getMyExport at 0.5.8 (#498); +listProductRecommendations at 0.5.9 (#607)
     const me = block('/store/customers/me', '/store/customers/me/addresses');
     expect(me).toMatch(/^ {4}delete:\n {6}tags: \[customers\]\n {6}operationId: deleteMe$/m);
     const one = block('/store/customers/me/addresses/{addressId}', '/store/customers/me/export');
@@ -914,7 +915,7 @@ describe('customer consent ledger (contracts 0.4.21, Store API 0.5.7, Admin API 
   const sbody = (id: string) => storeOps.find((o) => o.id === id)!.body;
 
   it('getMyConsents / putMyConsents on /store/customers/me/consents, customer-token secured, with the /me 409', () => {
-    expect(storeOps.length).toBe(30); // +listMyExports / getMyExport at 0.5.8 (#498)
+    expect(storeOps.length).toBe(31); // +listMyExports / getMyExport at 0.5.8 (#498); +listProductRecommendations at 0.5.9 (#607)
     const start = store.indexOf('\n  /store/customers/me/consents:\n');
     expect(start).toBeGreaterThan(0);
     const path = store.slice(start, store.indexOf('\n  /store/customers/me/export:\n'));
@@ -1055,7 +1056,7 @@ describe('customer exports (contracts 0.4.23, Store API 0.5.8, Admin API 0.4.20,
       .slice(1);
 
   it('versions, and the closed error list gains expired with a shared 410 Gone in both specs', () => {
-    expect(store).toMatch(/^ {2}version: 0\.5\.8$/m);
+    expect(store).toMatch(/^ {2}version: 0\.5\.9$/m);
     expect(ERROR_CODES).toContain('expired');
     for (const [name, text] of [
       ['store', store],
@@ -1078,7 +1079,7 @@ describe('customer exports (contracts 0.4.23, Store API 0.5.8, Admin API 0.4.20,
   });
 
   it('listMyExports / getMyExport: customer-token secured, the /me 409, 404 and 410 on the download', () => {
-    expect(storeOps.length).toBe(30);
+    expect(storeOps.length).toBe(31); // +listProductRecommendations at 0.5.9 (#607)
     const list = store.slice(
       store.indexOf('\n  /store/customers/me/exports:\n'),
       store.indexOf('\n  /store/customers/me/exports/{exportId}:\n'),
@@ -1157,7 +1158,7 @@ describe('customer identity (contracts 0.4.24, Admin API 0.4.21, #504)', () => {
 
   it('getCustomerIdentity: HQ-only (support on organization:hq), ids only, 401 / 403 / 404', () => {
     expect(admin).toMatch(/^ {2}version: 0\.4\.24$/m);
-    expect(store).toMatch(/^ {2}version: 0\.5\.8$/m); // Store API unchanged (#504)
+    expect(store).toMatch(/^ {2}version: 0\.5\.9$/m); // Store API unchanged (#504)
     expect(adminOps.length).toBe(135); // 130 at 0.4.20; +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522)
     const start = admin.indexOf('\n  /admin/customer-identities/{identityId}:\n');
     expect(start).toBeGreaterThan(0);
@@ -1218,7 +1219,7 @@ describe('store tax rates (contracts 0.4.26, Admin API 0.4.23, #522 / #520)', ()
 
   it('the four operations on their paths, after the sales channels, with their x-permission and codes', () => {
     expect(admin).toMatch(/^ {2}version: 0\.4\.24$/m);
-    expect(store).toMatch(/^ {2}version: 0\.5\.8$/m); // Store API unchanged (#522)
+    expect(store).toMatch(/^ {2}version: 0\.5\.9$/m); // Store API unchanged (#522)
     expect(adminOps.length).toBe(135); // 131 at 0.4.22; +listTaxRates / createTaxRate / updateTaxRate / deleteTaxRate
     const list = admin.indexOf('\n  /admin/stores/{storeId}/tax-rates:\n');
     expect(list).toBeGreaterThan(admin.indexOf('\n  /admin/stores/{storeId}/sales-channels:\n'));
@@ -1385,4 +1386,63 @@ describe('accounting read API (contracts 0.4.28, accounting 0.1.0, #572 / #551)'
     });
     expect(checked).toBe(13); // TrialBalanceRow 3, TrialBalanceTotal 3, JournalLine 2, Payout 1, PayoutLine 4
   });
+});
+
+describe('recommendations (contracts 0.4.29, Store API 0.5.9, #607)', () => {
+  const text = read('store-api.yaml');
+  const op = operations(text).find((o) => o.id === 'listProductRecommendations');
+
+  it('GET /store/recommendations, tag catalog, publishable-key only (no customer token)', () => {
+    expect(op).toBeDefined();
+    const start = text.indexOf('\n  /store/recommendations:\n');
+    expect(start).toBeGreaterThan(0);
+    expect(text.slice(start, start + 120)).toMatch(
+      /get:\n {6}tags: \[catalog\]\n {6}operationId: listProductRecommendations/,
+    );
+    expect(op!.body).not.toMatch(/security:/);
+  });
+
+  it('kind, product_id, variant_ids (form, not exploded, max 100), window_days 7|30, limit 1..24, currency', () => {
+    const b = op!.body;
+    expect(b).toMatch(/enum: \[bought_together, popular\], default: bought_together/);
+    expect(b).toMatch(/maxItems: 100/);
+    expect(b).toMatch(/explode: false/);
+    expect(b).toMatch(/enum: \[7, 30\], default: 30/);
+    expect(b).toMatch(/minimum: 1, maximum: 24, default: 8/);
+    expect(b).toMatch(/#\/components\/parameters\/Currency/);
+    for (const code of ["'200'", "'400'", "'401'", "'404'"]) expect(b).toContain(code);
+  });
+
+  it('RecommendationList reuses ProductSummary (no second card shape) and reports the kind served', () => {
+    const s = text.slice(
+      text.indexOf('\n    RecommendationList:\n'),
+      text.indexOf('\n    Product:\n'),
+    );
+    expect(s).toMatch(/required: \[kind, items\]/);
+    expect(s).toMatch(/maxItems: 24/);
+    expect(s).toMatch(/\$ref: '#\/components\/schemas\/ProductSummary'/);
+  });
+});
+
+describe('no flow-mapping value is cut at a comma (2026-10-27)', () => {
+  // In a YAML flow mapping `{ a: x, b: y }` an unquoted comma ends the value: "description: one, two" silently
+  // becomes description "one" plus a key "two". No parser error and no CI failure flagged it (four Admin API
+  // descriptions and one Store API description were truncated). A key with whitespace is the symptom.
+  const freeTextKeys =
+    /\.(paths|properties|responses|examples|schemas|parameters|mapping|variables)$/;
+  for (const file of ['store-api.yaml', 'admin-api.yaml', 'accounting.yaml']) {
+    it(file, () => {
+      const hits: string[] = [];
+      const walk = (v: unknown, path: string): void => {
+        if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${path}[${i}]`));
+        else if (v && typeof v === 'object')
+          for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+            if (/\s/.test(k) && !freeTextKeys.test(path)) hits.push(`${path} -> "${k}"`);
+            walk(x, `${path}.${k}`);
+          }
+      };
+      walk(parseYaml(read(file)), '');
+      expect(hits).toEqual([]);
+    });
+  }
 });

@@ -129,3 +129,13 @@ Five read-only aggregate views for reporting v1 (CONTRACT CHANGE #485, window 12
 through a scoped client like any table (a store session sees its own stores, organization scope sees all, no context
 sees nothing). `platform_app` has SELECT only. Days are UTC, money is bigint minor units grouped by currency, and no
 column carries PII. Grain, filters and the cohort/cash refund example: `data/reporting/README.md`.
+
+## Product recommendations (0204, db 0.3.19)
+
+`product_recommendation` (CONTRACT CHANGE #607) holds what the `index-recommendations` job computes from ClickHouse
+`fct_order_line`: `bought_together` pairs (anchored on `product_id`, `window_days = 0`, `score` = lift) and the
+store-wide `popular` list (`product_id` NULL, `window_days` 7 or 30, `score` = units). RLS kind `store`; the app role
+has no UPDATE (the job rewrites per (store, kind, window_days) with DELETE + INSERT in one transaction);
+`UNIQUE NULLS NOT DISTINCT (store_id, kind, window_days, product_id, related_product_id)`; composite keys to
+`product (store_id, id)`, so a recommendation can never point at another store's product. Product ids and numbers
+only: no money, no customer or order ids.
