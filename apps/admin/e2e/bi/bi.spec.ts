@@ -16,11 +16,18 @@ import { BRAND_A, BRAND_C, signIn } from '../staff';
  *
  * - Against the core (#604), the live tiles count an order WRITTEN during the test: placed through the Store API,
  *   relayed onto the bus, ingested into ClickHouse and read back through the metrics API, with the page left
- *   alone so its own 15 s poll is what shows it. Needs the relay and the analytics ingest running (README).
+ *   alone so its own 15 s poll is what shows it — as the owner (HQ, then the store view) and as a store admin. These
+ *   need the WHOLE pipeline (the relay, the analytics ingest, ClickHouse), which the core-mode CI job does not run:
+ *   they are opt-in with `E2E_BI_LIVE=1` (the machine; README "Tests").
+ * - Against the core, always: a store admin asking for brand-c (outside its scope) gets the 403 page, a 403 live poll
+ *   and a 403 CSV — the API refuses before any analytics read, so no pipeline is needed.
  *
  * Every test prints one `[bi e2e]` line on pass and on skip, with the reason.
  */
 const CORE_URL = process.env.CORE_URL ?? 'http://localhost:9000';
+const LIVE = AGAINST_CORE && process.env.E2E_BI_LIVE === '1';
+const LIVE_WHY =
+  'E2E_API=core and E2E_BI_LIVE=1: it writes a real order and needs the relay, the ingest and ClickHouse';
 const say = (line: string) => console.info(`[bi e2e] ${line}`);
 
 test.describe('bi', () => {
@@ -88,8 +95,8 @@ test.describe('bi', () => {
     page,
     request,
   }) => {
-    if (!AGAINST_CORE) say('SKIP live tiles: core mode only (it writes a real order)');
-    test.skip(!AGAINST_CORE, 'core mode only: it writes a real order through the Store API');
+    if (!LIVE) say(`SKIP live tiles: ${LIVE_WHY}`);
+    test.skip(!LIVE, LIVE_WHY);
     test.setTimeout(240_000);
 
     await signInAsOwner(page, '/bi');
@@ -126,15 +133,34 @@ test.describe('bi', () => {
     );
   });
 
-  test('a store admin writes an order: its own store tile moves; a store outside its scope is refused', async ({
+  // The seeded store-admin holds store_admin on brand-a and brand-b only: brand-c is the store outside its scope.
+  test('a store admin asking for a store outside its scope: 403 page, 403 live poll, 403 CSV, no tile', async ({
+    page,
+  }) => {
+    if (!AGAINST_CORE) say('SKIP store-admin scope: core mode only (the real scope check)');
+    test.skip(!AGAINST_CORE, "core mode only: Prism's answers carry no scope");
+
+    await signIn(page, `/${BRAND_C}/bi`);
+    await page.waitForURL(new RegExp(`/${BRAND_C}/bi`));
+    await expect(page.getByRole('heading', { name: /do not have access/i })).toBeVisible();
+    await expect(page.getByTestId('bi-live-tile')).toHaveCount(0);
+    const live = await page.request.get(`/${BRAND_C}/bi/live`);
+    expect(live.status()).toBe(403);
+    expect(await live.json()).toMatchObject({ code: 'forbidden' });
+    const csv = await page.request.get(`/${BRAND_C}/bi/export?table=period`);
+    expect(csv.status()).toBe(403);
+    expect(csv.headers()['content-disposition']).toBeUndefined();
+    say('PASS store-admin scope: brand-c = 403 page, 403 live, 403 CSV, no tile');
+  });
+
+  test('a store admin writes an order: its own store tile moves, and only its store is shown', async ({
     page,
     request,
   }) => {
-    if (!AGAINST_CORE) say('SKIP store-admin live: core mode only (it writes a real order)');
-    test.skip(!AGAINST_CORE, 'core mode only: it writes a real order through the Store API');
+    if (!LIVE) say(`SKIP store-admin live: ${LIVE_WHY}`);
+    test.skip(!LIVE, LIVE_WHY);
     test.setTimeout(240_000);
 
-    // The seeded store-admin holds store_admin on brand-a and brand-b only: brand-c is the store outside its scope.
     await signIn(page, `/${BRAND_A}/bi`);
     await page.waitForURL(new RegExp(`/${BRAND_A}/bi`));
     await expect(page.getByTestId('bi-live-freshness')).toBeVisible();
@@ -152,20 +178,8 @@ test.describe('bi', () => {
       els.map((e) => e.getAttribute('data-store')),
     ))
       expect(store).toBe(BRAND_A);
-    say(`store-admin: brand-a EUR ${before} → ${before + 1} after order ${placed.display_id}`);
-
-    // brand-c: the page is the 403 panel with no tile; its live poll and its CSV are the API's 403, never empty rows
-    await page.goto(`/${BRAND_C}/bi`);
-    await expect(page.getByRole('heading', { name: /do not have access/i })).toBeVisible();
-    await expect(page.getByTestId('bi-live-tile')).toHaveCount(0);
-    const live = await page.request.get(`/${BRAND_C}/bi/live`);
-    expect(live.status()).toBe(403);
-    expect(await live.json()).toMatchObject({ code: 'forbidden' });
-    const csv = await page.request.get(`/${BRAND_C}/bi/export?table=period`);
-    expect(csv.status()).toBe(403);
-    expect(csv.headers()['content-disposition']).toBeUndefined();
     say(
-      `PASS store-admin live: order ${placed.display_id} moved brand-a's tile; brand-c = 403 page, 403 live, 403 CSV`,
+      `PASS store-admin live: order ${placed.display_id} moved brand-a's tile (${before} → ${before + 1}); brand-a only`,
     );
   });
 });

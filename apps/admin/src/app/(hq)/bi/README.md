@@ -19,9 +19,11 @@ Issue #480 (reporting v1, 12.3): HQ sales, finance and stock from the Admin API 
   KPIs; bookings per day and **refunds per day** per store; for finance principals only, bookings vs recognised (the
   ledger) vs cash (captured) — an analyst never asks for a finance metric (that would be a 403); top products by
   units. A truncated answer says so.
-- **CSV download:** `<base>/export?from=&to=` streams `queryMetrics` as `text/csv` (RFC 4180, the server's
-  formula-injection guard, `X-Truncated` passed on) as `bi-<scope>-<from>-to-<to>.csv`; an API error stays the
-  API's JSON error with its status.
+- **CSV download of every table:** `<base>/export?table=period|money|products&from=&to=` streams the SAME
+  `queryMetrics` query that table is drawn from (same scope, same rows) as `text/csv` (RFC 4180, the server's
+  formula-injection guard, `X-Truncated` passed on) as `bi-<table>-<scope>-<from>-to-<to>.csv`. The money views link
+  is offered to finance principals only (for anyone else the API answers 403); an unknown table is a 400; an API
+  error stays the API's JSON error with its status.
 - **503 `unavailable`** (the analytics store down): a state panel, nothing partial; the v1 reports still render.
 
 ## What the page shows
@@ -64,7 +66,13 @@ follows the store (fixed order by code), never its rank; a ninth store gets no n
 - `pnpm --filter @platform/admin test -- test/bi`: helpers; the page per principal (real guard, mocked wrappers):
   nav fixtures, 403 without requests, finance cards, currency tabs, stock tab, no customer field.
 - `pnpm --filter @platform/admin test:contract -- test-contract/bi`: the wrappers against Prism on admin-api.yaml.
-- Playwright on the kept core (`e2e/bi/`): only after the manager's go (one window measures at a time). The live-tiles
-  journey writes one guest order and needs, besides `pnpm --filter @platform/core dev`, the relay
-  (`pnpm --filter @platform/core outbox:relay`) and the ingest (`pnpm --filter @platform/analytics-ingest dev`, with
-  `ANALYTICS_ERASURE_KEY`); then `E2E_API=core CORE_URL=http://localhost:9000 pnpm --filter @platform/admin e2e bi`.
+- Playwright on the kept core (`e2e/bi/`): only after the manager's go (one window measures at a time).
+  - `E2E_API=core`: the store-admin 403 for a store outside its scope (page, live poll, CSV) runs in every core-mode
+    job — the API refuses before any analytics read.
+  - `E2E_BI_LIVE=1` adds the journeys that WRITE an order (owner: HQ then store view; store admin: its own tile) and
+    `E2E_BI_LATENCY=1` the measurement (`bi-latency.spec.ts`: 20 orders, event → `mv_orders_minute` p95 < 10 s and
+    the tile ≤ one poll after it, p50/p95 printed). Both need, besides `pnpm --filter @platform/core dev`, the relay
+    (`pnpm --filter @platform/core outbox:relay`), the ingest (`pnpm --filter @platform/analytics-ingest dev`, with
+    `ANALYTICS_ERASURE_KEY`) and the `CLICKHOUSE_*` rows of `.env` exported; then
+    `E2E_API=core E2E_BI_LIVE=1 CORE_URL=http://localhost:9000 pnpm --filter @platform/admin e2e bi --workers=1`
+    (one worker: the journeys count the same tile).
