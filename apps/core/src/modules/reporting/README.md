@@ -60,7 +60,8 @@ mounted inside `reportingAdminRouter()`. One query path over ClickHouse for the 
   ClickHouse.
 - **The vocabulary is closed** (`catalogue.ts`): 13 metrics, 4 dimensions, 4 grains, the limits.
   - `query.ts` validates; a 400 names the field, a dimension a metric does not accept, or customer counts mixed with
-    money.
+    money. An empty filter list (`store_ids`, `currencies`, `product_ids`, `refund_reasons`: `[]`) is a 400 too —
+    omit the filter instead (#638 review A; it used to reach the compiler's empty-scope guard as a 500).
   - `compile.ts` emits one statement per model, every value a server parameter, output columns `out_*` / `m_*`
     (never a column's own name, the ClickHouse alias-shadow trap).
   - `execute.ts` merges by key. Ratios are integer half-up and null when the divisor is 0. Totals are per currency,

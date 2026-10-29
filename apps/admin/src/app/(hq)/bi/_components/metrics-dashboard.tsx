@@ -145,12 +145,14 @@ function PeriodSection({
   const colors = storeColors([...stores]);
   const chart = (metric: 'bookings_minor' | 'refunds_minor'): ChartSeries[] =>
     storeSeries(result, metric, currency, days)
+      // a colour follows the store; a store without a slot (a ninth) is not drawn, as in the v1 charts — the
+      // KPIs above still count it, and the v1 per-store table lists it
+      .filter((s) => colors.get(s.storeId))
       .sort((a, b) => codeOf(a.storeId).localeCompare(codeOf(b.storeId)))
       .map((s) => ({
         id: s.storeId,
         label: codeOf(s.storeId),
-        // a store outside the principal's list (never expected: the server scopes) still gets drawn, in grey
-        color: colors.get(s.storeId) ?? 'var(--color-muted)',
+        color: colors.get(s.storeId)!,
         values: s.values,
       }));
   const views = money ? moneyViews(money, finance).find((v) => v.currency === currency) : undefined;
