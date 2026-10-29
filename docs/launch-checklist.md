@@ -40,6 +40,7 @@ issue; tick it only with a link to the evidence.
 
 - [ ] **Re-run `erp:sync` on a clean Odoo after #627 (PR #630):** every move synced before it is dated a day early
       (all 147 Integration 4 dev moves were). Never reuse the dev Odoo's books.
+- [ ] **One `erp:sync` runner at a time** until a per-legal-entity lock lands (#639 item 4): two concurrent runs post duplicate moves to Odoo.
 - [ ] Service images run with `TZ=UTC` (accounting pins it since #630; check every service image).
 
 ## Data platform
