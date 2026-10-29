@@ -111,6 +111,7 @@ describe('service clients: the contract operations they need exist with the expe
     ['getCustomer', 'support', 'store:{storeId}'],
     ['getHqSalesReport', 'analyst', 'organization:hq'],
     ['getHqFinanceReport', 'finance', 'organization:hq'],
+    ['listLegalEntityBooks', 'finance', 'organization:hq'],
     ['listJournalLines', 'finance', 'organization:hq'],
     ['getTrialBalance', 'finance', 'organization:hq'],
     ['listPayouts', 'finance', 'organization:hq'],
@@ -238,11 +239,12 @@ describe.runIf(live)('service clients (real client-credentials tokens, live Open
     expect([...scope.organizationRelations].sort()).toEqual(['analyst', 'finance']);
   });
 
-  it('analytics-sync: the two HQ reports and the four Finance API reads are allowed', async () => {
+  it('analytics-sync: the two HQ reports and the five Finance API reads are allowed', async () => {
     const scope = scopes.get('analytics-sync')!;
     for (const op of [
       'getHqSalesReport',
       'getHqFinanceReport',
+      'listLegalEntityBooks',
       'listJournalLines',
       'getTrialBalance',
       'listPayouts',
@@ -387,6 +389,20 @@ describe.runIf(live)('service clients (real client-credentials tokens, live Open
       });
     },
   );
+
+  it('crm-sync: listCustomers is refused by THIS layer although support would allow it (it only calls getCustomer)', async () => {
+    await expect(decide(scopes.get('crm-sync')!, 'listCustomers')).resolves.toBeUndefined();
+    await expect(
+      mw.resolve(`Bearer ${tokens.get('crm-sync')!}`, {
+        method: 'GET',
+        api: 'admin',
+        operationId: 'listCustomers',
+      }),
+    ).rejects.toMatchObject({
+      status: 403,
+      details: { reason: 'service_client_operation_not_allowed', operation_id: 'listCustomers' },
+    });
+  });
 
   it('fail closed: a service-client read whose operation was not resolved is refused', async () => {
     await expect(

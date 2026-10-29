@@ -23,12 +23,13 @@ export type ServiceApi = 'admin' | 'finance';
 const OPERATIONS: Readonly<Record<string, Readonly<Record<ServiceApi, readonly string[]>>>> =
   Object.freeze({
     'crm-sync': Object.freeze({
-      admin: Object.freeze(['listCustomers', 'getCustomer']),
+      admin: Object.freeze(['getCustomer']),
       finance: Object.freeze([] as string[]),
     }),
     'analytics-sync': Object.freeze({
       admin: Object.freeze(['getHqSalesReport', 'getHqFinanceReport']),
       finance: Object.freeze([
+        'listLegalEntityBooks',
         'listJournalLines',
         'getTrialBalance',
         'listPayouts',

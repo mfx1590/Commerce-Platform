@@ -93,10 +93,15 @@ Read-only is not least privilege: org-level `analyst` / `finance` imply `viewer`
 `support` reaches more reads than a sync needs. `SERVICE_CLIENT_OPERATIONS` (code constant, private frozen copy)
 lists, per API, the only operations each client may call:
 
-| client           | `admin` (Admin API)                      | `finance` (Finance API)                                                  |
-| ---------------- | ---------------------------------------- | ------------------------------------------------------------------------ |
-| `crm-sync`       | `listCustomers`, `getCustomer`           | —                                                                        |
-| `analytics-sync` | `getHqSalesReport`, `getHqFinanceReport` | `listJournalLines`, `getTrialBalance`, `listPayouts`, `listParkedEvents` |
+| client           | `admin` (Admin API)                      | `finance` (Finance API)                                                                          |
+| ---------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `crm-sync`       | `getCustomer`                            | —                                                                                                |
+| `analytics-sync` | `getHqSalesReport`, `getHqFinanceReport` | `listLegalEntityBooks`, `listJournalLines`, `getTrialBalance`, `listPayouts`, `listParkedEvents` |
+
+The lists are pinned to their callers: `test/service-client-callers.test.ts` runs every method of the #602
+reconcile clients (`@platform/analytics-ingest`, dev dependency) with a recording fetch and requires the
+operations they call to equal analytics-sync's lists; crm-sync's CRM sync calls only `getCustomer`. The matcher is
+also run against the core's real `/admin` routers (hq-rbac `test/admin-router-operation.test.ts`).
 
 After the read-only check, the verifier refuses anything else — and a request whose `api` or `operationId` the
 caller did not resolve (fail closed) — with 403 `details.reason = 'service_client_operation_not_allowed'`

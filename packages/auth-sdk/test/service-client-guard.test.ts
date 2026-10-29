@@ -80,7 +80,7 @@ describe('read-only service clients (unit, local JWKS)', () => {
       const claims = await verifier.verify(await token({ azp: 'crm-sync' }), {
         method,
         api: 'admin',
-        operationId: 'listCustomers',
+        operationId: 'getCustomer',
       });
       expect(claims.serviceClient).toBe('crm-sync');
       expect(claims.subject).toBe('seed-crm-sync');
@@ -174,10 +174,10 @@ describe('read-only service clients (unit, local JWKS)', () => {
 
 describe('operation allowlist per service client (#632, unit, local JWKS)', () => {
   const allowed: [string, 'admin' | 'finance', string][] = [
-    ['crm-sync', 'admin', 'listCustomers'],
     ['crm-sync', 'admin', 'getCustomer'],
     ['analytics-sync', 'admin', 'getHqSalesReport'],
     ['analytics-sync', 'admin', 'getHqFinanceReport'],
+    ['analytics-sync', 'finance', 'listLegalEntityBooks'],
     ['analytics-sync', 'finance', 'listJournalLines'],
     ['analytics-sync', 'finance', 'getTrialBalance'],
     ['analytics-sync', 'finance', 'listPayouts'],
@@ -186,10 +186,16 @@ describe('operation allowlist per service client (#632, unit, local JWKS)', () =
 
   it("the lists are exactly the issue's, a code constant — mutating the exported copy changes nothing", () => {
     expect(SERVICE_CLIENT_OPERATIONS).toEqual({
-      'crm-sync': { admin: ['listCustomers', 'getCustomer'], finance: [] },
+      'crm-sync': { admin: ['getCustomer'], finance: [] },
       'analytics-sync': {
         admin: ['getHqSalesReport', 'getHqFinanceReport'],
-        finance: ['listJournalLines', 'getTrialBalance', 'listPayouts', 'listParkedEvents'],
+        finance: [
+          'listLegalEntityBooks',
+          'listJournalLines',
+          'getTrialBalance',
+          'listPayouts',
+          'listParkedEvents',
+        ],
       },
     });
     SERVICE_CLIENT_OPERATIONS['crm-sync']!.admin.push('listOrders');
@@ -211,6 +217,7 @@ describe('operation allowlist per service client (#632, unit, local JWKS)', () =
 
   it.each([
     ['crm-sync', 'admin', 'listOrders'],
+    ['crm-sync', 'admin', 'listCustomers'], // dropped in review: the CRM sync only calls getCustomer
     ['crm-sync', 'admin', 'getHqSalesReport'],
     ['crm-sync', 'finance', 'getTrialBalance'],
     ['analytics-sync', 'admin', 'listOrders'],

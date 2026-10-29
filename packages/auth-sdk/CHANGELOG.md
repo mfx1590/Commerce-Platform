@@ -282,6 +282,13 @@ all`, `verifyEmail: true`, brute force on, no client secret, exact https callbac
 - hq-rbac: `StaffScope.serviceRequest` (per request, never cached) and `handle()` refuses a mismatch between the
   operation resolved before routing and its own (`service_client_operation_mismatch`), then applies the
   allowlist to its own operation.
+- Fable review of #635: analytics-sync's finance list gains `listLegalEntityBooks` (the reconcile's first call,
+  `GET /accounting/v1/legal-entities`; every real-token run would have been refused); crm-sync loses
+  `listCustomers` (the CRM sync only calls `getCustomer`). `test/service-client-callers.test.ts` walks the
+  reconcile clients against the lists (dev dependencies `@platform/analytics-ingest`, `yaml`); hq-rbac
+  `test/admin-router-operation.test.ts` runs the matcher against the core's real `/admin` stack
+  (mountCoreMiddleware + moduleAdminRouters, an x-op probe on Express's route dispatch): every route that answers
+  is the resolved template, every allowlisted Admin operation is answered.
 - Integration exceptions (labelled commits): apps/core `staffAuthMiddleware` resolves the Admin API operation
   before routing and passes `{ method, api: 'admin', operationId }` (+ a core test); apps/accounting passes
   `api: 'finance'` and `req.method` as is.
