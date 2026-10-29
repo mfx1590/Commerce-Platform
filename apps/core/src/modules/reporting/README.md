@@ -67,17 +67,18 @@ mounted inside `reportingAdminRouter()`. One query path over ClickHouse for the 
     never across currencies. It applies `order_by` / `limit` (1000, `truncated`) and sets `data_as_of`.
 - **The read path** (`reader.ts`) is `analytics_ro` with no per-query settings. The profile sets readonly,
   10 s, 100 000 rows with throw and 512 MB (infra/clickhouse/users.d). A timeout, an overflow, a missing
-  configuration or ClickHouse being down is a **503** with nothing partial: `internal` + status 503 until the
-  contract's `unavailable` code lands.
-- **Fail closed until the contract is underneath.** The `x-permission` is resolved per request from admin-api.yaml,
-  so an operation the spec does not carry answers 503 before anything runs (tested).
+  configuration or ClickHouse being down is a **503 `unavailable`** (contracts 0.4.30) with nothing partial. The
+  executor starts every statement before awaiting any, so a failing ClickHouse never leaves an unhandled rejection.
+- **Fail closed.** The `x-permission` is resolved per request from admin-api.yaml (Admin API 0.4.25), so an
+  operation the spec does not carry answers 503 `unavailable` before anything runs (tested).
 
 Tests:
 
-- `metrics/metrics.test.ts` (25): the validator, a 500-random-query property (scope in every statement, no request
+- `metrics/metrics.test.ts` (30): the validator, a 500-random-query property (scope in every statement, no request
   value in SQL text), and the executor.
-- `metrics/routes.test.ts` (11): real core middleware, dev tokens, a recording reader. Covers 401, the scope per role,
-  403 for B from A, 403 for finance, 400, 503, and fail closed.
+- `metrics/routes.test.ts` (12): real core middleware, dev tokens, a recording reader, the landed contract's
+  permissions. Covers 401, the scope per role, 403 for B from A, 403 for every finance metric without finance (an
+  analyst and a store admin; nothing reaches ClickHouse), 400, 503 `unavailable`, CSV, and fail closed.
 - `metrics/metrics-live.test.ts` (10, ClickHouse + Postgres, opt-in like the other live tests). Every metric at every
   grain. A 300-query leak property (no row of another store, totals = the marts). Two-store exactness. p95 of 200
   queries < 300 ms (measured 52–56 ms). The `analytics_ro` read path. The scope-escape tests over HTTP: (a) another

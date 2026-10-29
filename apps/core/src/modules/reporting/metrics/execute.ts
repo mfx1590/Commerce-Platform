@@ -87,20 +87,20 @@ export async function executeMetricQuery(
           ).json<Raw>(),
         ),
       ),
-      (
-        await reader.query({
-          query: 'SELECT if(count() = 0, NULL, toString(max(ingested_at))) AS t FROM raw_events',
-          format: 'JSONEachRow',
-        })
-      ).json<{ t: string | null }>(),
+      // a promise, not an `await` inside the array: awaiting here would leave the sources' rejection unhandled
+      // (Node's default kills the process) whenever ClickHouse is down
+      (async () =>
+        (
+          await reader.query({
+            query: 'SELECT if(count() = 0, NULL, toString(max(ingested_at))) AS t FROM raw_events',
+            format: 'JSONEachRow',
+          })
+        ).json<{ t: string | null }>())(),
     ]);
   } catch (err) {
-    throw new AppError(
-      'internal',
-      'Analytics store unavailable',
-      { reason: (err as Error).name },
-      503,
-    );
+    throw new AppError('unavailable', 'Analytics store unavailable', {
+      reason: (err as Error).name,
+    });
   }
 
   // merge the sources by key

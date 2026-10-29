@@ -1,8 +1,9 @@
 // #603 routes behind the real core middleware (dev tokens, the role_assignment stub), a seeded throwaway database
 // for the scope, and a recording fake ClickHouse reader. Proves the access rules the contract states: 401 without a
 // token; the scope each role gets, injected into EVERY compiled statement; a store outside the scope is a 403 (not
-// empty rows); finance metrics need finance; a bad body is a 400; ClickHouse down is a 503.
-// The operations' permissions are passed as in the posted CONTRACT CHANGE (#603 comment) until the contract lands.
+// empty rows); finance metrics need finance; a bad body is a 400; ClickHouse down is a 503 `unavailable`.
+// The main app reads the permissions from the landed contract (admin-api.yaml 0.4.25); a hand-built spec stands in only
+// for the fail-closed case (a contract WITHOUT the operations).
 import express from 'express';
 import request from 'supertest';
 import { createOrganizationClient, SEED_IDS } from '@platform/db';
@@ -19,12 +20,8 @@ const ORG = SEED_IDS.organization;
 const A = SEED_IDS.stores.brandA;
 const B = SEED_IDS.stores.brandB;
 const C = SEED_IDS.stores.brandC;
-const POSTED: Record<string, { relation: string; object: string }> = {
-  listMetrics: { relation: 'viewer', object: 'store:*' },
-  queryMetrics: { relation: 'viewer', object: 'store:*' },
-};
-/** The posted CONTRACT CHANGE's permissions, as the spec will carry them; an unknown operation throws like loadSpec. */
-const postedSpec = (ops: Record<string, { relation: string; object: string }>) => ({
+/** A spec carrying only the given operations; an unknown operation throws like loadSpec. */
+const specWith = (ops: Record<string, { relation: string; object: string }>) => ({
   permission(op: string) {
     const p = ops[op];
     if (!p) throw new Error(`no operation ${op} in admin-api.yaml`);
@@ -84,11 +81,8 @@ beforeAll(async () => {
   );
   app = express();
   mountCoreMiddleware(app, new DevTokenVerifier(), {
-    // ours first: the production list mounts the same paths with the real spec (503 until the contract lands)
-    moduleRouters: [
-      metricsAdminRouter({ reader, spec: postedSpec(POSTED) }),
-      ...moduleAdminRouters(),
-    ],
+    // ours first (the recording reader); the production list mounts the same paths with the same real spec
+    moduleRouters: [metricsAdminRouter({ reader }), ...moduleAdminRouters()],
   });
   app.use(coreErrorHandler);
 }, 240_000);
@@ -161,14 +155,20 @@ describe('queryMetrics', () => {
     expect(seen[0]!.scope).toEqual([C]);
   });
 
-  it('finance metrics need finance on organization:hq', async () => {
-    const denied = await post(q({ metrics: ['captured_minor'] }), 'seed-analyst');
-    expect(denied.status).toBe(403);
-    expect(denied.body.details).toMatchObject({
-      relation: 'finance',
-      object: 'organization:hq',
-      metric: 'captured_minor',
-    });
+  it('finance metrics need finance on organization:hq: no finance is a 403, nothing reaches ClickHouse', async () => {
+    for (const subject of ['seed-analyst', 'metrics-admin-a']) {
+      for (const metric of ['captured_minor', 'fee_minor', 'recognised_minor']) {
+        seen.length = 0;
+        const denied = await post(q({ metrics: ['orders', metric] }), subject);
+        expect(denied.status, `${subject} ${metric}`).toBe(403);
+        expect(denied.body).toMatchObject({
+          code: 'forbidden',
+          details: { relation: 'finance', object: 'organization:hq', metric },
+        });
+        expect(denied.body.rows).toBeUndefined();
+        expect(seen).toEqual([]);
+      }
+    }
     expect((await post(q({ metrics: ['captured_minor'] }), 'seed-finance')).status).toBe(200);
   });
 
@@ -180,10 +180,11 @@ describe('queryMetrics', () => {
     expect(seen).toEqual([]);
   });
 
-  it('ClickHouse down is a 503 with nothing partial', async () => {
+  it('ClickHouse down is a 503 `unavailable` with nothing partial', async () => {
     failNext = true;
     const r = await post(q(), 'seed-analyst');
     expect(r.status).toBe(503);
+    expect(r.body.code).toBe('unavailable');
     expect(r.body.rows).toBeUndefined();
   });
 });
@@ -192,7 +193,7 @@ describe('fail closed when the contract does not carry the operations', () => {
   it('both routes answer 503 before anything runs (no guard, no handler, no ClickHouse)', async () => {
     const closed = express();
     mountCoreMiddleware(closed, new DevTokenVerifier(), {
-      moduleRouters: [metricsAdminRouter({ reader, spec: postedSpec({}) })],
+      moduleRouters: [metricsAdminRouter({ reader, spec: specWith({}) })],
     });
     closed.use(coreErrorHandler);
     seen.length = 0;
@@ -204,6 +205,7 @@ describe('fail closed when the contract does not carry the operations', () => {
       .set('Authorization', 'Bearer dev:seed-owner')
       .send(q());
     expect([list.status, query.status]).toEqual([503, 503]);
+    expect([list.body.code, query.body.code]).toEqual(['unavailable', 'unavailable']);
     expect(list.body.details).toEqual({ operation: 'listMetrics' });
     expect(query.body.details).toEqual({ operation: 'queryMetrics' });
     expect(query.body.rows).toBeUndefined();

@@ -13,12 +13,7 @@ let shared: MetricsReader | undefined;
 export function createMetricsReader(env: NodeJS.ProcessEnv = process.env): MetricsReader {
   const username = env.CLICKHOUSE_READONLY_USER?.trim();
   if (!username)
-    throw new AppError(
-      'internal',
-      'Analytics store unavailable',
-      { reason: 'not_configured' },
-      503,
-    );
+    throw new AppError('unavailable', 'Analytics store unavailable', { reason: 'not_configured' });
   return createClient({
     url: env.CLICKHOUSE_URL?.trim() || 'http://127.0.0.1:18123',
     username,

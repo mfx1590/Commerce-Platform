@@ -75,7 +75,7 @@ export function metricsAdminRouter(opts: MetricsRouterOptions = {}): Router {
   const spec: MetricsSpec = opts.spec ?? loadSpec('admin-api.yaml');
   const reader = (): MetricsReader => opts.reader ?? sharedMetricsReader();
   // x-permission is resolved per request (cached once found), and an operation the spec does not have FAILS CLOSED:
-  // a 503 before anything runs, never an unguarded route (the contract lands on integration/phase5-metrics).
+  // a 503 `unavailable` before anything runs, never an unguarded route.
   const guards = new Map<Operation, RequestHandler>();
   const guard =
     (op: Operation): RequestHandler =>
@@ -86,7 +86,7 @@ export function metricsAdminRouter(opts: MetricsRouterOptions = {}): Router {
         try {
           perm = spec.permission(op);
         } catch {
-          next(new AppError('internal', `${op} is not in the contract`, { operation: op }, 503));
+          next(new AppError('unavailable', `${op} is not in the contract`, { operation: op }));
           return;
         }
         g = requirePermission(perm.relation as never, (r: Request) =>

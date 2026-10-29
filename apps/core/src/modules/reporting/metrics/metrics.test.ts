@@ -223,7 +223,23 @@ describe('executeMetricQuery', () => {
     const { reader } = fakeReader({}, { fail: true });
     const err = await executeMetricQuery(reader, q({}), [A]).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(AppError);
-    expect(err).toMatchObject({ status: 503 });
+    expect(err).toMatchObject({ status: 503, code: 'unavailable' });
+  });
+
+  it('a failing ClickHouse leaves no unhandled rejection behind (it would kill the process)', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => unhandled.push(e);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const { reader } = fakeReader({}, { fail: true });
+      await executeMetricQuery(reader, q({ metrics: ['bookings_minor', 'refunds_minor'] }), [
+        A,
+      ]).catch(() => {});
+      await new Promise((r) => setTimeout(r, 20));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
   });
 
   it('every catalogue metric compiles and executes (no metric without a source or a derivation)', async () => {
