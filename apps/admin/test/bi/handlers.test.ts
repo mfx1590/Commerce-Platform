@@ -61,11 +61,51 @@ describe('the CSV export', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('text/csv; charset=utf-8');
     expect(res.headers.get('content-disposition')).toBe(
-      `attachment; filename="bi-${A}-2026-03-01-to-2026-03-04.csv"`,
+      `attachment; filename="bi-period-${A}-2026-03-01-to-2026-03-04.csv"`,
     );
     expect(res.headers.get('x-truncated')).toBe('true');
     const q = api.queryMetricsCsv.mock.calls[0]![0];
     expect(q).toMatchObject({ from: '2026-03-01', to: '2026-03-04', filters: { store_ids: [A] } });
+  });
+
+  it.each([
+    ['money', ['bookings_minor', 'recognised_minor', 'captured_minor']],
+    ['products', ['units', 'product_net_minor']],
+    ['period', ['bookings_minor', 'refunds_minor', 'refund_rate_bp']],
+  ])(
+    '?table=%s exports the query that table is drawn from, narrowed the same way',
+    async (table, ms) => {
+      const res = await storeExport(
+        new Request(`http://x/a/bi/export?table=${table}&from=2026-03-01&to=2026-03-04`),
+        { params: Promise.resolve({ storeId: A }) },
+      );
+      expect(res.headers.get('content-disposition')).toContain(`bi-${table}-${A}-`);
+      const q = api.queryMetricsCsv.mock.calls[0]![0];
+      expect(q.metrics).toEqual(ms);
+      expect(q.filters).toEqual({ store_ids: [A] });
+    },
+  );
+
+  it('an unknown table is a 400 naming the field, and nothing is asked of the API', async () => {
+    const res = await exportResponse(new URL('http://x/bi/export?table=__proto__'));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      code: 'validation_error',
+      details: { field: 'table' },
+    });
+    expect(api.queryMetricsCsv).not.toHaveBeenCalled();
+  });
+
+  it('a principal without finance asking for the money views gets the API 403 as it came', async () => {
+    api.queryMetricsCsv.mockResolvedValue({
+      ok: false,
+      status: 403,
+      body: '{"code":"forbidden"}',
+      contentType: 'application/json',
+    });
+    const res = await exportResponse(new URL('http://x/bi/export?table=money'));
+    expect(res.status).toBe(403);
+    expect(res.headers.get('content-disposition')).toBeNull();
   });
 
   it('an invalid window falls back to the default one, like the page', async () => {
@@ -89,8 +129,8 @@ describe('the CSV export', () => {
   });
 
   it('the file name never carries anything but [a-z0-9-] from the scope', () => {
-    expect(exportFileName('../"evil"\r\n', '2026-03-01', '2026-03-04')).toBe(
-      'bi-evil-2026-03-01-to-2026-03-04.csv',
+    expect(exportFileName('money', '../"evil"\r\n', '2026-03-01', '2026-03-04')).toBe(
+      'bi-money-evil-2026-03-01-to-2026-03-04.csv',
     );
   });
 });

@@ -368,6 +368,20 @@ describe('the metrics dashboard (#604)', () => {
             ],
           ),
         );
+      if (q.metrics.includes('units'))
+        return ok(
+          metricResult(
+            q,
+            [
+              {
+                currency: 'EUR',
+                product_id: '00000000-0000-4000-8000-000000000071',
+                values: { units: 4, product_net_minor: 8000 },
+              },
+            ],
+            [],
+          ),
+        );
       if (q.metrics.includes('live_orders'))
         return ok(
           metricResult(
@@ -406,6 +420,9 @@ describe('the metrics dashboard (#604)', () => {
   it('the owner (finance) gets bookings vs recognised vs cash for the tab currency', async () => {
     await renderAs('owner');
     expect(asks('recognised_minor')).toBe(true);
+    expect(
+      screen.getByRole('link', { name: 'Download money views CSV' }).getAttribute('href'),
+    ).toMatch(/^\/bi\/export\?table=money&/);
     const views = screen.getByTestId('bi-money-views');
     expect(
       within(views)
@@ -418,7 +435,13 @@ describe('the metrics dashboard (#604)', () => {
     await renderAs('analyst', { from: '2026-03-01', to: '2026-03-04' });
     expect(screen.getByTestId('live-stub').textContent).toBe('live /bi/live 1');
     const csv = screen.getAllByRole('link', { name: 'Download CSV' })[0]!;
-    expect(csv.getAttribute('href')).toBe('/bi/export?from=2026-03-01&to=2026-03-04');
+    expect(csv.getAttribute('href')).toBe('/bi/export?table=period&from=2026-03-01&to=2026-03-04');
+    // every table on the page has its own server-generated CSV with the same scope
+    expect(
+      screen.getByRole('link', { name: 'Download top products CSV' }).getAttribute('href'),
+    ).toBe('/bi/export?table=products&from=2026-03-01&to=2026-03-04');
+    // an analyst has no money views, so no money views CSV is offered (the API would answer 403)
+    expect(screen.queryByRole('link', { name: 'Download money views CSV' })).toBeNull();
   });
 
   it('a 503 from the metrics API is a panel, never partial figures, and the v1 reports still render', async () => {

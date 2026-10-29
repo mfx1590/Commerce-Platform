@@ -128,12 +128,14 @@ function PeriodSection({
 }) {
   const tabs = currencies(result);
   const currency = pickCurrency(tabs, currencyParam);
-  const exportHref = `${base}/export?${new URLSearchParams({ from: window.from, to: window.to })}`;
+  // every table exports the same server query it is drawn from (same scope, same rows), every currency in it
+  const exportHref = (table: 'period' | 'money' | 'products') =>
+    `${base}/export?${new URLSearchParams({ table, from: window.from, to: window.to })}`;
   if (currency === null)
     return (
       <div className="flex items-center justify-between">
         <p className="text-muted text-sm">No orders in this window.</p>
-        <a className="text-accent text-sm underline" href={exportHref} download>
+        <a className="text-accent text-sm underline" href={exportHref('period')} download>
           Download CSV
         </a>
       </div>
@@ -177,7 +179,7 @@ function PeriodSection({
             </a>
           ))}
         </nav>
-        <a className="text-accent text-sm underline" href={exportHref} download>
+        <a className="text-accent text-sm underline" href={exportHref('period')} download>
           Download CSV
         </a>
       </div>
@@ -204,59 +206,75 @@ function PeriodSection({
         format={fmt}
       />
       {views && (
-        <table className="w-full text-sm" data-testid="bi-money-views">
-          <caption className="text-muted mb-2 text-left text-xs">
-            Three views of the same money, {currency}: bookings (orders placed), recognised (the
-            ledger) and cash (captured). They differ by timing and refunds, never by addition.
-          </caption>
-          <thead className="text-muted text-xs uppercase">
-            <tr className="border-line border-b">
-              <th className="py-2 text-right font-medium">Bookings</th>
-              <th className="py-2 text-right font-medium">Recognised</th>
-              <th className="py-2 text-right font-medium">Cash</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td className="py-2 text-right font-mono tabular-nums">
-                {fmt(views.bookings_minor)}
-              </td>
-              <td className="py-2 text-right font-mono tabular-nums">
-                {fmt(views.recognised_minor ?? 0)}
-              </td>
-              <td className="py-2 text-right font-mono tabular-nums">
-                {fmt(views.captured_minor ?? 0)}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      )}
-      {products.length > 0 && (
-        <table className="w-full text-sm">
-          <caption className="text-muted mb-2 text-left text-xs">
-            Top products by units, {currency}.
-          </caption>
-          <thead className="text-muted text-xs uppercase">
-            <tr className="border-line border-b">
-              <th className="py-2 text-left font-medium">Product</th>
-              <th className="py-2 text-right font-medium">Units</th>
-              <th className="py-2 text-right font-medium">Net</th>
-            </tr>
-          </thead>
-          <tbody className="divide-line divide-y">
-            {products.map((r) => (
-              <tr key={r.product_id}>
-                <td className="py-2 font-mono text-xs">{r.product_id}</td>
-                <td className="py-2 text-right font-mono tabular-nums">{r.values.units ?? 0}</td>
+        <div className="space-y-1">
+          <DownloadLink href={exportHref('money')} label="Download money views CSV" />
+          <table className="w-full text-sm" data-testid="bi-money-views">
+            <caption className="text-muted mb-2 text-left text-xs">
+              Three views of the same money, {currency}: bookings (orders placed), recognised (the
+              ledger) and cash (captured). They differ by timing and refunds, never by addition.
+            </caption>
+            <thead className="text-muted text-xs uppercase">
+              <tr className="border-line border-b">
+                <th className="py-2 text-right font-medium">Bookings</th>
+                <th className="py-2 text-right font-medium">Recognised</th>
+                <th className="py-2 text-right font-medium">Cash</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
                 <td className="py-2 text-right font-mono tabular-nums">
-                  {fmt(r.values.product_net_minor ?? 0)}
+                  {fmt(views.bookings_minor)}
+                </td>
+                <td className="py-2 text-right font-mono tabular-nums">
+                  {fmt(views.recognised_minor ?? 0)}
+                </td>
+                <td className="py-2 text-right font-mono tabular-nums">
+                  {fmt(views.captured_minor ?? 0)}
                 </td>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
+      )}
+      {products.length > 0 && (
+        <div className="space-y-1">
+          <DownloadLink href={exportHref('products')} label="Download top products CSV" />
+          <table className="w-full text-sm">
+            <caption className="text-muted mb-2 text-left text-xs">
+              Top products by units, {currency}.
+            </caption>
+            <thead className="text-muted text-xs uppercase">
+              <tr className="border-line border-b">
+                <th className="py-2 text-left font-medium">Product</th>
+                <th className="py-2 text-right font-medium">Units</th>
+                <th className="py-2 text-right font-medium">Net</th>
+              </tr>
+            </thead>
+            <tbody className="divide-line divide-y">
+              {products.map((r) => (
+                <tr key={r.product_id}>
+                  <td className="py-2 font-mono text-xs">{r.product_id}</td>
+                  <td className="py-2 text-right font-mono tabular-nums">{r.values.units ?? 0}</td>
+                  <td className="py-2 text-right font-mono tabular-nums">
+                    {fmt(r.values.product_net_minor ?? 0)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
+  );
+}
+
+function DownloadLink({ href, label }: { href: string; label: string }) {
+  return (
+    <p className="text-right">
+      <a className="text-accent text-xs underline" href={href} download>
+        {label}
+      </a>
+    </p>
   );
 }
 
