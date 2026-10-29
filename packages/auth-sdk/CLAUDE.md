@@ -20,7 +20,12 @@ window 2 (auth).
 - `verifyStaffToken(tokenOrHeader) → StaffClaims` — staff-realm JWKS, RS256, issuer + `aud: core-api`; 401 on any failure.
   `createStaffTokenVerifier().verify(token, { method, operationId })`: a read-only service client
   (`READ_ONLY_SERVICE_CLIENTS`: crm-sync, analytics-sync; code constant) is refused 403 on any non-GET/HEAD
-  method or without the request context, before any permission check (#565 / #622).
+  method or without the request context, before any permission check (#565 / #622); then the operation
+  allowlist `SERVICE_CLIENT_OPERATIONS` per API (`{ method, api: 'admin' | 'finance', operationId }`; anything
+  else or unresolved → 403 `service_client_operation_not_allowed`, #632). `createOperationMatcher(paths)`:
+  contract operation from method + raw path, Express semantics (the core resolves it before routing).
+- `provision:service-accounts -- --crm-sync-stores <code,…> [--dry-run]` (#632): production staff_user rows +
+  role assignments of crm-sync / analytics-sync; idempotent, never removes.
 - `verifyCustomerToken(tokenOrHeader, storeCode) → CustomerClaims` — customers realm, and the token's
   `store_code` claim must equal the request's **store code** (`store.code`, e.g. `brand-a`), not a store id:
   the storefront client stamps its brand, and the core resolves publishable key/host → code anyway. A token

@@ -180,8 +180,39 @@ startup import is not recursive; `production/` is a subdirectory of the mounted 
 - a Postgres-backed Keycloak (`KC_DB`), TLS termination in front (`sslRequired: all`), and the first HQ
   owner created through the admin console (there are no seeded users; `inviteUser` needs an owner).
 
-Secrets: the only confidential client is the `core-admin` service account (#415); its dev-only secret is
-committed by design (the allowlisted `dev-only-` shape, dev-only table above) and the production export drops it
+### Service accounts in production (#565 / #622 / #632, docs/launch-checklist.md "Service accounts")
+
+`crm-sync` and `analytics-sync` come with the production staff realm import (`production/staff-realm.json`):
+the clients and their service-account users with the FIXED ids `seed-crm-sync` / `seed-analytics-sync`, no
+secret in the file. Once per environment, after the realm import, with the environment's OpenFGA store and
+model in place (`OPENFGA_STORE_ID` / `OPENFGA_MODEL_ID`; never `fga:seed`'s dev tuples in production):
+
+1. Copy each client's generated secret (admin console → Clients → `<client>` → Credentials) into Vault; the
+   consumers read `CRM_SYNC_CLIENT_*` (window 16's CRM sync) and `ANALYTICS_SYNC_CLIENT_*` (window 12's
+   reconcile) from there. Never into a file, a ticket or a log.
+2. Check the service-account users kept the fixed ids (Clients → `<client>` → Service account roles → the
+   user link shows the id): the staff_user rows below are looked up by that subject.
+3. Dry run, then the run, from a host with `DATABASE_URL_APP`, `OPENFGA_API_URL`, `OPENFGA_STORE_ID`,
+   `OPENFGA_MODEL_ID` and `ORGANIZATION_ID` of the environment:
+
+   ```bash
+   pnpm --filter @platform/auth-sdk provision:service-accounts -- --crm-sync-stores brand-a --dry-run
+   ```
+
+   ```bash
+   pnpm --filter @platform/auth-sdk provision:service-accounts -- --crm-sync-stores brand-a
+   ```
+
+   `--crm-sync-stores` = the stores whose customers the CRM sync may read (comma-separated codes; `support`
+   per store). It writes the two staff_user rows and the three role assignments (tuple + role_assignment +
+   audit), prints `created` / `present` per line, and never removes anything — an `EXTRA` line is an
+   assignment beyond the requested ones, for a person to revoke. A second run prints only `present`.
+
+4. Verify with a client-credentials token per client: `sub = seed-<client>`, `aud core-api`, no roles; an
+   allowed read answers 200, `listOrders` answers 403 `service_client_operation_not_allowed` (#632).
+
+Secrets: the confidential clients are the `core-admin` service account (#415) and the two sync service accounts
+above; their dev-only secrets are committed by design (the allowlisted `dev-only-` shape, dev-only table above) and the production export drops them
 (#416, generated at import, kept in Vault). Identity-provider secrets are
 `${ENV_VAR:unset}` placeholders resolved by Keycloak at import time.
 

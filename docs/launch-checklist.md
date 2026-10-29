@@ -18,7 +18,7 @@ issue; tick it only with a link to the evidence.
 
 ## Data protection
 
-- [ ] **ClickHouse honours customer.erased (#623, PR #631).** No real customer data may reach ClickHouse before it
+- [x] **ClickHouse honours customer.erased (#623, PR #631, merged 2026-10-29 as 0d31c6d).** No real customer data may reach ClickHouse before it
       lands. `ANALYTICS_ERASURE_KEY` set from the secrets manager; rotation procedure in apps/analytics-ingest README.
 - [ ] **The analytics ingest runs as ONE replica** until the erasure index refreshes across replicas (a periodic
       reload + re-scrub; Fable review of #631). A second replica would keep writing an erased customer's rows.
@@ -30,7 +30,7 @@ issue; tick it only with a link to the evidence.
 
 ## Access
 
-- [ ] **Service accounts (#565, #622, #632):** the per-client operation allowlist (#632) merged BEFORE any
+- [ ] **Service accounts (#565, #622, #632):** the per-client operation allowlist (#632) **merged 2026-10-29 (PR #635)** BEFORE any
       production secret exists; then provision the `crm-sync` / `analytics-sync` staff_user rows + OpenFGA
       tuples in production with window 2's `provision:service-accounts` (see infra/keycloak/README, production
       section); secrets from the secrets manager only.

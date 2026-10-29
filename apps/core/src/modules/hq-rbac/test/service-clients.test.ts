@@ -3,13 +3,16 @@
 // client-credentials token → createStaffScopeMiddleware verifies it (aud core-api) and looks the subject up in
 // staff_user → OpenFGA resolves the scope → the x-permission guards of the CONTRACTS (admin-api.yaml and
 // accounting.yaml, parsed here, not hardcoded) decide. Allowed reads resolve; anything outside the client's scope
-// is the contract 403. Throw-away Postgres database + throw-away OpenFGA store (tuples.seed.json) per run.
+// is the contract 403. On top: the read-only guard (#565 / #622) and the per-client operation allowlist (#632) in
+// the verifier, and hq-rbac's second layer. Throw-away Postgres database + throw-away OpenFGA store
+// (tuples.seed.json) per run.
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   createOpenFgaClient,
   requirePermission,
+  SERVICE_CLIENT_OPERATIONS,
   ScopeCache,
   seedOpenFga,
   type OpenFgaClient,
@@ -108,9 +111,12 @@ describe('service clients: the contract operations they need exist with the expe
     ['getCustomer', 'support', 'store:{storeId}'],
     ['getHqSalesReport', 'analyst', 'organization:hq'],
     ['getHqFinanceReport', 'finance', 'organization:hq'],
+    ['listLegalEntityBooks', 'finance', 'organization:hq'],
     ['listJournalLines', 'finance', 'organization:hq'],
     ['getTrialBalance', 'finance', 'organization:hq'],
     ['listPayouts', 'finance', 'organization:hq'],
+    ['listParkedEvents', 'finance', 'organization:hq'],
+    ['listOrders', 'viewer', 'store:{storeId}'],
     ['eraseCustomer', 'store_admin', 'store:{storeId}'],
     ['updateStore', 'store_admin', 'store:{storeId}'],
   ])('%s: %s on %s', (operationId, relation, object) => {
@@ -162,10 +168,14 @@ describe.runIf(live)('service clients (real client-credentials tokens, live Open
     for (const name of Object.keys(CLIENTS) as (keyof typeof CLIENTS)[]) {
       const token = await serviceToken(name);
       tokens.set(name, token);
-      // A read, as the core's middleware will present it (the request context is what the guard needs).
+      // One of its allowed reads, as the core's middleware will present it (method + api + operation, #632).
       scopes.set(
         name,
-        await mw.resolve(`Bearer ${token}`, { method: 'GET', operationId: 'listCustomers' }),
+        await mw.resolve(`Bearer ${token}`, {
+          method: 'GET',
+          api: 'admin',
+          operationId: SERVICE_CLIENT_OPERATIONS[name]!.admin[0],
+        }),
       );
     }
   }, 120_000);
@@ -229,14 +239,16 @@ describe.runIf(live)('service clients (real client-credentials tokens, live Open
     expect([...scope.organizationRelations].sort()).toEqual(['analyst', 'finance']);
   });
 
-  it('analytics-sync: the two HQ reports and the three Finance API reads are allowed', async () => {
+  it('analytics-sync: the two HQ reports and the five Finance API reads are allowed', async () => {
     const scope = scopes.get('analytics-sync')!;
     for (const op of [
       'getHqSalesReport',
       'getHqFinanceReport',
+      'listLegalEntityBooks',
       'listJournalLines',
       'getTrialBalance',
       'listPayouts',
+      'listParkedEvents',
     ]) {
       await expect(decide(scope, op), op).resolves.toBeUndefined();
     }
@@ -331,5 +343,148 @@ describe.runIf(live)('service clients (real client-credentials tokens, live Open
     for (const op of ['updateCustomer', 'createRefund', 'createReturn']) {
       await expect(decide(human, op), op).resolves.toBeUndefined();
     }
+  });
+
+  // The operation allowlist (#632): refused by the VERIFIER, after the read-only check and before any x-permission.
+  it.each(Object.keys(CLIENTS) as (keyof typeof CLIENTS)[])(
+    '%s: every allowed operation passes the verifier AND its x-permission',
+    async (name) => {
+      for (const [api, ids] of Object.entries(SERVICE_CLIENT_OPERATIONS[name]!) as [
+        'admin' | 'finance',
+        string[],
+      ][]) {
+        for (const operationId of ids) {
+          const scope = await mw.resolve(`Bearer ${tokens.get(name)!}`, {
+            method: 'GET',
+            api,
+            operationId,
+          });
+          expect(scope.serviceRequest).toEqual({ api, operationId });
+          await expect(decide(scope, operationId), operationId).resolves.toBeUndefined();
+        }
+      }
+    },
+  );
+
+  it.each(Object.keys(CLIENTS) as (keyof typeof CLIENTS)[])(
+    '%s: listOrders is refused by THIS layer (service_client_operation_not_allowed) although viewer would allow it',
+    async (name) => {
+      // The permission alone WOULD let it through (org analyst / finance and store support imply viewer).
+      await expect(decide(scopes.get(name)!, 'listOrders')).resolves.toBeUndefined();
+      await expect(
+        mw.resolve(`Bearer ${tokens.get(name)!}`, {
+          method: 'GET',
+          api: 'admin',
+          operationId: 'listOrders',
+        }),
+      ).rejects.toMatchObject({
+        status: 403,
+        code: 'forbidden',
+        details: {
+          reason: 'service_client_operation_not_allowed',
+          client_id: CLIENTS[name].clientId,
+          api: 'admin',
+          operation_id: 'listOrders',
+        },
+      });
+    },
+  );
+
+  it('crm-sync: listCustomers is refused by THIS layer although support would allow it (it only calls getCustomer)', async () => {
+    await expect(decide(scopes.get('crm-sync')!, 'listCustomers')).resolves.toBeUndefined();
+    await expect(
+      mw.resolve(`Bearer ${tokens.get('crm-sync')!}`, {
+        method: 'GET',
+        api: 'admin',
+        operationId: 'listCustomers',
+      }),
+    ).rejects.toMatchObject({
+      status: 403,
+      details: { reason: 'service_client_operation_not_allowed', operation_id: 'listCustomers' },
+    });
+  });
+
+  it('fail closed: a service-client read whose operation was not resolved is refused', async () => {
+    await expect(
+      mw.resolve(`Bearer ${tokens.get('analytics-sync')!}`, { method: 'GET', api: 'admin' }),
+    ).rejects.toMatchObject({
+      status: 403,
+      details: { reason: 'service_client_operation_not_allowed', operation_id: null },
+    });
+  });
+
+  it('the scope cache never carries a request: two operations in a row each get their own serviceRequest', async () => {
+    const cached = createStaffScopeMiddleware({
+      pool: db.app,
+      fga,
+      organizationId: ORG,
+      cache: new ScopeCache(30_000),
+    });
+    const t = `Bearer ${tokens.get('analytics-sync')!}`;
+    const a = await cached.resolve(t, {
+      method: 'GET',
+      api: 'admin',
+      operationId: 'getHqSalesReport',
+    });
+    const b = await cached.resolve(t, {
+      method: 'GET',
+      api: 'finance',
+      operationId: 'listPayouts',
+    });
+    expect(a.serviceRequest).toEqual({ api: 'admin', operationId: 'getHqSalesReport' });
+    expect(b.serviceRequest).toEqual({ api: 'finance', operationId: 'listPayouts' });
+  });
+
+  it('a human analyst on listOrders is unaffected (only its permissions decide)', async () => {
+    const human = await mw.resolve(`Bearer ${await staffToken('analyst')}`, {
+      method: 'GET',
+      api: 'admin',
+      operationId: 'listOrders',
+    });
+    expect(human.serviceClient).toBeUndefined();
+    expect(human.serviceRequest).toBeUndefined();
+    await expect(decide(human, 'listOrders')).resolves.toBeUndefined();
+  });
+
+  it('second layer: hq-rbac refuses a service client whose resolved operation is not the one it matched', async () => {
+    const rbac = createHqRbac({ pool: db.app, fga });
+    const scope = scopes.get('analytics-sync')!; // resolved for getHqSalesReport
+    const res = await rbac.handle({
+      method: 'GET',
+      path: '/admin/users',
+      principal: { userId: scope.userId, subject: scope.subject, organizationId: ORG },
+      scope,
+    });
+    expect(res).toMatchObject({
+      status: 403,
+      body: {
+        code: 'forbidden',
+        details: {
+          reason: 'service_client_operation_mismatch',
+          resolved_operation_id: 'getHqSalesReport',
+          operation_id: 'listUsers',
+        },
+      },
+    });
+  });
+
+  it('second layer: hq-rbac refuses its own operations to a service client even when they agree', async () => {
+    const rbac = createHqRbac({ pool: db.app, fga });
+    const scope: StaffScope = {
+      ...scopes.get('analytics-sync')!,
+      serviceRequest: { api: 'admin', operationId: 'listAuditLog' },
+    };
+    const res = await rbac.handle({
+      method: 'GET',
+      path: '/admin/audit-log',
+      principal: { userId: scope.userId, subject: scope.subject, organizationId: ORG },
+      scope,
+    });
+    expect(res).toMatchObject({
+      status: 403,
+      body: {
+        details: { reason: 'service_client_operation_not_allowed', operation_id: 'listAuditLog' },
+      },
+    });
   });
 });

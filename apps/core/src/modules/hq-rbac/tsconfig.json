@@ -20,5 +20,8 @@
       "@platform/contracts": ["../../../../../packages/contracts/src/index.ts"]
     }
   },
-  "include": ["./**/*.ts"]
+  "include": ["./**/*.ts"],
+  // Runs the core's whole /admin stack (server.ts, every module router), which only typechecks under apps/core's
+  // own CommonJS config, and that config excludes tests; vitest still runs it with the core suite.
+  "exclude": ["test/admin-router-operation.test.ts"]
 }
