@@ -1,5 +1,9 @@
 # Changelog — @platform/db
 
+## 0.3.19 — 2026-10-26
+
+- `0204_product_recommendation.sql` (CONTRACT CHANGE #607, window 9, P5.8; manager landing): `product_recommendation` (RLS kind `store`, no UPDATE grant for the app role; the `index-recommendations` job rewrites per (store, kind, window_days) with DELETE + INSERT in one transaction). `product_id IS NULL` = the store-wide popular list (`window_days` 7 or 30); `bought_together` rows are anchored with `window_days = 0`; `score` is a lift ratio for pairs and a unit count for popular. `UNIQUE NULLS NOT DISTINCT (store_id, kind, window_days, product_id, related_product_id)`. Manager amendment: composite foreign keys `(store_id, product_id)` and `(store_id, related_product_id)` → `product (store_id, id)` (new unique index `product_store_id_id_key`), so a recommendation can never point at another store's product.
+
 ## 0.3.18 — 2026-10-24
 
 - `@platform/db/testing` `createTestDatabase`: the migration of a new test database runs under `pg_advisory_lock` held on a connection to the BASE database (advisory locks are per database). Migration 0001 creates the cluster-wide roles check-then-create, so two packages creating test databases at the same moment (turbo runs them in parallel) could both pass the check and one failed with 23505 on pg_authid_rolname_index (CI on PR #590). The applied migration is unchanged. New test: four databases created in parallel all migrate. Manager fix.

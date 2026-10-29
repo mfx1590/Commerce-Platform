@@ -89,6 +89,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/store/recommendations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Recommended products for a product page or a cart
+         * @description Precomputed per store by the nightly recommendations job: `bought_together` is co-occurrence with lift
+         *     above a minimum support, `popular` is units sold over the last 7 or 30 days.
+         *
+         *     The product-detail page sends `product_id`; the cart sends `variant_ids` (its line items' variant ids,
+         *     whose products are used as the anchors and are never recommended back). `kind=bought_together` needs
+         *     exactly one of the two: neither or both is a 400 `validation_error`. `kind=popular` is store-wide and
+         *     ignores both.
+         *
+         *     Only published, in-stock products of the resolved store are ever returned, so the list can come back
+         *     shorter than `limit`, or empty — the caller hides the rail when `items` is empty. When the anchor has no
+         *     pairs above the threshold the server falls back to the popular list; the response's `kind` is the kind
+         *     that was actually served, which is how the caller (and its analytics event) can tell a fallback from a
+         *     real co-occurrence list without a second field. A `product_id` that is not of the resolved store (or not
+         *     published) is a 404, as on getProduct; so are `variant_ids` none of which are. In a mixed `variant_ids` list the
+         *     entries outside the resolved store are ignored (a cart may hold stale lines).
+         */
+        get: operations["listProductRecommendations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/store/carts": {
         parameters: {
             query?: never;
@@ -612,6 +646,14 @@ export interface components {
             category_handle: string | null;
             tags: string[];
         };
+        RecommendationList: {
+            /**
+             * @description The kind actually served; popular for a request of bought_together means the anchor had no pairs above the threshold
+             * @enum {string}
+             */
+            kind: "bought_together" | "popular";
+            items: components["schemas"]["ProductSummary"][];
+        };
         Product: {
             /** Format: uuid */
             id: string;
@@ -1093,6 +1135,43 @@ export interface operations {
                     "application/json": components["schemas"]["ReviewPage"];
                 };
             };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listProductRecommendations: {
+        parameters: {
+            query?: {
+                kind?: "bought_together" | "popular";
+                /** @description The anchor product (product-detail page) */
+                product_id?: string;
+                /** @description Cart line variant ids, comma-separated; their products are the anchors */
+                variant_ids?: string[];
+                /** @description Which popular window; ignored for kind=bought_together */
+                window_days?: 7 | 30;
+                limit?: number;
+                /**
+                 * @description Prices in this currency; must be one of the store's currencies (GET /store lists them);
+                 *     400 validation_error otherwise; default = the store's default currency.
+                 */
+                currency?: components["parameters"]["Currency"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecommendationList"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
         };
     };
