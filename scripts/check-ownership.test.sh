@@ -38,6 +38,7 @@ expect ok        events/phase5     apps/core/src/outbox/relay.ts packages/ai/src
 expect violation events/phase5     packages/events/schemas/order.placed/v2.json
 expect ok        data/phase5       data/clickhouse/migrations/0001_raw_events.sql apps/analytics-ingest/src/index.ts
 expect violation data/phase5       packages/ai/src/index.ts
+expect ok        data/phase5       "apps/admin/src/app/(store)/[storeId]/bi/page.tsx"
 expect violation events/phase4     packages/db/migrations/0001.sql
 expect ok        main/anything     packages/contracts/openapi/store-api.yaml
 expect ok        integration/phase1 packages/db/migrations/0009.sql

@@ -12,6 +12,7 @@ const STATUS: Record<ErrorCode, number> = {
   last_live_key: 409,
   provider_unsupported: 422,
   expired: 410,
+  unavailable: 503,
   payment_failed: 402,
   internal: 500,
 };

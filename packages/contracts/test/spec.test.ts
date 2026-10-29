@@ -245,7 +245,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.24/);
+    expect(text).toMatch(/version: 0\.4\.25/);
     for (const tag of [
       'registry',
       'catalog',
@@ -624,7 +624,7 @@ describe('admin-api.yaml', () => {
     }
     // the shared 422 and its machine code
     expect(component('Unprocessable')).toMatch(/code: provider_unsupported/);
-    expect(text).toMatch(/payment_failed, provider_unsupported, expired, internal/); // expired: 0.4.23 (#498)
+    expect(text).toMatch(/payment_failed, provider_unsupported, unavailable, expired, internal/); // expired: 0.4.23 (#498); unavailable: 0.4.30 (#603)
   });
 
   it('0.4.9 (#350): the Order status enum is the documented five-state lifecycle', () => {
@@ -976,7 +976,7 @@ describe('report operations (contracts 0.4.22, Admin API 0.4.19, #493)', () => {
 
   it('the four reads exist under the reports tag with their x-permission, responses and examples', () => {
     expect(text).toMatch(/\n {2}- name: search\n {2}- name: reports\n/);
-    expect(ops.length).toBe(135); // 128 at 0.4.19; +listCustomerExports / getCustomerExport at 0.4.20 (#498); +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522)
+    expect(ops.length).toBe(137); // 128 at 0.4.19; +listCustomerExports / getCustomerExport at 0.4.20 (#498); +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +listMetrics / queryMetrics at 0.4.25 (#603)
     const expected: Record<string, { path: string; perm: [string, string]; codes: string[] }> = {
       getStoreSalesReport: {
         path: '/admin/stores/{storeId}/reports/sales',
@@ -1108,7 +1108,7 @@ describe('customer exports (contracts 0.4.23, Store API 0.5.8, Admin API 0.4.20,
   });
 
   it('listCustomerExports / getCustomerExport at store_admin; listCustomerConsents documents 400 (#496)', () => {
-    expect(adminOps.length).toBe(135); // +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522)
+    expect(adminOps.length).toBe(137); // +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +listMetrics / queryMetrics at 0.4.25 (#603)
     expect(admin).toMatch(
       /\n {2}\/admin\/stores\/\{storeId\}\/customers\/\{customerId\}\/exports:\n/,
     );
@@ -1157,9 +1157,9 @@ describe('customer identity (contracts 0.4.24, Admin API 0.4.21, #504)', () => {
       .slice(1);
 
   it('getCustomerIdentity: HQ-only (support on organization:hq), ids only, 401 / 403 / 404', () => {
-    expect(admin).toMatch(/^ {2}version: 0\.4\.24$/m);
+    expect(admin).toMatch(/^ {2}version: 0\.4\.25$/m);
     expect(store).toMatch(/^ {2}version: 0\.5\.9$/m); // Store API unchanged (#504)
-    expect(adminOps.length).toBe(135); // 130 at 0.4.20; +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522)
+    expect(adminOps.length).toBe(137); // 130 at 0.4.20; +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +2 metrics operations at 0.4.25 (#603)
     const start = admin.indexOf('\n  /admin/customer-identities/{identityId}:\n');
     expect(start).toBeGreaterThan(0);
     // next to /admin/users
@@ -1200,7 +1200,7 @@ describe('customer identity (contracts 0.4.24, Admin API 0.4.21, #504)', () => {
 describe('segment consent never_asked (contracts 0.4.25, Admin API 0.4.22, #508 / #491)', () => {
   const admin = readFileSync(resolve(here, '../openapi/admin-api.yaml'), 'utf8');
   it('the SegmentPredicate consent op gains never_asked; granted and not_granted stay', () => {
-    expect(admin).toMatch(/^ {2}version: 0\.4\.24$/m);
+    expect(admin).toMatch(/^ {2}version: 0\.4\.25$/m);
     expect(admin).toMatch(/op: \{ type: string, enum: \[granted, not_granted, never_asked\] \}/);
   });
 });
@@ -1218,9 +1218,9 @@ describe('store tax rates (contracts 0.4.26, Admin API 0.4.23, #522 / #520)', ()
     admin.slice(admin.indexOf(`\n  ${path}:\n`), admin.indexOf(`\n  ${next}:\n`));
 
   it('the four operations on their paths, after the sales channels, with their x-permission and codes', () => {
-    expect(admin).toMatch(/^ {2}version: 0\.4\.24$/m);
+    expect(admin).toMatch(/^ {2}version: 0\.4\.25$/m);
     expect(store).toMatch(/^ {2}version: 0\.5\.9$/m); // Store API unchanged (#522)
-    expect(adminOps.length).toBe(135); // 131 at 0.4.22; +listTaxRates / createTaxRate / updateTaxRate / deleteTaxRate
+    expect(adminOps.length).toBe(137); // 131 at 0.4.22; +listTaxRates / createTaxRate / updateTaxRate / deleteTaxRate; +listMetrics / queryMetrics at 0.4.25 (#603)
     const list = admin.indexOf('\n  /admin/stores/{storeId}/tax-rates:\n');
     expect(list).toBeGreaterThan(admin.indexOf('\n  /admin/stores/{storeId}/sales-channels:\n'));
     expect(list).toBeLessThan(admin.indexOf('\n  /admin/stores/{storeId}/api-keys:\n'));
@@ -1421,6 +1421,69 @@ describe('recommendations (contracts 0.4.29, Store API 0.5.9, #607)', () => {
     expect(s).toMatch(/required: \[kind, items\]/);
     expect(s).toMatch(/maxItems: 24/);
     expect(s).toMatch(/\$ref: '#\/components\/schemas\/ProductSummary'/);
+  });
+});
+
+describe('metrics (contracts 0.4.30, Admin API 0.4.25, #603)', () => {
+  const admin = read('admin-api.yaml');
+  const ops = operations(admin);
+  const body = (id: string) => ops.find((o) => o.id === id)!.body;
+  const schema = (name: string) => {
+    const start = admin.indexOf(`\n    ${name}:\n`);
+    expect(start, name).toBeGreaterThan(admin.indexOf('\n  schemas:\n'));
+    const next = admin.slice(start + 1).search(/\n {4}\w+:\n/);
+    return admin.slice(start, start + 1 + next);
+  };
+
+  it('listMetrics is GET /admin/metrics and queryMetrics is POST /admin/metrics/query, tag reports, viewer on store:*', () => {
+    for (const [path, method, id] of [
+      ['/admin/metrics', 'get', 'listMetrics'],
+      ['/admin/metrics/query', 'post', 'queryMetrics'],
+    ] as const) {
+      const start = admin.indexOf(`\n  ${path}:\n`);
+      expect(start, path).toBeGreaterThan(admin.indexOf('\n  /admin/hq/reports/finance:\n'));
+      expect(admin.slice(start, start + 120), path).toMatch(
+        new RegExp(`${method}:\\n {6}tags: \\[reports\\]\\n {6}operationId: ${id}\\n`),
+      );
+      expect(body(id)).toMatch(/x-permission: \{ relation: viewer, object: 'store:\*' \}/);
+    }
+  });
+
+  it('both document 401 / 403; queryMetrics adds 400 and the shared 503 ServiceUnavailable (code unavailable)', () => {
+    for (const id of ['listMetrics', 'queryMetrics']) {
+      expect(body(id)).toContain(`'401': { $ref: '#/components/responses/Unauthorized' }`);
+      expect(body(id)).toContain(`'403': { $ref: '#/components/responses/Forbidden' }`);
+    }
+    expect(body('queryMetrics')).toContain(`'400': { $ref: '#/components/responses/BadRequest' }`);
+    expect(body('queryMetrics')).toContain(
+      `'503': { $ref: '#/components/responses/ServiceUnavailable' }`,
+    );
+    const start = admin.indexOf('\n    ServiceUnavailable:\n');
+    expect(start).toBeGreaterThan(admin.indexOf('\n  responses:\n'));
+    expect(start).toBeLessThan(admin.indexOf('\n  schemas:\n'));
+    expect(admin.slice(start, start + 400)).toMatch(/code: unavailable/);
+    expect(ERROR_CODES).toContain('unavailable');
+  });
+
+  it('MetricId is a closed enum that includes the live metrics live_orders and live_placed_minor', () => {
+    const s = schema('MetricId');
+    for (const id of [
+      'orders',
+      'bookings_minor',
+      'recognised_minor',
+      'live_orders',
+      'live_placed_minor',
+    ])
+      expect(s, id).toMatch(new RegExp(`\\b${id},`));
+    expect(body('queryMetrics')).toMatch(/LIVE, not bookings/);
+  });
+
+  it('queryMetrics 200 answers application/json (MetricResult) and text/csv, with the X-Truncated header', () => {
+    const b = body('queryMetrics');
+    expect(b).toMatch(/\$ref: '#\/components\/schemas\/MetricResult'/);
+    expect(b).toMatch(/\n {12}text\/csv:\n {14}schema:\n {16}type: string\n/);
+    expect(b).toMatch(/X-Truncated:/);
+    expect(b).toMatch(/Accept: text\/csv/);
   });
 });
 
