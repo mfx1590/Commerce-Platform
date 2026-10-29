@@ -27,6 +27,7 @@
     "fga:seed": "tsx scripts/fga-seed.ts",
     "fga:reconcile": "tsx scripts/fga-reconcile.ts",
     "roles": "tsx scripts/roles.ts",
+    "provision:service-accounts": "tsx scripts/provision-service-accounts.ts",
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
@@ -37,9 +38,11 @@
   },
   "devDependencies": {
     "@openfga/syntax-transformer": "0.2.2",
+    "@platform/analytics-ingest": "workspace:*",
     "@types/node": "^20.19.0",
     "tsx": "^4.23.13",
     "typescript": "^5.8.0",
-    "vitest": "^3.2.0"
+    "vitest": "^3.2.0",
+    "yaml": "^2.9.0"
   }
 }

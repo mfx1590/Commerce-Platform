@@ -64,8 +64,13 @@ export function createStaffScopeMiddleware(deps: StaffScopeMiddlewareDeps): Staf
   ): Promise<StaffScope> {
     // Every request is verified (and a service client's write refused) before the cache is consulted.
     const claims = await verifier.verify(authorization, request);
+    // A service client's scope carries the request it was resolved for (#632) — on a copy, never in the cache.
+    const forRequest = (s: StaffScope): StaffScope =>
+      claims.serviceClient
+        ? { ...s, serviceRequest: { api: request?.api, operationId: request?.operationId } }
+        : s;
     const cached = cache.get(claims.subject);
-    if (cached) return cached;
+    if (cached) return forRequest(cached);
 
     const row = await lookup.query<StaffRow>(
       'SELECT id, email, display_name, status FROM staff_user WHERE keycloak_subject = $1',
@@ -96,7 +101,7 @@ export function createStaffScopeMiddleware(deps: StaffScopeMiddlewareDeps): Staf
     lookup
       .query('UPDATE staff_user SET last_login_at = now() WHERE id = $1', [user.id])
       .catch(() => {});
-    return scope;
+    return forRequest(scope);
   }
 
   return { resolve, invalidate: (id) => cache.invalidate(id), cache, verifier };

@@ -57,6 +57,15 @@ export type {
   ObjectType,
 } from './roles/service.js';
 
+// Production provisioning of the crm-sync / analytics-sync service accounts (#632; `provision:service-accounts`).
+export { provisionServiceAccounts, SERVICE_ACCOUNTS } from './roles/service-accounts.js';
+export type {
+  ServiceAccount,
+  ProvisionServiceAccountsInput,
+  ProvisionServiceAccountsReport,
+  ProvisionedAssignment,
+} from './roles/service-accounts.js';
+
 // inviteUser (#415) and the Keycloak admin service-account client it and the session revocation use.
 export { inviteUser } from './roles/invite.js';
 export type { InviteUserInput, InviteUserDeps, InviteUserResult } from './roles/invite.js';
@@ -94,10 +103,20 @@ export type {
 export { createStaffTokenVerifier, bearerToken } from './jwt/verify.js';
 export {
   READ_ONLY_SERVICE_CLIENTS,
+  SERVICE_CLIENT_OPERATIONS,
   assertServiceClientMayCall,
+  assertServiceClientOperation,
+  serviceClientMayCallOperation,
   readOnlyServiceClientOf,
 } from './jwt/service-clients.js';
-export type { StaffRequestContext, ServiceClientRefusal } from './jwt/service-clients.js';
+export type {
+  StaffRequestContext,
+  ServiceClientRefusal,
+  ServiceApi,
+} from './jwt/service-clients.js';
+// The contract operation matcher (#632): method + raw path → operation, resolved before routing.
+export { createOperationMatcher } from './http/operation-matcher.js';
+export type { OperationMatch, OperationMatcher } from './http/operation-matcher.js';
 export type { StaffTokenVerifier, StaffTokenVerifierOptions, StaffClaims } from './jwt/verify.js';
 export {
   resolveRelations,
