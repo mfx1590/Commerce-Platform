@@ -173,10 +173,13 @@ describe('staff realm export (static)', () => {
     expect(sa.webOrigins).toEqual([]);
     // The dev-only secret (infra/gitleaks.toml allowlists this shape; production replaces it, #416).
     expect(sa.secret).toMatch(/^dev-only-[a-z-]+$/);
-    expect(staff.clients.filter((c) => c.serviceAccountsEnabled).map((c) => c.clientId)).toEqual([
-      'core-admin',
-    ]);
-    const saUsers = staff.users.filter((u) => u.serviceAccountClientId);
+    expect(
+      staff.clients
+        .filter((c) => c.serviceAccountsEnabled)
+        .map((c) => c.clientId)
+        .sort(),
+    ).toEqual(['analytics-sync', 'core-admin', 'crm-sync']);
+    const saUsers = staff.users.filter((u) => u.serviceAccountClientId === 'core-admin');
     expect(saUsers.map((u) => u.serviceAccountClientId)).toEqual(['core-admin']);
     expect(saUsers[0]!.clientRoles).toEqual({
       'realm-management': ['manage-users', 'view-users', 'query-users'],
@@ -186,6 +189,38 @@ describe('staff realm export (static)', () => {
     expect(saUsers[0]!.realmRoles).toBeUndefined();
     expect(saUsers[0]!.groups).toBeUndefined();
     expect(saUsers[0]!.credentials).toBeUndefined();
+  });
+
+  it.each(['crm-sync', 'analytics-sync'])(
+    '%s: confidential service account, audience core-api only, NO Keycloak roles, fixed service-account id (#565, #622)',
+    (clientId) => {
+      const c = client(staff, clientId);
+      expect(c.publicClient).toBe(false);
+      expect(c.serviceAccountsEnabled).toBe(true);
+      expect(c.standardFlowEnabled).toBe(false);
+      expect(c.implicitFlowEnabled).toBe(false);
+      expect(c.directAccessGrantsEnabled).toBe(false);
+      // Least privilege: no realm scope, no Keycloak role reaches the token; permissions are OpenFGA tuples.
+      expect(c.fullScopeAllowed).toBe(false);
+      expect(c.redirectUris).toEqual([]);
+      expect(c.webOrigins).toEqual([]);
+      expect(c.protocolMappers?.map((m) => m.protocolMapper)).toEqual(['oidc-audience-mapper']);
+      expect(c.protocolMappers?.[0]?.config['included.custom.audience']).toBe('core-api');
+      expect(c.secret).toMatch(/^dev-only-[a-z-]+$/);
+      const sa = staff.users.filter((u) => u.serviceAccountClientId === clientId);
+      expect(sa).toHaveLength(1);
+      // The token's `sub` is this id = the seeded staff_user.keycloak_subject (scope middleware lookup).
+      expect(sa[0]!.id).toBe(`seed-${clientId}`);
+      expect(sa[0]!.clientRoles).toBeUndefined();
+      expect(sa[0]!.realmRoles).toBeUndefined();
+      expect(sa[0]!.email).toBeUndefined();
+      expect(sa[0]!.credentials).toBeUndefined();
+    },
+  );
+
+  it('every client secret in the staff export is distinct', () => {
+    const secrets = staff.clients.map((c) => c.secret).filter(Boolean);
+    expect(new Set(secrets).size).toBe(secrets.length);
   });
 
   it('test-cli is the only client with the password grant', () => {
@@ -379,10 +414,10 @@ describe('no secrets in any realm export', () => {
     (realm) => {
       for (const c of realm.clients) {
         if (c.serviceAccountsEnabled) {
-          // The one service account (core-admin, #415): confidential by nature; its dev-only secret is the
-          // allowlisted local-development shape (infra/gitleaks.toml) and is replaced from Vault in
-          // production (#416). Any other shape here is a committed secret.
-          expect(c.clientId).toBe('core-admin');
+          // The service accounts (core-admin #415/#483, crm-sync #565, analytics-sync #622): confidential by
+          // nature; their dev-only secrets are the allowlisted local-development shape (infra/gitleaks.toml) and
+          // are replaced from Vault in production (#416). Any other shape here is a committed secret.
+          expect(['core-admin', 'crm-sync', 'analytics-sync']).toContain(c.clientId);
           expect(c.secret).toMatch(/^dev-only-[a-z-]+$/);
           continue;
         }

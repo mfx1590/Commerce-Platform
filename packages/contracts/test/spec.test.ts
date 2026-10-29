@@ -1,7 +1,8 @@
-// Static checks on the OpenAPI documents (text-level, dependency-free). Runtime checks live in contract.test.ts.
+// Static checks on the OpenAPI documents (text-level; js-yaml only for the flow-mapping guard at the end). Runtime checks live in contract.test.ts.
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { load as parseYaml } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
 import { ERROR_CODES, RELATIONS } from '../src/index.js';
 
@@ -1421,4 +1422,27 @@ describe('recommendations (contracts 0.4.29, Store API 0.5.9, #607)', () => {
     expect(s).toMatch(/maxItems: 24/);
     expect(s).toMatch(/\$ref: '#\/components\/schemas\/ProductSummary'/);
   });
+});
+
+describe('no flow-mapping value is cut at a comma (2026-10-27)', () => {
+  // In a YAML flow mapping `{ a: x, b: y }` an unquoted comma ends the value: "description: one, two" silently
+  // becomes description "one" plus a key "two". No parser error and no CI failure flagged it (four Admin API
+  // descriptions and one Store API description were truncated). A key with whitespace is the symptom.
+  const freeTextKeys =
+    /\.(paths|properties|responses|examples|schemas|parameters|mapping|variables)$/;
+  for (const file of ['store-api.yaml', 'admin-api.yaml', 'accounting.yaml']) {
+    it(file, () => {
+      const hits: string[] = [];
+      const walk = (v: unknown, path: string): void => {
+        if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${path}[${i}]`));
+        else if (v && typeof v === 'object')
+          for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+            if (/\s/.test(k) && !freeTextKeys.test(path)) hits.push(`${path} -> "${k}"`);
+            walk(x, `${path}.${k}`);
+          }
+      };
+      walk(parseYaml(read(file)), '');
+      expect(hits).toEqual([]);
+    });
+  }
 });

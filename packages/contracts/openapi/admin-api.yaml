@@ -5473,7 +5473,7 @@ components:
       properties:
         upload_url: { type: string, format: uri }
         cloud_name: { type: string }
-        api_key: { type: string, description: public key id, not a secret }
+        api_key: { type: string, description: 'public key id, not a secret' }
         timestamp: { type: integer }
         signature:
           {
@@ -5571,7 +5571,10 @@ components:
         name: { type: string }
         type: { type: string, enum: [percentage, fixed_amount, free_shipping, buy_x_get_y] }
         value:
-          { type: integer, description: basis points for percentage, minor units for fixed_amount }
+          {
+            type: integer,
+            description: 'basis points for percentage, minor units for fixed_amount',
+          }
         currency: { type: [string, 'null'] }
         rules: { $ref: '#/components/schemas/PromotionRules' }
         usage_limit: { type: [integer, 'null'] }
@@ -5597,7 +5600,10 @@ components:
       properties:
         name: { type: string }
         value:
-          { type: integer, description: basis points for percentage, minor units for fixed_amount }
+          {
+            type: integer,
+            description: 'basis points for percentage, minor units for fixed_amount',
+          }
         currency: { type: [string, 'null'] }
         rules: { $ref: '#/components/schemas/PromotionRules' }
         usage_limit: { type: [integer, 'null'] }
@@ -6832,7 +6838,7 @@ components:
         tax_minor: { type: integer }
         total_minor: { type: integer }
         refunded_minor:
-          { type: integer, description: succeeded refunds of these orders, whenever refunded }
+          { type: integer, description: 'succeeded refunds of these orders, whenever refunded' }
         net_minor: { type: integer, description: total_minor − refunded_minor }
     SalesReport:
       type: object

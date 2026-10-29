@@ -8,6 +8,7 @@ import {
   resolveRelations,
   ScopeCache,
   type OpenFgaClient,
+  type StaffRequestContext,
   type StaffScope,
   type StaffTokenVerifier,
 } from '@platform/auth-sdk';
@@ -29,8 +30,15 @@ export interface StaffScopeMiddlewareDeps {
 }
 
 export interface StaffScopeMiddleware {
-  /** `Authorization` header value (or raw token) → scope. Throws ApiError 401 / 503. */
-  resolve(authorization: string | undefined | null): Promise<StaffScope>;
+  /**
+   * `Authorization` header value (or raw token) → scope. Throws ApiError 401 / 503. Pass the request
+   * (`{ method, operationId }`): a read-only service client (#565 / #622) is refused with 403 on any
+   * non-GET/HEAD method, and when the request is not given, before the cache and any permission check.
+   */
+  resolve(
+    authorization: string | undefined | null,
+    request?: StaffRequestContext,
+  ): Promise<StaffScope>;
   /** Wire as `onRoleChange` of createHqRbac so role changes take effect immediately. */
   invalidate(staffUserId: string): void;
   readonly cache: ScopeCache;
@@ -50,8 +58,12 @@ export function createStaffScopeMiddleware(deps: StaffScopeMiddlewareDeps): Staf
   // System-level lookup of the mirror row: the org is known (deployment config), the actor is not yet.
   const lookup = createOrganizationClient(deps.pool, { organizationId: deps.organizationId });
 
-  async function resolve(authorization: string | undefined | null): Promise<StaffScope> {
-    const claims = await verifier.verify(authorization);
+  async function resolve(
+    authorization: string | undefined | null,
+    request?: StaffRequestContext,
+  ): Promise<StaffScope> {
+    // Every request is verified (and a service client's write refused) before the cache is consulted.
+    const claims = await verifier.verify(authorization, request);
     const cached = cache.get(claims.subject);
     if (cached) return cached;
 
@@ -77,6 +89,7 @@ export function createStaffScopeMiddleware(deps: StaffScopeMiddlewareDeps): Staf
       displayName: user.display_name,
       organizationId: deps.organizationId,
       ...relations,
+      ...(claims.serviceClient ? { serviceClient: claims.serviceClient } : {}),
     };
     cache.set(scope);
     // Best effort, once per cache period; never fails the request.

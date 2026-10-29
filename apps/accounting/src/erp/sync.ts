@@ -151,7 +151,8 @@ interface EntryRow {
   id: string;
   source_event_id: string;
   journal: Journal;
-  entry_date: Date;
+  /** `YYYY-MM-DD`, selected ::text: the Odoo move date, never a local-midnight Date (#627). */
+  entry_date: string;
   account_code: string;
   debit_minor: string;
   credit_minor: string;
@@ -175,7 +176,7 @@ async function unpostedGroups(
         GROUP BY source_event_id, journal
         ORDER BY min(created_at), source_event_id, journal
         LIMIT $2)
-     SELECT e.id, e.source_event_id, e.journal, e.entry_date, e.account_code, e.debit_minor::text, e.credit_minor::text,
+     SELECT e.id, e.source_event_id, e.journal, e.entry_date::text AS entry_date, e.account_code, e.debit_minor::text, e.credit_minor::text,
             e.currency, a.erp_account_id, a.name AS account_name
        FROM ledger_entry e
        JOIN groups g ON g.source_event_id = e.source_event_id AND g.journal = e.journal
@@ -309,7 +310,7 @@ export async function syncLegalEntity(
         const move = await deps.erp.createMove({
           company_id: companyId,
           journal_id: journal.id,
-          date: first.entry_date.toISOString().slice(0, 10),
+          date: first.entry_date,
           ref,
           lines,
         });

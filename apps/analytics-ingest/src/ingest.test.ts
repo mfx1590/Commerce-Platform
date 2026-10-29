@@ -132,6 +132,17 @@ describe('processBatch', () => {
     expect(h.dlq.letters).toEqual([]);
   });
 
+  it('a row ClickHouse would refuse is dead-lettered and the rest of the batch still lands and commits', async () => {
+    const h = harness({ batchSize: 2 });
+    const bad = {
+      ...month.events[2]!,
+      occurred_at: '1850-06-01T00:00:00.000Z',
+    } as EventEnvelopeV1Base;
+    const r = await processBatch(batchOf([month.events[0]!, bad, month.events[1]!], 20), h.deps);
+    expect(r).toMatchObject({ rows: 2, dead: 1, committed: '23' });
+    expect(h.dlq.letters.map((l) => l.error_class)).toEqual(['InsertRejectedError']);
+  });
+
   it('an empty batch commits nothing', async () => {
     const h = harness();
     expect(await processBatch({ topic: 't', partition: 0, messages: [] }, h.deps)).toEqual({

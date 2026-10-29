@@ -2,6 +2,7 @@
 // core's router; tests call it directly. Every handler re-checks the permission server-side (ADR 0002 §3).
 import {
   ApiError,
+  assertServiceClientMayCall,
   assignRole,
   createKeycloakAdmin,
   forbidden,
@@ -345,6 +346,14 @@ export function createHqRbac(deps: HqRbacDeps) {
     }
     try {
       if (!req.principal) throw new ApiError(401, 'unauthorized', 'Missing bearer token');
+      // Second layer of the read-only service-client guard (#565 / #622): the verifier already refused a write
+      // when the caller passed the method; this module refuses it again from the scope it was handed.
+      if (req.scope?.serviceClient) {
+        assertServiceClientMayCall(req.scope.serviceClient, {
+          method: req.method,
+          operationId: matched.route.operationId,
+        });
+      }
       if (matched.route.permission) {
         await requirePermission(deps.fga, req.principal, matched.route.permission);
       }

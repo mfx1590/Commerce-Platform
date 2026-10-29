@@ -477,6 +477,21 @@ jobs:
           pnpm exec turbo run build --filter='@platform/analytics-ingest^...'
           pnpm --filter @platform/analytics-ingest exec vitest run src/live.test.ts             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/analytics-live.json"
           node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/analytics-live.json"             'live ingest (local Redpanda + ClickHouse)'
+      # The analytics models (#601) and the Integration 5 money gate (#602): the models on the generated month and the
+      # runner under concurrency (ClickHouse only), then the generated month through the REAL relay into both the ledger
+      # and the ingest, every identity at 0 (bookings, recognised revenue from the ledger, cash). Both pinned through
+      # require-live-tests so a probe miss fails the step. TZ=UTC until #627 (the Finance API dates a day early in a
+      # non-UTC process); runners are UTC already, the pin makes it explicit.
+      - name: analytics models + Integration 5 money gate — and they really ran
+        if: needs.changes.outputs.e2e == 'true'
+        env:
+          TZ: 'UTC'
+        run: |
+          pnpm exec turbo run build --filter='@platform/core^...' --filter='@platform/analytics-ingest^...'
+          pnpm --filter @platform/analytics-ingest exec vitest run src/models.test.ts             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/analytics-models.json"
+          node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/analytics-models.json"             'ClickHouse models on the generated month' 'ClickHouse runner under concurrency'
+          pnpm --filter @platform/core exec vitest run src/modules/reporting/reconcile-gate.test.ts             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/money-gate.json"
+          node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/money-gate.json"             'Integration 5 gate: the generated month through the real relay, ledger and ingest, every identity at 0'
       # One command covers both suites: packages/auth-sdk/vitest.config.ts already collects
       # ../../apps/core/src/modules/hq-rbac/test/**, which is how window 2 wired them.
       # Through turbo, not `pnpm --filter ... test`, so `dependsOn: ^build` builds @platform/db and

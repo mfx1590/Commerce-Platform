@@ -66,10 +66,28 @@ export class UndecodableMessageError extends Error {
   }
 }
 
+/** DateTime64(3) holds 1900-01-01 … 2299-12-31 23:59:59.999; ClickHouse refuses (or clamps) anything outside. */
+const DATETIME64_MIN = Date.UTC(1900, 0, 1);
+const DATETIME64_MAX = Date.UTC(2299, 11, 31, 23, 59, 59, 999);
+
 /** `2026-10-25 09:30:00.123`: what a DateTime64(3, 'UTC') column takes in JSONEachRow. */
 export function toClickHouseTime(d: Date): string {
-  if (Number.isNaN(d.getTime())) throw new RangeError('invalid date');
+  const t = d.getTime();
+  if (Number.isNaN(t)) throw new RangeError('invalid date');
+  if (t < DATETIME64_MIN || t > DATETIME64_MAX)
+    throw new RangeError('date outside the DateTime64(3) range');
   return d.toISOString().replace('T', ' ').replace('Z', '');
+}
+
+/**
+ * A schema-valid event whose row ClickHouse would refuse (a timestamp outside DateTime64): dead-lettered before it is
+ * buffered, because one such row would fail the whole insert and stall every partition in a restart loop.
+ */
+export class InsertRejectedError extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = 'InsertRejectedError';
+  }
 }
 
 export type Classified =
@@ -124,10 +142,9 @@ export function classify(
     return dead(new InvalidEventError(outboxId, check.errors), outboxId, topic, version);
 
   const publishedMs = Number(message.timestamp);
-  return {
-    kind: 'row',
-    envelope,
-    row: {
+  let row: RawEventRow;
+  try {
+    row = {
       topic: envelope.topic,
       version: envelope.version,
       event_id: envelope.event_id,
@@ -141,6 +158,9 @@ export function classify(
       ),
       payload: JSON.stringify(envelope.payload),
       ingested_at: toClickHouseTime(ctx.now),
-    },
-  };
+    };
+  } catch (err) {
+    return dead(new InsertRejectedError((err as Error).message), outboxId, topic, version);
+  }
+  return { kind: 'row', envelope, row };
 }

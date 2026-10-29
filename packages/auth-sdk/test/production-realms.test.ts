@@ -205,7 +205,16 @@ describe('production staff realm', () => {
   });
   it('keeps admin-app and the core-admin service account (no secret), nothing else', () => {
     const prod = production.staff!;
-    expect(prod.clients.map((c) => c.clientId).sort()).toEqual(['admin-app', 'core-admin']);
-    expect(prod.users.map((u) => u.serviceAccountClientId)).toEqual(['core-admin']);
+    expect(prod.clients.map((c) => c.clientId).sort()).toEqual([
+      'admin-app',
+      'analytics-sync',
+      'core-admin',
+      'crm-sync',
+    ]);
+    expect(prod.users.map((u) => u.serviceAccountClientId).sort()).toEqual([
+      'analytics-sync',
+      'core-admin',
+      'crm-sync',
+    ]);
   });
 });
