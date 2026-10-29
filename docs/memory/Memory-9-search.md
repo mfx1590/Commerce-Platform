@@ -1,6 +1,6 @@
 # Memory 9 — Search, media, promotions
 Window: 9 · Key: `search` · Branch prefix: `search/` · Model: Opus 5
-Last updated: 2026-10-27 · Contracts: **contracts-v0.4.29** (landed on `integration/phase5-recommendations`; 0.4.28 was the last tag on main when I started) · Branch: `search/phase5` · Status: **STOPPED for the day (owner on battery, 2026-10-27). Live ClickHouse run done and GREEN; machine free.** The SQL is proven on the real engine; **the dev data yields zero recommendations because every `fct_order_line.product_id` is NULL** (see the live-run entry — this blocks #609's rail and Integration 5's recommendation checks until the catalogue is published through the bus). The Fable review of #621 was MERGE with three findings; all three are fixed plus a fourth the audit found (the read client sent a readonly-forbidden setting). 50 tests, full core suite 1235 passed / 9 skipped. My commits in #621: `4d8d9ba` (= my e978019) and `8fc70e5` (= my 86d0fc5, cherry-picked 2026-10-27); a targeted Fable re-review of 8fc70e5, then CI, then the queue after #626/#628. REQUEST #624 open (window 1, route mount). **Two triggers, both the manager's word: #628 landing → switch on `CORE_RECOMMENDATIONS_CLICKHOUSE_TESTS`; #621 merging → file #609 for window 3.** Phase 2 is complete and merged (2.1–2.5 via #160, #166, #188, #208, #211).
+Last updated: 2026-10-27 · Contracts: **contracts-v0.4.29** (landed on `integration/phase5-recommendations`; 0.4.28 was the last tag on main when I started) · Branch: `search/phase5` · Status: **IDLE — #607 DONE AND MERGED (#621 = `518cc4c`, contracts-v0.4.29, 2026-10-29).** Both triggers discharged: the live ClickHouse run is green (machine free) and the #609 REQUEST is filed with window 3. Open and NOT mine: **#624** (window 1 must mount the route — until then a real core 404s, or proxies to Prism and answers plausibly) and **#634** (dev catalogue never went through the bus, so the dev rail is correctly empty). Nothing pending for this window. The Fable review of #621 was MERGE with three findings; all three are fixed plus a fourth the audit found (the read client sent a readonly-forbidden setting). 50 tests, full core suite 1235 passed / 9 skipped. My commits in #621: `4d8d9ba` (= my e978019) and `8fc70e5` (= my 86d0fc5, cherry-picked 2026-10-27); a targeted Fable re-review of 8fc70e5, then CI, then the queue after #626/#628. REQUEST #624 open (window 1, route mount). **Two triggers, both the manager's word: #628 landing → switch on `CORE_RECOMMENDATIONS_CLICKHOUSE_TESTS`; #621 merging → file #609 for window 3.** Phase 2 is complete and merged (2.1–2.5 via #160, #166, #188, #208, #211).
 
 ## PHASE 5 DOCKET (written by the manager, 2026-10-25, Manager session nine) — READ THIS FIRST ON RESUME
 You reopen in Phase 5 wave 2 for **#607** P5.8 recommendations (plan `docs/plan/phase5-plan.md` D10; tracking #612).
@@ -129,11 +129,26 @@ Algolia index per brand synced from product.published events, merchandising rule
   - **This worktree's `.env` had NO `CLICKHOUSE_*` rows** (the copy taken 10-25 predates them, and the main
     checkout's `.env` still lacks them): I appended the six rows from `.env.example`, which is where the local word
     credentials live. Any window needing ClickHouse must do the same.
-- [ ] **Step 4 — on the manager's word, in this order:** switch on the ClickHouse-backed test
-  (`CORE_RECOMMENDATIONS_CLICKHOUSE_TESTS=1`) when he says **#628** has landed — he said #619 on 10-27 and then
-  corrected the trigger to **#628**, so wait for his word and do not infer it from an issue number; file the
-  #609 REQUEST to window 3 once
-  **#621 merges**. #621's review is Fable's, after ~14:00 UTC 2026-10-27. Nothing to do until then.
+- [x] **#607 IS DONE AND MERGED (2026-10-29).** #621 merged as **`518cc4c`**, #607 closed, tagged
+  **contracts-v0.4.29** (Store API 0.5.9); migration 0204 is applied on the shared dev DB. Everything of mine is on
+  main — verified with `git diff origin/main..search/phase5 -- <my paths>`, which is EMPTY. My own commits
+  (`d4c0c7b`, `e978019`, `86d0fc5`, `c4cbe00`, `783aabe`) are not ancestors of main because the manager
+  cherry-picked them, so **check content, not sha ancestry**, when asking "did my work land?".
+  `search/phase5` has since been merged with main (`b9d20ff`) so it is not stale for the next activation.
+- [x] **Both triggers discharged (2026-10-29).** Trigger 1 was the live ClickHouse run (above). Trigger 2:
+  - **#609 REQUEST filed as a comment on #609** (comment 6494619959), not a new issue — #609 already exists as
+    window 3's task, so a separate `REQUEST:` issue would have fragmented it. It carries the params, the exact
+    400/404 rules, the `ProductSummary` reuse, the three behaviours (served `kind` reports the fallback; list may
+    be short or empty → hide the rail; 404 = no rail, not an error), i18n (there is **no** `locale` param — a
+    per-request locale would be a CONTRACT CHANGE), perf, the analytics fields, and the two caveats below.
+  - **#624 updated** (comment 6494627995) that #621 is merged and the mount is now the only thing between window 3
+    and a working rail.
+  - The two caveats both windows need: (a) **the route is still unmounted**, so a real core 404s — or, with
+    `CORE_STORE_API_FALLBACK=1`, PROXIES TO PRISM and answers the spec example, which looks entirely real; (b)
+    **the dev rail renders empty and that is correct** (#634).
+- **Both triggers are spent; nothing is pending.** (Historic note worth keeping: the ClickHouse-test trigger was
+  announced as #619 and then corrected to #628 the same day — wait for the manager's word, never infer a trigger
+  from an issue number.)
 - [ ] Earlier plan, kept for reference:
   1. The job file MUST export a `config` (Medusa's job loader — see the #202/#203 gotcha below); the heavy lifting
      goes in `modules/search/recommendations/` so it is testable without booting Medusa.
