@@ -406,6 +406,8 @@ jobs:
       CLICKHOUSE_PASSWORD: platform
       CLICKHOUSE_READONLY_USER: analytics_ro
       CLICKHOUSE_READONLY_PASSWORD: analytics_ro
+      # The erasure-list HMAC key (#623), a local word: the tests pass their own, a spawned ingest CLI reads this one.
+      ANALYTICS_ERASURE_KEY: dev-only-analytics-erasure-key
     steps:
       - uses: actions/checkout@v4
         if: needs.changes.outputs.e2e == 'true'
@@ -488,8 +490,8 @@ jobs:
           TZ: 'UTC'
         run: |
           pnpm exec turbo run build --filter='@platform/core^...' --filter='@platform/analytics-ingest^...'
-          pnpm --filter @platform/analytics-ingest exec vitest run src/models.test.ts             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/analytics-models.json"
-          node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/analytics-models.json"             'ClickHouse models on the generated month' 'ClickHouse runner under concurrency'
+          pnpm --filter @platform/analytics-ingest exec vitest run src/models.test.ts src/erasure.test.ts             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/analytics-models.json"
+          node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/analytics-models.json"             'ClickHouse models on the generated month' 'ClickHouse runner under concurrency' 'customer.erased in ClickHouse (#623)'
           pnpm --filter @platform/core exec vitest run src/modules/reporting/reconcile-gate.test.ts             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/money-gate.json"
           node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/money-gate.json"             'Integration 5 gate: the generated month through the real relay, ledger and ingest, every identity at 0'
       # One command covers both suites: packages/auth-sdk/vitest.config.ts already collects

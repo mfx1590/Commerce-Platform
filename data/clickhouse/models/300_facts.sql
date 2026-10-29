@@ -10,6 +10,7 @@ SELECT
     display_id,
     legal_entity_id,
     currency,
+    customer_key,
     subtotal_minor,
     discount_minor,
     shipping_minor,

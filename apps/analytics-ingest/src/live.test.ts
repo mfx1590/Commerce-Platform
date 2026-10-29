@@ -131,6 +131,8 @@ describe.runIf(down === null)('live ingest (local Redpanda + ClickHouse)', () =>
       },
       kafka,
       sink: createRawEventsSink(db),
+      // the month includes customer.erased: a real ingest always honours it (#623); a word, not a key
+      erasure: { key: 'live-test-erasure-word-only', ch: db },
       log: extra.log ?? (() => {}),
       onBeforeCommit: extra.onBeforeCommit,
     });

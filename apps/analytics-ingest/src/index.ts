@@ -23,7 +23,14 @@ export {
 export type { MigrateResult, SqlFile, SqlKind, SqlSource } from './migrations.js';
 export { ConfigError, DEFAULT_GROUP, loadConfig } from './config.js';
 export type { ClickHouseConfig, IngestConfig } from './config.js';
-export { consoleLog, createIngest, processBatch, SimulatedCrash } from './ingest.js';
+export {
+  assertSingleReplica,
+  consoleLog,
+  createIngest,
+  processBatch,
+  SecondReplicaError,
+  SimulatedCrash,
+} from './ingest.js';
 export type {
   BatchDeps,
   BatchResult,
@@ -75,3 +82,21 @@ export {
 export type { PulledLedger, ReconcileWindow } from './reconcile/identities.js';
 export { reconcile, renderReport, SHOWN_DIFFERENCES } from './reconcile/run.js';
 export type { ReconcileResult } from './reconcile/run.js';
+export {
+  applyErasure,
+  createErasureIndex,
+  erasedCustomerOf,
+  ERASURE_SETTINGS,
+  ErasureConfigError,
+  IDENTIFIER_FIELDS,
+  loadErasures,
+  scrubAggregateId,
+  scrubPayload,
+} from './erasure.js';
+export type {
+  ApplyErasureDeps,
+  ErasedCustomer,
+  ErasureIndex,
+  ErasureResult,
+  IdentifierKind,
+} from './erasure.js';
