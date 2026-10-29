@@ -5,10 +5,31 @@ import type { ClickHouseConfig } from './config.js';
 import type { RawEventRow } from './rows.js';
 
 /** The slice of @clickhouse/client the ingest uses (a fake implements it in the tests). */
+/** Server-side parameters (`{name:Type}` in the text): a value passed this way never appears in the query text. */
+export type QueryParams = Record<string, unknown>;
+/** Per-statement settings (the writer only: a readonly user is refused any). */
+export type QuerySettings = Record<string, string | number>;
+
 export interface ChClient {
-  command(p: { query: string }): Promise<unknown>;
-  query(p: { query: string; format: 'JSONEachRow' }): Promise<{ json<T>(): Promise<T[]> }>;
-  insert(p: { table: string; values: readonly unknown[]; format: 'JSONEachRow' }): Promise<unknown>;
+  command(p: {
+    query: string;
+    query_params?: QueryParams;
+    clickhouse_settings?: QuerySettings;
+  }): Promise<unknown>;
+  query(p: {
+    query: string;
+    format: 'JSONEachRow';
+    query_params?: QueryParams;
+    clickhouse_settings?: QuerySettings;
+    /** Parameters (and the SQL) in the multipart BODY, not the URL: identifiers never reach an access log. */
+    use_multipart_params?: boolean;
+  }): Promise<{ json<T>(): Promise<T[]> }>;
+  insert(p: {
+    table: string;
+    values: readonly unknown[];
+    format: 'JSONEachRow';
+    clickhouse_settings?: QuerySettings;
+  }): Promise<unknown>;
   close(): Promise<void>;
 }
 

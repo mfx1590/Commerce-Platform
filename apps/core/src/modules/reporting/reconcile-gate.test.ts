@@ -194,6 +194,8 @@ describe.runIf(skip === null)(
         },
         kafka,
         sink: ingest.createRawEventsSink(ch),
+        // the production topology honours customer.erased (#623); a word, not a key
+        erasure: { key: 'gate5-erasure-word-only', ch },
         log: () => {},
       });
       stops.push(() => raw.stop());

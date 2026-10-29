@@ -147,3 +147,77 @@ production topology: the real relay, the real ledger and this ingest in fresh gr
 against the core's report routes mounted in-process and the Finance API (verifier seam), and checks that every
 identity is 0. It also checks that a forged ledger copy and a changed order are both caught. It runs in the live job
 only.
+
+## Erasure: `customer.erased` (#623)
+
+Orders are kept; the person is not. When a customer is erased, their identifiers leave every readable table and view
+of the analytics store. That covers `email_hash`, `customer_id`, `identity_id`, and the customer ids a referral
+carries, in every schema that has one.
+
+- **At insert, replays included.** The ingest loads `customer_erasures` at start and scrubs every row it classifies
+  against it, before the row is buffered. A replay, a late event or a rebuild can never put an erased identifier back.
+- **On `customer.erased`**, scoped to the event's store (or the whole organization when it has none), after its own
+  batch is acknowledged and before the commit:
+  1. record the erasure and add it to the index;
+  2. flush the insert buffer;
+  3. re-insert that customer's stored rows scrubbed, with a later `ingested_at`, so they win;
+  4. `DELETE` the older versions, so not even a non-FINAL read sees them.
+
+  Every step is idempotent: a crash redelivers and the steps run again.
+
+- **No raw identifier in the erasure list.** `customer_erasures.digest` = HMAC-SHA256 under `ANALYTICS_ERASURE_KEY` (env
+  or Vault) of `<store>:<kind>:<value>`; without the key it links to nobody. **The ingest refuses to start without the
+  key**, and a batch holding a `customer.erased` is never committed by an ingest without an erasure handler (fail
+  closed).
+- **Models.** `fct_order.customer_key` (the pseudonymous key, `email_hash`) is NULL once erased. The erased customer's
+  money stays in every money mart. `mart_customers_daily` counts their orders as `unknown_orders`. A customer is `new`
+  on the day of their first order in a store and `returning` on any later day.
+- **Out of scope:** the bus keeps the original payloads for its retention (windows 13/14).
+- **No identifier in SQL text or logs.** The rows to scrub are found with server-side parameters, and every later
+  statement uses event ids only. Every erasure statement runs with `log_queries = 0`. A test checks that
+  `system.query_log`, `query_views_log` and `processes` hold neither the hash nor the customer id afterwards.
+  The lookup that carries the identifiers sends its parameters (and its SQL) in the multipart BODY
+  (`use_multipart_params`). In the URL (`param_v0=<hash>`) they would reach HTTP trace logs and any proxy or
+  load-balancer access log, which `log_queries = 0` does not cover. A test runs the real client against a recording
+  server and asserts that no URL carries them.
+- **Every identifier field.** `email_hash`, `customer_id`, `identity_id`, `referrer_customer_id`,
+  `referee_customer_id`, the envelope `aggregate_id` of a customer event, and `requested_by` when
+  `requested_by_type = 'customer'` (customer.export_requested v2, customer.export_ready; v1 and staff requests name a
+  staff user, which stays).
+- **ONE replica in Phase 5.** The erasure index is per process, loaded at start, so a second replica would not see
+  the other's erasures until it restarts. Before joining, the ingest describes its consumer group and refuses to
+  start (`SecondReplicaError`) when the group already has live members. That is best effort: kafkajs offers no atomic
+  "join only if alone", so two processes started in the same instant can both see an empty group. Deploy it as a
+  single replica (no autoscaling). The multi-replica fix, a periodic index refresh + re-scrub, is on
+  docs/launch-checklist.md.
+- **Physical removal.** The lightweight `DELETE` hides the old versions at once. `OPTIMIZE TABLE raw_events PARTITION
+ID '<p>' FINAL` then rewrites only the affected partitions (bounded), so the bytes are gone too. The test sweep reads
+  with `apply_deleted_mask = 0`.
+- **No race with classification.** The index update and the start of the buffer flush happen in the same synchronous
+  tick, and classify → buffer is synchronous. So every row is either classified after the update (scrubbed at insert)
+  or already in the buffer being flushed (scrubbed by the rewrite). A randomised test interleaves a customer's orders
+  and their erasure across partitions (15 seeds, random latency and buffer sizes) and checks they converge every time.
+
+### Rotating `ANALYTICS_ERASURE_KEY`
+
+A new key cannot match the old digests, so rotation rebuilds the list from the durable source of erasures: the
+core's OUTBOX (`customer.erased` rows), replayed by the core's `outbox:replay` (#595). The bus is not that source:
+`customer.*` topics keep 30 days, #629.
+
+1. Stop the ingest, set the new key (Vault), and note the time T.
+2. `pnpm --filter @platform/core outbox:replay --topic customer.erased` republishes every erasure.
+3. Start the ingest. It consumes the replayed erasures and records them under the new key. Each re-scrub is a no-op
+   for rows already scrubbed. An order of an erased customer that lands before its replayed erasure is scrubbed when
+   the erasure arrives, so the rebuild converges.
+4. Once the replay has drained, `DELETE FROM customer_erasures WHERE recorded_at < T`: the old digests match nothing
+   now.
+
+This needs the outbox to keep `customer.erased` rows; any outbox pruning must exempt them.
+
+`erasure.test.ts` covers the digests, the scrub and classify (unit). Against ClickHouse it checks four things:
+
+- the erased hash and id are in no table or view, by a non-FINAL `formatRow` sweep;
+- the other customers are untouched;
+- the money marts are unchanged;
+- a full replay through a fresh ingest keeps the identifiers gone, and an erasure that arrives before the orders
+  scrubs them at insert.

@@ -1,6 +1,7 @@
 -- Staging (#601): one view per topic version the facts read, typed columns out of raw_events.payload.
 -- Every view reads raw_events FINAL, so a redelivered event appears once. Envelope columns first, then the payload's.
--- No PII: email_hash, customer_id and titles are left out on purpose (the facts do not need them).
+-- No PII: customer_id and titles are left out; email_hash is kept only as order.placed's `customer_key` (#623, the
+-- erasure-aware pseudonymous key for new vs returning customers).
 -- Money is Int64 minor units beside its currency.
 
 CREATE OR REPLACE VIEW stg_order_placed_v1 AS
@@ -13,6 +14,9 @@ SELECT
     JSONExtractInt(payload, 'display_id')                                  AS display_id,
     toUUID(JSONExtractString(payload, 'legal_entity_id'))                  AS legal_entity_id,
     JSONExtractString(payload, 'currency')                                 AS currency,
+    -- #623: the pseudonymous customer key (email_hash); NULL once the customer is erased (the ingest scrubs it). Used
+    -- only inside models (new vs returning); no operation ever returns it.
+    nullIf(JSONExtractString(payload, 'email_hash'), '')                   AS customer_key,
     JSONExtractInt(payload, 'totals', 'subtotal_minor')                    AS subtotal_minor,
     JSONExtractInt(payload, 'totals', 'discount_minor')                    AS discount_minor,
     JSONExtractInt(payload, 'totals', 'shipping_minor')                    AS shipping_minor,

@@ -1,5 +1,12 @@
 # Changelog — @platform/analytics-ingest
 
+## 0.5.0 — unreleased (#623)
+
+- `customer.erased` honoured (`src/erasure.ts`): HMAC digest index (`ANALYTICS_ERASURE_KEY`, required), scrub at classify
+  (replays included), `applyErasure` (record → flush → re-insert scrubbed → DELETE old versions) before the commit;
+  migration 0004 `customer_erasures`; `fct_order.customer_key` + `mart_customers_daily` (new / returning / unknown).
+  A batch with a customer.erased never commits without an erasure handler. Tests: `erasure.test.ts`.
+
 ## 0.4.0 — unreleased (#602)
 
 - `reconcile` (`src/reconcile/`, `src/reconcile-cli.ts`): the Finance API and HQ report clients (generated contract types;
