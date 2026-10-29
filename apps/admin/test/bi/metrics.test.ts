@@ -3,9 +3,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   currencies,
+  forStore,
   freshness,
   liveQuery,
   liveTiles,
+  MAX_ROWS,
   moneyViews,
   moneyViewsQuery,
   periodQuery,
@@ -54,8 +56,9 @@ describe('the queries', () => {
       dimensions: ['store'],
       grain: 'day',
       ...w,
+      limit: MAX_ROWS,
     });
-    expect(moneyViewsQuery(w).grain).toBe('total');
+    expect(moneyViewsQuery(w)).toMatchObject({ grain: 'total', dimensions: [] });
     expect(topProductsQuery(w, 5)).toMatchObject({
       order_by: { metric: 'units', direction: 'desc' },
       limit: 5,
@@ -69,7 +72,14 @@ describe('the queries', () => {
       grain: 'total',
       from: '2026-10-27',
       to: '2026-10-28',
+      limit: MAX_ROWS,
     });
+  });
+
+  it('forStore narrows to one store and keeps the other filters; no store leaves the query alone', () => {
+    const q = { ...periodQuery(w), filters: { currencies: ['EUR'] } };
+    expect(forStore(q, 'store-a').filters).toEqual({ currencies: ['EUR'], store_ids: ['store-a'] });
+    expect(forStore(q, undefined)).toBe(q);
   });
 });
 

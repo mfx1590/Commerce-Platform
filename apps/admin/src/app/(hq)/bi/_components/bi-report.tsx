@@ -1,6 +1,7 @@
 /**
  * The BI report body (#480): rendered by page.tsx inside the section guard, so nothing here runs for a principal
- * without `analyst`. Sales per currency tab, finance only for finance principals, stock per store.
+ * without `analyst`. The metrics dashboard (#604) first, then the v1 reports: sales per currency tab, finance only
+ * for finance principals, stock per store.
  */
 import { ApiStatePanel } from '@/components/states/state-panel';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
@@ -15,6 +16,7 @@ import {
   type SalesReport,
   type StockReport,
 } from '../_api';
+import { MetricsDashboard } from './metrics-dashboard';
 import { SeriesChart, type ChartSeries } from './series-chart';
 import {
   biHref,
@@ -62,6 +64,13 @@ export async function BiReport({ params }: { params: BiParams }) {
 
   return (
     <div className="space-y-4">
+      <MetricsDashboard
+        window={window}
+        currencyParam={one(params.currency)}
+        finance={canFinance}
+        stores={stores}
+        base="/bi"
+      />
       <Card>
         <CardHeader
           title="BI"

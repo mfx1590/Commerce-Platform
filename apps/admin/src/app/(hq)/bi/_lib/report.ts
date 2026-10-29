@@ -165,8 +165,10 @@ export function dailySeries(
 export function biHref(
   window: ReportWindow,
   params: Record<string, string | undefined> = {},
+  /** `/bi` (HQ) or `/<storeId>/bi` (the store view). */
+  base = '/bi',
 ): string {
   const q = new URLSearchParams({ from: window.from, to: window.to });
   for (const [k, v] of Object.entries(params)) if (v !== undefined) q.set(k, v);
-  return `/bi?${q.toString()}`;
+  return `${base}?${q.toString()}`;
 }

@@ -1,67 +1,38 @@
 /**
  * BI v2 data layer (#604) over the metrics API (#603, `queryMetrics`). Pure: the query bodies the dashboards send,
  * and the shaping of a `MetricResult` into what the page draws. No fetch here, so it is unit-tested without a
- * server; the typed call lives in `_api.ts` once the contract's generated types exist.
+ * server; the typed call is in `_api.ts`.
  *
  * Rules carried through every helper: money is integer minor units beside its currency and is NEVER added across
  * currencies (every money view is per currency tab); ratios come from the server (recomputed there per total);
  * a live figure is labelled live, never bookings.
  */
 
-// The shapes of the posted contract (#603 comments 6438446364 + 6444596272). Replaced by the generated
-// `AdminComponents['schemas']['MetricQuery' | 'MetricResult']` when the contract lands; the tests pin the shapes.
-export type MetricId =
-  | 'orders'
-  | 'bookings_minor'
-  | 'net_bookings_minor'
-  | 'aov_minor'
-  | 'refunds_minor'
-  | 'refund_rate_bp'
-  | 'units'
-  | 'product_net_minor'
-  | 'new_customers'
-  | 'returning_customers'
-  | 'captured_minor'
-  | 'fee_minor'
-  | 'recognised_minor'
-  | 'live_orders'
-  | 'live_placed_minor';
-export type Dimension = 'store' | 'product' | 'refund_reason' | 'provider';
-export type Grain = 'day' | 'week' | 'month' | 'total';
+import type { AdminComponents } from '@/lib/api/admin-client';
 
-export interface MetricQuery {
-  metrics: MetricId[];
-  dimensions?: Dimension[];
-  grain: Grain;
-  from: string;
-  to: string;
-  filters?: { store_ids?: string[]; currencies?: string[]; product_ids?: string[] };
-  order_by?: { metric: MetricId; direction?: 'desc' | 'asc' };
-  limit?: number;
-}
-
-export interface MetricRow {
-  period: string | null;
-  currency: string | null;
-  store_id: string | null;
-  product_id: string | null;
-  refund_reason: string | null;
-  provider: string | null;
-  values: Partial<Record<MetricId, number | null>>;
-}
-
-export interface MetricResult {
-  query: MetricQuery;
-  generated_at: string;
-  data_as_of: string | null;
-  truncated: boolean;
-  rows: MetricRow[];
-  currency_totals: { currency: string | null; values: Partial<Record<MetricId, number | null>> }[];
-}
+// The generated shapes of Admin API 0.4.25 (contracts-v0.4.30, #636).
+export type MetricId = AdminComponents['MetricId'];
+export type Dimension = AdminComponents['MetricDimension'];
+export type Grain = AdminComponents['MetricGrain'];
+export type MetricQuery = AdminComponents['MetricQuery'];
+export type MetricRow = AdminComponents['MetricRow'];
+export type MetricResult = AdminComponents['MetricResult'];
+export type MetricCatalogue = AdminComponents['MetricCatalogue'];
 
 export interface Window {
   from: string;
   to: string;
+}
+
+/** The server's row cap (`max_rows` in the catalogue): a dashboard asks for everything it may draw. */
+export const MAX_ROWS = 1000;
+
+/**
+ * Narrows a query to one store (the store view). Only a narrowing: the server scopes every statement to what the
+ * principal may see anyway, and a store outside that scope is a 403 — never empty rows.
+ */
+export function forStore(q: MetricQuery, storeId: string | undefined): MetricQuery {
+  return storeId === undefined ? q : { ...q, filters: { ...q.filters, store_ids: [storeId] } };
 }
 
 // ---- the queries the dashboards send ------------------------------------------------------------------------
@@ -74,6 +45,7 @@ export function periodQuery(w: Window): MetricQuery {
     grain: 'day',
     from: w.from,
     to: w.to,
+    limit: MAX_ROWS,
   };
 }
 
@@ -81,9 +53,11 @@ export function periodQuery(w: Window): MetricQuery {
 export function moneyViewsQuery(w: Window): MetricQuery {
   return {
     metrics: ['bookings_minor', 'recognised_minor', 'captured_minor'],
+    dimensions: [],
     grain: 'total',
     from: w.from,
     to: w.to,
+    limit: MAX_ROWS,
   };
 }
 
@@ -112,6 +86,7 @@ export function liveQuery(now: Date = new Date()): MetricQuery {
     grain: 'total',
     from: today,
     to: tomorrow,
+    limit: MAX_ROWS,
   };
 }
 

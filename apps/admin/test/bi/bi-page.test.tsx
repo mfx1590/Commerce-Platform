@@ -4,7 +4,10 @@
  * - a store admin on the route gets the 403 panel, and no report is requested;
  * - finance cards only for finance principals (analyst: absent, and the finance report is never requested);
  * - currency is a tab: EUR and GBP never share a chart, a total or a table;
- * - no customer identifier in any request or rendered table.
+ * - no customer identifier in any request or rendered table;
+ * - the metrics dashboard (#604): its own currency tabs, finance metrics asked for only with finance, the live
+ *   tiles fed (the client component is stubbed; its polling is tested in live-tiles.test.tsx), the CSV link, and
+ *   the 503 panel when the analytics store is down.
  *
  * The page nests async server components (guard → report), so `expand()` resolves them before rendering.
  */
@@ -28,8 +31,26 @@ const api = vi.hoisted(() => ({
   getHqSalesReport: vi.fn(),
   getHqFinanceReport: vi.fn(),
   getStoreStockReport: vi.fn(),
+  queryMetrics: vi.fn(),
 }));
 vi.mock('@/app/(hq)/bi/_api', () => api);
+// expand() calls components as functions, so a hook (the retry button) has no renderer: the API panel is a stub
+// naming its state, the rest of the module (the guard's 403 panel) stays real.
+vi.mock('@/components/states/state-panel', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  ApiStatePanel: ({ status, what }: { status: number; what: string }) => (
+    <p data-testid="api-state">
+      {status} {what}
+    </p>
+  ),
+}));
+vi.mock('@/app/(hq)/bi/_components/live-tiles', () => ({
+  LiveTiles: ({ initial, endpoint }: { initial: { rows: unknown[] }; endpoint: string }) => (
+    <p data-testid="live-stub">
+      live {endpoint} {initial.rows.length}
+    </p>
+  ),
+}));
 
 const ok = <T,>(data: T) => ({ ok: true as const, status: 200, data });
 const A = SEED.stores.brandA;
@@ -122,6 +143,33 @@ const STOCK = {
   ],
 };
 
+type Values = Record<string, number | null>;
+const metricResult = (
+  query: unknown,
+  rows: {
+    period?: string | null;
+    currency: string;
+    store_id?: string | null;
+    product_id?: string | null;
+    values: Values;
+  }[],
+  totals: { currency: string; values: Values }[],
+) => ({
+  query,
+  generated_at: '2026-03-04T09:00:00Z',
+  data_as_of: '2026-03-04T08:59:50Z',
+  truncated: false,
+  rows: rows.map((r) => ({
+    period: null,
+    store_id: null,
+    product_id: null,
+    refund_reason: null,
+    provider: null,
+    ...r,
+  })),
+  currency_totals: totals,
+});
+
 /** Resolves function components (async ones included) down to host elements, so `render` gets a plain tree. */
 async function expand(node: ReactNode): Promise<ReactNode> {
   if (Array.isArray(node)) return Promise.all(node.map(expand));
@@ -147,6 +195,9 @@ beforeEach(() => {
   api.getHqSalesReport.mockResolvedValue(ok(SALES));
   api.getHqFinanceReport.mockResolvedValue(ok(FINANCE));
   api.getStoreStockReport.mockResolvedValue(ok(STOCK));
+  api.queryMetrics.mockImplementation(async (q: { metrics: string[] }) =>
+    ok(metricResult(q, [], [])),
+  );
 });
 
 describe('nav fixtures', () => {
@@ -264,5 +315,125 @@ describe('stock and privacy', () => {
     const headers = [...container.querySelectorAll('th')].map((th) => th.textContent ?? '');
     expect(headers.length).toBeGreaterThan(0);
     expect(headers.join(' ')).not.toMatch(/customer|email|name|phone|address/i);
+  });
+});
+
+describe('the metrics dashboard (#604)', () => {
+  const asks = (metric: string) =>
+    api.queryMetrics.mock.calls.some(([q]) =>
+      (q as { metrics: string[] }).metrics.includes(metric),
+    );
+  beforeEach(() => {
+    api.queryMetrics.mockImplementation(async (q: { metrics: string[] }) => {
+      if (q.metrics.includes('bookings_minor') && q.metrics.includes('refund_rate_bp'))
+        return ok(
+          metricResult(
+            q,
+            [
+              {
+                period: '2026-03-01',
+                currency: 'EUR',
+                store_id: A,
+                values: { bookings_minor: 12200, refunds_minor: 2500, refund_rate_bp: 2049 },
+              },
+              {
+                period: '2026-03-01',
+                currency: 'GBP',
+                store_id: B,
+                values: { bookings_minor: 6000, refunds_minor: 0, refund_rate_bp: 0 },
+              },
+            ],
+            [
+              {
+                currency: 'EUR',
+                values: { bookings_minor: 12200, refunds_minor: 2500, refund_rate_bp: 2049 },
+              },
+              {
+                currency: 'GBP',
+                values: { bookings_minor: 6000, refunds_minor: 0, refund_rate_bp: 0 },
+              },
+            ],
+          ),
+        );
+      if (q.metrics.includes('recognised_minor'))
+        return ok(
+          metricResult(
+            q,
+            [],
+            [
+              {
+                currency: 'EUR',
+                values: { bookings_minor: 12200, recognised_minor: 9700, captured_minor: 14000 },
+              },
+            ],
+          ),
+        );
+      if (q.metrics.includes('live_orders'))
+        return ok(
+          metricResult(
+            q,
+            [{ currency: 'EUR', store_id: A, values: { live_orders: 2, live_placed_minor: 5000 } }],
+            [],
+          ),
+        );
+      return ok(metricResult(q, [], []));
+    });
+  });
+
+  it('has its own currency tabs: EUR by default, the KPIs and charts in EUR only', async () => {
+    await renderAs('analyst', { from: '2026-03-01', to: '2026-03-04' });
+    const tabs = screen.getByRole('navigation', { name: 'Metrics currency' });
+    expect(
+      within(tabs)
+        .getAllByRole('link')
+        .map((a) => a.textContent),
+    ).toEqual(['EUR', 'GBP']);
+    expect(within(tabs).getByRole('link', { name: 'EUR' }).getAttribute('aria-current')).toBe(
+      'page',
+    );
+    expect(screen.getByText('20.49 %')).toBeTruthy();
+    expect(screen.getByText('Bookings per day (EUR)')).toBeTruthy();
+    expect(screen.getByText('Refunds per day (EUR)')).toBeTruthy();
+    expect(screen.queryByText(/per day (GBP)/)).toBeNull();
+  });
+
+  it('an analyst never asks for a finance metric (it would be a 403) and sees no money views', async () => {
+    await renderAs('analyst');
+    expect(asks('recognised_minor') || asks('captured_minor') || asks('fee_minor')).toBe(false);
+    expect(screen.queryByTestId('bi-money-views')).toBeNull();
+  });
+
+  it('the owner (finance) gets bookings vs recognised vs cash for the tab currency', async () => {
+    await renderAs('owner');
+    expect(asks('recognised_minor')).toBe(true);
+    const views = screen.getByTestId('bi-money-views');
+    expect(
+      within(views)
+        .getAllByRole('cell')
+        .map((c) => c.textContent),
+    ).toEqual(['€122.00', '€97.00', '€140.00']);
+  });
+
+  it('feeds the live tiles from the live query and links the CSV export of the window', async () => {
+    await renderAs('analyst', { from: '2026-03-01', to: '2026-03-04' });
+    expect(screen.getByTestId('live-stub').textContent).toBe('live /bi/live 1');
+    const csv = screen.getAllByRole('link', { name: 'Download CSV' })[0]!;
+    expect(csv.getAttribute('href')).toBe('/bi/export?from=2026-03-01&to=2026-03-04');
+  });
+
+  it('a 503 from the metrics API is a panel, never partial figures, and the v1 reports still render', async () => {
+    api.queryMetrics.mockResolvedValue({
+      ok: false,
+      status: 503,
+      error: { code: 'unavailable', message: 'Analytics store unavailable' },
+    });
+    await renderAs('analyst');
+    expect(screen.queryByRole('navigation', { name: 'Metrics currency' })).toBeNull();
+    expect(screen.queryByTestId('live-stub')).toBeNull();
+    expect(screen.getAllByTestId('api-state').map((p) => p.textContent)).toEqual([
+      '503 live metrics',
+      '503 metrics',
+    ]);
+    expect(screen.getByRole('navigation', { name: 'Currency' })).toBeTruthy();
   });
 });
