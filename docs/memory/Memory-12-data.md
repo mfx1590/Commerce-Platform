@@ -52,6 +52,27 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- #604 PLAN (2026-10-29; branch data/phase5-bi-v2, cut --no-track from origin/main after #638 + #637 merged):
+  done: df722fa (#502 nits), b9b3319 (BI v2 data layer), 05e7987 (#638 review A: an empty filter list → 400).
+  1. _lib/metrics.ts on the GENERATED types (contracts 0.4.30) + refundsByDayQuery + an optional store filter.
+  2. _api.ts: queryMetrics / listMetrics (adminCall) + queryMetricsCsv (raw text, Accept: text/csv, X-Truncated).
+  3. HQ /bi: money views (finance only), top products, per-day refunds chart, live tiles (client component polling
+     a route handler /bi/live every 15 s; freshness + stale), CSV download (route handler /bi/export).
+  4. Store view src/app/(store)/[storeId]/bi/ (page + live + export, store_ids = [storeId]; the API decides).
+  5. e2e/bi: place an order on the core (e2e/core-order.ts) → the live tile counts it (E2E_API=core, machine).
+  6. REQUEST to window 4: the rail entry for the store BI page. README/CHANGELOG, gates, ONE PR "Closes #604".
+  BUILT (all 6): 9df7d4a dashboards + live tiles + store view + CSV, 269dd04 e2e + docs, 233b25c Prism contract
+  tests (every dashboard query body validated by the spec). REQUEST #642 (window 4: STORE_SECTIONS 'bi'; then wrap
+  the store page in StoreSectionGuard). Manager session TEN (local_3c029c3c…) took over from nine on 2026-10-29.
+  Live 2026-10-29: the relay needed customer.erased-v2-value in the SHARED registry → manager ten approved ONE run of
+  infra/redpanda/register-schemas.mjs (registered 1, unchanged 40, compatibility_set 1, refused 0). e2e bi in core
+  mode 3/3 (order 1143: brand-a EUR live tile 0 → 1 by its own poll; store view brand-a only); reporting live 97/97
+  (p95 36 ms); admin unit 915/915; contract bi 11/11; root lint + typecheck green. minItems: 1 on the four filter
+  arrays = manager ten's NEXT contracts landing (do not edit packages/contracts); the server keeps the 400.
+- Gotcha: Playwright getByRole name matching is a case-insensitive SUBSTRING: 'Currency' matched 'Metrics currency'
+  (strict-mode clash) — use exact: true when a page has two similarly named landmarks.
+- Gotcha: the e2e stack = core dev + `outbox:relay` + ingest dev (ANALYTICS_ERASURE_KEY from .env.example; .env has
+  none); after TaskStop, kill each tsx parent AND its loader child (check parent ids, this worktree only).
 - #601 P5.2 models: PR #619 (Closes #601; code commits 0b3b265, 0a0d6b8, a6b8e42 on top of the merge of main 05cf71f;
   head = this memory commit). Review = a FABLE review after the weekly reset (2026-10-27 14:00 UTC); the manager pins
   the 11 models.test titles in the CI live step on the integration landing. Push NOTHING more unless the review asks.
