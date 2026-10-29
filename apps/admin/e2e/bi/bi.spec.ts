@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { AGAINST_CORE, stamped } from '../api-mode';
 import { placeCoreOrder } from '../core-order';
 import { signInAsOwner } from '../owner';
-import { signIn } from '../staff';
+import { BRAND_A, BRAND_C, signIn } from '../staff';
 
 /**
  * HQ · BI (#480 / #604, window 12). The page only reads (the report operations #479 and the metrics API #603); the
@@ -123,6 +123,49 @@ test.describe('bi', () => {
       expect(store).toBe(storeId);
     say(
       `PASS live tiles: order ${placed.display_id} counted by the poll; store view shows brand-a only`,
+    );
+  });
+
+  test('a store admin writes an order: its own store tile moves; a store outside its scope is refused', async ({
+    page,
+    request,
+  }) => {
+    if (!AGAINST_CORE) say('SKIP store-admin live: core mode only (it writes a real order)');
+    test.skip(!AGAINST_CORE, 'core mode only: it writes a real order through the Store API');
+    test.setTimeout(240_000);
+
+    // The seeded store-admin holds store_admin on brand-a and brand-b only: brand-c is the store outside its scope.
+    await signIn(page, `/${BRAND_A}/bi`);
+    await page.waitForURL(new RegExp(`/${BRAND_A}/bi`));
+    await expect(page.getByTestId('bi-live-freshness')).toBeVisible();
+    const tiles = page.getByTestId('bi-live-tile');
+    const tile = tiles.and(page.locator('[data-currency="EUR"]'));
+    const ordersOf = async () =>
+      (await tile.count()) === 0
+        ? 0
+        : Number(/(\d+)/.exec((await tile.getByTestId('bi-live-orders').textContent()) ?? '')?.[1]);
+    const before = await ordersOf();
+
+    const placed = await placeCoreOrder(request, CORE_URL, stamped('bi-store-admin'));
+    await expect.poll(ordersOf, { timeout: 180_000, intervals: [5_000] }).toBe(before + 1);
+    for (const store of await tiles.evaluateAll((els) =>
+      els.map((e) => e.getAttribute('data-store')),
+    ))
+      expect(store).toBe(BRAND_A);
+    say(`store-admin: brand-a EUR ${before} → ${before + 1} after order ${placed.display_id}`);
+
+    // brand-c: the page is the 403 panel with no tile; its live poll and its CSV are the API's 403, never empty rows
+    await page.goto(`/${BRAND_C}/bi`);
+    await expect(page.getByRole('heading', { name: /do not have access/i })).toBeVisible();
+    await expect(page.getByTestId('bi-live-tile')).toHaveCount(0);
+    const live = await page.request.get(`/${BRAND_C}/bi/live`);
+    expect(live.status()).toBe(403);
+    expect(await live.json()).toMatchObject({ code: 'forbidden' });
+    const csv = await page.request.get(`/${BRAND_C}/bi/export?table=period`);
+    expect(csv.status()).toBe(403);
+    expect(csv.headers()['content-disposition']).toBeUndefined();
+    say(
+      `PASS store-admin live: order ${placed.display_id} moved brand-a's tile; brand-c = 403 page, 403 live, 403 CSV`,
     );
   });
 });
