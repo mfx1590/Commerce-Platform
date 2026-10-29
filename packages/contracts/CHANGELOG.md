@@ -458,3 +458,24 @@
   ones (`MediaUploadParams.api_key`, `PromotionInput/PromotionPatch.value`, `SalesFigures.refunded_minor`).
   Now quoted; descriptions only, no behaviour change. New spec-test guard: no object key with whitespace in any
   spec (mutation-tested); `js-yaml` 4.3.2 + `@types/js-yaml` as contracts devDependencies for it.
+
+## 0.4.30 — 2026-10-29 (Admin API 0.4.25; CONTRACT CHANGE #603, window 12)
+
+- Admin API: `listMetrics` (`GET /admin/metrics`) and `queryMetrics` (`POST /admin/metrics/query`), tag `reports`,
+  both `viewer` on `store:*` (as `listStores`). The server always scopes a query to the caller's stores: a
+  `filters.store_ids` entry outside the scope is a 403, never empty rows; finance metrics (`captured_minor`,
+  `fee_minor`, `recognised_minor`) also need `finance` on `organization:hq`. Closed enums and uuid lists only, no SQL
+  input; `[from, to)` UTC dates, at most 366 days; at most 5 metrics, 2 dimensions, 50 store_ids, 1000 rows
+  (`truncated`). Money is integer minor units per currency, never summed across currencies (`currency_totals`).
+  137 admin operations.
+- Live metrics `live_orders` / `live_placed_minor` (LIVE, not bookings: placed orders including cancellations, from
+  the per-minute live view; `store` dimension and `day` / `total` grains only).
+- CSV: `queryMetrics` answers `text/csv` on `Accept: text/csv` (header line, no totals line, RFC 4180 with CRLF and
+  every text cell quoted, a leading `'` on cells starting with `=` `+` `-` `@` tab or CR, the same `limit` cap and
+  an `X-Truncated` header); errors stay JSON.
+- Schemas `MetricId`, `MetricDimension`, `MetricGrain`, `MetricDefinition`, `MetricCatalogue`, `MetricQuery`,
+  `MetricRow`, `MetricResult`; the shared `ServiceUnavailable` response (503, fail closed, nothing partial).
+- `ERROR_CODES` gains `unavailable` (503; the core's status map gains it too). Producer: the apps/core reporting
+  metrics module (window 12); consumers: the admin BI section incl. `(store)/[storeId]/bi` and the #606 BI Q&A tool.
+- docs/ownership.md: the `data/` row gains `apps/admin/src/app/(store)/[storeId]/bi/**`.
+- Store API (0.5.9), Accounting API (0.1.0), events and db unchanged.

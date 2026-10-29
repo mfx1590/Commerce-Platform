@@ -54,3 +54,30 @@ FROM
     WHERE status = 'captured'
 )
 GROUP BY organization_id, store_id, day, currency, provider;
+
+-- mart_customers_daily (#603 new / returning, #623 erasure-aware): per store × UTC day, counts only.
+--   * a customer is `new` on the day of their FIRST order in that store (by placed_at, then the event id) and
+--     `returning` on any day they order again; each counted once per day;
+--   * an order whose customer_key is NULL (an erased customer, scrubbed by the ingest) counts in `unknown_orders`:
+--     its money stays in every money mart, but it belongs to nobody here.
+-- No customer key ever leaves this view.
+CREATE OR REPLACE VIEW mart_customers_daily AS
+WITH firsts AS
+(
+    SELECT store_id, customer_key, min((placed_at, toString(source_event_id))) AS first_order
+    FROM fct_order
+    WHERE customer_key IS NOT NULL
+    GROUP BY store_id, customer_key
+)
+SELECT
+    o.organization_id                                                              AS organization_id,
+    o.store_id                                                                     AS store_id,
+    toDate(o.placed_at, 'UTC')                                                     AS day,
+    uniqExactIf(o.customer_key, o.customer_key IS NOT NULL
+                AND (o.placed_at, toString(o.source_event_id)) = f.first_order)         AS new_customers,
+    uniqExactIf(o.customer_key, o.customer_key IS NOT NULL
+                AND (o.placed_at, toString(o.source_event_id)) != f.first_order)        AS returning_customers,
+    countIf(o.customer_key IS NULL)                                                AS unknown_orders
+FROM fct_order AS o
+LEFT JOIN firsts AS f ON f.store_id = o.store_id AND f.customer_key = o.customer_key
+GROUP BY organization_id, store_id, day;
