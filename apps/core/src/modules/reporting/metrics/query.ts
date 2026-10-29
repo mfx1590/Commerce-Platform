@@ -45,8 +45,12 @@ function list<T extends string>(
   field: string,
   max: number,
   ok: (x: string) => x is T,
+  /** 1 for a filter: an empty filter narrows to nothing (and an empty scope never reaches the compiler). */
+  min = 0,
 ): T[] {
   if (!Array.isArray(v)) throw validationError(`${field} must be an array`, { field });
+  if (v.length < min)
+    throw validationError(`${field} needs at least ${min} item (omit it for no filter)`, { field });
   if (v.length > max) throw validationError(`${field} has at most ${max} items`, { field });
   if (new Set(v).size !== v.length) throw validationError(`${field} must not repeat`, { field });
   for (const x of v)
@@ -134,7 +138,7 @@ export function parseMetricQuery(body: unknown): MetricQuery {
       if (!['store_ids', 'currencies', 'product_ids', 'refund_reasons'].includes(k))
         throw validationError(`unknown filter ${k}`, { field: `filters.${k}` });
     if (f.store_ids !== undefined)
-      filters.store_ids = list(f.store_ids, 'filters.store_ids', LIMITS.max_store_ids, uuid).map(
+      filters.store_ids = list(f.store_ids, 'filters.store_ids', LIMITS.max_store_ids, uuid, 1).map(
         (s) => s.toLowerCase(),
       );
     if (f.currencies !== undefined)
@@ -143,6 +147,7 @@ export function parseMetricQuery(body: unknown): MetricQuery {
         'filters.currencies',
         LIMITS.max_currencies,
         currency,
+        1,
       );
     if (f.product_ids !== undefined)
       filters.product_ids = list(
@@ -150,6 +155,7 @@ export function parseMetricQuery(body: unknown): MetricQuery {
         'filters.product_ids',
         LIMITS.max_product_ids,
         uuid,
+        1,
       ).map((s) => s.toLowerCase());
     if (f.refund_reasons !== undefined)
       filters.refund_reasons = list(
@@ -157,6 +163,7 @@ export function parseMetricQuery(body: unknown): MetricQuery {
         'filters.refund_reasons',
         REFUND_REASONS.length,
         oneOf(REFUND_REASONS),
+        1,
       );
   }
 
