@@ -33,7 +33,7 @@ SELECT
     l.store_id                                               AS store_id,
     l.order_id                                               AS order_id,
     l.order_line_item_id                                     AS order_line_item_id,
-    l.variant_id                                             AS variant_id,
+    l.variant_id_in                                          AS variant_id,
     if(v.variant_id = toUUID('00000000-0000-0000-0000-000000000000'),
        CAST(NULL AS Nullable(UUID)),
        CAST(v.product_id AS Nullable(UUID)))                 AS product_id,
@@ -54,8 +54,11 @@ FROM
         o.store_id                                                       AS store_id,
         o.order_id                                                       AS order_id,
         toUUID(JSONExtractString(li, 'order_line_item_id'))              AS order_line_item_id,
-        toUUIDOrNull(JSONExtract(li, 'variant_id', 'Nullable(String)'))  AS variant_id,
-        ifNull(variant_id, toUUID('00000000-0000-0000-0000-000000000000')) AS variant_key,
+        toUUIDOrNull(JSONExtract(li, 'variant_id', 'Nullable(String)'))  AS variant_id_in,
+        ifNull(
+            toUUIDOrNull(JSONExtract(li, 'variant_id', 'Nullable(String)')),
+            toUUID('00000000-0000-0000-0000-000000000000')
+        )                                                                AS variant_key,
         JSONExtractString(li, 'sku')                                     AS sku,
         toUInt32(JSONExtractInt(li, 'quantity'))                         AS quantity,
         JSONExtractInt(li, 'unit_price_minor')                           AS unit_price_minor,
