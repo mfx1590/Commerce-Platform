@@ -1,4 +1,4 @@
-// Read-only guard for service-account clients (#565 / #622). Unit, always runs: tokens signed with a throw-away
+// Read-only guard (#565 / #622) and operation allowlist (#632) for service-account clients. Unit, always runs: tokens signed with a throw-away
 // RS256 key and served from a local JWKS, so every branch is proven without the stack. The live counterpart
 // (real Keycloak tokens through the scope middleware) is apps/core/src/modules/hq-rbac/test/service-clients.test.ts.
 import { createServer, type Server } from 'node:http';
@@ -7,7 +7,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   createStaffTokenVerifier,
   READ_ONLY_SERVICE_CLIENTS,
+  SERVICE_CLIENT_OPERATIONS,
   readOnlyServiceClientOf,
+  serviceClientMayCallOperation,
   type ServiceClientRefusal,
   type StaffTokenVerifier,
 } from '../src/index.js';
@@ -77,7 +79,8 @@ describe('read-only service clients (unit, local JWKS)', () => {
     async (method) => {
       const claims = await verifier.verify(await token({ azp: 'crm-sync' }), {
         method,
-        operationId: 'listCustomers',
+        api: 'admin',
+        operationId: 'getCustomer',
       });
       expect(claims.serviceClient).toBe('crm-sync');
       expect(claims.subject).toBe('seed-crm-sync');
@@ -166,5 +169,134 @@ describe('read-only service clients (unit, local JWKS)', () => {
       .setExpirationTime('5m')
       .sign(other);
     await expect(verifier.verify(forged, { method: 'GET' })).rejects.toMatchObject({ status: 401 });
+  });
+});
+
+describe('operation allowlist per service client (#632, unit, local JWKS)', () => {
+  const allowed: [string, 'admin' | 'finance', string][] = [
+    ['crm-sync', 'admin', 'getCustomer'],
+    ['analytics-sync', 'admin', 'getHqSalesReport'],
+    ['analytics-sync', 'admin', 'getHqFinanceReport'],
+    ['analytics-sync', 'finance', 'listLegalEntityBooks'],
+    ['analytics-sync', 'finance', 'listJournalLines'],
+    ['analytics-sync', 'finance', 'getTrialBalance'],
+    ['analytics-sync', 'finance', 'listPayouts'],
+    ['analytics-sync', 'finance', 'listParkedEvents'],
+  ];
+
+  it("the lists are exactly the issue's, a code constant — mutating the exported copy changes nothing", () => {
+    expect(SERVICE_CLIENT_OPERATIONS).toEqual({
+      'crm-sync': { admin: ['getCustomer'], finance: [] },
+      'analytics-sync': {
+        admin: ['getHqSalesReport', 'getHqFinanceReport'],
+        finance: [
+          'listLegalEntityBooks',
+          'listJournalLines',
+          'getTrialBalance',
+          'listPayouts',
+          'listParkedEvents',
+        ],
+      },
+    });
+    SERVICE_CLIENT_OPERATIONS['crm-sync']!.admin.push('listOrders');
+    try {
+      expect(serviceClientMayCallOperation('crm-sync', 'admin', 'listOrders')).toBe(false);
+    } finally {
+      SERVICE_CLIENT_OPERATIONS['crm-sync']!.admin.pop();
+    }
+  });
+
+  it.each(allowed)('%s may call %s %s', async (client, api, operationId) => {
+    const claims = await verifier.verify(await token({ azp: client, sub: `seed-${client}` }), {
+      method: 'GET',
+      api,
+      operationId,
+    });
+    expect(claims.serviceClient).toBe(client);
+  });
+
+  it.each([
+    ['crm-sync', 'admin', 'listOrders'],
+    ['crm-sync', 'admin', 'listCustomers'], // dropped in review: the CRM sync only calls getCustomer
+    ['crm-sync', 'admin', 'getHqSalesReport'],
+    ['crm-sync', 'finance', 'getTrialBalance'],
+    ['analytics-sync', 'admin', 'listOrders'],
+    ['analytics-sync', 'admin', 'listCustomers'],
+    ['analytics-sync', 'admin', 'listAuditLog'],
+    ['analytics-sync', 'finance', 'getPayout'],
+    // an allowed operationId under the other API is not allowed
+    ['analytics-sync', 'finance', 'getHqSalesReport'],
+    ['analytics-sync', 'admin', 'getTrialBalance'],
+  ] as const)(
+    '%s: %s %s refused 403 service_client_operation_not_allowed, logged without PII',
+    async (client, api, operationId) => {
+      refusals.length = 0;
+      await expect(
+        verifier.verify(
+          await token({ azp: client, sub: `seed-${client}`, email: 'x@service.invalid' }),
+          { method: 'GET', api, operationId },
+        ),
+      ).rejects.toMatchObject({
+        status: 403,
+        code: 'forbidden',
+        details: {
+          reason: 'service_client_operation_not_allowed',
+          client_id: client,
+          api,
+          operation_id: operationId,
+        },
+      });
+      expect(refusals).toEqual([
+        {
+          event: 'service_client_operation_refused',
+          client_id: client,
+          method: 'GET',
+          api,
+          operation_id: operationId,
+        },
+      ]);
+      const line = JSON.stringify(refusals);
+      expect(line).not.toContain(`seed-${client}`);
+      expect(line).not.toContain('@');
+    },
+  );
+
+  it.each([
+    ['no api', { method: 'GET', operationId: 'listCustomers' }],
+    ['no operationId (unmatched path)', { method: 'GET', api: 'admin' as const }],
+    [
+      'an unknown api',
+      { method: 'GET', api: 'store' as unknown as 'admin', operationId: 'listCustomers' },
+    ],
+    [
+      'an inherited property name',
+      { method: 'GET', api: 'admin' as const, operationId: 'constructor' },
+    ],
+  ])('fail closed: %s is refused', async (_label, request) => {
+    await expect(verifier.verify(await token({ azp: 'crm-sync' }), request)).rejects.toMatchObject({
+      status: 403,
+      details: { reason: 'service_client_operation_not_allowed' },
+    });
+  });
+
+  it('the read-only check runs first: a write to an allowed operation is still read_only_service_client', async () => {
+    await expect(
+      verifier.verify(await token({ azp: 'crm-sync' }), {
+        method: 'POST',
+        api: 'admin',
+        operationId: 'listCustomers',
+      }),
+    ).rejects.toMatchObject({ status: 403, details: { reason: 'read_only_service_client' } });
+  });
+
+  it('people are unaffected: a human token passes any operation, with or without api / operationId', async () => {
+    const t = await token({ azp: 'admin-app', sub: 'seed-analyst' });
+    for (const request of [
+      { method: 'GET', api: 'admin' as const, operationId: 'listOrders' },
+      { method: 'GET', api: 'finance' as const, operationId: 'getPayout' },
+      { method: 'GET' },
+    ]) {
+      expect((await verifier.verify(t, request)).serviceClient).toBeUndefined();
+    }
   });
 });

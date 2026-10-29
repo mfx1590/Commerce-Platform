@@ -3,6 +3,7 @@ import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
 import { ApiError } from '../types.js';
 import {
   assertServiceClientMayCall,
+  assertServiceClientOperation,
   readOnlyServiceClientOf,
   type ServiceClientRefusal,
   type StaffRequestContext,
@@ -110,6 +111,8 @@ export function createStaffTokenVerifier(opts: StaffTokenVerifierOptions = {}): 
       const serviceClient = readOnlyServiceClientOf(payload);
       if (serviceClient) {
         assertServiceClientMayCall(serviceClient, request, opts.onServiceClientRefusal);
+        // #632: and only the operations its job uses, per API (fail closed when unresolved).
+        assertServiceClientOperation(serviceClient, request, opts.onServiceClientRefusal);
         claims.serviceClient = serviceClient;
       }
       return claims;

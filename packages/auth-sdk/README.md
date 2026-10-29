@@ -84,8 +84,54 @@ for GET / HEAD; any other method — and a call that does not pass the request a
 x-permission check, and logged as one JSON line (client id, method, operationId; no subject, no email; route
 it with `onServiceClientRefusal`). `StaffClaims.serviceClient` / `StaffScope.serviceClient` mark such a
 principal; hq-rbac refuses its writes a second time from the scope. People's tokens are untouched. Every
-caller that accepts service tokens must pass `{ method: req.method, operationId }` — the scope middleware's
+caller that accepts service tokens must pass `{ method: req.method, api, operationId }` — the scope middleware's
 `resolve(authorization, request)` and `verifier.verify(token, request)` take it.
+
+### Operation allowlist per service client (#632)
+
+Read-only is not least privilege: org-level `analyst` / `finance` imply `viewer` on every store, and store
+`support` reaches more reads than a sync needs. `SERVICE_CLIENT_OPERATIONS` (code constant, private frozen copy)
+lists, per API, the only operations each client may call:
+
+| client           | `admin` (Admin API)                      | `finance` (Finance API)                                                                          |
+| ---------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `crm-sync`       | `getCustomer`                            | —                                                                                                |
+| `analytics-sync` | `getHqSalesReport`, `getHqFinanceReport` | `listLegalEntityBooks`, `listJournalLines`, `getTrialBalance`, `listPayouts`, `listParkedEvents` |
+
+The lists are pinned to their callers: `test/service-client-callers.test.ts` runs every method of the #602
+reconcile clients (`@platform/analytics-ingest`, dev dependency) with a recording fetch and requires the
+operations they call to equal analytics-sync's lists; crm-sync's CRM sync calls only `getCustomer`. The matcher is
+also run against the core's real `/admin` routers (hq-rbac `test/admin-router-operation.test.ts`).
+
+After the read-only check, the verifier refuses anything else — and a request whose `api` or `operationId` the
+caller did not resolve (fail closed) — with 403 `details.reason = 'service_client_operation_not_allowed'`
+(`client_id`, `api`, `operation_id`), logged as `service_client_operation_refused` (no PII). People are
+untouched. Callers: the core resolves the Admin API operation BEFORE routing (`createOperationMatcher` over
+admin-api.yaml, on the original path, in `apps/core/src/http/staff-auth.ts`), so every module router is covered
+by one call site; the accounting API passes its own routed operation with `api: 'finance'`. A service client's
+scope carries `serviceRequest: { api, operationId }` (per request, never cached); hq-rbac's `handle()` refuses
+a service client whose resolved operation is not the one it matched (`service_client_operation_mismatch`), then
+checks the allowlist for its own operation. Any other staff-token consumer passes no `api`, so service tokens
+are refused there. Adding an operation for a client is a code change, reviewed like one.
+
+`createOperationMatcher(paths)` (`src/http/operation-matcher.ts`): method + RAW path → `{ operationId,
+template, method }` with Express 4's defaults — case-insensitive, one optional trailing slash, HEAD = GET,
+query ignored, nothing decoded or collapsed (`%2F` stays in its segment, `//` matches nothing), a literal
+segment beats a parameter, ambiguous same-method templates refused at construction.
+`apps/core/src/modules/hq-rbac/test/operation-matcher.test.ts` walks every operation of both contracts and
+compares with Express on every Admin API operation × variant, and pins that no allowlisted operation is ever
+chosen over an overlapping one (so no route registration order can run another operation behind it).
+
+### Service-account provisioning (#632)
+
+`pnpm --filter @platform/auth-sdk provision:service-accounts -- --crm-sync-stores <code,…> [--dry-run]`
+(`provisionServiceAccounts(deps, { crmSyncStoreCodes, dryRun })`): the two staff_user rows with the fixed ids
+(`SEED_IDS.serviceAccounts`) and subjects `seed-<clientId>` (audited `staff_user.create`, system actor), then
+through `assignRole` crm-sync `support` on each named store and analytics-sync `analyst` + `finance` on the
+organization. Idempotent; every store code is resolved before any write; nothing is ever removed (extra
+assignments are printed for a person to revoke); a row with the fixed id and another subject is refused (409);
+refuses without `OPENFGA_STORE_ID`. Prints ids, codes and relations only. Production steps:
+infra/keycloak/README.md, "Service accounts in production".
 
 ### Checks and scope (OpenFGA)
 
