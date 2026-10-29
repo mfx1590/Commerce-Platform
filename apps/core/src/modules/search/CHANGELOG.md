@@ -3,6 +3,72 @@
 The app-level `apps/core/CHANGELOG.md` and the module row in `apps/core/CLAUDE.md` belong to window 1; this
 file is the module's own history (linked from the PRs).
 
+## Phase 5 — search/phase5 (contracts-v0.4.29)
+
+### 2026-10-27 · first live run against real ClickHouse (#628 merged; the machine, granted)
+
+- **The SQL is proven on the real engine, and the dev data cannot exercise it.** `fct_order_line` has 144 rows
+  whose columns match #601's frozen set exactly, but **every row has `product_id` NULL**: all 144 carry a
+  `variant_id`, `dim_variant` holds only 2 rows (built from the 5 `product.published` events in the dev data),
+  the order lines reference SEEDED catalog variants that never went through the bus, and the join matches 0. The
+  model behaves as documented (NULL when a variant was never published); the dev catalogue simply predates the
+  bus. So the job computes 0 recommendations there — correctly.
+- **Two defects the live run exposed.** (1) The live test hardcoded a store id (`30000000-…-0031`) that matches
+  no row; the real one is `SEED_IDS.stores.brandA` = `00000000-…-0031`. It had been querying an empty store and
+  passing on `basketCount >= 0` — a green that proved nothing. It now uses `SEED_IDS`, cross-checks the source's
+  `basketCount` against an independent count, and asserts invariants that hold at any volume. (2) "It ran" was
+  never proof anyway, because a shadowed alias returns WRONG results rather than an error, and zero rows cannot
+  be wrong.
+- **So the same statements now run against a literal row set on the real ClickHouse** (25.8, read-only, nothing
+  written — `analytics_ro` could not): ClickHouse's own self-join and GROUP BY return basket total 10, tee 6,
+  cap 5, the single pair tee+cap at 4 baskets with mug+scarf correctly dropped by the HAVING floor, lift
+  1.3333, and both stored directions — the same numbers the pure test asserts. `basketStatements(relation)`
+  exists for exactly this substitution; production always passes `fct_order_line`.
+- `index-recommendations --dry-run` ran end to end through `analytics_ro` over 6 stores in 5.9 s with no errors,
+  which also confirms the `default_format` fix: the first real query would otherwise have been refused.
+
+### 2026-10-27 · #621 review fixes (Fable review = MERGE, three findings)
+
+- **`clickhouse.ts` alias shadowing (the review's finding, and it was wider than the line flagged).** The pair
+  query aliased its outputs `a` / `b`, the same names as its two table aliases, and all three CTE queries
+  aliased a count to `baskets` — the CTE's own name. ClickHouse resolves aliases everywhere in a statement, so
+  none of this meant what it reads as (Memory-main: three bugs in Phase 5, one a data-loss path). Every name is
+  now distinct: `basket_lines`, `left_line` / `right_line`, `total_baskets` / `product_baskets` / `pa` / `pb` /
+  `pair_baskets` / `sold_units`. A static test asserts no output alias repeats a CTE name, a table alias or an
+  `fct_order_line` column, in every statement the source builds — with a mutation check that the assertion
+  catches both shapes from the gotcha. None of this SQL has executed yet, so a static guard is the only guard.
+- **`clickhouse.ts` sent a per-query setting** (found while auditing for the above, not in the review).
+  `default_format` is a ClickHouse _setting_, and `analytics_ro` is `readonly = 1`, which refuses any — the
+  first real query would have failed. The format moved into the statement (`FORMAT JSONEachRow`); only
+  `database` and the `param_*` bindings remain in the URL, matching `apps/analytics-ingest`'s read-only client.
+- **`CORE_RECOMMENDATIONS_MIN_LIFT` ≤ 1 is now a configuration error** with a message that says why (1.0 means
+  "no more likely than chance", so such a floor recommends pairs carrying no signal). Was: only ≤ 0 refused.
+- **The dry run reported the raw candidate count**, not what a run would write, and hard-coded the popular
+  windows to 0. It now reports post-threshold rows for both kinds, so `--dry-run` is comparable with a real run.
+
+### 2026-10-27 · P5.8 recommendations (#607)
+
+- `recommendations-types.ts` — thresholds and the pure maths: co-occurrence counts from baskets, lift, the
+  minimum-support rule, both directions per pair, the popular ordering. No I/O, so the rule is testable from a
+  hand-made basket set. Worked example in the README and in the file header.
+- `clickhouse.ts` — a SELECT-only ClickHouse HTTP client (no SDK, parameters bound through `param_*`,
+  credentials never in an error) plus two basket sources behind one interface: `ClickHouseBasketSource`
+  (aggregates in ClickHouse, only counts cross the wire) and `FixtureBasketSource` (the stand-in until window
+  12's #601 is on main, and what the unit tests use). Reads `fct_order_line` per the interface fixed on #601:
+  `product_id` comes from `dim_variant`, so no Postgres join; `product_id IS NULL` and
+  `order_status = 'cancelled'` lines are skipped.
+- `recommendations.ts` — `rebuildStoreRecommendations` (DELETE + INSERT per store/kind/window in one
+  transaction through the tenant client; the INSERT joins `product` so a product this store does not have is
+  skipped) and `listProductRecommendations` (published / in-stock / same-store through `loadSearchRecords`, the
+  popular fallback reported in the response's `kind`, 404 for a foreign or unpublished anchor, 400 for a
+  currency the store does not have).
+- `recommendations-http.ts` — `recommendationsRouter()` for Store API 0.5.9 `GET /store/recommendations`.
+  **Not mounted**: the Store API chain is window 1's and has no store-side router seam yet (REQUEST filed).
+- `src/jobs/index-recommendations.ts` (window 9's path) — the Medusa scheduled job (`config` + `default`, as
+  every file in `src/jobs` must export) and a CLI with `--store` / `--dry-run`. With no ClickHouse credentials
+  it logs why and exits without writing.
+- Tests: 20 + 12 + 11 (one skipped with a printed reason until #601 lands).
+
 ## Phase 2 — search/phase2 (contracts-v0.3)
 
 ### 2026-09-15 · docs cleanup after contracts-v0.4.1 (last Phase 2 change)

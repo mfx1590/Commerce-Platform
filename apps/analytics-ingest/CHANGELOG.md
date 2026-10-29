@@ -1,5 +1,31 @@
 # Changelog — @platform/analytics-ingest
 
+## 0.4.0 — unreleased (#602)
+
+- `reconcile` (`src/reconcile/`, `src/reconcile-cli.ts`): the Finance API and HQ report clients (generated contract types;
+  inclusive vs exclusive `to`), the ledger pull into `ledger_lines` (migration 0003) / `fct_ledger_line` (model 350),
+  the identities 1, 2a, 2b, 2c, 3a, 3b, 3c, the runner and the report (first 20 differences, exit 0 only at 0). No
+  posting rule anywhere (D7). Unit tests: the diff, the paging, the date conventions, errors, the report.
+- The gate lives in apps/core/src/modules/reporting/reconcile-gate.test.ts (the core report routes in-process).
+
+## 0.3.0 — unreleased (#601)
+
+- #601 P5.2 models in `data/clickhouse/models/`: staging views for 10 topic versions, `dim_variant`, `dim_store`,
+  `fct_order`, `fct_order_line` (the binding interface for window 9), `fct_payment`, `fct_refund`,
+  `fct_shipment_line`, `mart_bookings_daily` (the rules of rpt_sales_daily), `mart_cash_daily` (the rules of
+  rpt_payments_daily) and `live_orders_minute`. Migration `0002_orders_minute.sql`: `orders_minute_events`
+  (ReplacingMergeTree keyed (store_id, currency, minute, event_id)), `mv_orders_minute` and a backfill.
+  `mart_recognised_daily` was dropped (D7).
+- The runner moved to `src/migrations.ts`. Models are plain views, re-applied when their text changes; migrations
+  are still refused when edited. New: an idempotency lint (`lintSqlFiles`), run before every migrate and by a test
+  over both folders, and the `_migrations_lock` claim (review follow-up 4 on #616).
+- A schema-valid event whose row ClickHouse would refuse (a timestamp outside DateTime64) is dead-lettered as
+  `InsertRejectedError` before it is buffered, instead of failing the insert and stalling the ingest (review
+  follow-up 2 on #616).
+- `createChReader` for the read-only user (sends no per-query settings).
+- Tests: `models.test.ts` (opt-in like live.test) runs the models on the shared month from `@platform/test-utils`
+  (150 orders, three legal entities).
+
 ## 0.2.0 — 2026-10-25
 
 - #600 P5.1: the ingest. A kafkajs `eachBatch` consumer (group `analytics.raw`, overridable; the DLQ and the

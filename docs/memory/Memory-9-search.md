@@ -1,6 +1,6 @@
 # Memory 9 — Search, media, promotions
 Window: 9 · Key: `search` · Branch prefix: `search/` · Model: Opus 5
-Last updated: 2026-09-15 · Contracts: contracts-v0.4.1 on main (67f19d5) · Branch: `search/phase2` · Status: **PHASE 2 COMPLETE AND QUIET.** 2.1–2.5 merged (#160, #166, #188); 2.5 follow-up #208 merged (main `2456e9a`); this docs-only cleanup is the last commit. Reopens only on a REQUEST.
+Last updated: 2026-10-27 · Contracts: **contracts-v0.4.29** (landed on `integration/phase5-recommendations`; 0.4.28 was the last tag on main when I started) · Branch: `search/phase5` · Status: **STOPPED for the day (owner on battery, 2026-10-27). Live ClickHouse run done and GREEN; machine free.** The SQL is proven on the real engine; **the dev data yields zero recommendations because every `fct_order_line.product_id` is NULL** (see the live-run entry — this blocks #609's rail and Integration 5's recommendation checks until the catalogue is published through the bus). The Fable review of #621 was MERGE with three findings; all three are fixed plus a fourth the audit found (the read client sent a readonly-forbidden setting). 50 tests, full core suite 1235 passed / 9 skipped. My commits in #621: `4d8d9ba` (= my e978019) and `8fc70e5` (= my 86d0fc5, cherry-picked 2026-10-27); a targeted Fable re-review of 8fc70e5, then CI, then the queue after #626/#628. REQUEST #624 open (window 1, route mount). **Two triggers, both the manager's word: #628 landing → switch on `CORE_RECOMMENDATIONS_CLICKHOUSE_TESTS`; #621 merging → file #609 for window 3.** Phase 2 is complete and merged (2.1–2.5 via #160, #166, #188, #208, #211).
 
 ## PHASE 5 DOCKET (written by the manager, 2026-10-25, Manager session nine) — READ THIS FIRST ON RESUME
 You reopen in Phase 5 wave 2 for **#607** P5.8 recommendations (plan `docs/plan/phase5-plan.md` D10; tracking #612).
@@ -34,8 +34,131 @@ Algolia index per brand synced from product.published events, merchandising rule
 - [x] **#137 · 2.4** Price lists — commit `46b4cf6`, merged in #188 (main `899e606`); issue closed. Module `apps/core/src/modules/promotions/` created (placement per the manager: the pricing half the cart consumes; recorded in the module README). No contract change needed: `listPriceLists`/`createPriceList`/`upsertPrices` exist in contracts-v0.3, so `pricingRouter()` takes permissions and bodies from `loadSpec` — first spec-driven router of this window. `resolvePrices` (sale > override/group > default, priority, windows, groups, tiers, Queryable-friendly for the cart's tx). REQUEST #179 (window 1): catalog media functions, three router mounts, cart `resolvePrices` call site. Tests: pricing.test.ts (5). Not built (not in the contract): list update/delete, CSV import; no price events exist (price changes reach the index at full reindex — documented).
 - [x] **#138 · 2.5** Promotions and coupon rule engine — commit `023209b`, merged inside #188 (main `899e606`); issue closed 2026-09-14. No separate 2.5 PR: the commits reached the branch via the 2026-09-09 push (see the push gotcha below); the scope correction and the corrected PR title/body landed on #188 before it merged. CONTRACT CHANGE #189 accepted, lands with Admin API 0.4.1 (migration 0150 = the promotion type-CHECK widening).
 
-## In progress
-- (nothing — window quiet since 2026-09-15)
+## In progress — #607 (P5.8 recommendations), Phase 5 wave 2
+- [x] **Step 0 — reactivation (2026-10-25).** `.claude/CLAUDE.local.md` rewritten; `search/phase5` cut from `origin/main`
+  `cadaeba` (old `search/phase2` NOT merged in — it is fully on main); `pnpm install --frozen-lockfile` clean;
+  `pnpm turbo run build` for auth-sdk/db/events/contracts green (4/4); `fga:seed` reused store
+  `01M5SFMYA64CWXD3THRMQ2M0FE`, wrote model `01M5SYTK0MK5KGRNZXQ9Z4YHHY`, 11 tuples already present.
+  This worktree's `.env` was from 2026-09-09 and missing the Phase 5 rows: replaced with a copy of the main
+  checkout's (old one kept as `.env.bak-phase2`), then `fga:seed` rewrote the two fga ids in it.
+- [x] **Step 1 — CONTRACT CHANGE posted on #607** (comment 6400269668, 2026-10-25) and **ACCEPTED by the manager the
+  same day with one amendment**, re-posted as comment 6400324458. Nothing written in `packages/**` by me, ever.
+  **The manager lands it after the 10-27 17:00 local reset and activates me with the integration sha; I cut my code
+  from that sha.** The four manager decisions, verbatim in effect:
+  1. **`window_days` accepted** (0 = bought_together, 7/30 = popular) with my three CHECKs — it generalises, so a
+     90-day list later is data, not a schema change.
+  2. **Nullable `product_id` accepted**, but my two partial unique indexes are **replaced by one table constraint**
+     `UNIQUE NULLS NOT DISTINCT (store_id, kind, window_days, product_id, related_product_id)`. Reason (his, and he
+     is right): with the default NULLS DISTINCT two store-wide popular rows with a NULL anchor never collide, so a
+     write that is not a clean DELETE+INSERT can duplicate the list. `product_recommendation_read_idx` realigned to
+     `(store_id, kind, window_days, product_id, score DESC)`. **Postgres 16 is confirmed in both
+     `infra/docker/docker-compose.yml` and `.github/workflows/ci.yml:135`**, so NULLS NOT DISTINCT (PG 15+) is
+     available locally and in CI.
+  3. **`fct_order_line` is now fixed on #601** (comment 6400313723, binding; additive-only once #601 merges) — the
+     gap is closed, see "ClickHouse interface" below.
+  4. **Scheduling: stop here.** Do not build step 2 before the reset; the contract lands in the same integration
+     landing as these decisions.
+- [x] **Step 2 — BUILT 2026-10-27** on `search/phase5`, cut by MERGING `origin/integration/phase5-recommendations`
+  (897b9bc) rather than rebasing: the branch was already pushed, so rebasing or cherry-picking would have needed a
+  force push, which CLAUDE.md forbids. `cadaeba` is an ancestor of 897b9bc, so the merge is clean and keeps history.
+  Told the manager. Files (all mine):
+  - `recommendations-types.ts` — thresholds + the pure maths (counts, lift, support, both directions, popular
+    ordering). No I/O, so the rule is testable from a hand-made basket set.
+  - `clickhouse.ts` — SELECT-only HTTP client (no SDK; `param_*` binding, credentials never in an error, 500
+    retried) + `ClickHouseBasketSource` (aggregates IN ClickHouse: pair counts / singles / basket total, because
+    the read-only profile caps results at 100 000 rows and 10 s) + `FixtureBasketSource` (the stand-in until #601).
+  - `recommendations.ts` — `rebuildStoreRecommendations` (DELETE+INSERT per store/kind/window in one transaction;
+    the INSERT joins `product` on (store_id, id) so a product ClickHouse knows but Postgres dropped is skipped) and
+    `listProductRecommendations` (published/in-stock/same-store via `loadSearchRecords`, popular fallback reported
+    in `kind`, 404 foreign anchor, 400 unknown currency).
+  - `recommendations-http.ts` — `recommendationsRouter()`, NOT mounted (REQUEST #624).
+  - `apps/core/src/jobs/index-recommendations.ts` — Medusa job (`config` + `default`) + CLI `--store` / `--dry-run`;
+    with no ClickHouse credentials it logs why and writes nothing.
+  - Tests 20 + 12 + 11 (1 skipped with a printed reason). Gates green: core lint, core typecheck, root
+    `prettier --check .`.
+- [x] **Step 3 — REQUEST #624 filed** (window 1): mount `recommendationsRouter()` after `mountStoreRoutes(...)` and
+  **before the fallback proxy** (a catch-all on `/store`), two options given (a `moduleStoreRouters()` seam, or one
+  line); `.env.example` rows; `apps/core` CLAUDE.md/CHANGELOG rows. Nothing in it blocks the PR.
+- [x] **Step 2 ACCEPTED (manager, 2026-10-27).** `d4c0c7b` is in **#621** (`integration/phase5-recommendations`,
+  fast-forwarded; he confirmed the merge-instead-of-rewrite was the right call). On top of it he added **225d0d2**:
+  quotes my `variant_ids` description AND four older Admin API descriptions a comma had truncated the same way
+  (his scan found them), plus a spec-test guard (no object key with whitespace in any spec, mutation-tested) — so
+  that trap is closed repo-wide. His other decisions:
+  - **`--fixture` DECLINED.** #619 lands today after its Fable review; the real rows then come from the generated
+    month through the ingest, which is what Integration 5's access matrix should use. **Not two data paths** — do
+    not build a second one.
+  - #624 (the mount, before the fallback proxy) stays with window 1.
+  - Do NOT open a `search/phase5` → main PR. Do not merge main again now.
+- [x] **#621 REVIEW FIXES (2026-10-27, Fable review = MERGE with three findings; one push, as asked).**
+  1. **Alias shadowing in `clickhouse.ts` — wider than the line flagged.** The reviewer caught
+     `a.product_id AS a` / `b.product_id AS b` over the table aliases `a`/`b`; the audit he asked for found that
+     **all three CTE queries** also aliased a count to `baskets`, the CTE's own name. Now every name is distinct:
+     `basket_lines`, `left_line`/`right_line`, `total_baskets`/`product_baskets`/`pa`/`pb`/`pair_baskets`/
+     `sold_units`. The `units` query was already clean.
+  2. **A FOURTH defect the audit turned up, not in the review: the client sent a per-query SETTING.**
+     `default_format=JSONEachRow` in the URL — `default_format` is a ClickHouse setting and `analytics_ro` is
+     `readonly = 1`, which refuses any, so the first real query would have failed. Now `FORMAT JSONEachRow` is in
+     the statement and only `database` + `param_*` go in the URL; a test asserts no other URL key is ever sent.
+  3. `CORE_RECOMMENDATIONS_MIN_LIFT <= 1` is now a config error with the reason.
+  4. The dry run reports post-threshold rows for both kinds instead of the raw candidate count and a hard-coded 0.
+  Static guard added (the SQL has never executed): every statement the source builds is checked for an output
+  alias repeating a CTE name, a table alias or an `fct_order_line` column, **with a mutation check** that the
+  assertion really catches both shapes from the gotcha. Tests 24 + 12 + 14 (1 skipped). Full core suite
+  **1235 passed / 9 skipped, exit 0**; core lint, core typecheck, root `prettier --check .` clean.
+- [x] **LIVE CLICKHOUSE RUN DONE (2026-10-27, trigger 1; #628 merged `89ee372`; the machine was granted and is
+  FREE again).** All green, and it found two defects of mine plus one blocking DATA gap that is not mine.
+  - **THE BLOCKING FINDING, for #609 and Integration 5: `fct_order_line.product_id` is NULL on all 144 dev rows,
+    so the job computes ZERO recommendations from dev data.** Not a bug in #601 or in my SQL: every line HAS a
+    `variant_id`, but `dim_variant` holds only **2** rows (from the 5 `product.published` events in the dev data),
+    the order lines point at SEEDED catalog variants that never went through the bus, and the join matches 0.
+    `dim_variant` behaves exactly as documented (NULL when a variant was never published). **Nothing will appear in
+    a rail until the catalogue is published through the bus or the generated month is used.** Diagnosis queries are
+    in the report on the manager's thread; re-derive with `SELECT countIf(product_id IS NULL) FROM fct_order_line`
+    and `SELECT count() FROM dim_variant`.
+  - **My defect 1: the live test hardcoded a store id that exists nowhere** (`30000000-…-0031`; the real one is
+    `SEED_IDS.stores.brandA` = `00000000-…-0031`). It queried an empty store and passed on `basketCount >= 0` — a
+    green proving nothing. Now uses `SEED_IDS`, cross-checks `basketCount` against an independent count, and
+    asserts volume-independent invariants (pair count <= min of its products' counts; single <= basket total).
+  - **My defect 2 (the deeper one): "the SQL executed" is NOT proof for this bug class.** A shadowed alias returns
+    WRONG results, not an error, and with zero rows nothing can be wrong. So the same statements now also run
+    against a LITERAL row set on the real engine (read-only, no writes — `analytics_ro` cannot write anyway):
+    ClickHouse's own self-join returns 10 baskets, tee 6, cap 5, pair tee+cap 4 with mug+scarf dropped by the
+    HAVING floor, lift 1.3333, both directions. `basketStatements(relation)` exists for that substitution only.
+  - Also confirmed live: the frozen #601 column set is present; `--dry-run` ran through `analytics_ro` over 6
+    stores in 5.9 s with no error, which is independent proof of the `default_format`/readonly fix.
+  - **This worktree's `.env` had NO `CLICKHOUSE_*` rows** (the copy taken 10-25 predates them, and the main
+    checkout's `.env` still lacks them): I appended the six rows from `.env.example`, which is where the local word
+    credentials live. Any window needing ClickHouse must do the same.
+- [ ] **Step 4 — on the manager's word, in this order:** switch on the ClickHouse-backed test
+  (`CORE_RECOMMENDATIONS_CLICKHOUSE_TESTS=1`) when he says **#628** has landed — he said #619 on 10-27 and then
+  corrected the trigger to **#628**, so wait for his word and do not infer it from an issue number; file the
+  #609 REQUEST to window 3 once
+  **#621 merges**. #621's review is Fable's, after ~14:00 UTC 2026-10-27. Nothing to do until then.
+- [ ] Earlier plan, kept for reference:
+  1. The job file MUST export a `config` (Medusa's job loader — see the #202/#203 gotcha below); the heavy lifting
+     goes in `modules/search/recommendations/` so it is testable without booting Medusa.
+  2. ClickHouse `fct_order_line` read with the READ-ONLY user, against a fixture of the #601 columns below. Keep
+     the ClickHouse-backed tests behind a skip that prints the reason until the manager says #601 is on main.
+  3. Co-occurrence per store with lift + minimum support, thresholds in config with a worked example in the README;
+     popular over 7 and 30 days; idempotent rewrite (DELETE+INSERT per store/kind/window in one transaction)
+     through the tenant client.
+  4. Read time: published + in-stock + same-store only; fall back to the popular list when an anchor has no pairs.
+  5. Tests: hand-made basket set with known lift; brand A orders never produce a brand B recommendation.
+
+### ClickHouse interface — `fct_order_line`, BINDING (#601 comment 6400313723, 2026-10-25)
+Window 12 may still propose a change on #601 before it merges; after that, additive only. Columns:
+`organization_id` UUID · `store_id` UUID · `order_id` UUID · `order_line_item_id` UUID (the grain, unique) ·
+`variant_id` Nullable(UUID) · `product_id` Nullable(UUID) · `sku` String · `quantity` UInt32 ·
+`unit_price_minor` / `discount_minor` / `tax_minor` / `total_minor` Int64 · `currency` LowCardinality(String) ·
+`placed_at` DateTime64(3,'UTC') · `order_status` LowCardinality(String) placed|cancelled · `source_event_id` UUID.
+Also published: `dim_variant` (store_id, variant_id, product_id, sku, last_seen_at). No PII columns.
+- **`order.placed` line items carry only `variant_id`; ClickHouse resolves `product_id` itself through `dim_variant`**
+  (built from product.published / product.updated `variants[]`). **The job needs NO Postgres join for the mapping.**
+- **Skip `product_id IS NULL`** (the variant was never published) **and `order_status = 'cancelled'`** (manager).
+- Basket = `order_id`, so co-occurrence is over DISTINCT `product_id` per order: a product on two lines of one order
+  counts once as support. `quantity` feeds the popular lists, not the pair counts.
+- [ ] **Step 3 — REQUESTs**: window 1 for the route mount + apps/core CHANGELOG/package.json/.env.example rows;
+  window 3 for the rail (#609) — both filed only once my PR is merged.
 
 ## Next — only if reopened by a REQUEST
 - When window 1 mounts the three pending routers (#179: `mediaRouter`, `pricingRouter`, `promotionsRouter`): update the two READMEs' "not mounted yet" lines.
@@ -44,6 +167,32 @@ Algolia index per brand synced from product.published events, merchandising rule
 - Local env note (manager-confirmed 2026-09-15): the shared stack can be partially down locally — OpenFGA (:8081) was, so hq-rbac + auth-live suites skipped (34 passed / 8 skipped). **CI's live job is the authoritative run** for those suites; check which files skipped before trusting a local green, and never restart the shared stack from this window.
 
 ## Decisions made (with reasons)
+### Phase 5 / #607 — **ACCEPTED by the manager 2026-10-25** (with the uniqueness amendment noted below)
+- **`product_recommendation` carries two columns the docket did not list, both forced by #607's own criteria:**
+  `window_days` (0 = bought_together, 7/30 = popular) because "popular over 7 **and** 30 days" is two lists under
+  one `kind` and would otherwise overwrite itself; and a **nullable `product_id`** (NULL = the store-wide popular
+  list) because popular is store-wide and anchoring it per product duplicates the list once per catalogue row.
+  Three CHECKs tie `kind`, `product_id IS NULL` and `window_days` together so neither can drift. Offered the
+  manager the literal-column alternative (N-fold duplication, or kinds `popular_7d`/`popular_30d`).
+- **RLS kind `store`** via 0192's `app.apply_rls` (ENABLE + FORCE + `tenant_isolation`) — no new kind, no new role,
+  no SECURITY DEFINER. Grants come from 0009's `ALTER DEFAULT PRIVILEGES`; **UPDATE revoked** because the job
+  rewrites (DELETE+INSERT) instead of upserting. If the manager prefers `ON CONFLICT DO UPDATE`, that REVOKE line
+  is the one to drop.
+- **`score` is `numeric`, not an integer/money column**: it is a lift ratio for pairs and a unit count for popular.
+  No money, no customer/order id, nothing PII-shaped goes in this table — product ids and numbers only.
+- ~~Two partial unique indexes, not one UNIQUE~~ — **SUPERSEDED by the manager**: one table constraint
+  `UNIQUE NULLS NOT DISTINCT (store_id, kind, window_days, product_id, related_product_id)` (Postgres 16; confirmed
+  in compose and `ci.yml:135`). My worry was right (a plain UNIQUE stops deduplicating the NULL-anchored popular
+  rows) but the fix is the PG-15 modifier, not two partial indexes whose predicates must stay mutually exclusive.
+- **One Store API operation for both surfaces**: `GET /store/recommendations` (PDP sends `product_id`, cart sends
+  `variant_ids`), not `/store/products/{handle}/recommendations` — the cart case has no single product. Not a
+  `Page`: a rail is one short list and `total` is meaningless after the published/in-stock filter. `limit` max 24.
+- **The response's `kind` reports the popular fallback** (asked `bought_together`, served `popular`) so #609's rail
+  and its analytics event need no extra boolean field.
+- **404, not a silent popular list**, for a `product_id`/`variant_ids` outside the resolved store or unpublished —
+  same as `getProduct`, so a storefront bug surfaces instead of rendering a plausible wrong rail.
+
+### Phase 2
 - **No SDKs (Algolia, Cloudinary); REST/crypto over Node built-ins.** `apps/core/package.json` belongs to window 1. Errors strip the Algolia key (every occurrence); `request` retries 429/5xx/network with backoff.
 - **Outbox cursor = `outbox.seq`**; cursor lives in the index settings `userData.outbox_cursor`; no cursor → `conflict`. Full reindex never clears. Known limits in README (READ COMMITTED `seq` gap → `--full` safety net; concurrent full reindexes race).
 - **Index name = `store.search_index` if set, else `products_<code>`** (manager confirmed). Replicas `_price_asc|_price_desc|_newest`; rules on the primary only.
@@ -64,6 +213,64 @@ Algolia index per brand synced from product.published events, merchandising rule
 - (none — all window-9 work is merged or in #208; #179 mount lines are window 1's and non-blocking)
 
 ## Gotchas learned
+- **Phase 5 wave order vs. the budget (2026-10-25, ANSWERED):** asking before spending anything on step 2 was the
+  right call — the manager's answer was "stop here", and the contract lands after the 10-27 17:00 local reset in the
+  same integration landing as his decisions. Posting the cheap contract diff early was welcome; building against it
+  early was not. Owner rule: stop at 80% of the 5-hour limit.
+- **The fga model id changes on every `fga:seed` run and that is harmless** (manager, 2026-10-25): each run writes a
+  model and every worktree reads its own `.env`. Do not report it as a problem again.
+- **Phase 5 rules for this window:** route mounting and `apps/core` CHANGELOG/package.json/.env.example are window 1
+  via REQUEST; the rail is window 3 (#609, REQUEST only once my API is merged); **ask the manager for "the machine"
+  before any live or long run and report "machine free" after** (one window measures at a time); nothing
+  secret-shaped in tests (words, never hex/digit tails — gitleaks scans every branch's history); no closing keyword
+  next to an issue number in a commit message unless that commit finishes the issue; merge main before pushing.
+- **No docker commands from this window, ever** — the manager runs the shared stack.
+- **"The SQL executed without error" is NOT proof for silent-result bug classes** (2026-10-27, the live run).
+  Alias shadowing returns WRONG rows, not an error, and the dev data had zero usable rows, so the first live green
+  proved nothing at all — worse, the test pointed at a store id that did not exist, so it would have stayed green
+  forever. Two rules: assert against an INDEPENDENT count of the same thing, never just `>= 0`; and where the real
+  data cannot exercise the logic, run the SAME statements over a literal row set on the REAL engine (read-only) so
+  the semantics are proven even when the warehouse is empty.
+- **Check an id against the live data before trusting a live test** (same run): a hardcoded uuid that matches no
+  row turns a live test into an expensive no-op. Use `SEED_IDS`, and have the test print the counts it saw.
+- **ClickHouse: never alias anything to a name the statement already uses** (repo-wide gotcha, three Phase 5 bugs,
+  one a data-loss path; I added a fourth in #621). Aliases resolve EVERYWHERE in a ClickHouse query, so an output
+  alias that repeats a CTE name, a table alias or a source column silently changes the meaning. My bug was
+  `SELECT a.product_id AS a … FROM baskets AS a` **and** `count() AS baskets` inside `WITH baskets AS (…)`. When SQL
+  cannot be executed yet, write a STATIC test over the generated statements and mutation-check the assertion —
+  otherwise the guard can pass while being broken.
+- **A ClickHouse read client must send NO per-query setting**: `analytics_ro` is `readonly = 1` and refuses any
+  ("Cannot modify … in readonly mode"). `default_format` IS a setting, so the format belongs in the statement
+  (`FORMAT JSONEachRow`); only `database` and `param_*` may be URL parameters. `apps/analytics-ingest/src/clickhouse.ts`
+  has the approved reader (`createReadOnlyClient`) and documents the same rule — read it before writing another one.
+- **When a reviewer names one instance of a known bug class, audit the whole file for the class** (2026-10-27):
+  the #621 review flagged one pair of aliases; the same class was in three more statements, and auditing for it is
+  what uncovered the readonly-settings bug too. Both were in code that has never executed.
+- **`inventory_level.available` is `GENERATED ALWAYS AS (on_hand - reserved) STORED`** (migration 0007): a test that
+  wants a product out of stock sets `on_hand = 0, reserved = 0`, never `available` ("column can only be updated to
+  DEFAULT", 2026-10-27).
+- **There is no store-side router seam in apps/core** (only `moduleAdminRouters()`): a Store API route from a module
+  must be mounted after `mountStoreRoutes(...)` and **before the fallback proxy**, which is a catch-all on `/store` —
+  mounted after it, a module router is never reached and, with `CORE_STORE_API_FALLBACK=1`, the Prism mock answers
+  plausibly instead of 404ing. REQUEST #624 asks window 1 for the seam.
+- **`origin/main` moves during a long build — re-fetch before claiming what is or is not on it** (2026-10-27).
+  I fetched at the start of the turn (tip `cadaeba`), built for an hour, and then told the manager that merging the
+  integration branch had "brought in wave 1, which is not on main yet". Wrong: main had advanced past `cadaeba`
+  meanwhile and wave 1 (#613, #614, #617, #618) was already there, which is also why the 13 ownership "violations"
+  were phantom. `git fetch` costs nothing; a confident claim about another branch's contents from a stale ref costs
+  the manager a correction. Verify with `git merge-base --is-ancestor <sha> origin/main` right before saying it.
+- **A comma inside an unquoted scalar in a YAML FLOW mapping (`{ ... }`) silently truncates it** (2026-10-27): my
+  `variant_ids` description "Cart line variant ids, comma-separated; …" became just "Cart line variant ids" in the
+  landed spec and in `src/generated/store.ts` — no parse error, no CI failure, the rest simply vanished. The repo's
+  parameter style is all flow mappings, so QUOTE any description containing a comma. Reported to the manager while
+  #621 was still a draft; he fixed mine **and four older Admin API descriptions with the same truncation**, and added
+  a spec-test guard (no object key with whitespace in any spec). So the guard now catches it — but write
+  comma-containing descriptions quoted anyway.
+- **`git switch -c search/phase5 origin/main` sets the new branch's upstream to `origin/main`, so a bare `git push`
+  from a freshly cut window branch targets MAIN** (2026-10-25). Branch protection is not available on this repo, so
+  it would succeed. Push the first time explicitly — `git push origin <branch>:refs/heads/<branch>` — then
+  `git branch --set-upstream-to=origin/<branch>` before any later bare push. Check with
+  `git rev-parse --abbrev-ref --symbolic-full-name @{u}`.
 - **A branch push is all-or-nothing — "hold the push" cannot be honoured per-commit** (2026-09-14). 2.5 was committed locally under a push hold; pushing an unrelated memory commit on 2026-09-09 carried it too, so 2.5 rode into PR #188 and merged with 2.3+2.4 instead of getting its own PR. The manager was still planning around "2.5 unpushed" two messages later. If a hold matters, either keep the held work on a separate branch or re-check `git log origin/<branch>..HEAD` before reporting "unpushed" — and re-verify the claim every time it is repeated, not just when first made.
 - **A 2-second all-red CI run with no logs = GitHub Actions billing, not your branch** (2026-09-09, run 34359615873 on #188): every job "failed" with 0 steps; the check annotation reads "The job was not started because recent account payments have failed or your spending limit needs to be increased". Read it with `gh api repos/<owner>/<repo>/check-runs/<id>/annotations`. Re-running is pointless; the manager merges manually on billing refusal (Memory-main merge round 14 did this for #205). Local gates are the evidence to post.
 - **Never put a plain CLI script in `apps/core/src/jobs/`** (#202/#203, 2026-09-09): Medusa's job loader scans that folder and requires every file to export a `config`, so the core refuses to boot with "Config is required for scheduled jobs" — and `pnpm test`/typecheck never notice because they don't boot Medusa. The index CLI lives at `src/modules/search/cli/index-products.ts`; a real scheduled job goes in `src/jobs/` **with** a `config` export. Boot proof: `pnpm --filter @platform/core dev` → `/health` 200.

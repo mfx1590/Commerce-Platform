@@ -8,13 +8,19 @@ export {
   createChClient,
   createChReader,
   createRawEventsSink,
-  DEFAULT_SQL_DIRS,
+} from './clickhouse.js';
+export type { ChClient } from './clickhouse.js';
+export {
+  DEFAULT_SQL_SOURCES,
+  lintSqlFiles,
+  LOCK_TTL_SECONDS,
   migrate,
   MigrationChangedError,
+  MigrationLockedError,
   readSqlFiles,
   splitStatements,
-} from './clickhouse.js';
-export type { ChClient, MigrateResult, SqlFile } from './clickhouse.js';
+} from './migrations.js';
+export type { MigrateResult, SqlFile, SqlKind, SqlSource } from './migrations.js';
 export { ConfigError, DEFAULT_GROUP, loadConfig } from './config.js';
 export type { ClickHouseConfig, IngestConfig } from './config.js';
 export { consoleLog, createIngest, processBatch, SimulatedCrash } from './ingest.js';
@@ -34,9 +40,38 @@ export { idleState, waitForIdle } from './once.js';
 export type { IdleOutcome, OnceReport, WaitForIdleOptions } from './once.js';
 export {
   classify,
+  InsertRejectedError,
   InvalidEventError,
   toClickHouseTime,
   UndecodableMessageError,
   UnknownEventError,
 } from './rows.js';
 export type { Classified, RawEventRow, WireBatch, WireMessage } from './rows.js';
+export {
+  ApiReadError,
+  createAdminReportsClient,
+  createFinanceClient,
+  inclusiveEnd,
+} from './reconcile/clients.js';
+export type {
+  AdminReportsClient,
+  ApiOptions,
+  Fetch,
+  FinanceClient,
+  JournalLine,
+} from './reconcile/clients.js';
+export { addTo, compare, keyOf, listing } from './reconcile/diff.js';
+export type { Difference, Figures, IdentityResult, Keyed } from './reconcile/diff.js';
+export {
+  assertWindow,
+  checkBookings,
+  checkCashLedger,
+  checkCashReport,
+  checkCopyIntegrity,
+  checkLifetime,
+  checkLineage,
+  pullLedger,
+} from './reconcile/identities.js';
+export type { PulledLedger, ReconcileWindow } from './reconcile/identities.js';
+export { reconcile, renderReport, SHOWN_DIFFERENCES } from './reconcile/run.js';
+export type { ReconcileResult } from './reconcile/run.js';

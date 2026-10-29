@@ -46,6 +46,7 @@ main window. Window 1 (core) may propose migrations via PR; main approves. Never
 - The `rpt_*` reporting views (0200, 0.3.8) are `security_invoker = true` and SELECT-only for the app role: read them through a scoped client; never recreate one without `security_invoker`.
 - `consumer_processed` (0202, 0.3.16) is RLS kind `organization_only`: bus consumers run in organization scope and mark through the events SDK's pg store inside the handler's transaction; no UPDATE grant for the app role.
 - Accounting tables (0203, 0.3.17: ledger_account, ledger_entry, accounting_order/_line, accounting_parked_event, accounting_payment/_refund, psp_payout/_line) are RLS `organization_only` and written only by apps/accounting. `ledger_entry` is immutable for the app role except posted_to_erp_at / erp_reference / updated_at; `store_id` NULL = a legal-entity-level line.
+- `product_recommendation` (0204, 0.3.19) is RLS kind `store` and has no UPDATE grant for the app role: the `index-recommendations` job rewrites per (store, kind, window_days) with DELETE + INSERT in one transaction. `product_id IS NULL` = the store-wide popular list (`window_days` 7 or 30); `bought_together` rows are anchored on `product_id` with `window_days = 0`; `score` is a lift ratio for pairs and a unit count for popular. Composite keys to `product (store_id, id)` make a cross-store recommendation impossible.
 - Money is `*_minor bigint` + `currency char(3)`. Ids are uuid. See docs/domain.md.
 
 ## Constraints
