@@ -1,5 +1,12 @@
 # Changelog — @platform/analytics-ingest
 
+## 0.6.0 — unreleased (#604, #628 review)
+
+- The alias-shadow lint (`sql-lint.ts`) and the two model fixes it found.
+- The migration lock renews its claim every 2 minutes while a run lasts (a run longer than the 10-minute TTL keeps
+  the lock) and sweeps stale claims of crashed runners on acquire (#628 review, finding 3); `renewed_at` added to
+  existing lock tables with ADD COLUMN IF NOT EXISTS.
+
 ## 0.5.0 — unreleased (#623)
 
 - `customer.erased` honoured (`src/erasure.ts`): HMAC digest index (`ANALYTICS_ERASURE_KEY`, required), scrub at classify

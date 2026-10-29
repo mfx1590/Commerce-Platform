@@ -4,38 +4,66 @@ import {
   lintSqlFiles,
   migrate,
   MigrationChangedError,
+  LOCK_TTL_SECONDS,
   MigrationLockedError,
   readSqlFiles,
   splitStatements,
   type SqlFile,
 } from './migrations.js';
 
-/** A ClickHouse double for the runner: `_migrations` and `_migrations_lock` in memory, every command recorded. */
+/**
+ * A ClickHouse double for the runner: `_migrations` and `_migrations_lock` in memory, every command recorded, and a
+ * clock in SECONDS the tests move (`tick`). A lock row is { holder, acquired, renewed }; the two lock queries are
+ * answered with the runner's semantics (a holder is live while its newest renewal is within the TTL; the winner is
+ * the live holder with the oldest first claim).
+ */
 function fakeServer() {
   const recorded: { name: string; checksum: string }[] = [];
-  let locks: { holder: string; at: number }[] = [];
-  let clock = 0;
+  let locks: { holder: string; acquired: number; renewed: number }[] = [];
+  let now = 1_000;
   const commands: string[] = [];
+  const byHolder = () => {
+    const m = new Map<string, { first: number; last: number }>();
+    for (const l of locks) {
+      const cur = m.get(l.holder) ?? { first: l.acquired, last: l.renewed };
+      m.set(l.holder, {
+        first: Math.min(cur.first, l.acquired),
+        last: Math.max(cur.last, l.renewed),
+      });
+    }
+    return m;
+  };
   const client = (): ChClient & { commands: string[] } => ({
     commands,
-    async command({ query }) {
-      const del = /^DELETE FROM _migrations_lock WHERE holder = '([^']+)'/.exec(query);
-      if (del) locks = locks.filter((l) => l.holder !== del[1]);
+    async command({ query, query_params }) {
+      if (query.startsWith('DELETE FROM _migrations_lock WHERE holder IN')) {
+        const stale = new Set(query_params?.stale as string[]);
+        locks = locks.filter((l) => !stale.has(l.holder));
+      } else if (query.startsWith('DELETE FROM _migrations_lock WHERE holder =')) {
+        locks = locks.filter((l) => l.holder !== query_params?.holder);
+      }
       commands.push(query);
     },
-    async query({ query }) {
-      const rows = query.includes('_migrations_lock')
-        ? [...locks]
-            .sort((a, b) => a.at - b.at)
-            .slice(0, 1)
-            .map((l) => ({ holder: l.holder }))
-        : recorded.map((r) => ({ ...r }));
+    async query({ query, query_params }) {
+      const ttl = Number(query_params?.ttl ?? 0);
+      let rows: unknown[];
+      if (query.includes('HAVING max(renewed_at) <='))
+        rows = [...byHolder()]
+          .filter(([, h]) => h.last <= now - ttl)
+          .map(([holder]) => ({ holder }));
+      else if (query.includes('HAVING max(renewed_at) >'))
+        rows = [...byHolder()]
+          .filter(([, h]) => h.last > now - ttl)
+          .sort(([a, x], [b, y]) => x.first - y.first || a.localeCompare(b))
+          .slice(0, 1)
+          .map(([holder]) => ({ holder }));
+      else rows = recorded.map((r) => ({ ...r }));
       return { json: async <T>() => rows as T[] };
     },
     async insert({ table, values }) {
       if (table === '_migrations_lock')
         for (const v of values as { holder: string }[])
-          locks.push({ holder: v.holder, at: clock++ });
+          locks.push({ holder: v.holder, acquired: now, renewed: now });
       else recorded.push(...(values as { name: string; checksum: string }[]));
     },
     async close() {},
@@ -46,9 +74,12 @@ function fakeServer() {
     get locks() {
       return locks;
     },
-    /** Another runner's live claim, older than any new one. */
-    claim(holder: string) {
-      locks.push({ holder, at: -1 });
+    /** Another runner's claim, first made `ageSeconds` ago and last renewed `renewedAgo` seconds ago. */
+    claim(holder: string, ageSeconds = 1, renewedAgo = 0) {
+      locks.push({ holder, acquired: now - ageSeconds, renewed: now - renewedAgo });
+    },
+    tick(seconds: number) {
+      now += seconds;
     },
   };
 }
@@ -206,6 +237,46 @@ describe('migrate', () => {
     ).rejects.toBeInstanceOf(MigrationLockedError);
     expect(s.locks.map((l) => l.holder)).toEqual(['the-other-runner']);
     expect(userStatements(s.commands)).toEqual([]);
+  });
+
+  // #628 review, finding 3: a crashed runner's claim is swept; a long-running live one is not
+  it('takes over a STALE claim (a crashed runner that stopped renewing) and sweeps its rows', async () => {
+    const s = fakeServer();
+    s.claim('crashed-runner', LOCK_TTL_SECONDS + 100, LOCK_TTL_SECONDS + 100);
+    const r = await migrate(s.client(), s.client(), 'analytics_test', set, { holder: 'me' });
+    expect(r.applied).toEqual(['0001_a.sql', '0002_b.sql', 'models/100_v.sql']);
+    expect(s.locks).toEqual([]); // the crashed claim swept, ours released
+  });
+
+  it('does NOT take over an old claim that is still being renewed (a run longer than the TTL keeps the lock)', async () => {
+    const s = fakeServer();
+    s.claim('long-runner', LOCK_TTL_SECONDS + 100, 30);
+    await expect(
+      migrate(s.client(), s.client(), 'analytics_test', set, { holder: 'me' }),
+    ).rejects.toBeInstanceOf(MigrationLockedError);
+    expect(new Set(s.locks.map((l) => l.holder))).toEqual(new Set(['long-runner']));
+    expect(userStatements(s.commands)).toEqual([]);
+  });
+
+  it('renews its own claim while a slow migration runs, and stops renewing when it is done', async () => {
+    const s = fakeServer();
+    const slow = s.client();
+    const base = slow.command.bind(slow);
+    slow.command = async (p) => {
+      if (!p.query.includes('_migrations')) await new Promise((r) => setTimeout(r, 120));
+      return base(p);
+    };
+    let renewals = 0;
+    const insert = slow.insert.bind(slow);
+    slow.insert = async (p) => {
+      if (p.table === '_migrations_lock') renewals += 1;
+      return insert(p);
+    };
+    await migrate(s.client(), slow, 'analytics_test', set, { holder: 'me', renewSeconds: 0.05 });
+    const atEnd = renewals;
+    expect(atEnd).toBeGreaterThan(2); // the claim + renewals during ~360 ms of statements
+    await new Promise((r) => setTimeout(r, 150));
+    expect(renewals).toBe(atEnd); // no renewal after the run
   });
 
   it('refuses files that fail the lint before touching the server', async () => {
