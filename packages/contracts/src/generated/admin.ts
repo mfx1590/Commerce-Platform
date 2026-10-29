@@ -1891,12 +1891,72 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The metrics catalogue the caller may query, and the stores in their scope
+         * @description Metrics, the dimensions and grains each accepts, the filters, the limits, and the stores the caller's scope
+         *     holds (`viewer` on each store). Finance metrics are listed only for principals with `finance` on
+         *     `organization:hq`. The catalogue is the only vocabulary `queryMetrics` accepts; there is no SQL input.
+         */
+        get: operations["listMetrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/metrics/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run a typed metrics query, scoped to the caller's stores on the server
+         * @description Compiles the query into parameterised ClickHouse SQL. The server ALWAYS restricts it to the stores the caller
+         *     views (`viewer` on `store:<id>`); a `filters.store_ids` entry outside that scope is a 403, never empty rows.
+         *     Finance metrics need `finance` on `organization:hq` (403 otherwise). `[from, to)` are UTC dates, at most
+         *     366 days apart. Money is integer minor units per currency and is never summed across currencies: when any
+         *     money metric is asked for, `currency` is part of every row's key, and `currency_totals` has one entry per
+         *     currency. Read-only; no Idempotency-Key.
+         *
+         *     `live_orders` and `live_placed_minor` are LIVE, not bookings: orders as they are placed (cancellations
+         *     included), from the per-minute live view, for the 15 s live tiles; use `orders` / `bookings_minor` for the
+         *     books. They accept only the `store` dimension and the grains `day` and `total` (400 otherwise), and the same
+         *     scope, 403s and 503 apply.
+         *
+         *     With `Accept: text/csv` the same query (same validation, scope, 403s and row cap) answers `text/csv` instead
+         *     of JSON; 400 / 401 / 403 / 503 stay JSON. Columns, in this order: `period`, `currency`, then the requested
+         *     dimensions in request order (`store` → `store_id`, `product` → `product_id`, `refund_reason`, `provider`),
+         *     then the requested metrics in request order. One header line, one line per row, no totals line; integers as
+         *     integers (money in minor units), an empty cell for null. RFC 4180: CRLF line ends, every text cell quoted,
+         *     `"` doubled. CSV injection: a text cell starting with `=`, `+`, `-`, `@`, a tab or a CR gets a leading `'`.
+         *     At most `limit` (≤ 1000) rows: there is no export-everything path; `X-Truncated: true` says more rows matched.
+         */
+        post: operations["queryMetrics"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         Error: {
-            /** @description validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, expired, internal */
+            /** @description validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, unavailable, expired, internal */
             code: string;
             message: string;
             details?: {
@@ -3419,6 +3479,123 @@ export interface components {
                 currency: string;
             })[];
         };
+        /** @enum {string} */
+        MetricId: "orders" | "bookings_minor" | "net_bookings_minor" | "aov_minor" | "refunds_minor" | "refund_rate_bp" | "units" | "product_net_minor" | "new_customers" | "returning_customers" | "captured_minor" | "fee_minor" | "recognised_minor" | "live_orders" | "live_placed_minor";
+        /** @enum {string} */
+        MetricDimension: "store" | "product" | "refund_reason" | "provider";
+        /**
+         * @description UTC calendar days; weeks are ISO (Monday); `total` = one period for the whole range.
+         * @enum {string}
+         */
+        MetricGrain: "day" | "week" | "month" | "total";
+        MetricDefinition: {
+            id: components["schemas"]["MetricId"];
+            label: string;
+            description: string;
+            /**
+             * @description `minor` = integer minor units of the row currency; `bp` = basis points (1/10 000).
+             * @enum {string}
+             */
+            unit: "minor" | "count" | "bp";
+            /** @description true for money metrics; their rows always carry `currency`. */
+            currency_bound: boolean;
+            /** @description true when `finance` on `organization:hq` is required. */
+            finance: boolean;
+            /** @description false while the metric's source is not built yet (recognised_minor until */
+            available: boolean;
+            dimensions: components["schemas"]["MetricDimension"][];
+        };
+        MetricCatalogue: {
+            version: number;
+            max_range_days: number;
+            max_metrics: number;
+            max_dimensions: number;
+            max_rows: number;
+            grains: components["schemas"]["MetricGrain"][];
+            /** @description The caller's scope; `queryMetrics` never returns a row of any other store. */
+            stores: {
+                /** Format: uuid */
+                id: string;
+                code: string;
+            }[];
+            metrics: components["schemas"]["MetricDefinition"][];
+        };
+        MetricQuery: {
+            metrics: components["schemas"]["MetricId"][];
+            /**
+             * @description Every dimension must be listed for every requested metric (400 otherwise).
+             * @default []
+             */
+            dimensions: components["schemas"]["MetricDimension"][];
+            grain: components["schemas"]["MetricGrain"];
+            /**
+             * Format: date
+             * @description First UTC day, inclusive.
+             */
+            from: string;
+            /**
+             * Format: date
+             * @description UTC day after the last day (exclusive); after `from`, at most 366 days later.
+             */
+            to: string;
+            filters?: {
+                /** @description Narrows the scope; an id outside the caller's scope is a 403. */
+                store_ids?: string[];
+                currencies?: string[];
+                product_ids?: string[];
+                refund_reasons?: ("return" | "cancellation" | "goodwill" | "chargeback")[];
+            };
+            order_by?: {
+                metric: components["schemas"]["MetricId"];
+                /**
+                 * @default desc
+                 * @enum {string}
+                 */
+                direction: "desc" | "asc";
+            };
+            /** @default 1000 */
+            limit: number;
+        };
+        MetricRow: {
+            /**
+             * Format: date
+             * @description First UTC day of the period; null for grain `total`.
+             */
+            period: string | null;
+            /** @description Set whenever a money metric is asked for; null only for count-only queries without one. */
+            currency: string | null;
+            /** Format: uuid */
+            store_id: string | null;
+            /** Format: uuid */
+            product_id: string | null;
+            /** @enum {string|null} */
+            refund_reason: "return" | "cancellation" | "goodwill" | "chargeback" | null;
+            provider: string | null;
+            /** @description One entry per requested metric; integers (minor units, counts or basis points); null when undefined (e.g. aov with 0 orders). */
+            values: {
+                [key: string]: number | null;
+            };
+        };
+        MetricResult: {
+            query: components["schemas"]["MetricQuery"];
+            /** Format: date-time */
+            generated_at: string;
+            /**
+             * Format: date-time
+             * @description The latest event the answer includes (raw_events.ingested_at); null when nothing is ingested.
+             */
+            data_as_of: string | null;
+            /** @description true when more than `limit` rows matched; the first `limit` are returned in `order_by` order. */
+            truncated: boolean;
+            rows: components["schemas"]["MetricRow"][];
+            /** @description Per currency over all rows (never across currencies); ratios are recomputed from the totals, not summed. */
+            currency_totals: {
+                currency: string | null;
+                values: {
+                    [key: string]: number | null;
+                };
+            }[];
+        };
     };
     responses: {
         /** @description Validation error */
@@ -3539,6 +3716,22 @@ export interface components {
                  *       "details": {
                  *         "provider": "manual"
                  *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description A backing store did not answer within its budget; nothing partial is returned (fail closed) */
+        ServiceUnavailable: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "code": "unavailable",
+                 *       "message": "Analytics store unavailable",
+                 *       "details": {}
                  *     }
                  */
                 "application/json": components["schemas"]["Error"];
@@ -9444,6 +9637,192 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listMetrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "version": 1,
+                     *       "max_range_days": 366,
+                     *       "max_metrics": 5,
+                     *       "max_dimensions": 2,
+                     *       "max_rows": 1000,
+                     *       "grains": [
+                     *         "day",
+                     *         "week",
+                     *         "month",
+                     *         "total"
+                     *       ],
+                     *       "stores": [
+                     *         {
+                     *           "id": "00000000-0000-4000-8000-000000000031",
+                     *           "code": "brand-a"
+                     *         }
+                     *       ],
+                     *       "metrics": [
+                     *         {
+                     *           "id": "bookings_minor",
+                     *           "label": "Bookings",
+                     *           "description": "Order totals by placement day; cancelled and failed-payment orders excluded.",
+                     *           "unit": "minor",
+                     *           "currency_bound": true,
+                     *           "finance": false,
+                     *           "available": true,
+                     *           "dimensions": [
+                     *             "store"
+                     *           ]
+                     *         },
+                     *         {
+                     *           "id": "units",
+                     *           "label": "Units sold",
+                     *           "description": "Line quantities of orders that are not cancelled.",
+                     *           "unit": "count",
+                     *           "currency_bound": false,
+                     *           "finance": false,
+                     *           "available": true,
+                     *           "dimensions": [
+                     *             "store",
+                     *             "product"
+                     *           ]
+                     *         },
+                     *         {
+                     *           "id": "live_placed_minor",
+                     *           "label": "Placed (live)",
+                     *           "description": "Live, not bookings — order totals as they are placed, cancellations included; use bookings_minor for the books.",
+                     *           "unit": "minor",
+                     *           "currency_bound": true,
+                     *           "finance": false,
+                     *           "available": true,
+                     *           "dimensions": [
+                     *             "store"
+                     *           ]
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["MetricCatalogue"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    queryMetrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "metrics": [
+                 *         "bookings_minor",
+                 *         "orders"
+                 *       ],
+                 *       "dimensions": [
+                 *         "store"
+                 *       ],
+                 *       "grain": "day",
+                 *       "from": "2026-10-01",
+                 *       "to": "2026-10-03"
+                 *     }
+                 */
+                "application/json": components["schemas"]["MetricQuery"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    /** @description text/csv only: true when more than `limit` rows matched (the JSON body says it in `truncated`). */
+                    "X-Truncated"?: boolean;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "query": {
+                     *         "metrics": [
+                     *           "bookings_minor",
+                     *           "orders"
+                     *         ],
+                     *         "dimensions": [
+                     *           "store"
+                     *         ],
+                     *         "grain": "day",
+                     *         "from": "2026-10-01",
+                     *         "to": "2026-10-03"
+                     *       },
+                     *       "generated_at": "2026-10-27T09:00:00Z",
+                     *       "data_as_of": "2026-10-27T08:59:52Z",
+                     *       "truncated": false,
+                     *       "rows": [
+                     *         {
+                     *           "period": "2026-10-01",
+                     *           "currency": "EUR",
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "product_id": null,
+                     *           "refund_reason": null,
+                     *           "provider": null,
+                     *           "values": {
+                     *             "bookings_minor": 12200,
+                     *             "orders": 2
+                     *           }
+                     *         },
+                     *         {
+                     *           "period": "2026-10-02",
+                     *           "currency": "EUR",
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "product_id": null,
+                     *           "refund_reason": null,
+                     *           "provider": null,
+                     *           "values": {
+                     *             "bookings_minor": 6000,
+                     *             "orders": 1
+                     *           }
+                     *         }
+                     *       ],
+                     *       "currency_totals": [
+                     *         {
+                     *           "currency": "EUR",
+                     *           "values": {
+                     *             "bookings_minor": 18200,
+                     *             "orders": 3
+                     *           }
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["MetricResult"];
+                    /**
+                     * @example "period","currency","store_id","bookings_minor","orders"
+                     *     "2026-10-01","EUR","00000000-0000-4000-8000-000000000031",12200,2
+                     *     "2026-10-02","EUR","00000000-0000-4000-8000-000000000031",6000,1
+                     */
+                    "text/csv": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
 }

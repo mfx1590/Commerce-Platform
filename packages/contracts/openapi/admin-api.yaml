@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.24
+  version: 0.4.25
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -35,6 +35,11 @@ info:
     `organization:hq`) and `getHqFinanceReport` (`finance` on `organization:hq`), with the `ReportFrom` / `ReportTo` /
     `ReportCurrency` parameters and the `SalesFigures`, `SalesReport`, `StockPosition`, `StockReport`, `FinanceFigures`
     and `FinanceReport` schemas. Amounts are integer minor units, never summed across currencies. Additive.
+    0.4.25 (#603, D4) adds `listMetrics` (`GET /admin/metrics`) and `queryMetrics` (`POST /admin/metrics/query`)
+    under the `reports` tag: `viewer` on `store:*`, always scoped on the server to the caller's stores (outside the
+    scope is a 403, never empty rows); finance metrics also need `finance` on `organization:hq`. Closed enums only,
+    no SQL input; `queryMetrics` also answers `text/csv` on `Accept: text/csv`. Adds the `Metric*` schemas, the shared
+    `ServiceUnavailable` (503 `unavailable`, fail closed) response and `unavailable` in ERROR_CODES. Additive.
 servers:
   - url: http://localhost:4011
     description: Prism mock (pnpm mock)
@@ -4802,6 +4807,145 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  # ---------------------------------------------------------------- metrics (#603, D4)
+  /admin/metrics:
+    get:
+      tags: [reports]
+      operationId: listMetrics
+      summary: The metrics catalogue the caller may query, and the stores in their scope
+      description: |
+        Metrics, the dimensions and grains each accepts, the filters, the limits, and the stores the caller's scope
+        holds (`viewer` on each store). Finance metrics are listed only for principals with `finance` on
+        `organization:hq`. The catalogue is the only vocabulary `queryMetrics` accepts; there is no SQL input.
+      x-permission: { relation: viewer, object: 'store:*' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MetricCatalogue' }
+              example:
+                version: 1
+                max_range_days: 366
+                max_metrics: 5
+                max_dimensions: 2
+                max_rows: 1000
+                grains: [day, week, month, total]
+                stores:
+                  - { id: 00000000-0000-4000-8000-000000000031, code: brand-a }
+                metrics:
+                  - id: bookings_minor
+                    label: Bookings
+                    description: Order totals by placement day; cancelled and failed-payment orders excluded.
+                    unit: minor
+                    currency_bound: true
+                    finance: false
+                    available: true
+                    dimensions: [store]
+                  - id: units
+                    label: Units sold
+                    description: Line quantities of orders that are not cancelled.
+                    unit: count
+                    currency_bound: false
+                    finance: false
+                    available: true
+                    dimensions: [store, product]
+                  - id: live_placed_minor
+                    label: Placed (live)
+                    description: Live, not bookings — order totals as they are placed, cancellations included; use bookings_minor for the books.
+                    unit: minor
+                    currency_bound: true
+                    finance: false
+                    available: true
+                    dimensions: [store]
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/metrics/query:
+    post:
+      tags: [reports]
+      operationId: queryMetrics
+      summary: Run a typed metrics query, scoped to the caller's stores on the server
+      description: |
+        Compiles the query into parameterised ClickHouse SQL. The server ALWAYS restricts it to the stores the caller
+        views (`viewer` on `store:<id>`); a `filters.store_ids` entry outside that scope is a 403, never empty rows.
+        Finance metrics need `finance` on `organization:hq` (403 otherwise). `[from, to)` are UTC dates, at most
+        366 days apart. Money is integer minor units per currency and is never summed across currencies: when any
+        money metric is asked for, `currency` is part of every row's key, and `currency_totals` has one entry per
+        currency. Read-only; no Idempotency-Key.
+
+        `live_orders` and `live_placed_minor` are LIVE, not bookings: orders as they are placed (cancellations
+        included), from the per-minute live view, for the 15 s live tiles; use `orders` / `bookings_minor` for the
+        books. They accept only the `store` dimension and the grains `day` and `total` (400 otherwise), and the same
+        scope, 403s and 503 apply.
+
+        With `Accept: text/csv` the same query (same validation, scope, 403s and row cap) answers `text/csv` instead
+        of JSON; 400 / 401 / 403 / 503 stay JSON. Columns, in this order: `period`, `currency`, then the requested
+        dimensions in request order (`store` → `store_id`, `product` → `product_id`, `refund_reason`, `provider`),
+        then the requested metrics in request order. One header line, one line per row, no totals line; integers as
+        integers (money in minor units), an empty cell for null. RFC 4180: CRLF line ends, every text cell quoted,
+        `"` doubled. CSV injection: a text cell starting with `=`, `+`, `-`, `@`, a tab or a CR gets a leading `'`.
+        At most `limit` (≤ 1000) rows: there is no export-everything path; `X-Truncated: true` says more rows matched.
+      x-permission: { relation: viewer, object: 'store:*' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MetricQuery' }
+            example:
+              metrics: [bookings_minor, orders]
+              dimensions: [store]
+              grain: day
+              from: '2026-10-01'
+              to: '2026-10-03'
+      responses:
+        '200':
+          description: OK
+          headers:
+            X-Truncated:
+              description: 'text/csv only: true when more than `limit` rows matched (the JSON body says it in `truncated`).'
+              schema: { type: boolean }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MetricResult' }
+              example:
+                query:
+                  metrics: [bookings_minor, orders]
+                  dimensions: [store]
+                  grain: day
+                  from: '2026-10-01'
+                  to: '2026-10-03'
+                generated_at: '2026-10-27T09:00:00Z'
+                data_as_of: '2026-10-27T08:59:52Z'
+                truncated: false
+                rows:
+                  - period: '2026-10-01'
+                    currency: EUR
+                    store_id: 00000000-0000-4000-8000-000000000031
+                    product_id: null
+                    refund_reason: null
+                    provider: null
+                    values: { bookings_minor: 12200, orders: 2 }
+                  - period: '2026-10-02'
+                    currency: EUR
+                    store_id: 00000000-0000-4000-8000-000000000031
+                    product_id: null
+                    refund_reason: null
+                    provider: null
+                    values: { bookings_minor: 6000, orders: 1 }
+                currency_totals:
+                  - currency: EUR
+                    values: { bookings_minor: 18200, orders: 3 }
+            text/csv:
+              schema:
+                type: string
+                description: RFC 4180 CSV (CRLF); the column order and the injection rule are in the operation description.
+              example: "\"period\",\"currency\",\"store_id\",\"bookings_minor\",\"orders\"\r\n\"2026-10-01\",\"EUR\",\"00000000-0000-4000-8000-000000000031\",12200,2\r\n\"2026-10-02\",\"EUR\",\"00000000-0000-4000-8000-000000000031\",6000,1\r\n"
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
 components:
   securitySchemes:
     staffToken:
@@ -4921,6 +5065,12 @@ components:
               message: the manual provider cannot capture payments,
               details: { provider: manual },
             }
+    ServiceUnavailable:
+      description: A backing store did not answer within its budget; nothing partial is returned (fail closed)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { code: unavailable, message: Analytics store unavailable, details: {} }
     ActivationBlocked:
       description: The store cannot become active — `details.missing` lists the prerequisites that are absent (or `details.status` is `archived`)
       content:
@@ -4963,7 +5113,7 @@ components:
         code:
           {
             type: string,
-            description: 'validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, expired, internal',
+            description: 'validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, unavailable, expired, internal',
           }
         message: { type: string }
         details: { type: object, additionalProperties: true }
@@ -6966,6 +7116,195 @@ components:
                 required: [currency]
                 properties:
                   currency: { type: string, pattern: '^[A-Z]{3}$' }
+    MetricId:
+      type: string
+      enum:
+        [
+          orders,
+          bookings_minor,
+          net_bookings_minor,
+          aov_minor,
+          refunds_minor,
+          refund_rate_bp,
+          units,
+          product_net_minor,
+          new_customers,
+          returning_customers,
+          captured_minor,
+          fee_minor,
+          recognised_minor,
+          live_orders,
+          live_placed_minor,
+        ]
+    MetricDimension:
+      type: string
+      enum: [store, product, refund_reason, provider]
+    MetricGrain:
+      type: string
+      enum: [day, week, month, total]
+      description: UTC calendar days; weeks are ISO (Monday); `total` = one period for the whole range.
+    MetricDefinition:
+      type: object
+      additionalProperties: false
+      required: [id, label, description, unit, currency_bound, finance, available, dimensions]
+      properties:
+        id: { $ref: '#/components/schemas/MetricId' }
+        label: { type: string }
+        description: { type: string }
+        unit:
+          type: string
+          enum: [minor, count, bp]
+          description: '`minor` = integer minor units of the row currency; `bp` = basis points (1/10 000).'
+        currency_bound:
+          type: boolean
+          description: true for money metrics; their rows always carry `currency`.
+        finance:
+          type: boolean
+          description: true when `finance` on `organization:hq` is required.
+        available:
+          type: boolean
+          description: false while the metric's source is not built yet (recognised_minor until #602).
+        dimensions:
+          type: array
+          items: { $ref: '#/components/schemas/MetricDimension' }
+    MetricCatalogue:
+      type: object
+      additionalProperties: false
+      required:
+        [version, max_range_days, max_metrics, max_dimensions, max_rows, grains, stores, metrics]
+      properties:
+        version: { type: integer, minimum: 1 }
+        max_range_days: { type: integer, minimum: 1 }
+        max_metrics: { type: integer, minimum: 1 }
+        max_dimensions: { type: integer, minimum: 0 }
+        max_rows: { type: integer, minimum: 1 }
+        grains:
+          type: array
+          items: { $ref: '#/components/schemas/MetricGrain' }
+        stores:
+          type: array
+          description: The caller's scope; `queryMetrics` never returns a row of any other store.
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, code]
+            properties:
+              id: { type: string, format: uuid }
+              code: { type: string }
+        metrics:
+          type: array
+          items: { $ref: '#/components/schemas/MetricDefinition' }
+    MetricQuery:
+      type: object
+      additionalProperties: false
+      required: [metrics, grain, from, to]
+      properties:
+        metrics:
+          type: array
+          minItems: 1
+          maxItems: 5
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/MetricId' }
+        dimensions:
+          type: array
+          maxItems: 2
+          uniqueItems: true
+          default: []
+          description: Every dimension must be listed for every requested metric (400 otherwise).
+          items: { $ref: '#/components/schemas/MetricDimension' }
+        grain: { $ref: '#/components/schemas/MetricGrain' }
+        from:
+          type: string
+          format: date
+          description: First UTC day, inclusive.
+        to:
+          type: string
+          format: date
+          description: UTC day after the last day (exclusive); after `from`, at most 366 days later.
+        filters:
+          type: object
+          additionalProperties: false
+          properties:
+            store_ids:
+              type: array
+              maxItems: 50
+              uniqueItems: true
+              description: Narrows the scope; an id outside the caller's scope is a 403.
+              items: { type: string, format: uuid }
+            currencies:
+              type: array
+              maxItems: 10
+              uniqueItems: true
+              items: { type: string, pattern: '^[A-Z]{3}$' }
+            product_ids:
+              type: array
+              maxItems: 100
+              uniqueItems: true
+              items: { type: string, format: uuid }
+            refund_reasons:
+              type: array
+              uniqueItems: true
+              items: { type: string, enum: [return, cancellation, goodwill, chargeback] }
+        order_by:
+          type: object
+          additionalProperties: false
+          required: [metric]
+          properties:
+            metric: { $ref: '#/components/schemas/MetricId' }
+            direction: { type: string, enum: [desc, asc], default: desc }
+        limit: { type: integer, minimum: 1, maximum: 1000, default: 1000 }
+    MetricRow:
+      type: object
+      additionalProperties: false
+      required: [period, currency, store_id, product_id, refund_reason, provider, values]
+      properties:
+        period:
+          type: [string, 'null']
+          format: date
+          description: First UTC day of the period; null for grain `total`.
+        currency:
+          type: [string, 'null']
+          pattern: '^[A-Z]{3}$'
+          description: Set whenever a money metric is asked for; null only for count-only queries without one.
+        store_id: { type: [string, 'null'], format: uuid }
+        product_id: { type: [string, 'null'], format: uuid }
+        refund_reason:
+          type: [string, 'null']
+          enum: [return, cancellation, goodwill, chargeback, null]
+        provider: { type: [string, 'null'] }
+        values:
+          type: object
+          description: One entry per requested metric; integers (minor units, counts or basis points); null when undefined (e.g. aov with 0 orders).
+          additionalProperties: { type: [integer, 'null'] }
+    MetricResult:
+      type: object
+      additionalProperties: false
+      required: [query, generated_at, data_as_of, truncated, rows, currency_totals]
+      properties:
+        query: { $ref: '#/components/schemas/MetricQuery' }
+        generated_at: { type: string, format: date-time }
+        data_as_of:
+          type: [string, 'null']
+          format: date-time
+          description: The latest event the answer includes (raw_events.ingested_at); null when nothing is ingested.
+        truncated:
+          type: boolean
+          description: true when more than `limit` rows matched; the first `limit` are returned in `order_by` order.
+        rows:
+          type: array
+          items: { $ref: '#/components/schemas/MetricRow' }
+        currency_totals:
+          type: array
+          description: Per currency over all rows (never across currencies); ratios are recomputed from the totals, not summed.
+          items:
+            type: object
+            additionalProperties: false
+            required: [currency, values]
+            properties:
+              currency: { type: [string, 'null'], pattern: '^[A-Z]{3}$' }
+              values:
+                type: object
+                additionalProperties: { type: [integer, 'null'] }
 
   examples:
     StoreBrandA:
