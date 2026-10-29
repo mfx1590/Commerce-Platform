@@ -92,6 +92,12 @@ export type {
 
 // JWT verification + scope resolution (ADR 0002 §4).
 export { createStaffTokenVerifier, bearerToken } from './jwt/verify.js';
+export {
+  READ_ONLY_SERVICE_CLIENTS,
+  assertServiceClientMayCall,
+  readOnlyServiceClientOf,
+} from './jwt/service-clients.js';
+export type { StaffRequestContext, ServiceClientRefusal } from './jwt/service-clients.js';
 export type { StaffTokenVerifier, StaffTokenVerifierOptions, StaffClaims } from './jwt/verify.js';
 export {
   resolveRelations,

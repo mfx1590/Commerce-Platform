@@ -1,5 +1,5 @@
 {
-  "_comment": "Seed tuples for the local OpenFGA store (window 2). Ids are packages/db SEED_IDS: user:<staff_user.id>, store:<store.id>, organization:hq (organization slug; the single HQ row). Mirrors the role_assignment rows written by pnpm db:seed. Applied by pnpm --filter @platform/auth-sdk fga:seed.",
+  "_comment": "Seed tuples for the local OpenFGA store (window 2). Ids are packages/db SEED_IDS: user:<staff_user.id>, store:<store.id>, organization:hq (organization slug; the single HQ row). Mirrors the role_assignment rows written by pnpm db:seed. Applied by pnpm --filter @platform/auth-sdk fga:seed. Service accounts (#565 crm-sync = SEED_IDS.serviceAccounts.crmSync, #622 analytics-sync = .analyticsSync): crm-sync support on brand A only (per store, never support on organization:hq); analytics-sync analyst + finance on organization:hq (finance does not imply analyst).",
   "tuples": [
     {
       "user": "organization:hq",
@@ -16,7 +16,6 @@
       "relation": "organization",
       "object": "store:00000000-0000-4000-8000-000000000033"
     },
-
     {
       "user": "user:00000000-0000-4000-8000-000000000041",
       "relation": "owner",
@@ -42,7 +41,6 @@
       "relation": "analyst",
       "object": "organization:hq"
     },
-
     {
       "user": "user:00000000-0000-4000-8000-000000000044",
       "relation": "store_admin",
@@ -57,6 +55,21 @@
       "user": "user:00000000-0000-4000-8000-000000000045",
       "relation": "store_staff",
       "object": "store:00000000-0000-4000-8000-000000000031"
+    },
+    {
+      "user": "user:00000000-0000-4000-8000-000000000061",
+      "relation": "support",
+      "object": "store:00000000-0000-4000-8000-000000000031"
+    },
+    {
+      "user": "user:00000000-0000-4000-8000-000000000062",
+      "relation": "analyst",
+      "object": "organization:hq"
+    },
+    {
+      "user": "user:00000000-0000-4000-8000-000000000062",
+      "relation": "finance",
+      "object": "organization:hq"
     }
   ]
 }

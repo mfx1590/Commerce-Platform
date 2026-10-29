@@ -49,6 +49,30 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
     core: `KEYCLOAK_ADMIN_CLIENT_ID` / `KEYCLOAK_ADMIN_CLIENT_SECRET`; the dev export carries the dev-only
     secret `dev-only-core-admin-secret` (the `dev-only-` shape infra/gitleaks.toml allowlists). Production
     replaces it from Vault (#416).
+  - `crm-sync` (#565, window 16's CRM sync) and `analytics-sync` (#622, window 12's reconcile) —
+    **confidential service accounts for jobs with no human in the request**, calling OUR APIs only. Every
+    user flow off, `fullScopeAllowed: false`, default scope `basic` only (it carries `sub`), ONE protocol
+    mapper: audience `core-api` (`verifyStaffToken` pins it), **no Keycloak role at all** — their permissions
+    are OpenFGA tuples on their staff_user rows, like a person's. Their service-account users have FIXED
+    ids `seed-crm-sync` / `seed-analytics-sync`: the token's `sub` is the seeded `staff_user.keycloak_subject`
+    (`SEED_IDS.serviceAccounts`, packages/db), which the scope middleware and the Finance API look up.
+    Tuples (infra/openfga/tuples.seed.json): crm-sync `support` on store brand A only (per store, never on
+    organization:hq — adding a store to the sync is a visible tuple); analytics-sync `analyst` and `finance`
+    on organization:hq (two tuples; neither implies the other). **Both are READ-ONLY by code**: auth-sdk's
+    `READ_ONLY_SERVICE_CLIENTS` makes the staff token verifier refuse any non-GET/HEAD request from them (403
+    `read_only_service_client`, before any permission check), because `support` on a store also gates
+    `updateCustomer`, `createRefund` and `createReturn` (a read-only relation is CONTRACT CHANGE #625, later
+    wave). `analyst`/`finance` on the organization give `viewer` on every store — reads only, accepted; no
+    write in either contract is gated by them, and the guard makes that structural. Env: `CRM_SYNC_CLIENT_ID` / `CRM_SYNC_CLIENT_SECRET`,
+    `ANALYTICS_SYNC_CLIENT_ID` / `ANALYTICS_SYNC_CLIENT_SECRET`; dev-only secrets in the export, production
+    from Vault.
+- **Applying a service account to a running stack** (never a reimport — it deletes the realm first, for
+  every window): `node infra/keycloak/ensure-service-account.mjs staff [clientId …]` creates, through the
+  admin API, exactly what the export declares — the client, its service-account user WITH the export's
+  fixed id (partialImport honours ids; a user Keycloak made with a random id is replaced, that user only),
+  and its realm-management roles if any. Idempotent; a second run changes nothing. Refuses a non-local
+  `KEYCLOAK_URL` unless `--allow-remote` (the export carries dev secrets). Fresh stacks get the same result
+  from the startup file import.
 - **Users** mirror `packages/db` `SEED_IDS.users`: `owner`, `finance`, `operations`, `store-admin`,
   `store-staff`, `support`, `analyst` (email `<username>@example.com`, password = username). Each user's
   Keycloak id is `seed-<username>`, which is exactly the `staff_user.keycloak_subject` the db seed writes, so the
@@ -110,6 +134,8 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
 | Seeded users with password = username       | present                                | remove the `users` array                |
 | `test-cli` client (password grant)          | present                                | remove                                  |
 | `core-admin` client secret (#415)           | `dev-only-core-admin-secret`           | generated, from Vault                   |
+| `crm-sync` client secret (#565)             | `dev-only-crm-sync-secret`             | generated, from Vault                   |
+| `analytics-sync` client secret (#622)       | `dev-only-analytics-sync-secret`       | generated, from Vault                   |
 | `core-admin` secret, customers realm (#483) | `dev-only-core-admin-customers-secret` | generated, from Vault                   |
 | Password policy                             | none (seed passwords)                  | e.g. `length(12) and notUsername and …` |
 | `verifyEmail` (customers)                   | `false`                                | `true` with SMTP configured             |

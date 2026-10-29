@@ -45,11 +45,11 @@ Redpanda (every topic of @platform/events, from the beginning)
 
 ## Run
 
-| Command                                                  | What                                                                                                                                                                                                                                   |
-| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm --filter @platform/analytics-ingest ch:migrate`    | applies `data/clickhouse/migrations/*.sql` to `CLICKHOUSE_DATABASE` (creates it), each file once; a changed applied file is refused                                                                                                    |
-| `pnpm --filter @platform/analytics-ingest dev` / `start` | long-running consumer; `GET /health` on `$PORT` when set (the container contract)                                                                                                                                                      |
-| `pnpm --filter @platform/analytics-ingest once`          | `--once`: drain to idle (≥ `ANALYTICS_MIN_RUN_MS`, then `ANALYTICS_IDLE_MS` quiet, hard stop `ANALYTICS_MAX_RUN_MS`), print one JSON report (rows per topic, dead letters this run, records on the group's DLQ), exit 0 (1 on max_run) |
+| Command                                                  | What                                                                                                                                                                                                                                                           |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm --filter @platform/analytics-ingest ch:migrate`    | applies `data/clickhouse/migrations/*.sql` (each once; an edited applied file is refused) and then `data/clickhouse/models/*.sql` (views, re-applied when changed) to `CLICKHOUSE_DATABASE` (creates it), under `_migrations_lock`, after the idempotency lint |
+| `pnpm --filter @platform/analytics-ingest dev` / `start` | long-running consumer; `GET /health` on `$PORT` when set (the container contract)                                                                                                                                                                              |
+| `pnpm --filter @platform/analytics-ingest once`          | `--once`: drain to idle (≥ `ANALYTICS_MIN_RUN_MS`, then `ANALYTICS_IDLE_MS` quiet, hard stop `ANALYTICS_MAX_RUN_MS`), print one JSON report (rows per topic, dead letters this run, records on the group's DLQ), exit 0 (1 on max_run)                         |
 
 Flags: `--once`, `--group <id>`, `--topic-prefix <p>` (tests and gates; applies to the DLQ too).
 
@@ -88,8 +88,26 @@ Flags: `--once`, `--group <id>`, `--topic-prefix <p>` (tests and gates; applies 
   leaves `count() FINAL` unchanged; a crash between insert and commit duplicates rows that FINAL folds; a whole
   generated month lands once per (topic, event_id).
 - `pii.test.ts`: the sweep (and a planted row proving the sweep finds each shape).
-- `config.test.ts` (group override moves the DLQ, #599), `clickhouse.test.ts` (DDL, statement splitter,
-  idempotent runner), `once.test.ts` (the stopping rule), `metrics.test.ts` (in-memory OTel exporter).
+- `migrations.test.ts`: the DDL; the idempotency lint over both SQL folders; migrations then models; a second run
+  applies nothing; an edited model is re-applied while an edited migration is refused; the lock refuses a second
+  runner and is always released.
+- `config.test.ts` (group override moves the DLQ, #599), `once.test.ts` (the stopping rule), `metrics.test.ts`
+  (in-memory OTel exporter).
+
+`models.test.ts` runs the models (data/clickhouse/README.md) on the shared month from `@platform/test-utils`: 150
+orders over three legal entities, with refunds, cancellations before and after partial shipments, and unknown fees.
+The events are written straight into `raw_events` of two throwaway databases. The tests check:
+
+- one row per fact key;
+- `product_id` through `dim_variant`;
+- `mart_bookings_daily` and `mart_cash_daily` row for row against references computed from the same events with
+  `rpt_sales_daily`'s / `rpt_payments_daily`'s rules (Postgres = ClickHouse itself is #602's);
+- a second database fed in reverse, every event twice, with the MV created midway, gives identical marts and
+  tiles;
+- exact live counts;
+- no PII-named column.
+
+It needs ClickHouse only, with the same gate as `live.test.ts`.
 
 `live.test.ts` runs the real thing against Redpanda and ClickHouse: migrate twice, a month published under a
 throwaway prefix into a throwaway database (once per topic; invalid events on the overridden group's DLQ), a full
@@ -99,3 +117,33 @@ a printed reason when ClickHouse is down or refuses the configured user, or the 
 
 The generated month (`src/testing/month.ts`) is built from the schemas themselves: every topic and version of
 `@platform/events`, seeded, validated with the real validator. A new topic is covered the day it lands.
+
+## Reconcile: the Integration 5 money identities (#602)
+
+`pnpm --filter @platform/analytics-ingest reconcile --from 2026-10-01 --to 2026-11-01 [--store <uuid>] [--json]`
+pulls the ledger's own journal lines through the Finance API into ClickHouse (`ledger_lines`, read as
+`fct_ledger_line`), runs every identity and prints one table per identity with the first 20 differences. Exit 0
+only when every difference is 0 (1 on a difference, 2 on a usage or read error). It reads ONLY public APIs over HTTP:
+the core's `getHqSalesReport` / `getHqFinanceReport` (`CORE_URL`, `CORE_TOKEN`: analyst and finance, e.g. owner)
+and the Finance API (`ACCOUNTING_URL`, `ACCOUNTING_TOKEN`: finance), plus ClickHouse (`CLICKHOUSE_*`). No posting
+rule exists in this package: the ledger side is always the ledger's lines or its own aggregates (D7).
+
+| Identity                          | Left                                     | Right                                                                                                                                  | Key                                              |
+| --------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| 1 bookings                        | `mart_bookings_daily`                    | core `getHqSalesReport`                                                                                                                | store × UTC day × currency                       |
+| 2a copy integrity (lines)         | Finance API `listJournalLines` as served | `fct_ledger_line`                                                                                                                      | legal entity × currency × day × account          |
+| 2a copy integrity (trial balance) | Finance API `getTrialBalance`            | `fct_ledger_line`                                                                                                                      | legal entity × currency × account                |
+| 2b lineage                        | revenue lines (4000/4010/4090)           | `raw_events` shipment.shipped / refund.issued; every shipment.shipped has lines unless parked (`listParkedEvents`)                     | line / event                                     |
+| 2c lifetime invariant             | order.placed `total − tax`               | ledger 4000 + 4010 of its shipments                                                                                                    | fully shipped, never cancelled, unrefunded order |
+| 3a captures and fees              | `mart_cash_daily`                        | core `getHqFinanceReport`, one UTC day at a time                                                                                       | store × day × currency                           |
+| 3b capture entries                | `raw_events` payment.captured            | Σ debits of the ledger's payment.captured entries (1100 net of the fee + 6100 the fee = the gross; 1100 alone would copy the fee rule) | legal entity × currency × day                    |
+| 3c payouts                        | Finance API `listPayouts`                | ledger 1000 debits from psp.payout                                                                                                     | legal entity × currency                          |
+
+A key present on one side only is compared against 0, so a missing row is a difference. Mind the dates: the Admin
+API reports take `[from, to)`, the Finance API `[from, to]`; the clients translate.
+
+**The gate** is `apps/core/src/modules/reporting/reconcile-gate.test.ts`. It sends the generated month through the
+production topology: the real relay, the real ledger and this ingest in fresh groups. It then runs `reconcile`
+against the core's report routes mounted in-process and the Finance API (verifier seam), and checks that every
+identity is 0. It also checks that a forged ledger copy and a changed order are both caught. It runs in the live job
+only.

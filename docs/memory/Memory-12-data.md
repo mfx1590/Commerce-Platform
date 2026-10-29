@@ -46,28 +46,117 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   + `_components/{bi-report,series-chart}.tsx` + README; `apps/admin/test/bi/{report,bi-page}.test.ts(x)` (32),
   `apps/admin/test-contract/bi/bi.test.ts` (4, Prism); core: analyst reads a store's stock test,
   REFUND_REASONS.includes.
+- P5.1 #600: MERGED with integration PR #618 = 9e8993d (my PR #616: code 0949769 + memory 1dba221; manager CI
+  commit cea626b adds ClickHouse to the live job and the pinned step "analytics ingest live block — and it really ran";
+  3 green runs; Opus review MERGE; #600 closed, #616 marked merged). Dev-stack proof: 460 outbox rows = 460 raw_events
+  FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
-- #600 P5.1 ingest on `data/phase5`: built — `apps/analytics-ingest/src/{config,rows,batcher,ingest,clickhouse,metrics,
-  once,telemetry,main,migrate-cli,index}.ts`, `data/clickhouse/migrations/0001_raw_events.sql` + `data/clickhouse/README.md`;
-  41 unit tests green; `src/live.test.ts` (4 tests) opt-in `ANALYTICS_LIVE=1` (CI always).
-  PR #616 (Closes #600; code commit 0949769; head = this memory commit). Landing (manager 2026-10-25): push NOTHING
-  more; the manager cuts `integration/phase5-ingest` from this head after #614, adds the CI step "analytics ingest
-  live block — and it really ran" (pins my 4 live test TITLES via require-live-tests.mjs: never rename them), needs
-  3 consecutive green runs; the integration PR merges and marks #616 merged. An independent Opus review is running:
-  code fixes, if any, go to data/phase5 and the manager re-cuts. #601: read/design only until the review is back.
-  Still owed: message the manager when every check on #616 has finished.
-- Live, with the manager's machine (2026-10-25): `ANALYTICS_LIVE=1` live.test 4/4 green (~17 s, self-cleaned);
-  dev stack: `ch:migrate` on `analytics` (applied 0001, second run nothing) → `--once` group analytics.raw: 460 rows =
-  the outbox's 460 published rows, 22 topic@versions equal row for row, 0 dead letters → full replay under group
-  analytics.raw.proof-replay: FINAL still 460 per topic (raw 617 before merge). PII: 0 e-mail shapes; the only key
-  hit is customer.updated `changed_fields: ["first_name","last_name"]` (field NAMES, not values).
-- Manager answers (2026-10-25): eachBatch loop ACCEPTED (README states why; per-partition commit after ack; heartbeat
-  during flush; same group for DLQ); writer `platform`/reader `analytics_ro` (readonly=1: no per-query settings on
-  the read path → `createChReader`); DDL tests on `analytics_test_<word>`, never drop `analytics`; CI ClickHouse
-  wiring = the manager's commit on top of my #600 head. REQUEST #615 (window 14) for analytics.raw in the DLQ
-  policy. #601: `mart_recognised_daily` DROPPED (ledger lines in #602); `fct_order_line.product_id` via `dim_variant`
-  from product.published/updated `variants[]` (BINDING for window 9) — read the two manager comments on #601 first.
+- #601 P5.2 models: PR #619 (Closes #601; code commits 0b3b265, 0a0d6b8, a6b8e42 on top of the merge of main 05cf71f;
+  head = this memory commit). Review = a FABLE review after the weekly reset (2026-10-27 14:00 UTC); the manager pins
+  the 11 models.test titles in the CI live step on the integration landing. Push NOTHING more unless the review asks.
+- WAVE 2 ON (manager 2026-10-27): keep building on data/phase5; the next PR carries the #601 commits until #619 merges.
+- #603: CONTRACT CHANGE POSTED 2026-10-27 (issue comment 6438446364): listMetrics GET /admin/metrics + queryMetrics
+  POST /admin/metrics/query, both `viewer` on `store:*` (ListObjects scope = today's store-report access);
+  finance metrics need `finance` on organization:hq; store_id outside scope → 403; new 503 `unavailable`
+  response + ERROR_CODE; schemas MetricId/Dimension/Grain/Definition/Catalogue/Query/Row/Result. Checked on a
+  reverted working copy: redocly +0 errors; contracts tests fail only on the op count 135 → 137 (4 asserts).
+  Open: keep new/returning customers (needs a hashed customer key in fct_order) or drop. Waiting for the decision.
+- #602: test-architecture plan SENT 2026-10-27 (one gate test, real relay feeding both consumers; ledger via the
+  public createLedgerConsumer + the Finance API in-process with the verifier seam; checks 2a/2b/2c; cash vs
+  getHqFinanceReport + PSP clearing + listPayouts; bookings vs getHqSalesReport). GAP: the rpt_* views need core
+  order/payment rows the month lacks → asked for `writeMonthToCoreDb` in test-utils (REQUEST) or dev-only bookings.
+  NO #602 code until the answer.
+- MANAGER DECISIONS 2026-10-27: (A) #603 contract ACCEPTED as posted; KEEP new/returning customers keyed by
+  order.placed `email_hash` (an additive fct_order column no operation returns), ERASURE-AWARE from the start (an
+  erased customer's key → NULL → counted 'unknown'). The manager lands the contract on integration/phase5-metrics
+  after the reset (Fable review); build the compiler + server against the posted YAML LOCALLY, push no contract file.
+  NEW #623 (P5.12, mine): ClickHouse must honour customer.erased (raw payloads keep email_hash/customer_id) —
+  launch blocker, schedule right after #602.
+  (B) #602 architecture ACCEPTED. I write `writeMonthToCoreDb` in packages/test-utils on branch
+  `integration/phase5-reconcile` (cut from data/phase5; integration/* may write anywhere): a PURE projection
+  (payload → order/payment/refund rows + cancellation status, no business rule, no derived amount), owner pool into a
+  THROWAWAY core DB only (refuse unless current_database() is a throwaway, the #595 guard), its own test (projected
+  month → the core's report functions = event counts and sums). One PR for #602 + projection, Fable-reviewed. Ask for
+  the machine before the gate's live run.
+- #602 PROGRESS (branch integration/phase5-reconcile, local commit 593cabf, NOT pushed): writeMonthToCoreDb
+  (test-utils, 6/6 green vs the rpt_* views); migration 0003 ledger_lines + model fct_ledger_line; reconcile library
+  (clients, diff, identities 1/2a/2b/2c/3a/3b/3c, run, reconcile-cli), 58 unit tests green. NEXT: the gate test.
+  ASKED the manager (2026-10-27): put the gate in apps/core/src/modules/reporting/reconcile-gate.test.ts (core HTTP
+  in-process via mountCoreMiddleware + dev tokens, core's relay CLI, @platform/accounting Finance API with the
+  verifier seam), which adds 3 devDependencies to window 1's apps/core/package.json — apps/core has no package
+  exports, so nothing outside it can mount its report routes. APPROVED (manager 2026-10-27) with conditions:
+  devDeps only as a separate commit (71f0488, subject "core (window 1 path, integration exception): …", list it in
+  the PR body); one-way edge (checked: nothing imports core; prod deploy unaffected; image manifests ok); live job
+  only via probe + require-live-tests; dev tokens for core, verifier seam for Finance; run the core FULL suite once.
+- Gate written: 40941b2 apps/core/src/modules/reporting/reconcile-gate.test.ts (title 'Integration 5 gate: the
+  generated month through the real relay, ledger and ingest, every identity at 0'; 3 tests incl. "fails when it
+  should"); outbox via withEvents (core lint forbids raw outbox INSERTs). Docs committed.
+- #602: PR #628 (Closes #602; branch integration/phase5-reconcile; code commits 593cabf, 71f0488, 40941b2, 5cbb473,
+  1710359 + the merge of main; head = this memory commit). Live with the machine (2026-10-27): TZ=UTC gate 3/3,
+  TWICE in a row, every identity 0 (bookings 69 keys, 2a 750 + 33, 2b 282, 2c 97, 3a 73, 3b 73, 3c 0 — no payouts
+  in the month); fails-when-it-should green; ~33 s; cleanup 0/0/0/0; core full suite 1175 passed + onboarding
+  (beforeAll DB-creation timeout under load, 11/11 alone). Machine free reported. The manager adds the CI step
+  (require-live-tests, the gate title) on top of the head and collects 3 green runs; Fable review.
+- The first live runs found: LowCardinality(UInt8) from `IN` on a LowCardinality column (cast to String); output
+  aliases shadowing WHERE columns (renamed out_*); 3b must compare the capture ENTRY size (1100 is net of the fee —
+  comparing it alone copies the fee rule); and REAL BUG #627 (window 15): the Finance API serves dates a day early in
+  a non-UTC process (queries.ts date() = toISOString on a local-midnight Date). Run the gate with TZ=UTC until then.
+- NEXT after #628: #623 (ClickHouse honours customer.erased; erasure-aware customer key) and #603 build (compiler +
+  server against the posted YAML, locally; the manager lands the contract on integration/phase5-metrics).
+- Gotchas: the Finance API `to` is INCLUSIVE, the Admin API report `to` EXCLUSIVE (clients translate);
+  getHqFinanceReport has no day dimension (3a asks one day at a time); the order display_id trigger numbers
+  display_id 0 (a generated month's display ids collide per store).
+- Gotcha repeated: `String.replace(x, str)` expands `$'` / `$&` in the replacement (a YAML pattern `'^[A-Z]{3}$'` did it);
+  always pass a function: `replace(x, () => str)`.
+- Machine: last runs 2026-10-25, 15/15 three times on the merged head; machine free reported.
+
+## #601 notes (2026-10-25)
+- Local branch has #617 (origin/integration/phase5-month-fixture) merged in, to code against `@platform/test-utils`.
+- Built: `data/clickhouse/migrations/0002_orders_minute.sql` (orders_minute_events RMT + mv_orders_minute + backfill),
+  `data/clickhouse/models/{100_staging,200_dims,300_facts,400_marts,500_live}.sql`; runner → `src/migrations.ts`
+  (models re-applied on change, idempotency lint, `_migrations_lock`); InsertRejectedError (follow-up 2);
+  `createChReader`; `src/models.test.ts` (9 tests, opt-in) + `src/testing/clickhouse-gate.ts`; READMEs, CHANGELOG 0.3.0.
+- 49 unit tests green. With the manager's machine (2026-10-25): models.test 11 + live.test 4 = 15/15 green, THREE
+  consecutive runs, 0 leftover databases/topics. The first run found a real bug (mart_cash_daily: output alias
+  fee_minor shadowed the source column inside countIf → "aggregate inside aggregate"; fixed with a renaming
+  subquery). Manager's two checks added: backfill racing the MV; two runners at once (lock).
+- models.test TITLES ARE FROZEN (the manager pins them in CI when #601 lands): describes "ClickHouse models on the
+  generated month" and "ClickHouse runner under concurrency", 11 its as in the file. Never rename them.
+- check-ownership flags packages/test-utils/src/index.ts ONLY because #617 is merged locally; clears once #617 is
+  on main and main is merged.
+- PR body must state: the bookings/cash marts are tested against references computed from the events (Postgres =
+  ClickHouse is #602's); the live-tile choice (RMT per event + FINAL read, uniqExact); follow-ups 2 and 4 done;
+  follow-ups 3 (memory bound doc) and 5 (ch:migrate via tsx in prod image) are later notes.
+
+## #601 design draft (2026-10-25)
+- Sources checked: order.placed v1 line_items carry order_line_item_id, variant_id (nullable), sku, title, quantity,
+  unit_price_minor, discount_minor, tax_rate_bp, tax_minor, total_minor; product.published/updated v1 `variants[]`
+  = {variant_id, sku, title}; order.cancelled v1 has order_id + cancelled_at. Every binding fct_order_line column exists.
+- `data/clickhouse/models/` = REPLACEABLE objects (CREATE OR REPLACE VIEW), re-applied when the checksum changes
+  (unlike migrations, which are refused on change); the runner gets a second mode. Tables behind MVs stay migrations.
+- stg_<topic>_v<n>: views over `raw_events FINAL WHERE topic = … AND version = …` with JSONExtract typed columns.
+- dim_variant: ARRAY JOIN variants of product.published/updated, argMax(product_id, sku by occurred_at) per
+  (store_id, variant_id), last_seen_at. fct_order_line: ARRAY JOIN line_items + LEFT JOIN dim_variant;
+  order_status = cancelled if an order.cancelled exists. Leave out email_hash/customer_id/title (no PII; title isn't
+  needed).
+- mv_orders_minute: the MV sees every INSERT, redeliveries included → AggregatingMergeTree with uniqState(event_id)
+  for the order count; money via a FINAL-backed view on top (or argMax per event), never a plain sum in the MV.
+- Marts: mart_bookings_daily, mart_cash_daily (store × currency × UTC day); mart_recognised_daily DROPPED.
+- MANAGER DECISIONS 2026-10-25 (binding for #601):
+  (1) Test month: the manager moves `posting/fixtures.ts` to `packages/test-utils`; code against
+      `import { generateMonth, … } from '@platform/test-utils'` (same names and signatures). Wait for the sha on main.
+  (2) Bookings test = a reference computed IN THE TEST from the same events with rpt_sales_daily's rules (exclude
+      cancelled/voided/failed, awaiting counts, UTC day); Postgres = ClickHouse is #602's. Write the split in the PR body.
+  (3a) Order counts use `uniqExactState`, never `uniq` (approximate). (3b) No money sums from an MV that sees
+      redelivered inserts. MY PICK: `mv_orders_minute` writes per-order rows into a ReplacingMergeTree ORDER BY
+      (store_id, currency, minute, event_id); the tile aggregates at read time with FINAL (state it in the PR). MVs and
+      their TO tables go in MIGRATIONS; only plain views live in models/ (CREATE OR REPLACE, re-applied on a
+      checksum change).
+- (superseded) Open questions sent to the manager on 2026-10-25: (1) the #552 month (`generateMonth`) isn't in @platform/accounting's
+  public API → REQUEST to window 15 for an export; (2) the "mart_bookings_daily = rpt_sales_daily row for row" test
+  needs Postgres orders from the same month (the generator gives events only) → proposed: in #601, test against a
+  reference computed from the events with rpt_sales_daily's rules, and leave the Postgres identity to #602.
 
 ## Next — Phase 5
 - [ ] #600 live proof (machine) → counts into the PR body.
@@ -106,6 +195,9 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
 - #600: no processed store — ReplacingMergeTree(ingested_at) ORDER BY (topic, event_id) is the dedupe; readers count
   with FINAL. PARTITION BY toYYYYMM(occurred_at) is safe for folding (a copy has the same occurred_at).
 - #600: the group id is resolved once in loadConfig; consumer, `dlqTopic` and the --once DLQ count all read it (#599).
+- #600 (manager 2026-10-25): ClickHouse writer `platform` (ingest + migrator), reader `analytics_ro` (readonly=1: no
+  per-query settings on the read path, hence `createChReader`); DDL tests on `analytics_test_<word>`, never drop
+  `analytics` (the reader grant is bound to it); REQUEST #615 (window 14) adds analytics.raw to the DLQ policy.
 - #600: the test month is generated from the event SCHEMAS (`src/testing/month.ts`, every topic@version, validated),
   so the ingest/PII tests need nothing from apps/accounting.
 
@@ -115,6 +207,9 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   files, the manager routes it to window 1 — not mine.
 
 ## Gotchas learned
+- CI's `lint + typecheck` job runs `format:check` (prettier) over the WHOLE repo; a package's `eslint` does not.
+  data/clickhouse/README.md failed it on #616/#618 (manager fixed it in 5069bd2 on the integration branch). Before
+  every push: `pnpm exec prettier --check .` at the root. Expect a README conflict with 5069bd2 when merging main.
 - 2026-10-25: a live test that runs whenever the services answer WILL run inside a plain `vitest run` once the shared
   stack has them (ClickHouse appeared on 18123 mid-session; one unasked ~30 s attempt, failed at auth, nothing
   written, reported). Live blocks are opt-in (`ANALYTICS_LIVE=1`, CI always) AND probe with the configured user.

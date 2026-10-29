@@ -21,13 +21,8 @@ import {
   type TopicPolicy,
 } from '@platform/events';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import {
-  createChClient,
-  createRawEventsSink,
-  migrate,
-  readSqlFiles,
-  type ChClient,
-} from './clickhouse.js';
+import { createChClient, createRawEventsSink, type ChClient } from './clickhouse.js';
+import { migrate, readSqlFiles } from './migrations.js';
 import { loadConfig } from './config.js';
 import { createIngest, SimulatedCrash, type Ingest, type IngestLogLine } from './ingest.js';
 import { generateMonth } from './testing/month.js';
@@ -260,7 +255,10 @@ describe.runIf(down === null)('live ingest (local Redpanda + ClickHouse)', () =>
     await crashing.stop();
     const after = ingestFor(group);
     await after.start();
-    await until(async () => (await finalCount()) === before + extra.length, 'the redelivery');
+    // the crashed batch's rows were inserted before the crash, so the count alone is reached at once: wait for the
+    // restarted ingest to have received the uncommitted batch again
+    await until(() => after.stats.rows >= 1, 'the redelivery');
+    await until(async () => (await finalCount()) === before + extra.length, 'the fold');
     await after.stop();
     expect(after.stats.rows).toBeGreaterThanOrEqual(1); // the crashed batch came back
     expect(await finalCount()).toBe(before + extra.length);

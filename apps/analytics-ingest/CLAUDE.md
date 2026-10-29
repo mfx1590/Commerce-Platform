@@ -12,16 +12,16 @@ window 12 (data).
 ## Run / test
 
 - `pnpm --filter @platform/analytics-ingest build | typecheck | lint | test`
-- `pnpm --filter @platform/analytics-ingest ch:migrate` applies `data/clickhouse/migrations/` (idempotent)
+- `pnpm --filter @platform/analytics-ingest ch:migrate` applies `data/clickhouse/migrations/` then `models/` (lint, lock, idempotent)
 - `pnpm --filter @platform/analytics-ingest once` drains to idle and reports
-- Live tests: `ANALYTICS_LIVE=1` only while holding the machine (ask the manager); CI always runs them.
+- Live and model tests (`live.test.ts`, `models.test.ts`): `ANALYTICS_LIVE=1` only while holding the machine (ask the manager); CI always runs them. The live test TITLES are pinned by CI (require-live-tests): never rename them.
 - Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/analytics-ingest` before finishing any task.
 
 ## Public API
 
 - Consumer group `analytics.raw` (`DEFAULT_GROUP`; override `ANALYTICS_GROUP_ID` / `--group`, which moves the DLQ too)
 - `loadConfig`, `createIngest`, `processBatch`, `classify`, `createBatcher`, `createChClient`, `createRawEventsSink`,
-  `migrate`, `readSqlFiles`, `createIngestMetrics`, `waitForIdle`; types `RawEventRow`, `IngestConfig`, `OnceReport`
+  `createChReader`, `migrate`, `readSqlFiles`, `lintSqlFiles`, `createIngestMetrics`, `waitForIdle`; types `RawEventRow`, `IngestConfig`, `OnceReport`
 
 ## Constraints
 
