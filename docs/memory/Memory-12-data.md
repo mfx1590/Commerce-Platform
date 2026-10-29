@@ -69,6 +69,16 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   mode 3/3 (order 1143: brand-a EUR live tile 0 → 1 by its own poll; store view brand-a only); reporting live 97/97
   (p95 36 ms); admin unit 915/915; contract bi 11/11; root lint + typecheck green. minItems: 1 on the four filter
   arrays = manager ten's NEXT contracts landing (do not edit packages/contracts); the server keeps the 400.
+  PR #643 (code commit 1b8f96e; head = this memory commit). Review (manager ten, 2026-10-29) = BLOCK on #604's
+  own criteria, all fixed: (1) c7f9109 every table exports (?table=period|money|products, same query + scope);
+  (2) 0e00778 + 1b8f96e store-admin e2e WRITES (its tile 24 → 25) and brand-c (outside its A+B scope) = 403 page /
+  live / CSV; (3) bi-latency.spec.ts, 20 orders: event → mv_orders_minute p50 2653 / p95 3017 / max 3098 ms
+  (server ingested−occurred p95 1979), MV → tile p50 12098 / p95 12535 / max 12715 ms (≤ 15 s poll);
+  (4) next build First Load JS: /bi and /[storeId]/bi 116 kB, largest /[storeId]/promotions/new 177 kB, shared
+  102 kB; (5) this line. The first CI run's advisory core e2e failed on the live journey: CI runs no relay, ingest
+  or ClickHouse → write journeys opt-in E2E_BI_LIVE=1; the out-of-scope 403 runs in every core job. Verified both
+  modes: CI-like 3 passed / 3 skipped; full pipeline 5 passed / 1 skipped. Nits deferred (analyst guard on HQ
+  live/export, poll overlap/backoff, unmount test, product names).
 - Gotcha: Playwright getByRole name matching is a case-insensitive SUBSTRING: 'Currency' matched 'Metrics currency'
   (strict-mode clash) — use exact: true when a page has two similarly named landmarks.
 - Gotcha: the e2e stack = core dev + `outbox:relay` + ingest dev (ANALYTICS_ERASURE_KEY from .env.example; .env has
