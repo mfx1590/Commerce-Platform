@@ -138,6 +138,51 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   always pass a function: `replace(x, () => str)`.
 - Machine: last runs 2026-10-25, 15/15 three times on the merged head; machine free reported.
 
+## #603 SERVER PR (2026-10-29; data/phase5-metrics-v2 cut --no-track from origin/main 77ed790, pushed by refspec
+## to integration/phase5-metrics-server because a977b43 touches apps/core/package.json)
+- On main: #631 MERGED (0d31c6d, #623 closed), #636 = the #603 contract (77ed790, contracts-v0.4.30, Admin API
+  0.4.25, `unavailable` + ServiceUnavailable 503, the (store)/[storeId]/bi/** ownership row → window 12).
+- Cherry-picked b7ff9b4 ea01062 a977b43 71827d4 + 51bcc4d (live metrics + CSV, which #636 put in the contract)
+  cleanly. 183e8b3: every 503 → `unavailable` (execute, reader, routes' not-in-contract), route tests on the REAL
+  admin-api.yaml, the finance 403 for 3 finance metrics × analyst + store admin, and a REAL BUG: executeMetricQuery
+  awaited the freshness query inside the Promise.all array, so a down ClickHouse left the sources' rejection
+  unhandled (Node default = the core process dies). Fixed + a test that fails without it.
+- Live (machine, TZ=UTC): the first runs OVERLAPPED window 2's core suite (the manager's "not yet" arrived late),
+  so everything was re-run after his official grant: reporting 96/96 none skipped, metrics-live p50 34 / p95 52 /
+  max 64 ms; `pnpm test --filter @platform/core --force` ALONE 1304 passed / 24 skipped (547 s).
+- 697d60c + b416c38 → their OWN small PR (manager 2026-10-29): data/phase5-hardening, cut --no-track from
+  origin/main, cherry-picked clean (bae1bb3, 19064f3), lands FIRST. The lint scans apps/core/src/modules/reporting:
+  checked on the #603 branch with the lint applied → 7/7 green, so either merge order is safe.
+- Gotcha: `[a, await b]` inside Promise.all is NOT parallel and NOT safe: the await runs while building the array.
+
+## #603 IN PROGRESS (2026-10-27; branch data/phase5-metrics, cut --no-track from 18bdad4; local commits)
+- #623 landed by the manager as PR #631 (my ab0b01b + 993d6fe key in .env.example/CI + 18bdad4 CI pins
+  'customer.erased in ClickHouse (#623)'); stacked on #628; Fable review after the reset.
+- Built in apps/core/src/modules/reporting/metrics/: catalogue.ts (13 metrics, closed enums, limits), query.ts
+  (validator), compile.ts (one statement per source; scope `store_id IN {scope:Array(UUID)}` always; parameters
+  only; out_*/m_* aliases), execute.ts (merge, ratios half-up/null, per-currency totals, order/limit, data_as_of,
+  503 fail-closed — 'internal' + status 503 until the contract's `unavailable` code lands), routes.ts
+  (metricsAdminRouter: scope = org stores for HQ relations, else visibleStoreIds; 403 outside scope / finance
+  metric without finance; NOT mounted until the contract lands — permissions injected in tests);
+  reporting/testing/metrics-queries.ts (seeded randomQuery). Tests: metrics.test 25 (validator, 500-query property:
+  scope everywhere + no value in SQL text, executor), routes.test 10 (dev tokens + recording reader),
+  metrics-live.test 5 (every metric × grain on CH, 300-query leak, two-store exactness, p95 < 300 ms, analytics_ro
+  read path) — NOT YET RUN (machine).
+- ASKED the manager: core runtime dependency `@clickhouse/client` 1.24.1 (window 1 path, separate commit) for the
+  production reader; analytics_ro profile limits (readonly, max_execution_time, max_result_rows) in step 0's
+  users.xml or a REQUEST. Until then the router takes an injected reader.
+- Suggestion queued for the next PR: a static lint over data/clickhouse/** for aliases equal to a column used in the
+  same statement's WHERE/ON (the alias-shadow class).
+- Manager (2026-10-27): APPROVED @clickhouse/client 1.24.1 as a core runtime dep → separate commit a977b43 (window 1
+  path, he lands it with the contract); profile limits already in infra/clickhouse/users.d (readonly, 10 s, 100k rows
+  throw, 512 MB). Conditions done: x-permission resolved PER REQUEST, an operation missing from the spec → 503
+  before anything runs (tested); routes now MOUNTED in reportingAdminRouter (503 on this branch until the contract);
+  reader.ts creates the analytics_ro client lazily from env (missing config → 503). Scope-escape tests (a)–(d) + org
+  sees 3 brands over HTTP on real CH data.
+- LIVE (machine, 2026-10-27): metrics-live 10/10 twice; p95 52 / 56 ms (p50 38–40); 300-query leak property clean;
+  cleanup 0 CH / 0 PG. The dev `analytics` DB has only migration 0001 (models never applied there) → the
+  compiled-query-through-analytics_ro step skips with a printed reason; reading + readonly refusal proven.
+
 ## #601 notes (2026-10-25)
 - Local branch has #617 (origin/integration/phase5-month-fixture) merged in, to code against `@platform/test-utils`.
 - Built: `data/clickhouse/migrations/0002_orders_minute.sql` (orders_minute_events RMT + mv_orders_minute + backfill),
