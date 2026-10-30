@@ -85,6 +85,17 @@ export function readConsentModeOverrides(
       );
     }
     const storeKey = storeEnvKey(suffix);
+    // #644 (medium): a per-store key that is SET BUT EMPTY used to fall back to the global mode, so
+    // `ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A=` — an unresolved secret-manager template, a trailing `=` in a
+    // compose file — booted cleanly and tracked that store under `analytics` while the operator believed it
+    // was strict. The global default may be absent (that is what a default is for); a PER-STORE override is
+    // something somebody wrote on purpose, so an empty one is a refusal, not a fallback.
+    if (value === undefined || value.trim() === '') {
+      throw new ConsentModeConfigError(
+        `${key} is set but empty: a per-store override must be "analytics" or "strict" ` +
+          `(remove the variable to use ${CONSENT_MODE_ENV}, the global default)`,
+      );
+    }
     const mode = parseConsentMode(value, key, fallback);
     const first = setBy.get(storeKey);
     const already = overrides.get(storeKey);
@@ -116,6 +127,36 @@ export function assertConsentModeOverridesKnown(
   storeCodes: readonly string[],
 ): void {
   if (overrides.size === 0) return;
+
+  // #644: an override whose key matches TWO known store codes cannot say which store it means.
+  // `brand-a` and `brand_a` are both `BRAND_A`, and `store.code` is unique per organization as TEXT, so
+  // both can exist — and then one override silently applies to both stores. A privacy switch that cannot be
+  // addressed must not be guessed at, so it refuses, naming the pair.
+  //
+  // NARROWED to keys actually in use (manager decision, #644): without an override a collision changes
+  // nothing — both stores take the global mode — and store codes are created from the onboarding UI, so
+  // refusing on any collision would let one store creation stop the CDP for every store. The ambiguity only
+  // bites when somebody addresses it.
+  const byKey = new Map<string, string[]>();
+  for (const code of storeCodes) {
+    const key = storeEnvKey(code);
+    byKey.set(key, [...(byKey.get(key) ?? []), code]);
+  }
+  const ambiguous = [...overrides.keys()]
+    .map((key) => [key, byKey.get(key) ?? []] as const)
+    .filter(([, codes]) => codes.length > 1);
+  if (ambiguous.length > 0) {
+    const detail = ambiguous
+      .map(
+        ([key, codes]) =>
+          `${CONSENT_MODE_ENV_PREFIX}${key} matches ${[...codes].sort().join(' and ')}`,
+      )
+      .join('; ');
+    throw new ConsentModeConfigError(
+      `a per-store consent mode cannot say which store it means: ${detail}. ` +
+        `Rename one of the store codes, or set the mode globally with ${CONSENT_MODE_ENV}`,
+    );
+  }
   const known = new Set(storeCodes.map(storeEnvKey));
   const unknown = [...overrides.keys()].filter((key) => !known.has(key));
   if (unknown.length === 0) return;

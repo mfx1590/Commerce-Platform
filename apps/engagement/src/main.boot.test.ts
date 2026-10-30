@@ -107,6 +107,23 @@ describe('the boot refuses a bad consent-mode configuration (#590)', () => {
     expect(r.stdout).not.toContain('"event":"started"');
   }, 90_000);
 
+  it('EXITS 2 on a per-store consent mode that is set but empty (#644)', async () => {
+    // The medium finding, at the process level: an empty per-store override must stop the boot rather than
+    // quietly become the global mode. Nothing starts, and the message names the variable.
+    const r = await boot({
+      DATABASE_URL_APP: appUrl,
+      ENGAGEMENT_CDP_ENABLED: '1',
+      ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A: '',
+    });
+    expect(r.code).toBe(2);
+    const crash = crashLine(r.stderr);
+    expect(crash?.error_class).toBe('ConsentModeConfigError');
+    expect(String(crash?.message)).toContain(
+      'ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A is set but empty',
+    );
+    expect(r.stdout).not.toContain('"event":"started"');
+  }, 90_000);
+
   it('EXITS 2 when the DLQ watch would not cover a group this process runs (#599)', async () => {
     // The failure the whole issue is about, at the boot: an explicit watch list that omits a group being
     // consumed. Nothing starts, and the message names the group rather than making an operator diff two

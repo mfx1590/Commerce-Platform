@@ -271,15 +271,20 @@ describe('the CDP consent mode resolves PER STORE (#576)', () => {
     ).toThrow(/ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A must be "analytics" or "strict"/);
   });
 
-  it('an empty per-store value falls back to the global rather than throwing', () => {
-    const c = resolveConfig({
-      env: {
-        ...base,
-        ENGAGEMENT_CDP_CONSENT_MODE: 'strict',
-        ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A: '  ',
-      },
-    });
-    expect(c.cdp.consentModeFor('brand-a')).toBe('strict');
+  it('REFUSES an empty per-store value — this test pinned the #644 defect and is reversed', () => {
+    // It used to assert the fallback, and the fallback was the bug: the global mode happened to be `strict`
+    // here, which hid it. With the global on its `analytics` default the same configuration tracked the
+    // store while the operator believed it was strict. The Fable re-review called it (medium); the refusal
+    // and its reasoning are in the #644 block below.
+    expect(() =>
+      resolveConfig({
+        env: {
+          ...base,
+          ENGAGEMENT_CDP_CONSENT_MODE: 'strict',
+          ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A: '  ',
+        },
+      }),
+    ).toThrow(/ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A is set but empty/);
   });
 });
 
@@ -320,6 +325,30 @@ describe('the override KEYS are normalised and validated (#586)', () => {
       },
     });
     expect(c.cdp.consentModeFor('brand-a')).toBe('strict');
+  });
+
+  it('FAILS on a per-store value that is SET BUT EMPTY (#644)', () => {
+    // The medium finding of the Fable re-review: this used to fall back to the GLOBAL mode, so an
+    // unresolved secret-manager template (`..._BRAND_A=`) booted cleanly and tracked brand-a under
+    // `analytics` while the operator believed it was strict. A missing variable is a default; an empty one
+    // is something somebody wrote.
+    for (const value of ['', '   ']) {
+      const env = { ...base, ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A: value };
+      expect(() => resolveConfig({ env, argv: [] })).toThrow(ConsentModeConfigError);
+      expect(() => resolveConfig({ env, argv: [] })).toThrow(
+        /ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A is set but empty/,
+      );
+    }
+  });
+
+  it('still lets the GLOBAL mode be absent or empty — that is what a default is for (#644)', () => {
+    // The refusal above must not spread to the global variable: `analytics` is the documented default, and
+    // an unset or blank global is the ordinary case, not a mistake.
+    expect(resolveConfig({ env: base, argv: [] }).cdp.consentMode).toBe('analytics');
+    expect(
+      resolveConfig({ env: { ...base, ENGAGEMENT_CDP_CONSENT_MODE: '  ' }, argv: [] }).cdp
+        .consentMode,
+    ).toBe('analytics');
   });
 
   it('FAILS on the bare prefix with nothing after it', () => {
@@ -372,6 +401,54 @@ describe('assertConsentModeOverridesKnown (#586)', () => {
 
   it('passes trivially when there are no overrides', () => {
     expect(() => assertConsentModeOverridesKnown(new Map(), [])).not.toThrow();
+  });
+
+  const colliding = ['brand-a', 'brand_a', 'brand-b'];
+
+  it('REFUSES an override whose key matches TWO known store codes, naming the pair (#644)', () => {
+    // `store.code` is unique per organization as TEXT, so `brand-a` and `brand_a` can both exist and both
+    // become `BRAND_A`. An override on that key cannot say which store it means, and a privacy switch that
+    // cannot be addressed must not be guessed at.
+    expect(() =>
+      assertConsentModeOverridesKnown(new Map([['BRAND_A', 'strict']]), colliding),
+    ).toThrow(ConsentModeConfigError);
+    expect(() =>
+      assertConsentModeOverridesKnown(new Map([['BRAND_A', 'strict']]), colliding),
+    ).toThrow(/ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A matches brand-a and brand_a/);
+  });
+
+  it('BOOTS on a collision that no override addresses (#644, narrowed)', () => {
+    // The other way round, and the reason the check is narrow (manager decision): without an override the
+    // collision changes nothing — both stores take the global mode — and store codes are created from the
+    // onboarding UI, so refusing on any collision would let one store creation stop the CDP for every
+    // store. The ambiguity only bites when somebody addresses it.
+    expect(() => assertConsentModeOverridesKnown(new Map(), colliding)).not.toThrow();
+    // Including when an override names a DIFFERENT, unambiguous store.
+    expect(() =>
+      assertConsentModeOverridesKnown(new Map([['BRAND_B', 'strict']]), colliding),
+    ).not.toThrow();
+  });
+
+  it('reports every ambiguous override at once, not one per boot (#644)', () => {
+    expect(() =>
+      assertConsentModeOverridesKnown(
+        new Map([
+          ['BRAND_A', 'strict'],
+          ['BRAND_C', 'strict'],
+        ]),
+        ['brand-a', 'brand_a', 'brand.c', 'brand-c'],
+      ),
+    ).toThrow(/BRAND_A matches[\s\S]*BRAND_C matches/);
+  });
+
+  it('does not mistake one code for a collision with itself', () => {
+    expect(() =>
+      assertConsentModeOverridesKnown(new Map([['BRAND_A', 'strict']]), [
+        'brand-a',
+        'brand-b',
+        'brand-c',
+      ]),
+    ).not.toThrow();
   });
 
   it('FAILS on a typo, naming the variable and the codes that do exist', () => {

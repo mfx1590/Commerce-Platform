@@ -1,6 +1,6 @@
 {
   "name": "@platform/accounting",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "private": true,
   "type": "module",
   "description": "Ledger service: consumes the five ledger events from the bus (group accounting.ledger) and writes balanced double-entry journal entries per legal entity (#548)",

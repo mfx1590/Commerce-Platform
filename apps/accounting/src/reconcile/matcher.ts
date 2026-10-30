@@ -5,7 +5,8 @@
 //   refund  ↔ accounting_refund by refund_id (or source_id); −gross must equal amount_minor
 //   payout  — the payout's own transaction, when a report includes it: ignored for matching
 //   fee / adjustment / other — reported as unmatched charges (the ledger has no counterpart yet)
-//   Σ net of the charge and refund rows must equal the payout amount
+//   Σ net of the charge and refund rows must equal the payout amount; a row in another currency than the payout is a
+//   currency_mismatch — never summed, never matched (#645)
 //   a ledger capture / refund in the payout's WINDOW with no row in it is an unmatched ledger line; the window runs
 //   from the latest ledger time an earlier payout matched (exclusive) to the latest ledger time this payout matched,
 //   so every missing line is reported exactly once, by the payout that should have carried it
@@ -43,6 +44,10 @@ export interface LedgerWindow {
   payments: string | null;
   refunds: string | null;
 }
+
+/** ISO 4217 codes compared without case: Stripe reports `eur`, our ledger stores `EUR` (#645). */
+const sameCurrency = (a: string, b: string): boolean =>
+  a.trim().toUpperCase() === b.trim().toUpperCase();
 
 function kindOf(row: BalanceTransactionRow): MatchedLine['kind'] {
   switch (row.reporting_category) {
@@ -102,6 +107,27 @@ export function matchPayout(input: MatchInput): MatchOutput {
       });
       continue;
     }
+    if (!sameCurrency(row.currency, report.currency)) {
+      lines.push({
+        row,
+        kind,
+        status: 'unmatched',
+        reference_type: null,
+        reference_id: null,
+        difference_minor: row.net_minor,
+      });
+      discrepancies.push({
+        ...base,
+        kind: 'currency_mismatch',
+        balance_transaction_id: row.balance_transaction_id,
+        provider_reference:
+          row.payment_intent_id ?? row.refund_id ?? row.charge_id ?? row.source_id,
+        row_currency: row.currency,
+        actual_minor: row.net_minor,
+        difference_minor: row.net_minor,
+      });
+      continue;
+    }
     sumNet += row.net_minor;
     if (kind === 'charge') {
       const payment =
@@ -131,7 +157,10 @@ export function matchPayout(input: MatchInput): MatchOutput {
       storeId ??= payment.store_id;
       seen('payments', payment.captured_at);
       covered.add(payment.provider_payment_id!);
-      if (row.gross_minor !== payment.amount_minor || row.currency !== payment.currency) {
+      if (
+        row.gross_minor !== payment.amount_minor ||
+        !sameCurrency(row.currency, payment.currency)
+      ) {
         const diff = row.gross_minor - payment.amount_minor;
         lines.push({
           row,
@@ -214,7 +243,10 @@ export function matchPayout(input: MatchInput): MatchOutput {
       storeId ??= refund.store_id;
       seen('refunds', refund.issued_at);
       covered.add(refund.provider_refund_id!);
-      if (-row.gross_minor !== refund.amount_minor || row.currency !== refund.currency) {
+      if (
+        -row.gross_minor !== refund.amount_minor ||
+        !sameCurrency(row.currency, refund.currency)
+      ) {
         const diff = -row.gross_minor - refund.amount_minor;
         lines.push({
           row,
