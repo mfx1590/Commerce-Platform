@@ -17,8 +17,22 @@ async function main(): Promise<number> {
     throw new ConfigError(
       'ANALYTICS_ERASURE_KEY is required (the erasure list key, from env/Vault)',
     );
+  // #648: the ingest writes as analytics_ingest (least privilege), never as the ClickHouse admin
+  if (config.ingestAsAdmin) {
+    if (process.env.NODE_ENV === 'production')
+      throw new ConfigError(
+        'CLICKHOUSE_INGEST_USER is required in production: the ingest never runs as the ClickHouse admin',
+      );
+    console.warn(
+      JSON.stringify({
+        service: 'analytics-ingest',
+        event: 'writer_is_admin',
+        message: 'CLICKHOUSE_INGEST_USER is not set: writing as CLICKHOUSE_USER (dev only)',
+      }),
+    );
+  }
   const telemetry = startTelemetry(); // before the instruments are created, or they stay no-ops
-  const client = createChClient(config.clickhouse);
+  const client = createChClient(config.ingestClickhouse);
   const kafka = createKafka({ clientId: `analytics-ingest-${config.groupId}` });
   const ingest = createIngest({
     config,

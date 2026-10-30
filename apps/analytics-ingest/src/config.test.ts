@@ -40,4 +40,27 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ANALYTICS_BATCH_SIZE: '0' }, [])).toThrow(ConfigError);
     expect(() => loadConfig({}, ['--group'])).toThrow(ConfigError);
   });
+
+  it('the ingest writes as CLICKHOUSE_INGEST_USER; the admin stays for the migrator (#648)', () => {
+    const env = {
+      CLICKHOUSE_USER: 'platform',
+      CLICKHOUSE_PASSWORD: 'admin-word',
+      CLICKHOUSE_INGEST_USER: 'analytics_ingest',
+      CLICKHOUSE_INGEST_PASSWORD: 'ingest-word',
+    };
+    const c = loadConfig(env, []);
+    expect(c.clickhouse).toMatchObject({ username: 'platform', password: 'admin-word' });
+    expect(c.ingestClickhouse).toEqual({
+      ...c.clickhouse,
+      username: 'analytics_ingest',
+      password: 'ingest-word',
+    });
+    expect(c.ingestAsAdmin).toBe(false);
+  });
+
+  it('without CLICKHOUSE_INGEST_USER the ingest falls back to the admin and says so (main refuses it in production)', () => {
+    const c = loadConfig({ CLICKHOUSE_USER: 'platform' }, []);
+    expect(c.ingestClickhouse).toBe(c.clickhouse);
+    expect(c.ingestAsAdmin).toBe(true);
+  });
 });
