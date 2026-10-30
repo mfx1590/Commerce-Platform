@@ -29,10 +29,10 @@ ClickHouse Cloud ignores `users.d` and `config.d`, so the users exist as SQL her
 `CLICKHOUSE_USER`) recreates them anywhere. One file per user, with `-- user:` and `-- password-env:` header lines and
 `{{user}}`, `{{database}}`, `{{password_sha256}}` in its statements:
 
-| File                      | User               | Rights                                                                                                                                    | Used by                                                               |
-| ------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `10_analytics_ingest.sql` | `analytics_ingest` | `SELECT, INSERT ON analytics.*`; `ALTER DELETE, OPTIMIZE ON analytics.raw_events` (the erasure). No DDL, no access management             | the long-running ingest (`CLICKHOUSE_INGEST_USER`)                    |
-| `20_analytics_ro.sql`     | `analytics_ro`     | `SELECT ON analytics.*`; readonly, 10 s, 100 000 rows (throw), 512 MB a query; ≤ 16 queries and ≤ 768 MB at once; ≤ 1200 queries a minute | the metrics API, BI Q&A, recommendations (`CLICKHOUSE_READONLY_USER`) |
+| File                      | User               | Rights                                                                                                                                                                                                                                                                 | Used by                                                               |
+| ------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `10_analytics_ingest.sql` | `analytics_ingest` | `SELECT, INSERT ON analytics.*`; `ALTER DELETE, ALTER UPDATE(_row_exists), OPTIMIZE ON analytics.raw_events` (the erasure: a lightweight DELETE writes the hidden `_row_exists` column, so 25.8 checks ALTER UPDATE on that column only). No DDL, no access management | the long-running ingest (`CLICKHOUSE_INGEST_USER`)                    |
+| `20_analytics_ro.sql`     | `analytics_ro`     | `SELECT ON analytics.*`; readonly, 10 s, 100 000 rows (throw), 512 MB a query; ≤ 16 queries and ≤ 768 MB at once; ≤ 1200 queries a minute                                                                                                                              | the metrics API, BI Q&A, recommendations (`CLICKHOUSE_READONLY_USER`) |
 
 The admin stays for the migrator and the reconcile job only.
 

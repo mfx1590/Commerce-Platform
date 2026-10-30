@@ -52,6 +52,46 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- #648 PLAN (2026-10-30, manager ten; branch data/phase5-ch-access from origin/main; ONE PR "Closes #648", Fable):
+  items 1, 4, 5 = the SQL side. ClickHouse 25.8; system.users: analytics_ro AND platform are storage users_xml
+  (infra/clickhouse/users.d, window 5/manager) — SQL can't alter them.
+  1. data/clickhouse/access/*.sql (server-level, re-applied every `ch:migrate` run, idempotent: CREATE USER IF NOT
+     EXISTS + ALTER USER … IDENTIFIED WITH sha256_hash (hash computed in node from env, never in git, log_queries=0),
+     CREATE OR REPLACE SETTINGS PROFILE / QUOTA, GRANT; no DROP). A user the XML storage owns is SKIPPED with a
+     report line (locally analytics_ro until the manager removes it from users.d).
+  2. analytics_ingest: GRANT SELECT, INSERT ON analytics.* + ALTER DELETE, OPTIMIZE ON analytics.raw_events; no
+     access management, no DDL. Check the MV push (orders_minute_events) works under it.
+  3. analytics_ro (Cloud path): profile readonly=1, 10 s, 100k rows throw, 512 MB + max_concurrent_queries_for_user
+     + max_memory_usage_for_user; a quota (queries/min). SELECT ON analytics.* only.
+  4. The ingest uses CLICKHOUSE_INGEST_USER / _PASSWORD (migrator keeps CLICKHOUSE_USER = admin); production
+     refuses the admin fallback. Env names to the manager (item 2 is his). Apply to the shared DB (approved).
+  BUILT + VERIFIED 2026-10-30 (code 4f788c2, 95968ef; docs 161d899): access.test live 20/20 (throwaway users + DB,
+  cleanup 0/0/0/0). LIVE FINDING: ClickHouse 25.8's lightweight DELETE needs ALTER UPDATE(_row_exists) on the table
+  (granted on that column only) — the erasure would have failed as analytics_ingest. Shared `analytics`: a read-only
+  dry run first (would re-apply models/100_staging + 300_facts = #637's lint fixes never applied there), manager
+  approved, then ch:migrate = exactly that + access applied analytics_ingest (local_directory; 5 grants), skipped
+  analytics_ro (users_xml). Real ingest (dev) as analytics_ingest + relay + ONE order (1168): 3 raw events, the MV row
+  (EUR 1693), query_log inserts into raw_events by analytics_ingest only. Dev password word: manager-accepted
+  `analytics-ingest` (CLICKHOUSE_INGEST_USER=analytics_ingest). NEXT: manager's integration commit on top
+  (integration/phase5-clickhouse-access: .env.example + CI rows, users.d analytics_ro block removed, ports); both
+  states work (XML-owned → skipped; gone → SQL creates analytics_ro). ONE PR "Closes #648", Fable review.
+  Gotchas: system.grants orders access_type by enum (compare as a sorted set); getSetting answers numbers; a readonly
+  user must use createChReader (the writer client sends settings); vitest transform errors show as "no tests".
+- #604 DONE: PR #643 MERGED (e1e1d3d, 2026-10-29). NOW #641 (manager ten, 2026-10-30), branch data/phase5-ingest-ops
+  (cut --no-track from origin/main e1e1d3d). PR #650 (code commit 1db1025; head = this memory commit). Review
+  (manager ten) = small BLOCK: reconcile-gate.test.ts:189 still passed `dlqTopic` (the core tsconfig excludes tests,
+  the import is dynamic: typecheck never saw it) → deleted in this commit; an ESM tsc over that file shows TS2353
+  without the fix and nothing with it. GOTCHA: a dynamic `await import()` in an excluded test file is checked by
+  NOTHING — grep for callers when an options type narrows. Items:
+  - item 2: /health = readiness — joined (GROUP_JOIN; REBALANCING/CRASH/STOP/DISCONNECT clear it) AND progress (any
+    FETCH or a commit) within ANALYTICS_READY_STALE_MS (default 300 000, ≥ 10 000) AND no batch in flight past it.
+    GOTCHA: kafkajs 2.2.4's FETCH event ALWAYS says numberOfBatches: 0 (runner.js: kept for compatibility), so it
+    cannot tell an empty fetch from a full one → the in-flight age is the stuck signal. healthVerdict is pure.
+  - item 3: createIngest derives `<prefix>dlq.<group>`; IngestOptions.config has no dlqTopic.
+  - items 1+4: README "Deploying" (Recreate, replicas 1, restart backoff > 30 s, the probes) + the over-scrub note;
+    REQUEST #647 (window 5: a chart `strategy` value; the chart sets none = RollingUpdate with surge).
+  - Unit + static only (no machine): ingest 93 passed / 19 skipped; root lint + typecheck green. Gotcha: the
+    package `typecheck` script covers the tests, `npx tsc -p .` does not — run the package script.
 - #604 PLAN (2026-10-29; branch data/phase5-bi-v2, cut --no-track from origin/main after #638 + #637 merged):
   done: df722fa (#502 nits), b9b3319 (BI v2 data layer), 05e7987 (#638 review A: an empty filter list → 400).
   1. _lib/metrics.ts on the GENERATED types (contracts 0.4.30) + refundsByDayQuery + an optional store filter.
