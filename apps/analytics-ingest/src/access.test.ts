@@ -37,13 +37,31 @@ describe('data/clickhouse/access', () => {
     expect(lintAccessFiles(files)).toEqual([]);
   });
 
-  it('analytics_ingest: INSERT + SELECT on the database, DELETE/OPTIMIZE on raw_events only, nothing else', () => {
+  it('analytics_ingest: SELECT on the database, INSERT into the tables it writes only, DELETE/OPTIMIZE on raw_events', () => {
     const grants = files[0]!.sql.split('\n').filter((l) => /^(GRANT|REVOKE)/.test(l));
     expect(grants).toEqual([
       'REVOKE ALL ON *.* FROM {{user}};',
-      'GRANT SELECT, INSERT ON {{database}}.* TO {{user}};',
+      'GRANT SELECT ON {{database}}.* TO {{user}};',
+      'GRANT INSERT ON {{database}}.raw_events TO {{user}};',
+      'GRANT INSERT ON {{database}}.customer_erasures TO {{user}};',
+      'GRANT INSERT ON {{database}}.orders_minute_events TO {{user}};',
       'GRANT ALTER DELETE, ALTER UPDATE(_row_exists), OPTIMIZE ON {{database}}.raw_events TO {{user}};',
     ]);
+  });
+
+  it('every materialised view on raw_events has its TO table in the INSERT grants (a new MV cannot be forgotten)', () => {
+    const migrations = readSqlFiles().filter((f) => f.kind === 'migration');
+    const targets = new Set<string>();
+    for (const f of migrations)
+      for (const m of f.sql.matchAll(
+        /CREATE MATERIALIZED VIEW IF NOT EXISTS \w+ TO (\w+) AS[\s\S]*?\bFROM (\w+)/g,
+      ))
+        if (m[2] === 'raw_events') targets.add(m[1]!);
+    expect([...targets]).toEqual(['orders_minute_events']);
+    const inserts = new Set(
+      [...files[0]!.sql.matchAll(/^GRANT INSERT ON \{\{database\}\}\.(\w+) TO/gm)].map((m) => m[1]),
+    );
+    for (const t of ['raw_events', 'customer_erasures', ...targets]) expect(inserts).toContain(t);
   });
 
   it('analytics_ro: SELECT on the database only, readonly, and the per-user bounds', () => {
@@ -303,6 +321,18 @@ describe.skipIf(skip !== null)('ClickHouse access as SQL (#648)', () => {
   });
 
   it('analytics_ingest is refused DDL, user management, other tables’ DELETE, system tables and other databases', async () => {
+    // INSERT only where it writes: a mart, the reconcile job's ledger_lines and the runner's _migrations are refused
+    await refused(
+      asIngest.command({
+        query: 'INSERT INTO mart_bookings_daily SELECT * FROM mart_bookings_daily LIMIT 0',
+      }),
+    );
+    await refused(
+      asIngest.command({ query: 'INSERT INTO ledger_lines SELECT * FROM ledger_lines LIMIT 0' }),
+    );
+    await refused(
+      asIngest.command({ query: "INSERT INTO _migrations (name, checksum) VALUES ('x', 'y')" }),
+    );
     await refused(asIngest.command({ query: 'CREATE TABLE t648 (x UInt8) ENGINE = Memory' }));
     await refused(asIngest.command({ query: 'DROP TABLE raw_events' }));
     await refused(
@@ -371,7 +401,9 @@ describe.skipIf(skip !== null)('ClickHouse access as SQL (#648)', () => {
     ).toEqual([
       'ALTER DELETE:raw_events',
       'ALTER UPDATE:raw_events(_row_exists)',
-      'INSERT:*',
+      'INSERT:customer_erasures',
+      'INSERT:orders_minute_events',
+      'INSERT:raw_events',
       'OPTIMIZE:raw_events',
       'SELECT:*',
     ]);

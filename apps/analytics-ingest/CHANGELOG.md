@@ -1,5 +1,15 @@
 # Changelog — @platform/analytics-ingest
 
+## 0.8.1 — unreleased (#648 follow-ups)
+
+- `analytics_ingest` INSERTs only into the tables it writes: `raw_events`, `customer_erasures` and the MV target
+  `orders_minute_events` (was `analytics.*`); a test derives every MV target on `raw_events` from the migrations so a
+  new MV cannot be left without its grant.
+- `ch:migrate` loads the repo-root `.env` when `CLICKHOUSE_USER` is absent (never over a set variable) and otherwise
+  refuses with a message naming `CLICKHOUSE_USER`, instead of silently connecting as `default` (`resolveAdminEnv`).
+- data/clickhouse README: the users.d handover is pull, then `ch:migrate` at once (the file share propagates the
+  deletion to the running container).
+
 ## 0.8.0 — unreleased (#648, the ClickHouse re-review: items 1, 4, 5)
 
 - `data/clickhouse/access/`: the users as versioned SQL, applied by `ch:migrate` after the models on every run
