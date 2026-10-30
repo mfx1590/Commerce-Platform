@@ -53,7 +53,11 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
 
 ## In progress — Phase 5
 - #604 DONE: PR #643 MERGED (e1e1d3d, 2026-10-29). NOW #641 (manager ten, 2026-10-30), branch data/phase5-ingest-ops
-  (cut --no-track from origin/main e1e1d3d), code commit 1db1025; head = this memory commit; ONE PR "Closes #641":
+  (cut --no-track from origin/main e1e1d3d). PR #650 (code commit 1db1025; head = this memory commit). Review
+  (manager ten) = small BLOCK: reconcile-gate.test.ts:189 still passed `dlqTopic` (the core tsconfig excludes tests,
+  the import is dynamic: typecheck never saw it) → deleted in this commit; an ESM tsc over that file shows TS2353
+  without the fix and nothing with it. GOTCHA: a dynamic `await import()` in an excluded test file is checked by
+  NOTHING — grep for callers when an options type narrows. Items:
   - item 2: /health = readiness — joined (GROUP_JOIN; REBALANCING/CRASH/STOP/DISCONNECT clear it) AND progress (any
     FETCH or a commit) within ANALYTICS_READY_STALE_MS (default 300 000, ≥ 10 000) AND no batch in flight past it.
     GOTCHA: kafkajs 2.2.4's FETCH event ALWAYS says numberOfBatches: 0 (runner.js: kept for compatibility), so it
