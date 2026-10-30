@@ -399,13 +399,16 @@ jobs:
       DATABASE_URL_APP: postgres://platform_app:platform_app@localhost:5433/platform
       MOCK_API_URL: http://localhost:4010
       # ClickHouse (Phase 5, #600/#612): the compose `analytics` profile. 127.0.0.1, never localhost. Writer = the
-      # migrator and the ingest; analytics_ro = the read-only user (infra/clickhouse/users.d). Local words, not keys.
+      # migrator; analytics_ingest = the ingest's writer and analytics_ro = the read-only user, both created by ch:migrate
+      # from data/clickhouse/access (#648). Local words, not keys.
       CLICKHOUSE_URL: http://127.0.0.1:18123
       CLICKHOUSE_DATABASE: analytics
       CLICKHOUSE_USER: platform
       CLICKHOUSE_PASSWORD: platform
       CLICKHOUSE_READONLY_USER: analytics_ro
       CLICKHOUSE_READONLY_PASSWORD: analytics_ro
+      CLICKHOUSE_INGEST_USER: analytics_ingest
+      CLICKHOUSE_INGEST_PASSWORD: analytics-ingest
       # The erasure-list HMAC key (#623), a local word: the tests pass their own, a spawned ingest CLI reads this one.
       ANALYTICS_ERASURE_KEY: dev-only-analytics-erasure-key
     steps:
@@ -430,6 +433,16 @@ jobs:
       - name: the auth stack is really up (the live suites skip silently otherwise)
         if: needs.changes.outputs.e2e == 'true'
         run: bash infra/ci/wait-for-auth-stack.sh
+      # ClickHouse users and models (#648): since users.d no longer defines analytics_ro, nothing reads ClickHouse
+      # before ch:migrate has created analytics_ingest and analytics_ro from data/clickhouse/access. The step fails
+      # unless the access report lists BOTH users as applied (a skipped user would mean a stale XML definition).
+      - name: ClickHouse migrations + access users (analytics_ingest, analytics_ro)
+        if: needs.changes.outputs.e2e == 'true'
+        run: |
+          for i in $(seq 1 60); do curl -sf --max-time 3 -u "$CLICKHOUSE_USER:$CLICKHOUSE_PASSWORD" "$CLICKHOUSE_URL/?query=SELECT%201" >/dev/null && break; sleep 2; done
+          pnpm exec turbo run build --filter='@platform/analytics-ingest^...'
+          pnpm --filter @platform/analytics-ingest ch:migrate | tee "$RUNNER_TEMP/ch-migrate.log"
+          node infra/ci/check-ch-access.mjs "$RUNNER_TEMP/ch-migrate.log" analytics_ingest analytics_ro
       # Redpanda topics + the events live block (#530, #536). The topic list is derived from packages/events;
       # the script is idempotent (the dry run then shows nothing to create). The live block creates its own
       # prefixed topics and deletes them; require-live-tests makes a probe that misses fail the step instead of
