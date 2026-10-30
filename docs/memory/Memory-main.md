@@ -18,6 +18,21 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
 
 ## Current status
 - **2026-10-29 ~12:40 local: HANDOVER TO MANAGER SESSION TEN (session nine at 77% context). READ THIS FIRST; it supersedes the bullets below where they differ.** Phase 5, end of wave 2.
+  - **SESSION TEN UPDATE 2026-10-30:**
+    - **#643 MERGED** (e1e1d3d; #604 closed). Opus review BLOCK at a04470e: CSV of every table, a store-admin write e2e, latency not measured, no perf evidence. The manager re-checked the fixes at 0c4ba2d by hand: MERGE.
+    - **Decisions recorded on #604:** D6's latency is restated as event → `mv_orders_minute` < 10 s p95 AND tile ≤ one poll (measured over 20 orders: p95 3.0 s and 12.5 s). The admin perf gate is waived (BI 116 kB vs the largest admin route, 177 kB).
+    - **minItems: 1 on the four MetricQuery filter arrays: ACCEPTED** for the manager's next contracts landing.
+    - The shared schema registry got customer.erased-v2-value (register-schemas.mjs, additive, manager OK; 1 registered, 0 refused).
+    - The BI write journeys are opt-in (`E2E_BI_LIVE=1`). Wiring relay + ingest + ClickHouse into a CI job is the manager's follow-up.
+    - **NOW:** window 12 on #641 (ingest ops, data/phase5-ingest-ops, Opus review). Fable re-review **P2 batch 1 running:** #585+#590, #571/dd9cc80, #598. Then #613, #614, then P3.
+    - **Fable P2 re-reviews DONE (all FINDINGS; every medium manager-verified):**
+      - #585/#590 → **#644** (window 16, Sonnet, building): an empty per-store override becomes the global mode.
+      - #571/dd9cc80 → **#645** (window 15, building; Fable review of the PR): stale payout lines hide a dropped capture; JS vs SQL tie-break.
+      - #598 + #613 → **#646** (window 16 after #644): client_credentials unbuilt, so CRM runs only on the mock default; --drain joins live groups; the refusal exits 1.
+      - #614 → **#648** (window 12 SQL side + manager compose side): the ClickHouse writer is an admin; ports and analytics_ro are open on all interfaces (rebinding recreates the container → owner OK first).
+      - Launch-checklist lines added for #646 and #648.
+      - **P3 next:** #583 commits 0191702/38338ed, #597, #596, #593, #563/#564, #617.
+    - Window 14's model is unconfirmed: ask the owner before #605.
   - **MERGED 10-29:** #621 (#607 recommendations, 518cc4c, tagged **contracts-v0.4.29**; the shared dev DB migrated with 0204 after the backup `platform-before-0204-20261029.dump`), #631 (#623 ClickHouse erasure, 0d31c6d), #636 (#603 CONTRACT, 77ed790, tagged **contracts-v0.4.30**: Admin API 0.4.25 listMetrics/queryMetrics, live metrics, CSV via Accept, `unavailable`, the core error map, and the `(store)/[storeId]/bi/**` ownership row → window 12). Earlier: #630, #626, #628 (10-27). Wave 1 and the wave-2 contracts are DONE.
   - **OPEN / IN FLIGHT:**
     - **#635 MERGED 10-29 (a2ff2ce; #632 closed)** after a targeted Fable re-review of the fix commit d16cce7. History: (closes #632, the service-client OPERATION allowlist; a FRESH window-2 session `local_2dab645b-c111-4083-a9a1-9fd68d159e51` "Window 2 Phase 5 allowlist live testing", Opus). Fable: MERGE with 3 fixes (manager-verified): add `listLegalEntityBooks` for analytics-sync (the #602 reconcile's first call) + a reconcile-calls-vs-allowlist test; DROP `listCustomers` from crm-sync; a matcher test against the core's REAL /admin router stack. Window 2 built them (auth-sdk 459/459); its core suite was running; then it pushes integration/phase5-allowlist by refspec and reports the head. THEN: a short targeted Fable re-review of the fix commit → queue. Auto-fix was clicked ON by mistake by the owner and is now OFF (confirmed; auto-merge off). Window 2's `gh issue comment 565` (a note for window 16 that crm-sync lost listCustomers and engagement's admin-api.ts header comment is stale) was DENIED by its classifier: do NOT post it on its behalf; the default is to put the note in #635's PR body; the owner may post it.
