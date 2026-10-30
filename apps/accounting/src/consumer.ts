@@ -19,7 +19,7 @@ import {
   type EventEnvelopeV1Base,
   createKafka,
 } from '@platform/events';
-import { ForeignOrganizationError, InvalidEventError } from './errors.js';
+import { ForeignOrganizationError, InvalidEventError, PostingError } from './errors.js';
 import { ensureChart, insertJournalEntry } from './ledger.js';
 import { consoleLogger, errorClassOf, type Logger } from './log.js';
 import {
@@ -61,6 +61,11 @@ export interface HandledEvent {
   lines: number;
   /** Parked events an order.placed applied in this transaction. */
   applied_parked: number;
+  /**
+   * Parked events the order.placed could NOT apply because posting them is a defect (e.g. a shipment dated after the
+   * cancellation): they stay in accounting_parked_event, the order and the rest post (#639). Empty otherwise.
+   */
+  parked_defects: { outbox_id: string; topic: string; error_class: string }[];
 }
 
 export interface HandleOptions {
@@ -88,6 +93,7 @@ export async function handleLedgerEvent(
     entries: 0,
     lines: 0,
     applied_parked: 0,
+    parked_defects: [] as HandledEvent['parked_defects'],
   };
   if (!isLedgerTopic(envelope.topic)) return { ...base, action: 'ignored', legal_entity_id: null };
   const check = (opts.validator ?? validator()).validateEnvelope(envelope as EventEnvelopeV1Base);
@@ -129,15 +135,32 @@ export async function handleLedgerEvent(
     await write(result);
     let projection: OrderProjection | null = result.order ?? order;
     let applied = 0;
+    const defects: HandledEvent['parked_defects'] = [];
     if (envelope.topic === 'order.placed' && result.order) {
       // the order is here: apply what arrived before it, in the order the facts happened
+      const appliedIds: string[] = [];
       for (const parked of await loadParkedEvents(tx, orderId)) {
-        const r = postEvent(parked.envelope, projection);
+        let r: PostingResult;
+        try {
+          r = postEvent(parked.envelope, projection); // pure: a throw here has written nothing
+        } catch (err) {
+          // #639: a parked event that is a DEFECT (a shipment dated after the cancellation, an over-shipment…) fails on
+          // its own: it stays parked (never deleted, visible through listParkedEvents) and the order still posts.
+          // Before, the throw dead-lettered the order.placed itself and the whole order stayed unposted.
+          if (!(err instanceof PostingError)) throw err;
+          defects.push({
+            outbox_id: parked.outbox_id,
+            topic: parked.envelope.topic,
+            error_class: err.name,
+          });
+          continue;
+        }
         await write(r);
         if (r.order) projection = r.order;
+        appliedIds.push(parked.outbox_id);
         applied += 1;
       }
-      if (applied > 0) await deleteParkedEvents(tx, orderId);
+      if (applied > 0) await deleteParkedEvents(tx, orderId, appliedIds);
     }
     if (projection && (result.order || applied > 0)) await saveOrderProjection(tx, projection);
     if (opts.markProcessed) await opts.markProcessed(tx);
@@ -148,6 +171,7 @@ export async function handleLedgerEvent(
       entries,
       lines,
       applied_parked: applied,
+      parked_defects: defects,
     };
   });
 }
@@ -195,6 +219,9 @@ export function createLedgerConsumer(deps: LedgerConsumerDeps): EventConsumer {
           markProcessed: (tx) => ctx.markProcessed(tx),
         });
         log.info({ event: r.action, ...r, attempt: ctx.attempt });
+        for (const d of r.parked_defects)
+          // error level: a stuck parked event is a defect someone must act on, never only visible on request (#639)
+          log.error({ event: 'parked_event_defect', order_outbox_id: r.outbox_id, ...d });
       } catch (err) {
         log.warn({
           event: 'posting_failed',

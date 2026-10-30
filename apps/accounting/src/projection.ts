@@ -229,7 +229,35 @@ export async function loadParkedEvents(tx: Queryable, orderId: string): Promise<
   }));
 }
 
-export async function deleteParkedEvents(tx: Queryable, orderId: string): Promise<number> {
-  const r = await tx.query('DELETE FROM accounting_parked_event WHERE order_id = $1', [orderId]);
+/**
+ * Parked events whose order ALREADY exists: they can only be defects the order.placed skipped (#639) — a healthy parked
+ * event is applied and deleted in the order's own transaction. The month-replay gate fails on any; empty is healthy.
+ */
+export async function stuckParkedEvents(
+  q: Queryable,
+  legalEntityId?: string,
+): Promise<{ outbox_id: string; topic: string; order_id: string }[]> {
+  const r = await q.query<{ outbox_id: string; topic: string; order_id: string }>(
+    `SELECT p.outbox_id, p.topic, p.order_id FROM accounting_parked_event p
+       JOIN accounting_order o ON o.order_id = p.order_id
+      WHERE $1::uuid IS NULL OR o.legal_entity_id = $1::uuid
+      ORDER BY p.occurred_at, p.outbox_id`,
+    [legalEntityId ?? null],
+  );
+  return r.rows;
+}
+
+export async function deleteParkedEvents(
+  tx: Queryable,
+  orderId: string,
+  outboxIds?: string[],
+): Promise<number> {
+  // #639: only the events that were applied; a parked event that turned out to be a defect stays parked
+  const r = outboxIds
+    ? await tx.query(
+        'DELETE FROM accounting_parked_event WHERE order_id = $1 AND outbox_id = ANY($2::uuid[])',
+        [orderId, outboxIds],
+      )
+    : await tx.query('DELETE FROM accounting_parked_event WHERE order_id = $1', [orderId]);
   return r.rowCount ?? 0;
 }

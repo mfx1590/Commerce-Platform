@@ -39,6 +39,7 @@ import { generateMonth, LE_A, LE_B, LE_C } from '../src/posting/fixtures.js';
 import { LEDGER_TOPICS } from '../src/posting/index.js';
 import { payoutReportFor } from '../src/reconcile/fixtures/build.js';
 import { pspClearingBalance, reconcileAll } from '../src/reconcile/reconcile.js';
+import { stuckParkedEvents } from '../src/projection.js';
 import { createFixtureSource } from '../src/reconcile/source-fixture.js';
 import { createAccountingTestDatabase, type AccountingTestDatabase } from './helpers/db.js';
 
@@ -296,6 +297,8 @@ describe.runIf(brokerDown === null)(
         skipped_unknown: 0,
       });
       expect(await count(live, 'accounting_parked_event')).toBe(0);
+      // #639: a skipped defect (a parked event whose order exists) can never coexist with a passing gate
+      expect(await live.hq.transaction((tx) => stuckParkedEvents(tx))).toEqual([]);
       for (const e of entities) {
         const balance = await live.hq.transaction((tx) => balanceByCurrency(tx, e.le));
         expect(Object.keys(balance), e.code).toEqual([e.currency]);
@@ -324,6 +327,7 @@ describe.runIf(brokerDown === null)(
       );
       expect(consumer.stats).toMatchObject({ handled: rows.length, dead_lettered: 0 });
       expect(await count(fresh, 'accounting_parked_event')).toBe(0);
+      expect(await fresh.hq.transaction((tx) => stuckParkedEvents(tx))).toEqual([]);
       const totals: Record<string, unknown>[] = [];
       for (const e of entities) {
         const balance = await fresh.hq.transaction((tx) => balanceByCurrency(tx, e.le));
