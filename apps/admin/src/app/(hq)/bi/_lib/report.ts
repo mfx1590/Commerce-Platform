@@ -81,6 +81,27 @@ export function currencyTabs(totals: readonly CurrencyTotal[]): string[] {
     .map((t) => t.currency);
 }
 
+/**
+ * #502 nit: a currency the FINANCE report has but sales do not (captures or refunds without placed orders in the
+ * window) must still be reachable. Sales currencies first (most orders first), then the finance-only ones,
+ * alphabetically.
+ */
+export function mergeCurrencyTabs(
+  salesTabs: readonly string[],
+  financeCurrencies: readonly string[],
+): string[] {
+  const extra = [...new Set(financeCurrencies)].filter((c) => !salesTabs.includes(c)).sort();
+  return [...salesTabs, ...extra];
+}
+
+/**
+ * #502 nit: a store the report names but the principal's store list lacks is shown by its FULL id (a prefix could
+ * collide and would hide which store it is).
+ */
+export function storeLabel(stores: readonly StoreRef[], id: string): string {
+  return stores.find((s) => s.store_id === id)?.code ?? id;
+}
+
 /** The requested currency when the report has it, else the first tab; null when there is nothing to show. */
 export function pickCurrency(
   tabs: readonly string[],
@@ -144,8 +165,10 @@ export function dailySeries(
 export function biHref(
   window: ReportWindow,
   params: Record<string, string | undefined> = {},
+  /** `/bi` (HQ) or `/<storeId>/bi` (the store view). */
+  base = '/bi',
 ): string {
   const q = new URLSearchParams({ from: window.from, to: window.to });
   for (const [k, v] of Object.entries(params)) if (v !== undefined) q.set(k, v);
-  return `/bi?${q.toString()}`;
+  return `${base}?${q.toString()}`;
 }

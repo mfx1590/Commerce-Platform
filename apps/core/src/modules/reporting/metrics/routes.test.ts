@@ -180,6 +180,24 @@ describe('queryMetrics', () => {
     expect(seen).toEqual([]);
   });
 
+  it('an EMPTY filter list is a 400 naming the field, never a 500 (#638 review A)', async () => {
+    for (const [field, metrics] of [
+      ['store_ids', ['orders']],
+      ['currencies', ['bookings_minor']],
+      ['product_ids', ['units']],
+      ['refund_reasons', ['refunds_minor']],
+    ] as const) {
+      seen.length = 0;
+      const r = await post(q({ metrics, filters: { [field]: [] } }), 'seed-analyst');
+      expect(r.status, field).toBe(400);
+      expect(r.body).toMatchObject({
+        code: 'validation_error',
+        details: { field: `filters.${field}` },
+      });
+      expect(seen).toEqual([]);
+    }
+  });
+
   it('ClickHouse down is a 503 `unavailable` with nothing partial', async () => {
     failNext = true;
     const r = await post(q(), 'seed-analyst');

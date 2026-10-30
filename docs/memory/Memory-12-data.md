@@ -52,6 +52,37 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- #604 PLAN (2026-10-29; branch data/phase5-bi-v2, cut --no-track from origin/main after #638 + #637 merged):
+  done: df722fa (#502 nits), b9b3319 (BI v2 data layer), 05e7987 (#638 review A: an empty filter list → 400).
+  1. _lib/metrics.ts on the GENERATED types (contracts 0.4.30) + refundsByDayQuery + an optional store filter.
+  2. _api.ts: queryMetrics / listMetrics (adminCall) + queryMetricsCsv (raw text, Accept: text/csv, X-Truncated).
+  3. HQ /bi: money views (finance only), top products, per-day refunds chart, live tiles (client component polling
+     a route handler /bi/live every 15 s; freshness + stale), CSV download (route handler /bi/export).
+  4. Store view src/app/(store)/[storeId]/bi/ (page + live + export, store_ids = [storeId]; the API decides).
+  5. e2e/bi: place an order on the core (e2e/core-order.ts) → the live tile counts it (E2E_API=core, machine).
+  6. REQUEST to window 4: the rail entry for the store BI page. README/CHANGELOG, gates, ONE PR "Closes #604".
+  BUILT (all 6): 9df7d4a dashboards + live tiles + store view + CSV, 269dd04 e2e + docs, 233b25c Prism contract
+  tests (every dashboard query body validated by the spec). REQUEST #642 (window 4: STORE_SECTIONS 'bi'; then wrap
+  the store page in StoreSectionGuard). Manager session TEN (local_3c029c3c…) took over from nine on 2026-10-29.
+  Live 2026-10-29: the relay needed customer.erased-v2-value in the SHARED registry → manager ten approved ONE run of
+  infra/redpanda/register-schemas.mjs (registered 1, unchanged 40, compatibility_set 1, refused 0). e2e bi in core
+  mode 3/3 (order 1143: brand-a EUR live tile 0 → 1 by its own poll; store view brand-a only); reporting live 97/97
+  (p95 36 ms); admin unit 915/915; contract bi 11/11; root lint + typecheck green. minItems: 1 on the four filter
+  arrays = manager ten's NEXT contracts landing (do not edit packages/contracts); the server keeps the 400.
+  PR #643 (code commit 1b8f96e; head = this memory commit). Review (manager ten, 2026-10-29) = BLOCK on #604's
+  own criteria, all fixed: (1) c7f9109 every table exports (?table=period|money|products, same query + scope);
+  (2) 0e00778 + 1b8f96e store-admin e2e WRITES (its tile 24 → 25) and brand-c (outside its A+B scope) = 403 page /
+  live / CSV; (3) bi-latency.spec.ts, 20 orders: event → mv_orders_minute p50 2653 / p95 3017 / max 3098 ms
+  (server ingested−occurred p95 1979), MV → tile p50 12098 / p95 12535 / max 12715 ms (≤ 15 s poll);
+  (4) next build First Load JS: /bi and /[storeId]/bi 116 kB, largest /[storeId]/promotions/new 177 kB, shared
+  102 kB; (5) this line. The first CI run's advisory core e2e failed on the live journey: CI runs no relay, ingest
+  or ClickHouse → write journeys opt-in E2E_BI_LIVE=1; the out-of-scope 403 runs in every core job. Verified both
+  modes: CI-like 3 passed / 3 skipped; full pipeline 5 passed / 1 skipped. Nits deferred (analyst guard on HQ
+  live/export, poll overlap/backoff, unmount test, product names).
+- Gotcha: Playwright getByRole name matching is a case-insensitive SUBSTRING: 'Currency' matched 'Metrics currency'
+  (strict-mode clash) — use exact: true when a page has two similarly named landmarks.
+- Gotcha: the e2e stack = core dev + `outbox:relay` + ingest dev (ANALYTICS_ERASURE_KEY from .env.example; .env has
+  none); after TaskStop, kill each tsx parent AND its loader child (check parent ids, this worktree only).
 - #601 P5.2 models: PR #619 (Closes #601; code commits 0b3b265, 0a0d6b8, a6b8e42 on top of the merge of main 05cf71f;
   head = this memory commit). Review = a FABLE review after the weekly reset (2026-10-27 14:00 UTC); the manager pins
   the 11 models.test titles in the CI live step on the integration landing. Push NOTHING more unless the review asks.
@@ -182,6 +213,23 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
 - LIVE (machine, 2026-10-27): metrics-live 10/10 twice; p95 52 / 56 ms (p50 38–40); 300-query leak property clean;
   cleanup 0 CH / 0 PG. The dev `analytics` DB has only migration 0001 (models never applied there) → the
   compiled-query-through-analytics_ro step skips with a printed reason; reading + readonly refusal proven.
+
+## #604 IN PROGRESS (2026-10-27; branch data/phase5-bi, cut --no-track from data/phase5-metrics 71827d4; local)
+- data/phase5-metrics PUSHED at 71827d4; the manager cuts integration/phase5-metrics after #621 (contracts 0.4.29),
+  lands the #603 YAML as 0.4.30 / Admin API 0.4.25 (+ `unavailable`), my commits incl. a977b43 on top, Fable review.
+  ON HIS WORD: do the one-line `internal` → `unavailable` switch (execute.ts, reader.ts) on that branch.
+- Shared `analytics` DB migrated (manager's go): 0002–0004 + all models applied, raw 460 unchanged, backfill 144;
+  analytics_ro now runs compiled queries there (metrics-live read path closed).
+- b416c38: the alias-shadow lint (apps/analytics-ingest/src/sql-lint.ts + test): catches the 3 Phase 5 bugs, found 2
+  more (staging `store_id IS NOT NULL` read the assumeNotNull alias → filters moved into a subquery;
+  fct_order_line inner variant_id alias → variant_id_in, expression repeated); migration 0002 = the one FROZEN
+  exception (applied, harmless). Model SQL changed → asked for the machine for a re-verification run
+  (models, erasure, live, gate) BEFORE building on it.
+- Asked the manager (to fold into the #603 contract before it lands): (1) `live_orders` + `live_bookings_minor`
+  from live_orders_minute (day/total, store); (2) CSV via `Accept: text/csv` on queryMetrics; (3) ownership row
+  `apps/admin/src/app/(store)/[storeId]/bi/**` → window 12 for the store-admin view (the (hq) layout refuses
+  store-only principals). Building meanwhile: HQ period dashboards on the existing metrics, the #502 nits
+  (finance currency without sales, per-day refunds chart, codeOf fallback), the BI data layer.
 
 ## #601 notes (2026-10-25)
 - Local branch has #617 (origin/integration/phase5-month-fixture) merged in, to code against `@platform/test-utils`.

@@ -63,3 +63,36 @@ describe('the BI wrappers reach the paths the contract documents', () => {
     expect(res.ok).toBe(false);
   });
 });
+
+const metrics = await import('@/app/(hq)/bi/_lib/metrics');
+
+describe('the metrics API (#604): every query the dashboards send is a valid body for the spec', () => {
+  it('listMetrics answers a catalogue', async () => {
+    const res = await bi.listMetrics();
+    expect(res.ok, JSON.stringify(res)).toBe(true);
+    if (res.ok) expect(Array.isArray(res.data.metrics)).toBe(true);
+  });
+
+  it.each([
+    ['period', metrics.periodQuery(WINDOW)],
+    ['money views', metrics.moneyViewsQuery(WINDOW)],
+    ['top products', metrics.topProductsQuery(WINDOW)],
+    ['live', metrics.liveQuery(new Date('2026-03-15T12:00:00Z'))],
+    ['period, store view', metrics.forStore(metrics.periodQuery(WINDOW), SEED_STORE_ID)],
+  ])('%s: Prism validates the body and answers a MetricResult', async (_name, body) => {
+    const res = await bi.queryMetrics(body);
+    expect(res.ok, JSON.stringify(res)).toBe(true);
+    if (res.ok) {
+      expect(Array.isArray(res.data.rows)).toBe(true);
+      expect(Array.isArray(res.data.currency_totals)).toBe(true);
+    }
+  });
+
+  it('a body outside the spec is refused by the mock, so the test above would catch a drifted builder', async () => {
+    const res = await bi.queryMetrics({
+      ...metrics.periodQuery(WINDOW),
+      metrics: ['sum(total_minor)' as never],
+    });
+    expect(res.ok).toBe(false);
+  });
+});

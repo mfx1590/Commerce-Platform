@@ -1,6 +1,7 @@
 /**
  * The BI report body (#480): rendered by page.tsx inside the section guard, so nothing here runs for a principal
- * without `analyst`. Sales per currency tab, finance only for finance principals, stock per store.
+ * without `analyst`. The metrics dashboard (#604) first, then the v1 reports: sales per currency tab, finance only
+ * for finance principals, stock per store.
  */
 import { ApiStatePanel } from '@/components/states/state-panel';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
@@ -15,10 +16,13 @@ import {
   type SalesReport,
   type StockReport,
 } from '../_api';
+import { MetricsDashboard } from './metrics-dashboard';
 import { SeriesChart, type ChartSeries } from './series-chart';
 import {
   biHref,
   currencyTabs,
+  mergeCurrencyTabs,
+  storeLabel,
   dailySeries,
   daysOf,
   pickCurrency,
@@ -41,7 +45,7 @@ export async function BiReport({ params }: { params: BiParams }) {
     expandOrganizationRelations(principal.data.organization_relations).has('finance');
   const window = windowFrom({ from: one(params.from), to: one(params.to) });
   const colors = storeColors(stores);
-  const codeOf = (id: string) => stores.find((s) => s.store_id === id)?.code ?? id.slice(0, 8);
+  const codeOf = (id: string) => storeLabel(stores, id);
   const byCode = [...stores].sort((a, b) => a.code.localeCompare(b.code));
   const stockStore =
     byCode.find((s) => s.store_id === one(params.stock))?.store_id ?? byCode[0]?.store_id;
@@ -52,11 +56,21 @@ export async function BiReport({ params }: { params: BiParams }) {
     stockStore ? getStoreStockReport(stockStore) : Promise.resolve(null),
   ]);
 
-  const tabs = sales.ok ? currencyTabs(sales.data.currency_totals) : [];
+  const tabs = mergeCurrencyTabs(
+    sales.ok ? currencyTabs(sales.data.currency_totals) : [],
+    finance?.ok ? finance.data.currency_totals.map((t) => t.currency) : [],
+  );
   const currency = pickCurrency(tabs, one(params.currency));
 
   return (
     <div className="space-y-4">
+      <MetricsDashboard
+        window={window}
+        currencyParam={one(params.currency)}
+        finance={canFinance}
+        stores={stores}
+        base="/bi"
+      />
       <Card>
         <CardHeader
           title="BI"
@@ -75,13 +89,20 @@ export async function BiReport({ params }: { params: BiParams }) {
           ) : (
             <>
               <CurrencyTabs tabs={tabs} current={currency} window={window} stock={stockStore} />
-              <SalesSection
-                report={sales.data}
-                currency={currency}
-                window={window}
-                colors={colors}
-                codeOf={codeOf}
-              />
+              {sales.data.currency_totals.every((t) => t.currency !== currency) ? (
+                <p className="text-muted text-sm">
+                  No sales in {currency} in this window; the finance figures below are the only ones
+                  in it.
+                </p>
+              ) : (
+                <SalesSection
+                  report={sales.data}
+                  currency={currency}
+                  window={window}
+                  colors={colors}
+                  codeOf={codeOf}
+                />
+              )}
             </>
           )}
         </CardBody>
