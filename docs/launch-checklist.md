@@ -34,6 +34,8 @@ issue; tick it only with a link to the evidence.
       production secret exists; then provision the `crm-sync` / `analytics-sync` staff_user rows + OpenFGA
       tuples in production with window 2's `provision:service-accounts` (see infra/keycloak/README, production
       section); secrets from the secrets manager only.
+- [ ] **CRM sync on the real `crm-sync` principal (#646):** engagement's `client_credentials` token provider built,
+      `mock` an explicit opt-in that production refuses; until then CRM sync runs only on the dev stand-in.
 - [ ] Read-only customer relation (#625) decided (until then, service accounts rely on #632's allowlist).
 
 ## Accounting
