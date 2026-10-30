@@ -53,18 +53,19 @@ Redpanda (every topic of @platform/events, from the beginning)
 
 Flags: `--once`, `--group <id>`, `--topic-prefix <p>` (tests and gates; applies to the DLQ too).
 
-| Variable                                                    | Default                                                     |
-| ----------------------------------------------------------- | ----------------------------------------------------------- |
-| `CLICKHOUSE_URL`                                            | `http://127.0.0.1:18123`                                    |
-| `CLICKHOUSE_USER` / `CLICKHOUSE_PASSWORD`                   | `default` / empty (the shared stack: the writer `platform`) |
-| `CLICKHOUSE_READONLY_USER` / `CLICKHOUSE_READONLY_PASSWORD` | readers only (`analytics_ro`)                               |
-| `CLICKHOUSE_DATABASE`                                       | `analytics`                                                 |
-| `KAFKA_BROKERS`                                             | `127.0.0.1:19092`                                           |
-| `ANALYTICS_GROUP_ID`                                        | `analytics.raw`                                             |
-| `ANALYTICS_TOPIC_PREFIX`                                    | empty                                                       |
-| `ANALYTICS_BATCH_SIZE` / `ANALYTICS_FLUSH_MS`               | 5000 rows / 1000 ms                                         |
-| `ANALYTICS_CONCURRENCY`                                     | 8 partitions at once (the buffer fills across them)         |
-| `OTEL_EXPORTER_OTLP_ENDPOINT`                               | unset = no export                                           |
+| Variable                                                    | Default                                                                                                                                                 |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CLICKHOUSE_URL`                                            | `http://127.0.0.1:18123`                                                                                                                                |
+| `CLICKHOUSE_USER` / `CLICKHOUSE_PASSWORD`                   | `default` / empty — the ADMIN: `ch:migrate` (it creates the users) and `reconcile` only                                                                 |
+| `CLICKHOUSE_INGEST_USER` / `CLICKHOUSE_INGEST_PASSWORD`     | the ingest's writer `analytics_ingest` (#648, data/clickhouse/access); unset = the admin with a `writer_is_admin` warning in dev, refused in production |
+| `CLICKHOUSE_READONLY_USER` / `CLICKHOUSE_READONLY_PASSWORD` | readers only (`analytics_ro`)                                                                                                                           |
+| `CLICKHOUSE_DATABASE`                                       | `analytics`                                                                                                                                             |
+| `KAFKA_BROKERS`                                             | `127.0.0.1:19092`                                                                                                                                       |
+| `ANALYTICS_GROUP_ID`                                        | `analytics.raw`                                                                                                                                         |
+| `ANALYTICS_TOPIC_PREFIX`                                    | empty                                                                                                                                                   |
+| `ANALYTICS_BATCH_SIZE` / `ANALYTICS_FLUSH_MS`               | 5000 rows / 1000 ms                                                                                                                                     |
+| `ANALYTICS_CONCURRENCY`                                     | 8 partitions at once (the buffer fills across them)                                                                                                     |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`                               | unset = no export                                                                                                                                       |
 
 ## Metrics (OpenTelemetry, exported only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set)
 
