@@ -126,32 +126,37 @@ export function assertConsentModeOverridesKnown(
   overrides: ReadonlyMap<string, ConsentMode>,
   storeCodes: readonly string[],
 ): void {
-  // #644: two KNOWN store codes that normalise to the same key make the per-store namespace ambiguous —
+  if (overrides.size === 0) return;
+
+  // #644: an override whose key matches TWO known store codes cannot say which store it means.
   // `brand-a` and `brand_a` are both `BRAND_A`, and `store.code` is unique per organization as TEXT, so
-  // both can exist. One override would then apply to both stores, silently. That is a configuration
-  // language which cannot express "strict for brand-a only", and a privacy switch that cannot be addressed
-  // must not be guessed at: it refuses, naming both codes, whether or not an override exists today.
+  // both can exist — and then one override silently applies to both stores. A privacy switch that cannot be
+  // addressed must not be guessed at, so it refuses, naming the pair.
   //
-  // The blast radius is bounded on purpose: this runs only where a per-store mode is actually resolved (the
-  // boot's own check and `createCdpConsumer.start()`, both only when the CDP is enabled), so a service that
-  // does not use the namespace is unaffected. The fix for an operator is to rename one store code.
+  // NARROWED to keys actually in use (manager decision, #644): without an override a collision changes
+  // nothing — both stores take the global mode — and store codes are created from the onboarding UI, so
+  // refusing on any collision would let one store creation stop the CDP for every store. The ambiguity only
+  // bites when somebody addresses it.
   const byKey = new Map<string, string[]>();
   for (const code of storeCodes) {
     const key = storeEnvKey(code);
     byKey.set(key, [...(byKey.get(key) ?? []), code]);
   }
-  const collisions = [...byKey.entries()].filter(([, codes]) => codes.length > 1);
-  if (collisions.length > 0) {
-    const detail = collisions
-      .map(([key, codes]) => `${[...codes].sort().join(' and ')} both normalise to ${key}`)
+  const ambiguous = [...overrides.keys()]
+    .map((key) => [key, byKey.get(key) ?? []] as const)
+    .filter(([, codes]) => codes.length > 1);
+  if (ambiguous.length > 0) {
+    const detail = ambiguous
+      .map(
+        ([key, codes]) =>
+          `${CONSENT_MODE_ENV_PREFIX}${key} matches ${[...codes].sort().join(' and ')}`,
+      )
       .join('; ');
     throw new ConsentModeConfigError(
-      `two store codes share one ${CONSENT_MODE_ENV_PREFIX}<STORE_CODE> key, so a per-store consent mode ` +
-        `cannot address either: ${detail}`,
+      `a per-store consent mode cannot say which store it means: ${detail}. ` +
+        `Rename one of the store codes, or set the mode globally with ${CONSENT_MODE_ENV}`,
     );
   }
-
-  if (overrides.size === 0) return;
   const known = new Set(storeCodes.map(storeEnvKey));
   const unknown = [...overrides.keys()].filter((key) => !known.has(key));
   if (unknown.length === 0) return;

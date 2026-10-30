@@ -216,11 +216,12 @@ configuration says `strict`.
 **An empty per-store value is refused, not defaulted** (#644): `ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A=` —
 an unresolved secret-manager template, a stray `=` in a compose file — used to fall back to the global mode,
 so a store was tracked while the operator believed it was strict. A missing variable is a default; an empty
-one is something somebody wrote, and it exits 2 naming the variable. **And two store codes that normalise to
-one key refuse the boot**: `brand-a` and `brand_a` are both `BRAND_A`, and `store.code` is unique per
-organization only as text, so both can exist — the namespace then cannot express "strict for brand-a only",
-and an unaddressable privacy switch is refused rather than guessed at, naming both codes. That check runs
-only where a per-store mode is resolved, so a service with the CDP disabled is unaffected.
+one is something somebody wrote, and it exits 2 naming the variable. **And an override that cannot say which store it
+means refuses the boot**: `brand-a` and `brand_a` are both `BRAND_A`, and `store.code` is unique per
+organization only as text, so both can exist — an override on that key would silently apply to both, so it
+is refused, naming the pair. It refuses only when an override actually USES the ambiguous key: without one
+the collision changes nothing (both stores take the global mode), and store codes are created from the
+onboarding UI, so refusing on any collision would let one store creation stop the CDP for every store.
 
 **Two residual behaviours, documented rather than changed** (#644, both minor and both reachable only when a
 row is missing):

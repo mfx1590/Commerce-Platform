@@ -171,9 +171,12 @@ package yet.
   BOTH ids when known (the hash arrives with #580's v2; send it when present).
 - **A per-store consent-mode value that is SET BUT EMPTY is refused** (#644, Fable re-review, medium): it
   used to fall back to the global mode, so an unresolved template tracked a store the operator believed was
-  strict. A missing variable is a default; an empty one is a refusal. **Two known store codes that normalise
-  to one `storeEnvKey` also refuse the boot** — the namespace cannot address either store, and a privacy
-  switch is never guessed at. Both are `ConsentModeConfigError`, exit 2, each with a test.
+  strict. A missing variable is a default; an empty one is a refusal. **An override whose key matches TWO known store
+  codes also refuses the boot**, naming the pair — it cannot say which store it means, and a privacy switch
+  is never guessed at. NARROWED to keys in use (manager decision): without an override a collision changes
+  nothing, and store codes come from the onboarding UI, so a refuse-always form would let one store creation
+  stop the CDP for every store. Both refusals are `ConsentModeConfigError`, exit 2, and both directions are
+  tested — the ambiguous override refuses, a collision nobody addresses boots.
 - Two residual behaviours are DOCUMENTED, not fixed (#644, both need a missing row): an unresolved store
   code falls back to its uuid and therefore to the GLOBAL mode (the fallback is #553's rule — never drop an
   alert because a lookup failed — and the effective mode is on every log line); and a vanished customer row

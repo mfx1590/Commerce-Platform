@@ -403,28 +403,42 @@ describe('assertConsentModeOverridesKnown (#586)', () => {
     expect(() => assertConsentModeOverridesKnown(new Map(), [])).not.toThrow();
   });
 
-  it('REFUSES two known store codes that normalise to one key, override or not (#644)', () => {
+  const colliding = ['brand-a', 'brand_a', 'brand-b'];
+
+  it('REFUSES an override whose key matches TWO known store codes, naming the pair (#644)', () => {
     // `store.code` is unique per organization as TEXT, so `brand-a` and `brand_a` can both exist and both
-    // become `BRAND_A`. The per-store namespace then cannot express "strict for brand-a only", and a
-    // privacy switch that cannot be addressed must not be guessed at. It refuses even with no overrides,
-    // because the ambiguity is in the configuration LANGUAGE, not in one variable.
-    const colliding = ['brand-a', 'brand_a', 'brand-b'];
-    expect(() => assertConsentModeOverridesKnown(new Map(), colliding)).toThrow(
-      ConsentModeConfigError,
-    );
-    expect(() => assertConsentModeOverridesKnown(new Map(), colliding)).toThrow(
-      /brand-a and brand_a both normalise to BRAND_A/,
-    );
-    // Naming both codes is the point: an operator has to know WHICH stores to rename.
+    // become `BRAND_A`. An override on that key cannot say which store it means, and a privacy switch that
+    // cannot be addressed must not be guessed at.
     expect(() =>
       assertConsentModeOverridesKnown(new Map([['BRAND_A', 'strict']]), colliding),
-    ).toThrow(/cannot address either/);
+    ).toThrow(ConsentModeConfigError);
+    expect(() =>
+      assertConsentModeOverridesKnown(new Map([['BRAND_A', 'strict']]), colliding),
+    ).toThrow(/ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A matches brand-a and brand_a/);
   });
 
-  it('reports every colliding pair at once, not one per boot (#644)', () => {
+  it('BOOTS on a collision that no override addresses (#644, narrowed)', () => {
+    // The other way round, and the reason the check is narrow (manager decision): without an override the
+    // collision changes nothing — both stores take the global mode — and store codes are created from the
+    // onboarding UI, so refusing on any collision would let one store creation stop the CDP for every
+    // store. The ambiguity only bites when somebody addresses it.
+    expect(() => assertConsentModeOverridesKnown(new Map(), colliding)).not.toThrow();
+    // Including when an override names a DIFFERENT, unambiguous store.
     expect(() =>
-      assertConsentModeOverridesKnown(new Map(), ['brand-a', 'brand_a', 'brand.c', 'brand-c']),
-    ).toThrow(/BRAND_A;.*BRAND_C/s);
+      assertConsentModeOverridesKnown(new Map([['BRAND_B', 'strict']]), colliding),
+    ).not.toThrow();
+  });
+
+  it('reports every ambiguous override at once, not one per boot (#644)', () => {
+    expect(() =>
+      assertConsentModeOverridesKnown(
+        new Map([
+          ['BRAND_A', 'strict'],
+          ['BRAND_C', 'strict'],
+        ]),
+        ['brand-a', 'brand_a', 'brand.c', 'brand-c'],
+      ),
+    ).toThrow(/BRAND_A matches[\s\S]*BRAND_C matches/);
   });
 
   it('does not mistake one code for a collision with itself', () => {

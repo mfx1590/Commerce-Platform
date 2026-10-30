@@ -190,10 +190,12 @@ yet.**
    something somebody wrote. `ConsentModeConfigError`, exit 2, unit test + a process-level boot test. **An
    old test that asserted the fallback is reversed** — it passed only because the global was `strict` in
    that case, which is what hid the defect.
-2. **(minor) Two known store codes that normalise to one key refuse the boot**, naming every colliding pair.
-   It runs only where a per-store mode is resolved (CDP enabled), so the blast radius is bounded — but note
-   for an operator: creating a store code that collides with an existing one will stop the CDP consumer
-   booting, deliberately.
+2. **(minor) An override whose key matches TWO known store codes refuses the boot**, naming the pair.
+   **NARROWED on the manager's decision from "any collision" to "a collision an override addresses":**
+   without an override both stores simply take the global mode, and store codes are created from the
+   ONBOARDING UI — so the refuse-always form I shipped first would have let one store creation stop the CDP
+   for every store. Worth remembering as a shape: a refusal whose trigger is data somebody else creates at
+   will is a denial-of-service on yourself. Both directions are tested.
 3. **(minor, latent) A vanished customer row in `analytics` mode is tracked under the hash — PINNED, not
    changed.** At the gate it is identical to a guest: `handleCdpEvent` normalises a not-found customer's id
    to null before gating, so the only distinguishing fact (that the PAYLOAD named a customer) is already
@@ -203,7 +205,7 @@ yet.**
    README, not changed: the fallback is #553's rule (never drop an alert because a lookup failed) and the
    effective mode is on every per-event log line.
 
-**Verified:** 452 passed / 9 live skipped offline (was 445/9); typecheck, lint, prettier, ownership clean.
+**Verified:** 453 passed / 9 live skipped offline (was 445/9); typecheck, lint, prettier, ownership clean.
 Package 0.6.2. **No machine needed — unit tests only**, and nothing in the live paths changed.
 
 <!-- Phase 5 wave 1 (#599) and the Phase 4 record are below and still accurate. -->
