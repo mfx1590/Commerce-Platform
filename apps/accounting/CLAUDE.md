@@ -97,3 +97,5 @@ keycloakUrl?, keycloakRealm?, verifier?, permission? })`; `loadApiSpec(path?)` /
 - `pg` bigint columns arrive as strings: every amount read from SQL goes through `Number()`.
 - `pg` parses a `date` column as LOCAL midnight: select every date column `::text`, never format a `date` Date
   (`toISOString()` is a day early east of UTC, #627). `timestamptz` Dates are instants and safe.
+- Payout order is bytewise everywhere (`payout_id COLLATE "C"`, in SQL — #645); a payout's lines are its CURRENT
+  report: lines a re-import drops are reset to `pending`, never deleted, and never count toward a window.

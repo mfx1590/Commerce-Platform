@@ -43,7 +43,9 @@ export function createFixtureSource(files: PayoutFixtureFile[]): PayoutSource {
         .flatMap(summaries)
         .sort(
           (a, b) =>
-            a.arrival_date.localeCompare(b.arrival_date) || a.payout_id.localeCompare(b.payout_id),
+            // bytewise, like reconcileAll's SQL order (COLLATE "C"); informational only, reconcileAll re-sorts
+            (a.arrival_date < b.arrival_date ? -1 : a.arrival_date > b.arrival_date ? 1 : 0) ||
+            (a.payout_id < b.payout_id ? -1 : a.payout_id > b.payout_id ? 1 : 0),
         )
         .map(({ balance_transactions: _rows, ...summary }) => summary);
     },

@@ -1,5 +1,28 @@
 # Changelog — @platform/accounting
 
+## 0.6.7 — 2026-10-30 (#645, the Fable re-review of #571 / dd9cc80)
+
+- Fix (medium): a re-imported payout report that drops a line no longer leaves the stale match behind. `saveLines`
+  resets every line the current report does not carry to `pending` with no match (lines are never deleted), so
+  the next payout's window starts from the CURRENT matches. Before, a capture the PSP dropped from a re-issued
+  report was reported by nobody (the re-issued payout came out clean, the next window started after it).
+  `ReconcileResult.superseded_lines` and the `payout_reconciled` log line count them.
+- Fix (medium): ONE ordering for (arrival_date, payout id). `reconcileAll` sorts in Postgres with `COLLATE "C"`, and
+  the window's "earlier" row comparison uses `COLLATE "C"` too (was JS `localeCompare` vs the database collation);
+  the API lists payouts in the same order.
+- Fix (minor): a reconciled payout re-imported with another amount, arrival date or currency is a
+  `reconciled_payout_changed` discrepancy (status `discrepant`, `already_reconciled`, `changed`); nothing is
+  rewritten.
+- Fix (minor): a report row in another currency than its payout is a `currency_mismatch` (never summed, never
+  matched); currency codes compare without case everywhere in the matcher (Stripe reports `eur`).
+- #630 review follow-ups: the README states `entry_date` is the UTC day of the fact; the payout fixture builder's
+  `dateOf` is the instant-based one (a non-Z timestamp no longer yields the local day).
+- Fix (Fable review of #651): currency codes are upper-cased ONCE at import (`normalizeCurrencies`: the report's and
+  every row's), before the payout upsert, the lines insert and the bank posting — a lower-case Stripe report (`eur`)
+  stored and posted `eur` beside the ledger's `EUR`. The Finance API's `discrepancy_count` ignores superseded
+  (`pending`) lines, so a posted payout with a dropped line shows none.
+- Tests: 106 (+5).
+
 ## 0.6.6 — 2026-10-27 (#627)
 
 - Fix: in a process whose time zone is not UTC, every `date` was served (and sent to Odoo) one day EARLY east of
