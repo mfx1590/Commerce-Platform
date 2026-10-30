@@ -153,6 +153,7 @@ describe('GET /health', () => {
     joined: ready,
     progress_age_ms: 1_000,
     last_commit_age_ms: null,
+    oldest_in_flight_ms: null,
   });
 
   it('200 with the verdict while ready, 503 while not; any other path is a 404', () => {
