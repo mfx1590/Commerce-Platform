@@ -87,9 +87,11 @@ package yet.
 - Post **then** mark, never the reverse: a duplicate ops alert is cheap, a missed one is an unseen incident.
   (The opposite of `apps/notifications`, which must never send twice.)
 - The DLQ watch never throws on an unreadable queue; it reports depth 0.
-- `ENGAGEMENT_DLQ_GROUPS` defaults to `KNOWN_GROUPS` (every group this service runs) and **must list every
-  group on the bus in production**, other windows' included - an unwatched group's dead letters are silent. A
-  new consumer group here is a new entry in `KNOWN_GROUPS`.
+- `ENGAGEMENT_DLQ_GROUPS` defaults to **the groups this process actually runs**, overrides included (since
+  #613 — it used to be the `KNOWN_GROUPS` constant), and **must list every group on the bus in production**,
+  other windows' included: an unwatched group's dead letters are silent. More than we run is fine, fewer is
+  refused. A new consumer group here is a new entry in `KNOWN_GROUPS` (still the default set) and in
+  `buildConsumers`.
 - **Do not write the processed mark yourself.** The SDK marks after a handler returns without throwing;
   `ctx.markProcessed(tx)` is only for a handler whose side effects are DATABASE writes, so the mark commits
   with them. Ours are HTTP calls, so there is nothing to join and calling the store would double the INSERT.
@@ -109,7 +111,23 @@ package yet.
   run before finishing a task is how those guarantees get proven. Ask for the machine first.
 - Consent gates the whole CRM contact and is checked BEFORE the PII is fetched; `customer.erased` deletes
   before anything is read and `remove` is idempotent.
-- `ENGAGEMENT_CRM_TOKEN_PROVIDER=client_credentials` throws until #565 is built — never fall back to the mock.
+- **`ENGAGEMENT_CRM_TOKEN_PROVIDER` has no default when the CRM is enabled** (#646): `mock` used to be it,
+  and every refusal was keyed on `NODE_ENV === 'production'`, which itself defaults to `development` — so a
+  staging deploy with `NODE_ENV` unset ran on the dev stand-in and dead-lettered every consented event.
+  Choosing a principal is not a thing to default.
+- **`client_credentials` is the real principal** (`src/crm/token.ts`, #565 built by #626/#635): the
+  `crm-sync` confidential service account, exchanged at the staff realm's token endpoint
+  (`KEYCLOAK_URL` + `KEYCLOAK_REALM_STAFF`), `CRM_SYNC_CLIENT_ID` / `CRM_SYNC_CLIENT_SECRET` (Vault in
+  production). The secret and the token **never leave that module**: nothing there logs, a failure carries
+  the HTTP status plus Keycloak's short `error` code and nothing else (never `error_description`, which
+  echoes input), and a token failure is RETRYABLE because a wrong secret and a Keycloak restart are
+  indistinguishable from here. One token is cached until shortly before expiry and the in-flight exchange is
+  shared, so a batch does one exchange. The client is read-only by code (auth-sdk's
+  `READ_ONLY_SERVICE_CLIENTS`) and reaches only the stores its OpenFGA tuples name.
+  **In production `KEYCLOAK_URL` must be `https://`** (#654 review): the secret travels in the token request
+  body, so an `http://` endpoint hands it to the network before Keycloak can refuse anything. A token failure
+  is a **`CrmTokenError`** — retryable like `CrmError`, but named so a dead-letter record alone distinguishes
+  "could not authenticate" from "the Admin API refused", which send an operator to different places.
 - **`ENGAGEMENT_CRM_MOCK_TOKEN` is a dev stand-in for the `crm-sync` principal (#565); never in production.**
   It feeds `mockTokenProvider` so the CRM path can be measured end to end on the dev stack (#594), where no
   service principal exists: with the core on `CORE_DEV_TOKENS=1` a `dev:<subject>` token lets consent → PII
@@ -166,7 +184,9 @@ package yet.
   without `marketing_email`, and a guest is tracked under their `email_hash`. `strict` is #554's behaviour. The
   mode **resolves PER STORE** (`ENGAGEMENT_CDP_CONSENT_MODE` plus `..._<STORE_CODE>`), is resolved per event
   from the store the event names, and goes on the per-event log line. An unknown value fails the boot; a
-  missing mode defaults to `strict`. Never invent a consent purpose.
+  **a consumer given no resolver at all** defaults to `strict` — that is the
+  library default for a caller that forgets, not a thing an operator can configure. Never invent a consent
+  purpose.
 - An **erased** customer is never sent in either mode, and `customer.erased` is ungated in both and carries
   BOTH ids when known (the hash arrives with #580's v2; send it when present).
 - **A per-store consent-mode value that is SET BUT EMPTY is refused** (#644, Fable re-review, medium): it
@@ -204,7 +224,15 @@ package yet.
     and a dead letter never carry one in any module, including the three above.
 - **A one-off run gets a FRESH group, never the live one** (#594): `ENGAGEMENT_*_GROUP_ID` plus
   `fromBeginning`, which is what makes a new group see history instead of waiting for the next message. A
-  group id must match `consumer_processed.group_id`'s CHECK, validated at the boot.
+  group id must match `consumer_processed.group_id`'s CHECK, validated at the boot. **`--drain` REFUSES a
+  live default** for any module that would run (#646): a drain re-reads from the beginning and commits under
+  whatever group it joins, so by omission it rebalanced the running consumer, moved its offsets and reported
+  the live DLQ as its own.
+- **Exit codes: 2 = the configuration was refused, 3 = the drain ran but its result is not clean** (dead
+  letters, a DLQ that could not be read, or `max_run`), 1 = the process failed (#646). A gate reads the code;
+  the drain report also carries `clean`.
+- An unreadable dead-letter queue says **`unreadable: true`** in the watch's log line and `-1` in the drain's
+  report (#646). `depth: 0` alone said "nothing in the queue", which is the opposite of what happened.
 - **`buildConsumers` in `main.ts` is the ONLY place a consumer is constructed, and therefore the only place a
   group id is chosen** (#599). Both modes call it; the only differences they may pass are `fromBeginning` and
   the drain's per-batch hook. The bug that made this a rule: the drain passed `config.groups` and the
@@ -214,10 +242,6 @@ package yet.
   consumer, add it there.
 - **Every group this process runs must be watched; more is fine, fewer is refused** (#599). `resolveConfig`
   throws when an explicit `ENGAGEMENT_DLQ_GROUPS` omits a running group — the one way left to split them.
-- **A configuration refusal is a `ConfigRefusedError` and exits 2**, not 1 (#599): a supervisor that restarts
-  on a crash must not restart on an environment already refused, and its message IS printed because this
-  repository builds it from variable names and values it chose. `ConsentModeConfigError` extends it. Never
-  put a payload, a secret or anything a customer typed into one of those messages.
 - The drain's counts come from the log lines the consumers already emit, with each consumer's own counters
   printed beside them. Keep both: they are two paths to one answer, and a disagreement means the report is
   wrong.

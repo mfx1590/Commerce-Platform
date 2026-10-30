@@ -9,13 +9,20 @@ import { createOrganizationClient, createPool } from '@platform/db';
 import { resolveConfig, type EngagementConfig } from './config.js';
 import { CONFIG_REFUSED_EXIT, ConfigRefusedError } from './config-error.js';
 import { assertConsentModeOverridesKnown } from './consent-mode.js';
-import { summariseDrain, waitForIdle, type DrainLogLine } from './drain.js';
+import {
+  drainIsClean,
+  summariseDrain,
+  waitForIdle,
+  DRAIN_UNCLEAN_EXIT,
+  type DrainLogLine,
+} from './drain.js';
 import { createCdpConsumer } from './cdp/consumer.js';
 import { MemoryCdpAdapter } from './cdp/adapter/memory.js';
 import { RudderStackCdpAdapter } from './cdp/adapter/rudderstack.js';
 import type { CdpAdapter } from './cdp/types.js';
 import { createCrmConsumer } from './crm/consumer.js';
 import { createAdminApiReader, mockTokenProvider } from './crm/admin-api.js';
+import { createClientCredentialsProvider } from './crm/token.js';
 import { MemoryCrmAdapter } from './crm/adapter/memory.js';
 import { TwentyCrmAdapter } from './crm/adapter/twenty.js';
 import type { CrmAdapter, TokenProvider } from './crm/types.js';
@@ -72,9 +79,18 @@ export function buildCrmAdapter(config: EngagementConfig): CrmAdapter {
  */
 export function buildTokenProvider(config: EngagementConfig): TokenProvider {
   if (config.crm.tokenProvider === 'client_credentials') {
-    throw new Error(
-      'ENGAGEMENT_CRM_TOKEN_PROVIDER=client_credentials is not implemented yet (REQUEST #565)',
-    );
+    const cc = config.crm.clientCredentials;
+    if (!cc) {
+      // `resolveConfig` refuses a missing URL or secret, so this is unreachable through the entry point —
+      // but it is a CONFIGURATION refusal wherever it happens, so it exits 2 with its message rather than
+      // the plain `Error` that used to exit 1 with the message dropped (#646 item 4).
+      throw new ConfigRefusedError(
+        'ENGAGEMENT_CRM_TOKEN_PROVIDER=client_credentials needs KEYCLOAK_URL and CRM_SYNC_CLIENT_SECRET',
+      );
+    }
+    // The real `crm-sync` service account (#565, #626/#635): read-only by code, reaching exactly the stores
+    // its OpenFGA tuples allow. The secret stops here.
+    return createClientCredentialsProvider(cc);
   }
   // `ENGAGEMENT_CRM_MOCK_TOKEN` is the dev stand-in for the crm-sync principal (#565); never in production,
   // where both the mock provider and the value itself are refused by `resolveConfig`.
@@ -197,7 +213,7 @@ async function runDrain(deps: {
   pool: ReturnType<typeof createPool>;
   hq: ReturnType<typeof createOrganizationClient>;
   transport: AlertTransport;
-}): Promise<void> {
+}): Promise<{ clean: boolean }> {
   const { config, pool, hq, transport } = deps;
   const lines: DrainLogLine[] = [];
   const collect = (line: DrainLogLine): void => {
@@ -270,11 +286,15 @@ async function runDrain(deps: {
     }
   }
 
+  const clean = drainIsClean({ stop, deadLetters });
   console.info(
     JSON.stringify({
       service: 'engagement',
       event: 'drained',
       stop,
+      // #646: a scripted gate reads the exit code, so the report says the same thing in words. Unclean =
+      // a dead letter, a queue that could not be read, or a run that stopped at its ceiling.
+      clean,
       elapsed_ms: Date.now() - startedAt,
       groups: config.groups,
       // `ran`, not `enabled`: ops has no switch, so an `enabled.ops: true` was a constant dressed up as a
@@ -296,6 +316,7 @@ async function runDrain(deps: {
     }),
   );
   await pool.end();
+  return { clean };
 }
 
 async function main(): Promise<void> {
@@ -307,7 +328,10 @@ async function main(): Promise<void> {
 
   // `--drain` is the one-shot measurement mode (#594); `--once` below is the DLQ poll and is unchanged.
   if (config.drain.enabled) {
-    await runDrain({ config, pool, hq, transport });
+    const { clean } = await runDrain({ config, pool, hq, transport });
+    // Exit non-zero when the drain has something to complain about (#646): a gate that reads only stdout
+    // cannot tell a clean run from one with dead letters, and `exit 0` with findings reads as a pass.
+    if (!clean) process.exit(DRAIN_UNCLEAN_EXIT);
     return;
   }
 

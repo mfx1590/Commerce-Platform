@@ -58,6 +58,20 @@ export class CrmError extends Error {
 }
 
 /**
+ * A failure getting a TOKEN, as opposed to a failure using one (#654 review). It is still retryable — a
+ * wrong secret and a Keycloak restart are indistinguishable from the provider's side — but it has its own
+ * name so a dead-letter record is diagnosable on its own: the DLQ carries the error CLASS and no payload, so
+ * `CrmTokenError` means "this service could not authenticate" while `CrmError` means "the Admin API refused
+ * or failed". Those two send an operator to different places.
+ */
+export class CrmTokenError extends CrmError {
+  constructor(message: string, opts: { retryable?: boolean } = {}) {
+    super(message, opts);
+    this.name = 'CrmTokenError';
+  }
+}
+
+/**
  * How the Admin API call is authenticated. Injected so #555 can be built, tested and merged before the
  * `crm-sync` service account exists (#565): a mock returns a fixed token, and the real one will exchange the
  * client credentials for one. The provider owns any caching — nothing here stores a token.

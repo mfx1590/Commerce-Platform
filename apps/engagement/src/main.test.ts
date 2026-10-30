@@ -58,7 +58,12 @@ function expectWatchCoversRunning(
 }
 
 describe('every group a consumer runs is watched (#599)', () => {
-  const all = { ENGAGEMENT_CDP_ENABLED: '1', ENGAGEMENT_CRM_ENABLED: '1' };
+  // #646: with the CRM enabled a principal is an explicit choice, so these fixtures name one.
+  const all = {
+    ENGAGEMENT_CDP_ENABLED: '1',
+    ENGAGEMENT_CRM_ENABLED: '1',
+    ENGAGEMENT_CRM_TOKEN_PROVIDER: 'mock',
+  };
 
   it('holds with no overrides at all', () => {
     const { config, set } = consumersFor(all);

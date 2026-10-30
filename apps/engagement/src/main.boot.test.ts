@@ -44,9 +44,13 @@ interface Boot {
 }
 
 /** Boots `src/main.ts` with this environment and waits for it to exit. */
-async function boot(env: Record<string, string>, ms = 60_000): Promise<Boot> {
+async function boot(
+  env: Record<string, string>,
+  ms = 60_000,
+  argv: readonly string[] = [],
+): Promise<Boot> {
   return new Promise<Boot>((done, fail) => {
-    const child = spawn('pnpm exec tsx src/main.ts', {
+    const child = spawn(`pnpm exec tsx src/main.ts ${argv.join(' ')}`.trim(), {
       cwd: pkgRoot,
       shell: true,
       env: { ...process.env, ...env },
@@ -104,6 +108,19 @@ describe('the boot refuses a bad consent-mode configuration (#590)', () => {
 
     // 3. Nothing started. A consumer or a server that is up is both a wrong configuration running and the
     //    reason the exit code used to be ignored.
+    expect(r.stdout).not.toContain('"event":"started"');
+  }, 90_000);
+
+  it('EXITS 2 when --drain would join a live consumer group (#646)', async () => {
+    // The second medium finding of the #598 re-review, at the process level: a drain reads from the
+    // beginning and commits under whatever group it joins, so omitting the override must stop it rather
+    // than rebalance the running consumer and move its offsets.
+    const r = await boot({ DATABASE_URL_APP: appUrl }, 60_000, ['--drain']);
+    expect(r.code).toBe(2);
+    const crash = crashLine(r.stderr);
+    expect(crash?.error_class).toBe('ConfigRefusedError');
+    expect(String(crash?.message)).toContain('--drain refuses the live consumer group');
+    expect(String(crash?.message)).toContain('engagement.ops');
     expect(r.stdout).not.toContain('"event":"started"');
   }, 90_000);
 
