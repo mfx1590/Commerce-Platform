@@ -51,7 +51,15 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
       - #596/#597 + #593/#617 → **#658** (window 15): a typo'd group abandons the ledger group silently (no double-post); test-utils is a runtime dep of accounting; gate robustness. The #593 lock timeout is the manager's (packages/db), low priority.
       - #583's later commits (formatting, fixtures): read by the manager, fine.
       - **The Fable re-review list is COMPLETE.**
-    - Loop deleted 10-30 (no window was building). Windows 15 and 16 are now active again on #658 and #657.
+    - **MERGED 10-30 evening:**
+      - #659 (61ad792, #658): accounting group guard at boot (RLS-visible through the org client), test-utils out of the image, gate hardening; local Windows gate 4/4.
+      - #660 (8a62daf, #657): the RudderStack suppress uses destinationIds (the old sourceIds were always rejected) and names both profiles, `[{userId, email_hash}, {userId: <hash>}]`; reaching the guest profile is UNVERIFIED until a real workspace exists (launch checklist f7f7f98). A hash-only erasure keeps THROWING by decision (no request route or ownership check yet).
+    - **STATE AT 10-30 evening:** no open PRs, no window building, check-in loop deleted.
+    - **NEXT:**
+      - Wave 3 (#605 window 14: model unconfirmed, ASK the owner; gift credit expires 11-10).
+      - The manager's own: minItems contract landing; BI write journeys in CI; #633; the #593 lock timeout.
+      - Assign #634 / #624 / #609 / #642 / #647 / #640.
+      - Owner: port binding for the other services (optional).
     - Window 14's model is unconfirmed: ask the owner before #605.
   - **MERGED 10-29:** #621 (#607 recommendations, 518cc4c, tagged **contracts-v0.4.29**; the shared dev DB migrated with 0204 after the backup `platform-before-0204-20261029.dump`), #631 (#623 ClickHouse erasure, 0d31c6d), #636 (#603 CONTRACT, 77ed790, tagged **contracts-v0.4.30**: Admin API 0.4.25 listMetrics/queryMetrics, live metrics, CSV via Accept, `unavailable`, the core error map, and the `(store)/[storeId]/bi/**` ownership row → window 12). Earlier: #630, #626, #628 (10-27). Wave 1 and the wave-2 contracts are DONE.
   - **OPEN / IN FLIGHT:**
