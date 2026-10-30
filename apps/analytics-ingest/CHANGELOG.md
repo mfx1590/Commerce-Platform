@@ -10,6 +10,17 @@
 - `analytics_ro` as SQL with per-user bounds: `max_concurrent_queries_for_user = 16`,
   `max_memory_usage_for_user = 768 MB`, a 1200-queries-a-minute quota.
 
+## 0.7.0 — unreleased (#641, the ingest's operational re-review)
+
+- `GET /health` is readiness: 200 only while the consumer is joined, made progress (a fetch or a commit) within
+  `ANALYTICS_READY_STALE_MS` (default 5 min) and holds no batch in flight past it; 503 otherwise, with the inputs in
+  the body (`healthVerdict`, `healthAnswer`, `Ingest.health()`). A stuck consumer is restarted by liveness.
+- `createIngest` derives the DLQ topic (`<prefix>dlq.<group>`) itself: `IngestOptions.config` no longer takes
+  `dlqTopic`, so a caller cannot split the DLQ from its group.
+- README "Deploying": one replica with the `Recreate` strategy and a restart backoff above 30 s (the single-replica
+  guard vs a dead member's session timeout); the probes. Erasure: the in-memory index can run ahead of
+  `customer_erasures` (an over-scrub only, idempotent on redelivery).
+
 ## 0.6.0 — unreleased (#604, #628 review)
 
 - The alias-shadow lint (`sql-lint.ts`) and the two model fixes it found.

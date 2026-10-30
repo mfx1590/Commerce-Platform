@@ -77,6 +77,8 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   states work (XML-owned → skipped; gone → SQL creates analytics_ro). ONE PR "Closes #648", Fable review.
   Gotchas: system.grants orders access_type by enum (compare as a sorted set); getSetting answers numbers; a readonly
   user must use createChReader (the writer client sends settings); vitest transform errors show as "no tests".
+- #641 DONE: PR #650 MERGED (625e22a, 2026-10-30); merged into data/phase5-ch-access (conflicts: config.test,
+  CHANGELOG, ingest README table, this file — both sides kept).
 - #604 DONE: PR #643 MERGED (e1e1d3d, 2026-10-29). NOW #641 (manager ten, 2026-10-30), branch data/phase5-ingest-ops
   (cut --no-track from origin/main e1e1d3d). PR #650 (code commit 1db1025; head = this memory commit). Review
   (manager ten) = small BLOCK: reconcile-gate.test.ts:189 still passed `dlqTopic` (the core tsconfig excludes tests,

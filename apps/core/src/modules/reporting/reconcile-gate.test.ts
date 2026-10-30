@@ -186,7 +186,7 @@ describe.runIf(skip === null)(
       const raw = ingest.createIngest({
         config: {
           groupId: rawGroup,
-          dlqTopic: `${prefix}${events.dlqTopicName(rawGroup)}`,
+          // the DLQ is derived from the group by createIngest (#641): `<prefix>dlq.<group>`
           topicPrefix: prefix,
           batchSize: 500,
           flushMs: 200,
