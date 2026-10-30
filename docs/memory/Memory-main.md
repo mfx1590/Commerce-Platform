@@ -25,6 +25,13 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
     - The shared schema registry got customer.erased-v2-value (register-schemas.mjs, additive, manager OK; 1 registered, 0 refused).
     - The BI write journeys are opt-in (`E2E_BI_LIVE=1`). Wiring relay + ingest + ClickHouse into a CI job is the manager's follow-up.
     - **NOW:** window 12 on #641 (ingest ops, data/phase5-ingest-ops, Opus review). Fable re-review **P2 batch 1 running:** #585+#590, #571/dd9cc80, #598. Then #613, #614, then P3.
+    - **Fable P2 re-reviews DONE (all FINDINGS; every medium manager-verified):**
+      - #585/#590 → **#644** (window 16, Sonnet, building): an empty per-store override becomes the global mode.
+      - #571/dd9cc80 → **#645** (window 15, building; Fable review of the PR): stale payout lines hide a dropped capture; JS vs SQL tie-break.
+      - #598 + #613 → **#646** (window 16 after #644): client_credentials unbuilt, so CRM runs only on the mock default; --drain joins live groups; the refusal exits 1.
+      - #614 → **#648** (window 12 SQL side + manager compose side): the ClickHouse writer is an admin; ports and analytics_ro are open on all interfaces (rebinding recreates the container → owner OK first).
+      - Launch-checklist lines added for #646 and #648.
+      - **P3 next:** #583 commits 0191702/38338ed, #597, #596, #593, #563/#564, #617.
     - Window 14's model is unconfirmed: ask the owner before #605.
   - **MERGED 10-29:** #621 (#607 recommendations, 518cc4c, tagged **contracts-v0.4.29**; the shared dev DB migrated with 0204 after the backup `platform-before-0204-20261029.dump`), #631 (#623 ClickHouse erasure, 0d31c6d), #636 (#603 CONTRACT, 77ed790, tagged **contracts-v0.4.30**: Admin API 0.4.25 listMetrics/queryMetrics, live metrics, CSV via Accept, `unavailable`, the core error map, and the `(store)/[storeId]/bi/**` ownership row → window 12). Earlier: #630, #626, #628 (10-27). Wave 1 and the wave-2 contracts are DONE.
   - **OPEN / IN FLIGHT:**
