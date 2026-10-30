@@ -59,7 +59,11 @@ export type DiscrepancyKind =
   /** matched, but the PSP fee differs from the fee payment.captured carried */
   | 'fee_difference'
   /** matched, but the gross differs from the ledger amount — or the payout total differs from Σ net */
-  | 'amount_difference';
+  | 'amount_difference'
+  /** a row in another currency than its payout: never summed, never matched (#645) */
+  | 'currency_mismatch'
+  /** a RECONCILED payout re-imported with another amount, arrival date or currency: reported, nothing rewritten (#645) */
+  | 'reconciled_payout_changed';
 
 /** One JSON line of the discrepancy report: ids and amounts only. */
 export interface Discrepancy {
@@ -75,6 +79,10 @@ export interface Discrepancy {
   expected_minor?: number;
   actual_minor?: number;
   difference_minor: number;
+  /** currency_mismatch: the row's own currency */
+  row_currency?: string;
+  /** reconciled_payout_changed: which of the payout's fields the new report changes */
+  changed?: ('amount_minor' | 'arrival_date' | 'currency')[];
 }
 
 export type MatchStatus = 'matched' | 'unmatched' | 'amount_mismatch' | 'fee_mismatch';
@@ -120,4 +128,6 @@ export interface ReconcileResult {
   discrepancies: Discrepancy[];
   /** The bank entry was written in this call. */
   posted: boolean;
+  /** Lines of this payout its current report no longer carries, reset to pending in this call (#645). */
+  superseded_lines?: number;
 }

@@ -296,6 +296,35 @@ describe('matcher (pure)', () => {
     // 10:00+01:00 IS the 09:00Z start (exclusive): an earlier payout's business, not reported
     expect(at('2026-10-05T10:00:00+01:00', '2026-10-05T09:00:00.000Z')).toEqual([]);
   });
+
+  it('#645: a row in another currency than its payout is a currency_mismatch: never summed, never matched', () => {
+    // the same capture reported in GBP inside a EUR payout: not matched against the EUR payment, not added to Σ net
+    const r = matchPayout({
+      report: report([row({ currency: 'GBP' })], 0),
+      payments: [payment],
+      refunds: [],
+      windowStart: noWindow,
+    });
+    expect(r.discrepancies).toMatchObject([
+      {
+        kind: 'currency_mismatch',
+        currency: 'EUR',
+        row_currency: 'GBP',
+        balance_transaction_id: 'txn_1',
+        provider_reference: 'pi_1',
+        actual_minor: 946,
+      },
+    ]);
+    expect(r.lines.map((l) => [l.status, l.reference_id])).toEqual([['unmatched', null]]);
+    // case alone is not a mismatch (Stripe reports lower-case currencies)
+    const lower = matchPayout({
+      report: report([row({ currency: 'eur' })], 946),
+      payments: [payment],
+      refunds: [],
+      windowStart: noWindow,
+    });
+    expect(lower.discrepancies).toEqual([]);
+  });
 });
 
 describe('the clean month', () => {
@@ -467,5 +496,183 @@ describe('the discrepant month (its own database: the same events, one differenc
     expect(again).toMatchObject({ status: 'discrepant', already_reconciled: false, posted: false });
     expect(again.discrepancies.map((x) => x.kind)).toEqual(['unmatched_charge']);
     expect(await count('psp_payout WHERE legal_entity_id = $1', [LE_A])).toBe(4);
+  });
+});
+
+/** A deep copy of one legal entity's fixture file, so a test can re-issue a payout without touching the committed one. */
+const cloneFile = (f: PayoutFixtureFile): PayoutFixtureFile =>
+  JSON.parse(JSON.stringify(f)) as PayoutFixtureFile;
+
+describe('#645: a re-imported report that drops a line — the line never widens the next window', () => {
+  let d: AccountingTestDatabase;
+  let file: PayoutFixtureFile;
+
+  beforeAll(async () => {
+    d = await createAccountingTestDatabase();
+    const set = await loadSet('clean-month');
+    await consumeAll(d, set.events);
+    file = set.files.find((f) => f.legal_entity_id === LE_A)!;
+  }, 180_000);
+
+  afterAll(async () => {
+    await d?.drop();
+  });
+
+  it('payout 2 discrepant with its latest capture C matched, then re-issued WITHOUT C: payout 2 posts, and payout 3 reports C', async () => {
+    const captured = await d.hq.query<{ payment_id: string; pi: string; at: Date }>(
+      'SELECT payment_id, provider_payment_id AS pi, captured_at AS at FROM accounting_payment WHERE legal_entity_id = $1',
+      [LE_A],
+    );
+    const byPi = new Map(captured.rows.map((r) => [r.pi, r]));
+    const [p1, p2, p3] = file.payouts;
+    const charges = p2!.balance_transactions.filter(
+      (r) =>
+        r.reporting_category === 'charge' && r.payment_intent_id && byPi.has(r.payment_intent_id),
+    );
+    // C = the charge of payout 2 whose capture is the latest: the end of payout 2's window
+    const c = charges.reduce((a, b) =>
+      byPi.get(a.payment_intent_id!)!.at > byPi.get(b.payment_intent_id!)!.at ? a : b,
+    );
+    const cPayment = byPi.get(c.payment_intent_id!)!;
+    const other = charges.find((r) => r !== c)!;
+
+    const source = (payouts: PayoutFixtureFile['payouts']) => {
+      const f = cloneFile(file);
+      f.payouts = payouts;
+      return { client: d.hq, source: createFixtureSource([f]), log };
+    };
+    expect(await reconcilePayout(source([p1!]), LE_A, p1!.payout_id)).toMatchObject({
+      status: 'reconciled',
+      posted: true,
+    });
+
+    // 1. payout 2 as first received: one OTHER charge's fee is off by 1 (discrepant), C is in it and matched
+    const first = cloneFile(file).payouts[1]!;
+    const off = first.balance_transactions.find(
+      (r) => r.balance_transaction_id === other.balance_transaction_id,
+    )!;
+    off.fee_minor += 1;
+    off.net_minor -= 1;
+    first.amount_minor -= 1;
+    const r1 = await reconcilePayout(source([first]), LE_A, first.payout_id);
+    expect(r1).toMatchObject({ status: 'discrepant', posted: false });
+    expect(r1.discrepancies.map((x) => x.kind)).toEqual(['fee_difference']);
+
+    // 2. the PSP re-issues payout 2 WITHOUT C (fee corrected): clean, posted, and C's saved line is superseded
+    const reissued = cloneFile(file).payouts[1]!;
+    reissued.balance_transactions = reissued.balance_transactions.filter(
+      (r) => r.balance_transaction_id !== c.balance_transaction_id,
+    );
+    reissued.amount_minor -= c.net_minor;
+    const r2 = await reconcilePayout(source([reissued]), LE_A, reissued.payout_id);
+    expect(r2).toMatchObject({ status: 'reconciled', posted: true, superseded_lines: 1 });
+    const stale = await d.hq.query<{ match_status: string; matched_reference_id: string | null }>(
+      `SELECT l.match_status, l.matched_reference_id FROM psp_payout_line l JOIN psp_payout p ON p.id = l.payout_id
+        WHERE p.provider_payout_id = $1 AND l.provider_txn_id = $2`,
+      [reissued.payout_id, c.balance_transaction_id],
+    );
+    expect(stale.rows).toEqual([{ match_status: 'pending', matched_reference_id: null }]); // kept, never deleted
+
+    // 3. payout 3, as issued: its window now starts at payout 2's CURRENT latest match, so C — which no payout
+    //    carries any more — is reported, by payout 3. Before #645 the stale line started the window after C.
+    const r3 = await reconcilePayout(source([p3!]), LE_A, p3!.payout_id);
+    expect(r3).toMatchObject({ status: 'discrepant', posted: false });
+    expect(
+      r3.discrepancies.filter((x) => x.kind === 'unmatched_ledger_line').map((x) => x.reference_id),
+    ).toEqual([cPayment.payment_id]);
+  });
+
+  it('a RECONCILED payout re-imported with another amount or arrival date is reported, and nothing is rewritten', async () => {
+    const count = counter(() => d);
+    const p1 = file.payouts[0]!;
+    const before = {
+      entries: await count('ledger_entry WHERE legal_entity_id = $1', [LE_A]),
+      row: (
+        await d.hq.query(
+          'SELECT amount_minor::text, arrival_date::text, status, posted_at FROM psp_payout WHERE provider_payout_id = $1',
+          [p1.payout_id],
+        )
+      ).rows[0],
+    };
+    const changed = cloneFile(file);
+    changed.payouts = [
+      { ...changed.payouts[0]!, amount_minor: p1.amount_minor + 100, arrival_date: '2026-10-09' },
+    ];
+    const deps = { client: d.hq, source: createFixtureSource([changed]), log };
+    const r = await reconcilePayout(deps, LE_A, p1.payout_id);
+    expect(r).toMatchObject({ status: 'discrepant', already_reconciled: true, posted: false });
+    expect(r.discrepancies).toMatchObject([
+      {
+        kind: 'reconciled_payout_changed',
+        expected_minor: p1.amount_minor,
+        actual_minor: p1.amount_minor + 100,
+        difference_minor: 100,
+        changed: ['amount_minor', 'arrival_date'],
+      },
+    ]);
+    expect(LOG.some((l) => l.includes('"kind":"reconciled_payout_changed"'))).toBe(true);
+    expect(await count('ledger_entry WHERE legal_entity_id = $1', [LE_A])).toBe(before.entries);
+    const after = (
+      await d.hq.query(
+        'SELECT amount_minor::text, arrival_date::text, status, posted_at FROM psp_payout WHERE provider_payout_id = $1',
+        [p1.payout_id],
+      )
+    ).rows[0];
+    expect(after).toEqual(before.row);
+    // the same report as stored: still the quiet no-op
+    const same = await reconcilePayout(
+      { client: d.hq, source: createFixtureSource([file]), log },
+      LE_A,
+      p1.payout_id,
+    );
+    expect(same).toMatchObject({
+      status: 'reconciled',
+      already_reconciled: true,
+      discrepancies: [],
+    });
+  });
+});
+
+describe('#645: one ordering for (arrival_date, payout id) — mixed-case ids on the same day', () => {
+  let d: AccountingTestDatabase;
+  let file: PayoutFixtureFile;
+
+  beforeAll(async () => {
+    d = await createAccountingTestDatabase();
+    const set = await loadSet('clean-month');
+    await consumeAll(d, set.events);
+    file = set.files.find((f) => f.legal_entity_id === LE_A)!;
+  }, 180_000);
+
+  afterAll(async () => {
+    await d?.drop();
+  });
+
+  it('bytewise ("C") order in the import AND in the window: po_Z… before po_a…, both clean', async () => {
+    // payouts 1 and 2 on the SAME arrival day. Bytewise 'Z' (0x5A) < 'a' (0x61), so po_Zfirst is the earlier one;
+    // a linguistic order (JS localeCompare, an en_US collation) puts po_asecond first — then payout 2 would be
+    // imported first with an empty window and report payout 1's captures as unmatched ledger lines.
+    const f = cloneFile(file);
+    const [p1, p2] = f.payouts;
+    p1!.payout_id = 'po_Zfirst';
+    p2!.payout_id = 'po_asecond';
+    p1!.arrival_date = p2!.arrival_date;
+    f.payouts = [p2!, p1!]; // the source's own order must not matter
+    expect('po_asecond'.localeCompare('po_Zfirst')).toBeLessThan(0); // the linguistic order is the other one
+    const results = await reconcileAll(
+      { client: d.hq, source: createFixtureSource([f]), log },
+      LE_A,
+    );
+    expect(results.map((r) => [r.payout_id, r.status, r.discrepancies.length])).toEqual([
+      ['po_Zfirst', 'reconciled', 0],
+      ['po_asecond', 'reconciled', 0],
+    ]);
+    // the SQL side agrees: in the database, po_Zfirst is the earlier payout of the pair
+    const sql = await d.hq.query<{ id: string }>(
+      `SELECT provider_payout_id AS id FROM psp_payout WHERE legal_entity_id = $1
+        ORDER BY arrival_date, provider_payout_id COLLATE "C"`,
+      [LE_A],
+    );
+    expect(sql.rows.map((r) => r.id)).toEqual(['po_Zfirst', 'po_asecond']);
   });
 });

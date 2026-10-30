@@ -303,7 +303,7 @@ export async function listPayouts(q: Queryable, legalEntityId: string, f: Payout
   const r = await q.query<PayoutRow>(
     `${PAYOUT_SELECT}, count(*) OVER()::text AS total
        FROM psp_payout p WHERE ${where.join(' AND ')}
-      ORDER BY p.arrival_date, p.provider_payout_id
+      ORDER BY p.arrival_date, p.provider_payout_id COLLATE "C"
       LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params,
   );

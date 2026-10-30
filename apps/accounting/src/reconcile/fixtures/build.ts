@@ -2,6 +2,7 @@
 // agree with the events the ledger consumed — to the cent for the clean month, and with exactly one discrepancy of
 // each kind for the discrepant one. `pnpm --filter @platform/accounting fixtures:payouts` rewrites the files;
 // test/reconcile.test.ts fails when a committed file no longer equals what this builds.
+import { dateOf } from '../../posting/balance.js';
 import type { EventEnvelope, EventEnvelopeV1Base } from '@platform/events';
 import { generateMonth, LE_A, LE_B } from '../../posting/fixtures.js';
 import type { PayoutFixtureFile } from '../source-fixture.js';
@@ -20,7 +21,6 @@ export interface PayoutFixtureSet {
   files: PayoutFixtureFile[];
 }
 
-const dateOf = (ts: string): string => ts.slice(0, 10);
 const plusDays = (day: string, n: number): string => {
   const d = new Date(`${day}T00:00:00.000Z`);
   d.setUTCDate(d.getUTCDate() + n);

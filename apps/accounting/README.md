@@ -34,6 +34,11 @@ test/                     throwaway database + local broker tests; src/posting/*
    `ledger_entry` rows, write the projections;
 6. `ctx.markProcessed(tx)`: the `consumer_processed` row commits WITH the rows — once per group.
 
+Every entry is dated `entry_date` = the **UTC calendar day** of its fact timestamp (`placed_at`, `captured_at`,
+`shipped_at`, `issued_at`, `cancelled_at`; `dateOf` in `posting/balance.ts`), whatever the process time zone: an order
+placed at 00:30 on 2 October in Bucharest (21:30 UTC on 1 October) is booked on 1 October. A payout
+posts on its `arrival_date` as the PSP reports it.
+
 `UNIQUE (source_event_id, account_code)` on `ledger_entry` is the second guard: the lines of an event are netted per
 account before the insert, so it never fires on a legitimate entry, and a bypass of the processed store rolls the
 whole transaction back (tested). A redelivered `order.placed` (same event id as the projection's source) posts nothing
@@ -225,7 +230,18 @@ reference_type?, reference_id?, expected_minor?, actual_minor?, difference_minor
 - **Order of imports** — `reconcileAll` imports a legal entity's payouts oldest first (by arrival date, then payout id)
   whatever order the source lists them, and the window start of a payout only ever comes from payouts EARLIER by
   that same order (a re-import of an older payout sees the window it saw the first time; later payouts never widen
-  it). Importing single payouts by hand out of order reports false `unmatched_ledger_line` findings for the gap —
+  it). There is ONE ordering, bytewise: Postgres sorts the import order with `payout_id COLLATE "C"` and the
+  window's "earlier" uses the same `COLLATE "C"` row comparison (#645: Stripe ids are mixed-case, and a JS
+  `localeCompare` next to a collation-dependent SQL `<` could disagree for two payouts of the same day).
+- **A re-issued report** — a payout's lines are always its CURRENT report: a line a re-imported report no longer
+  carries is reset to `pending` with no match (lines are never deleted; 0203 revokes DELETE), so it never widens a
+  later payout's window. Before #645 such a stale match could hide a capture the PSP dropped from a re-issued
+  report: the payout came out clean, and the next payout's window started after the dropped capture.
+- **A reconciled payout re-imported with other figures** — another amount, arrival date or currency is a
+  `reconciled_payout_changed` discrepancy (the fields in `changed`); nothing is rewritten, the posted bank entry
+  stands. The same report again is the quiet no-op.
+- **Currencies** — a row in another currency than its payout is a `currency_mismatch`: never summed, never matched.
+  Codes compare without case (Stripe reports `eur`). Importing single payouts by hand out of order reports false `unmatched_ledger_line` findings for the gap —
   import oldest first.
 - **Known limits** — fee / adjustment / other rows (a Stripe fee row, a dispute adjustment) have no ledger
   counterpart yet and are reported as `unmatched_charge` for now (#560 adds disputes); re-importing a payout whose
@@ -399,7 +415,7 @@ ledger).
 
 ## Tests
 
-`pnpm --filter @platform/accounting test` — 101 tests in twelve files:
+`pnpm --filter @platform/accounting test` — 105 tests in twelve files:
 
 - `src/posting/posting.test.ts` — pure: the arithmetic, the worked example of every topic above, partial shipments,
   proportional refunds and cancellations, every defect class, the netted life of one order, the late shipment, event
@@ -414,9 +430,12 @@ ledger).
   shuffled topic order (every order last) producing the identical ledger, RLS between stores and organizations, the
   processed table append-only for the app role.
 - `test/reconcile.test.ts` — the committed payout fixtures equal the builder's output; the pure matcher (every kind,
-  the window rule, the window as instants); the clean month on a seeded database: eight payouts reconciled with zero differences and posted,
+  the window rule, the window as instants, a row in another currency); the clean month on a seeded database: eight payouts reconciled with zero differences and posted,
   the PSP clearing account equal to the open balance to the cent, books balanced, a re-import a no-op; the discrepant
-  month on its own database: each kind exactly once, nothing posted for those payouts, a re-import re-matched.
+  month on its own database: each kind exactly once, nothing posted for those payouts, a re-import re-matched; #645:
+  a payout re-issued without its latest capture posts and the NEXT payout reports that capture, a reconciled payout
+  re-imported with other figures is reported and nothing rewritten, and mixed-case same-day payout ids import and
+  window in one bytewise order.
 - `test/erp.test.ts` — the JSON-RPC client against the mock (auth, retries with a bound, every refusal class), the sync
   on the clean-month ledger: chart mapped, one posted balanced move per (event, journal), every row marked, a re-run
   creates nothing, a refused move reported while the rest continue and posted on the next run, a crash between create
