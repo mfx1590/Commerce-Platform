@@ -9,6 +9,7 @@
 import type { EachBatchPayload, Kafka, Producer } from 'kafkajs';
 import {
   createValidator,
+  dlqTopicName,
   ensureTopics,
   EVENT_TOPICS,
   HEADER_OUTBOX_ID,
@@ -194,21 +195,71 @@ export interface IngestStats {
   rows_by_topic: Record<string, number>;
 }
 
+/**
+ * #641 item 2: what `/health` answers. READY = all three:
+ * - the consumer is a member of its group (joined, not rebalancing, crashed, stopped or disconnected);
+ * - it made progress within `staleMs`: a fetch completed (an idle consumer fetches every few seconds, so a quiet bus
+ *   stays ready) or a batch was committed;
+ * - NO batch has been in flight longer than `staleMs` (ClickHouse not answering, an ack that never comes): a hung
+ *   batch on any partition makes it unready even while other partitions keep fetching. Liveness then restarts it,
+ *   and the uncommitted batch comes back (offsets move only after the ack).
+ * kafkajs 2's FETCH event cannot tell an empty fetch from a full one (`numberOfBatches` is always 0), hence the
+ * in-flight check.
+ */
+export interface IngestHealth {
+  ready: boolean;
+  joined: boolean;
+  /** ms since the last progress (a fetch, a commit or the join); null before any. */
+  progress_age_ms: number | null;
+  /** ms since the last committed batch; null before the first. */
+  last_commit_age_ms: number | null;
+  /** age of the oldest batch still in flight; null when none is. */
+  oldest_in_flight_ms: number | null;
+}
+
+export interface HealthState {
+  joined: boolean;
+  stopping: boolean;
+  lastProgressAt: number | null;
+  lastBatchAt: number | null;
+  /** start times of the batches in flight */
+  inFlightSince: Iterable<number>;
+}
+
+/** The verdict, pure (unit-tested over every state). */
+export function healthVerdict(s: HealthState, staleMs: number, now: number): IngestHealth {
+  const progress = s.lastProgressAt === null ? null : now - s.lastProgressAt;
+  const oldest = Math.min(...s.inFlightSince);
+  const inFlight = Number.isFinite(oldest) ? now - oldest : null;
+  return {
+    ready:
+      s.joined &&
+      !s.stopping &&
+      progress !== null &&
+      progress <= staleMs &&
+      (inFlight === null || inFlight <= staleMs),
+    joined: s.joined,
+    progress_age_ms: progress,
+    last_commit_age_ms: s.lastBatchAt === null ? null : now - s.lastBatchAt,
+    oldest_in_flight_ms: inFlight,
+  };
+}
+
 export interface Ingest {
   readonly groupId: string;
+  /** Always `<topicPrefix>dlq.<groupId>`: derived here, never configured apart from the group (#641 item 3). */
   readonly dlqTopic: string;
   readonly stats: IngestStats;
   /** When the last non-empty batch was committed (ms), null before the first. */
   lastBatchAt(): number | null;
+  health(staleMs: number, now?: number): IngestHealth;
   start(): Promise<void>;
   stop(): Promise<void>;
 }
 
 export interface IngestOptions {
-  config: Pick<
-    IngestConfig,
-    'groupId' | 'dlqTopic' | 'topicPrefix' | 'batchSize' | 'flushMs' | 'concurrency'
-  >;
+  // no dlqTopic: the DLQ follows the group (and the prefix), so a caller cannot split them (#641 item 3)
+  config: Pick<IngestConfig, 'groupId' | 'topicPrefix' | 'batchSize' | 'flushMs' | 'concurrency'>;
   kafka: Kafka;
   sink: RowSink<RawEventRow>;
   /** Defaults to every topic of @platform/events. */
@@ -226,6 +277,8 @@ export interface IngestOptions {
 
 export function createIngest(opts: IngestOptions): Ingest {
   const { config, kafka } = opts;
+  // throws on a group name the SDK refuses, exactly as loadConfig does
+  const dlqTopic = `${config.topicPrefix}${dlqTopicName(config.groupId)}`;
   const log = opts.log ?? consoleLog;
   const metrics = opts.metrics ?? createIngestMetrics();
   const validator = opts.validator ?? createValidator();
@@ -247,13 +300,29 @@ export function createIngest(opts: IngestOptions): Ingest {
   let producer: Producer | undefined;
   let stopping = false;
   let lastBatchAt: number | null = null;
-  const inFlight = new Set<Promise<unknown>>();
+  // #641 item 2: membership and progress, from the consumer's own instrumentation events
+  let joined = false;
+  let lastProgressAt: number | null = null;
+  const { GROUP_JOIN, FETCH, REBALANCING, CRASH, STOP, DISCONNECT } = consumer.events;
+  consumer.on(GROUP_JOIN, () => {
+    joined = true;
+    lastProgressAt = Date.now();
+  });
+  consumer.on(FETCH, () => {
+    lastProgressAt = Date.now();
+  });
+  for (const left of [REBALANCING, CRASH, STOP, DISCONNECT])
+    consumer.on(left, () => {
+      joined = false;
+    });
+  /** each batch in flight → when it started (stop() awaits them; health() reads their age) */
+  const inFlight = new Map<Promise<unknown>, number>();
 
   const dlq: DeadLetterSink = {
     async send(letters) {
       if (!producer) throw new Error('dead letter skipped: the ingest is not running');
       await producer.send({
-        topic: config.dlqTopic,
+        topic: dlqTopic,
         acks: -1,
         messages: letters.map((l) => ({
           key: l.outbox_id,
@@ -325,7 +394,7 @@ export function createIngest(opts: IngestOptions): Ingest {
         },
       },
     );
-    inFlight.add(work);
+    inFlight.set(work, Date.now());
     try {
       const r = await work;
       stats.batches += 1;
@@ -334,6 +403,7 @@ export function createIngest(opts: IngestOptions): Ingest {
       for (const [t, n] of Object.entries(r.byTopic))
         stats.rows_by_topic[t] = (stats.rows_by_topic[t] ?? 0) + n;
       lastBatchAt = Date.now();
+      lastProgressAt = lastBatchAt;
       metrics.lag(batch.topic, batch.partition, Number(batch.offsetLag()));
       log({
         service: 'analytics-ingest',
@@ -369,9 +439,15 @@ export function createIngest(opts: IngestOptions): Ingest {
 
   return {
     groupId: config.groupId,
-    dlqTopic: config.dlqTopic,
+    dlqTopic,
     stats,
     lastBatchAt: () => lastBatchAt,
+    health: (staleMs, now = Date.now()) =>
+      healthVerdict(
+        { joined, stopping, lastProgressAt, lastBatchAt, inFlightSince: inFlight.values() },
+        staleMs,
+        now,
+      ),
     async start() {
       stopping = false;
       if (erasures) {
@@ -402,7 +478,7 @@ export function createIngest(opts: IngestOptions): Ingest {
       // no new batches; the ones in flight finish (flush, ack, commit) before the connections close
       stopping = true;
       await batcher.flush().catch(() => undefined);
-      await Promise.allSettled([...inFlight]);
+      await Promise.allSettled([...inFlight.keys()]);
       await consumer.disconnect().catch(() => undefined);
       await producer?.disconnect().catch(() => undefined);
       log({ service: 'analytics-ingest', group_id: config.groupId, event: 'stopped' });
