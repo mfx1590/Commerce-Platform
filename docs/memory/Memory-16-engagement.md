@@ -177,7 +177,40 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **Never commit a 64-hex email_hash fixture.** The `sha256` $def needs a real 64-hex value, so a word will not validate — compute it: `createHash('sha256').update('…').digest('hex')`, which is what apps/core does. I had three such literals before catching it; one would have reddened every open PR.
 - `pg` is deliberately NOT a dependency of this app: for a pool type use `Parameters<typeof createTenantClient>[0]`.
 
-## RESUME HERE — 2026-10-25: Phase 5 wave 1 (#599) FIXED, PR open
+## RESUME HERE — 2026-10-30: #644 (Fable re-review of #585/#590) fixed, PR open
+
+**Manager session TEN is the manager now.** Branch `engagement/phase5-consent-fix`, cut `--no-track` from
+main `41e4a96`. **#610 (support reply drafts, default OFF) is still my wave-3 task; nothing to do for it
+yet.**
+
+**#644 — the re-review's verdict was FINDINGS with one medium, and all four items are done:**
+1. **(medium) An empty per-store consent value is refused**, not defaulted to the global mode:
+   `ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A=` booted cleanly and tracked that store under `analytics` while the
+   operator believed it was strict. A missing variable is a default; a per-store one that is SET is
+   something somebody wrote. `ConsentModeConfigError`, exit 2, unit test + a process-level boot test. **An
+   old test that asserted the fallback is reversed** — it passed only because the global was `strict` in
+   that case, which is what hid the defect.
+2. **(minor) An override whose key matches TWO known store codes refuses the boot**, naming the pair.
+   **NARROWED on the manager's decision from "any collision" to "a collision an override addresses":**
+   without an override both stores simply take the global mode, and store codes are created from the
+   ONBOARDING UI — so the refuse-always form I shipped first would have let one store creation stop the CDP
+   for every store. Worth remembering as a shape: a refusal whose trigger is data somebody else creates at
+   will is a denial-of-service on yourself. Both directions are tested.
+3. **(minor, latent) A vanished customer row in `analytics` mode is tracked under the hash — PINNED, not
+   changed.** At the gate it is identical to a guest: `handleCdpEvent` normalises a not-found customer's id
+   to null before gating, so the only distinguishing fact (that the PAYLOAD named a customer) is already
+   gone. Changing it means plumbing that through the consumer, with its own test. Unreachable today because
+   the core keeps erased rows as `status = 'erased'`, refused in both modes.
+4. **(minor) An unresolved store code falls back to its uuid and so to the GLOBAL mode** — documented in the
+   README, not changed: the fallback is #553's rule (never drop an alert because a lookup failed) and the
+   effective mode is on every per-event log line.
+
+**Verified:** 453 passed / 9 live skipped offline (was 445/9); typecheck, lint, prettier, ownership clean.
+Package 0.6.2. **No machine needed — unit tests only**, and nothing in the live paths changed.
+
+<!-- Phase 5 wave 1 (#599) and the Phase 4 record are below and still accurate. -->
+
+## RESUME (superseded) — Phase 5 wave 1 (#599)
 
 **Manager session NINE is the manager now** (session eight stood down). Phase 5 started: plan
 `docs/plan/phase5-plan.md`, tracking **#612**. My wave-1 task was **#599** and it is done on branch

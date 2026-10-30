@@ -597,6 +597,29 @@ describe('handleCdpEvent — the consent mode (#576)', () => {
     expect(adapter.isSuppressed(EMAIL_HASH)).toBe(true);
   });
 
+  it('tracks a VANISHED customer row under the hash in analytics mode — pinned, not fixed (#644)', async () => {
+    // The Fable re-review's minor, latent finding. The order names a customer whose row is not there; the
+    // payload carries an `email_hash`; the mode is `analytics`. The event is sent as a GUEST.
+    //
+    // Pinned rather than changed, for a reason worth writing down: at the gate a vanished row and a genuine
+    // guest are the SAME input. `handleCdpEvent` normalises a not-found customer's id to null before
+    // gating, so `facts` arrives as `{ found: false, customerId: null }` either way, and the only fact that
+    // could tell them apart — that the PAYLOAD named a customer — has already been dropped. "Drop the hash
+    // when the row is gone" therefore needs that distinction plumbed through the consumer, not a line
+    // changed here, and it would risk dropping real guest traffic if done carelessly. It is unreachable
+    // today in any case: the core KEEPS an erased customer with `status = 'erased'`, which this gate refuses
+    // in both modes (tested above). If the behaviour should change, it is a follow-up with its own test.
+    const ghost = '44444444-4444-4444-8444-444444444444';
+    const orderId = await makeOrder(STORE_A, null);
+    const r = await handleCdpEvent(
+      orderPlaced(orderId, ghost),
+      'out-ghost',
+      deps({ consentModeFor: modes({}, 'analytics') }),
+    );
+    expect(r.sent?.kind).toBe('track');
+    expect(adapter.tracks[0]!.identity).toEqual({ userId: null, anonymousId: EMAIL_HASH });
+  });
+
   it('suppresses by customer_id alone on a GENUINE v1 payload, in both modes', async () => {
     for (const mode of ['analytics', 'strict'] as const) {
       adapter = new MemoryCdpAdapter();

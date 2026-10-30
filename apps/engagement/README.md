@@ -213,6 +213,30 @@ list, which is why it is not in `resolveConfig`; while the CDP is disabled there
 failure all of this prevents is the quiet one: a typo leaving that store on `analytics` while the
 configuration says `strict`.
 
+**An empty per-store value is refused, not defaulted** (#644): `ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A=` —
+an unresolved secret-manager template, a stray `=` in a compose file — used to fall back to the global mode,
+so a store was tracked while the operator believed it was strict. A missing variable is a default; an empty
+one is something somebody wrote, and it exits 2 naming the variable. **And an override that cannot say which store it
+means refuses the boot**: `brand-a` and `brand_a` are both `BRAND_A`, and `store.code` is unique per
+organization only as text, so both can exist — an override on that key would silently apply to both, so it
+is refused, naming the pair. It refuses only when an override actually USES the ambiguous key: without one
+the collision changes nothing (both stores take the global mode), and store codes are created from the
+onboarding UI, so refusing on any collision would let one store creation stop the CDP for every store.
+
+**Two residual behaviours, documented rather than changed** (#644, both minor and both reachable only when a
+row is missing):
+
+- **A store whose `store.code` cannot be resolved falls back to its uuid**, and a uuid matches no per-store
+  key, so that store resolves to the GLOBAL mode. The fallback is deliberate (#553: an alert is never
+  dropped because a lookup failed), and the alternative — dropping the event — would lose data for a
+  transient failure. It is reachable only when the store row is gone, and the effective mode is on every
+  per-event log line, so it is visible rather than silent.
+- **A customer row that is gone, in `analytics` mode, is tracked under the payload's `email_hash`** — i.e.
+  as a guest, which is what it is indistinguishable from at the gate: the consumer normalises a not-found
+  customer's id to null before gating, so a vanished row and a genuine guest arrive identically. Unreachable
+  today, because the core keeps an erased customer with `status = 'erased'` and that is refused in both
+  modes. A test pins it; changing it would mean plumbing "the payload named a customer" through to the gate.
+
 Two things `analytics` does not relax, because neither is about consent: an **erased** customer is never sent
 in either mode (the erasure told every consumer to delete its copies; tracking them again would undo it), and
 a vanished order or customer row is still reported as such. And **CRM sync is untouched** — it stays
