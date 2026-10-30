@@ -85,6 +85,29 @@ export interface WaitForIdleOptions {
 export type DrainStop = 'idle' | 'empty' | 'max_run';
 
 /**
+ * The exit code for a drain that RAN but whose result is not clean (#646): dead letters, a queue that could
+ * not be read, or a run that hit its ceiling. Distinct from 1 (the process failed) and 2 (the configuration
+ * was refused), because a scripted gate wants to tell "the drain is unhappy with the bus" from "the drain
+ * could not run".
+ */
+export const DRAIN_UNCLEAN_EXIT = 3;
+
+/**
+ * Whether a finished drain has anything to complain about. Three things make it unclean, and each is a
+ * reason a gate should stop rather than print a green table:
+ *   * a dead letter — an event this service could not handle;
+ *   * a dead-letter queue it could not READ (`-1`): the number nobody has is not zero;
+ *   * `max_run` — it stopped because it ran out of time, so "nothing left" was never established.
+ */
+export function drainIsClean(result: {
+  stop: DrainStop;
+  deadLetters: Readonly<Record<string, number>>;
+}): boolean {
+  if (result.stop === 'max_run') return false;
+  return Object.values(result.deadLetters).every((n) => n === 0);
+}
+
+/**
  * Resolves when the bus has gone quiet: `idle` after a batch, `empty` if none ever arrived, `max_run` if the
  * run hit its ceiling (which is a result to report, never something to swallow).
  */

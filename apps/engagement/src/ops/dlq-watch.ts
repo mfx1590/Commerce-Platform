@@ -57,7 +57,11 @@ export async function pollDeadLetters(opts: DlqWatchOptions): Promise<Alert[]> {
         module: 'ops',
         event: 'dlq_poll',
         group_id: groupId,
+        // #646: `unreadable` is stated rather than implied. `depth: 0` on its own reads as "nothing in the
+        // queue", which is the opposite of what happened — we do not know what is in it. The depth stays 0
+        // so nothing downstream treats a sentinel as a number, and the flag carries the truth.
         depth: 0,
+        unreadable: true,
         threshold: opts.threshold,
         error_class: err instanceof Error ? err.name : 'Error',
       });

@@ -34,6 +34,26 @@ AND its DLQ watch together (#599) — and `resolveConfig` refuses to start at al
 `ENGAGEMENT_DLQ_GROUPS` omits a group this process runs, exiting **2** with a message naming it. More
 watched groups than we run is fine; fewer is the failure that issue was about.
 
+**A drain refuses the live groups** (#646). It reads from the beginning and commits offsets under whatever
+group it joins, so omitting `ENGAGEMENT_*_GROUP_ID` used to rebalance the running consumer, move its offsets
+and report the live dead-letter queue as its own. A drain on a live default now exits **2** naming the
+group(s) and the way out. It checks only the modules that would actually run.
+
+### Exit codes
+
+| Code | Meaning                                                                                                                                                                                                                                                                          |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | the process did what it was asked: a clean drain, a DLQ poll, or a service stopped by SIGTERM                                                                                                                                                                                    |
+| `1`  | the process FAILED at runtime — the crash line carries the error class only, never its message                                                                                                                                                                                   |
+| `2`  | the CONFIGURATION was refused (`ConfigRefusedError`): nothing started, and the crash line carries the message, because this repository builds it from variable names and values it chose. A supervisor must not restart on this one — the same environment will be refused again |
+| `3`  | a `--drain` RAN but its result is not clean: dead letters, a dead-letter queue that could not be read (`-1`), or `max_run`. The report says `clean: false` for the same reason                                                                                                   |
+
+**And a drain says whether its result is clean**, in the report and in the exit code (#646): **3** when
+there were dead letters, when a dead-letter queue could not be READ (`-1` — the number nobody has is not
+zero), or when the run stopped at its ceiling (`max_run`, so "nothing left" was never established). A
+scripted gate can therefore read the code instead of parsing the table. **2** stays "the configuration was
+refused" and **1** "the process failed".
+
 Stopping is a rule, not a timeout: a fresh group has to join and be assigned partitions before anything can
 arrive, so "nothing yet" and "nothing left" are the same for the first seconds. A run therefore lasts at least
 `ENGAGEMENT_DRAIN_MIN_RUN_MS` (20 s) and ends `ENGAGEMENT_DRAIN_IDLE_MS` (10 s) after the last batch —
@@ -57,6 +77,9 @@ reads and writes none of it.
 | `ENGAGEMENT_ALERT_RATE_WINDOW_MS`     | `900000` (15 min)  | the window                                                                             |
 | `ENGAGEMENT_DLQ_GROUPS`               | the groups it runs | groups whose DLQ depth is watched; **production must list every group on the bus**     |
 | `ENGAGEMENT_CRM_MOCK_TOKEN`           | –                  | **dev stand-in for the `crm-sync` principal (#565); never in production** (#594)       |
+| `ENGAGEMENT_CRM_TOKEN_PROVIDER`       | **none**           | `client_credentials` or `mock`; **no default when the CRM is enabled** (#646)          |
+| `CRM_SYNC_CLIENT_ID`                  | `crm-sync`         | the confidential service account for CRM sync (#565)                                   |
+| `CRM_SYNC_CLIENT_SECRET`              | –                  | its secret, from Vault in production; required with `client_credentials`               |
 | `ENGAGEMENT_OPS_GROUP_ID`             | `engagement.ops`   | the ops consumer group; a fresh id re-reads history without moving the live offsets    |
 | `ENGAGEMENT_CDP_GROUP_ID`             | `engagement.cdp`   | the CDP consumer group (same rule)                                                     |
 | `ENGAGEMENT_CRM_GROUP_ID`             | `engagement.crm`   | the CRM consumer group (same rule)                                                     |

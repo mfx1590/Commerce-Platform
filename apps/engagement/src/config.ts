@@ -89,6 +89,12 @@ export interface CrmConfig {
    */
   tokenProvider: 'mock' | 'client_credentials';
   /**
+   * Set when `tokenProvider === 'client_credentials'`: everything the `crm-sync` service account needs
+   * (#646). The SECRET lives here because `config.ts` is the only place this service reads the environment
+   * — the same rule `SLACK_OPS_WEBHOOK_URL` follows. It is never logged and never put in an error.
+   */
+  clientCredentials?: { tokenUrl: string; clientId: string; clientSecret: string };
+  /**
    * The token the MOCK provider hands over — a **dev stand-in for the `crm-sync` principal (#565); never in
    * production** (#594, Integration 4).
    *
@@ -226,6 +232,7 @@ export function resolveConfig(opts: ResolveOptions = {}): EngagementConfig {
     .filter(Boolean);
 
   const drainIdleMs = intFrom(env.ENGAGEMENT_DRAIN_IDLE_MS, 10_000, 'ENGAGEMENT_DRAIN_IDLE_MS');
+  const drainEnabled = (opts.argv ?? process.argv).includes('--drain');
 
   // #599: the watch may cover MORE groups than this process runs — production must list every group on the
   // bus, other windows' included — but never FEWER. A group this process consumes whose dead letters nobody
@@ -242,6 +249,32 @@ export function resolveConfig(opts: ResolveOptions = {}): EngagementConfig {
       `ENGAGEMENT_DLQ_GROUPS does not watch ${unwatched.join(', ')}, which this process consumes: ` +
         `its dead letters would be nobody's (watching: ${groups.join(', ') || '(none)'})`,
     );
+  }
+
+  // #646 (medium): `--drain` reads from the BEGINNING and commits offsets under whatever group it joins.
+  // Without an override it joined the live groups — forcing a rebalance of the running consumers, moving
+  // their offsets and reporting the live dead-letter queue as its own. A measurement must not be able to do
+  // that by omission, so a drain on a live default is refused.
+  //
+  // Only the groups that would actually run are checked (the #644 lesson: refuse what bites, not what
+  // merely looks wrong) — a disabled module joins nothing.
+  if (drainEnabled) {
+    const live: [string, string, boolean][] = [
+      [consumerGroups.ops, OPS_GROUP_ID, true],
+      [consumerGroups.cdp, CDP_GROUP_ID, cdp.enabled],
+      [consumerGroups.crm, CRM_GROUP_ID, crm.enabled],
+    ];
+    const onLive = live
+      .filter(([resolved, dflt, runs]) => runs && resolved === dflt)
+      .map(([g]) => g);
+    if (onLive.length > 0) {
+      throw new ConfigRefusedError(
+        `--drain refuses the live consumer group(s) ${onLive.join(', ')}: a drain re-reads from the ` +
+          `beginning and would commit offsets under the live name, rebalance the running consumer and ` +
+          `report its dead letters as its own. Set ENGAGEMENT_{OPS,CDP,CRM}_GROUP_ID to a fresh id ` +
+          `(e.g. ${CDP_GROUP_ID}.int4)`,
+      );
+    }
   }
 
   return {
@@ -272,7 +305,7 @@ export function resolveConfig(opts: ResolveOptions = {}): EngagementConfig {
     support,
     groups: consumerGroups,
     drain: {
-      enabled: (opts.argv ?? process.argv).includes('--drain'),
+      enabled: drainEnabled,
       idleMs: drainIdleMs,
       // A fresh group has to join and be assigned partitions before anything can arrive, so "quiet" means
       // nothing for the idle window AFTER at least this long. Without it an empty-looking first few seconds
@@ -325,8 +358,19 @@ function resolveCrm(env: Record<string, string | undefined>, isProduction: boole
     );
   }
 
-  const tokenProvider = (env.ENGAGEMENT_CRM_TOKEN_PROVIDER?.trim() || 'mock') as
-    'mock' | 'client_credentials';
+  // #646 (medium): `mock` is an EXPLICIT opt-in now. It used to be the default, and every refusal was keyed
+  // on `NODE_ENV === 'production'`, which itself defaults to `development` — so a staging or container
+  // deploy with `NODE_ENV` unset ran the CRM on the dev stand-in and every consented event dead-lettered
+  // against the real core. Choosing a principal is not a thing to default.
+  const providerRaw = env.ENGAGEMENT_CRM_TOKEN_PROVIDER?.trim();
+  if (enabled && !providerRaw) {
+    throw new ConfigRefusedError(
+      'ENGAGEMENT_CRM_TOKEN_PROVIDER must be set to "client_credentials" or "mock" when ' +
+        'ENGAGEMENT_CRM_ENABLED=1: there is no default principal, because the wrong one reaches the real ' +
+        'core and every consented event dead-letters',
+    );
+  }
+  const tokenProvider = (providerRaw || 'mock') as 'mock' | 'client_credentials';
   if (tokenProvider !== 'mock' && tokenProvider !== 'client_credentials') {
     throw new ConfigRefusedError(
       `ENGAGEMENT_CRM_TOKEN_PROVIDER must be "mock" or "client_credentials" (got "${tokenProvider}")`,
@@ -347,6 +391,33 @@ function resolveCrm(env: Record<string, string | undefined>, isProduction: boole
     );
   }
 
+  // The real principal (#565, built by #626/#635). Resolved whenever it is asked for, so a missing secret
+  // is a boot refusal rather than a dead-letter storm at the first consented event.
+  let clientCredentials: CrmConfig['clientCredentials'];
+  if (tokenProvider === 'client_credentials') {
+    const keycloakUrl = env.KEYCLOAK_URL?.trim();
+    const realm = env.KEYCLOAK_REALM_STAFF?.trim() || 'staff';
+    const clientId = env.CRM_SYNC_CLIENT_ID?.trim() || 'crm-sync';
+    const clientSecret = env.CRM_SYNC_CLIENT_SECRET?.trim();
+    if (enabled && !keycloakUrl) {
+      throw new ConfigRefusedError(
+        'ENGAGEMENT_CRM_TOKEN_PROVIDER=client_credentials requires KEYCLOAK_URL (the realm token endpoint)',
+      );
+    }
+    if (enabled && !clientSecret) {
+      throw new ConfigRefusedError(
+        'ENGAGEMENT_CRM_TOKEN_PROVIDER=client_credentials requires CRM_SYNC_CLIENT_SECRET (from Vault in production)',
+      );
+    }
+    if (keycloakUrl && clientSecret) {
+      clientCredentials = {
+        tokenUrl: `${keycloakUrl.replace(/\/$/, '')}/realms/${realm}/protocol/openid-connect/token`,
+        clientId,
+        clientSecret,
+      };
+    }
+  }
+
   const base: CrmConfig = {
     enabled,
     adapter,
@@ -354,6 +425,7 @@ function resolveCrm(env: Record<string, string | undefined>, isProduction: boole
     adminApiUrl: env.ADMIN_API_URL?.trim() || 'http://localhost:9000',
     tokenProvider,
     ...(mockToken ? { mockToken } : {}),
+    ...(clientCredentials ? { clientCredentials } : {}),
   };
   if (adapter === 'memory') return base;
 

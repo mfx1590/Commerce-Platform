@@ -177,7 +177,44 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **Never commit a 64-hex email_hash fixture.** The `sha256` $def needs a real 64-hex value, so a word will not validate — compute it: `createHash('sha256').update('…').digest('hex')`, which is what apps/core does. I had three such literals before catching it; one would have reddened every open PR.
 - `pg` is deliberately NOT a dependency of this app: for a pool type use `Parameters<typeof createTenantClient>[0]`.
 
-## RESUME HERE — 2026-10-30: #644 (Fable re-review of #585/#590) fixed, PR open
+## RESUME HERE — 2026-10-30: #646 (the real crm-sync principal) done, PR open
+
+**Manager session TEN.** Branch `engagement/phase5-crm-client`, cut `--no-track` from main `4c7cdb8`.
+**#610 (support reply drafts, default OFF) is still my wave-3 task.**
+
+**#646 — the Fable re-reviews of #598 and #613, two medium findings, all seven items done:**
+1. **`client_credentials` IS BUILT** (`src/crm/token.ts`): the real `crm-sync` service account at the staff
+   realm token endpoint, `CRM_SYNC_CLIENT_ID` / `CRM_SYNC_CLIENT_SECRET` (`infra/keycloak/README.md` is the
+   contract). Secret and token never leave the module; a failure carries the HTTP status plus Keycloak's
+   short `error` only — NOT `error_description`, which echoes input (two tests put the secret in the places
+   a careless implementation would leak it and assert it does not reach the message). Token cached until
+   shortly before expiry, the IN-FLIGHT exchange shared (one exchange per batch), failures not cached,
+   token errors RETRYABLE because a wrong secret and a Keycloak restart look identical from here.
+2. `mock` is an explicit opt-in; `client_credentials` refuses a missing URL or secret at the boot.
+3. `--drain` refuses a live group (exit 2), checking only modules that would run.
+4. The drain reports `clean` and exits **3** when unhappy (dead letters / unreadable DLQ / `max_run`);
+   manager accepted 3 over 1 so a gate can tell "unhappy with the bus" from "could not run". The 0/1/2/3
+   table is in the README.
+5. `buildTokenProvider`'s guard is a `ConfigRefusedError`. 6. The DLQ watch says `unreadable: true`.
+7. CLAUDE.md drift fixed (DLQ_GROUPS default = the running set; the duplicated exit-2 rule deduped; the
+   "missing mode" line now says a CONSUMER with no resolver).
+
+**LIVE PROOF (machine granted, one read-only fetch, no realm change):** the `crm-sync` client-credentials
+grant against the shared Keycloak answered **HTTP 200**, `token_type: Bearer`, `expires_in: 300`,
+`azp: crm-sync`, `aud: core-api` (what `verifyStaffToken` pins), `sub: seed-crm-sync`, **no realm roles**
+(correct — its reach is OpenFGA tuples). The dev secret came from `infra/keycloak/staff-realm.json` at
+runtime and went into no file; the response file was deleted. So the provider's realm, endpoint, client id
+and audience assumptions are confirmed against the real identity provider, not just against a fake.
+
+**Nine existing tests changed, each a scenario #646 makes invalid** (five enabled the CRM with no principal,
+two drove `--drain` on live defaults, one asserted the old `client_credentials` throw, one pinned the old
+unreadable-DLQ line). Every one carries a comment saying so — the manager has seen the list.
+
+**Verified:** 470 passed / 9 live skipped offline; typecheck, lint, prettier, ownership clean. Package 0.7.0.
+
+<!-- Earlier blocks below are still accurate for their own tasks. -->
+
+## RESUME (superseded) — #644, the consent-mode re-review
 
 **Manager session TEN is the manager now.** Branch `engagement/phase5-consent-fix`, cut `--no-track` from
 main `41e4a96`. **#610 (support reply drafts, default OFF) is still my wave-3 task; nothing to do for it

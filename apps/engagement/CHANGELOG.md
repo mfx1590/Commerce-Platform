@@ -1,5 +1,43 @@
 # @platform/engagement
 
+## 0.7.0 — 2026-10-30 (#646, the Fable re-reviews of #598 and #613)
+
+CRM sync can run on its own principal, and a measurement can no longer disturb what it measures.
+
+- **(medium) `client_credentials` is implemented** (`src/crm/token.ts`): the real `crm-sync` confidential
+  service account (#565, shipped by #626/#635), exchanged at the staff realm's token endpoint. Until now it
+  threw, `mock` was the default, and every refusal was keyed on `NODE_ENV === 'production'` — which itself
+  defaults to `development` — so a staging or container deploy with `NODE_ENV` unset ran the CRM on the dev
+  stand-in and dead-lettered every consented event against the real core.
+  The secret and the token **never leave that module**: nothing in it logs, a failure carries the HTTP status
+  plus Keycloak's short `error` code and nothing else (not `error_description`, which echoes input — a test
+  puts the secret in that field and asserts it does not reach the message), and an unreachable identity
+  provider is reported without the error that would carry the request. A token failure is **retryable**,
+  because a wrong secret and a Keycloak restart are indistinguishable from here and the consumer's retries
+  plus the DLQ are the right place for that. One token is cached until shortly before expiry, and the
+  **in-flight exchange is shared**, so a batch of 50 events does one exchange rather than 50.
+- **(medium) `mock` is an explicit opt-in.** `ENGAGEMENT_CRM_TOKEN_PROVIDER` has no default when the CRM is
+  enabled: choosing a principal is not a thing to default, because the wrong one reaches the real core.
+  `client_credentials` also refuses a missing `KEYCLOAK_URL` or `CRM_SYNC_CLIENT_SECRET` at the boot rather
+  than at the first consented event.
+- **(medium) `--drain` refuses a live consumer group.** It reads from the beginning and commits under
+  whatever group it joins, so by omission it rebalanced the running consumer, moved its offsets and reported
+  the live dead-letter queue as its own. It now exits 2, naming the groups and the way out, and it checks
+  only the modules that would actually run (the #644 lesson: refuse what bites).
+- **(minor) A drain says whether its result is clean**, in the report and in the exit code: **3** for dead
+  letters, an unreadable DLQ (`-1`) or `max_run`. It always exited 0 before, so a scripted gate read a pass
+  over a report full of findings. 2 stays "configuration refused", 1 "the process failed".
+- **(minor) A refusal outside `config.ts` is a `ConfigRefusedError` too**: `buildTokenProvider`'s remaining
+  guard exits 2 with its message instead of 1 with the message dropped.
+- **(minor) An unreadable dead-letter queue says `unreadable: true`** in the watch's log line. `depth: 0`
+  alone read as "nothing in the queue", which is the opposite of what happened.
+- **(docs) `apps/engagement/CLAUDE.md` drift fixed**: `ENGAGEMENT_DLQ_GROUPS` defaults to the groups the
+  process runs (since #613, not `KNOWN_GROUPS`), the duplicated exit-2 rule is one rule again, and "a missing
+  mode defaults to `strict`" now says what it means — a CONSUMER given no resolver defaults to strict, which
+  is a library default for a forgetful caller, not an operator-facing one.
+- Tests: **470 passing / 9 live skipped** offline (was 453/9) — the token provider 8, config 100+, drain 11,
+  boot 5.
+
 ## 0.6.2 — 2026-10-30 (#644, the Fable re-review of #585/#590)
 
 Two refusals and two documented limits. The re-review's verdict was FINDINGS with one medium.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { summariseDrain, waitForIdle, type DrainLogLine } from './drain.js';
+import { drainIsClean, summariseDrain, waitForIdle, type DrainLogLine } from './drain.js';
 
 /** A clock that only moves when the code under test sleeps: no real waiting, no flake. */
 function clock(start = 0) {
@@ -139,5 +139,30 @@ describe('waitForIdle', () => {
     // measurement window cannot be held open by a busy topic.
     expect(stop).toBe('max_run');
     expect(c.now()).toBeGreaterThanOrEqual(10_000);
+  });
+});
+
+describe('drainIsClean (#646)', () => {
+  // The drain used to exit 0 whatever it found, so a scripted gate read a green exit over a report full of
+  // dead letters. These are the three things that make a run unclean.
+  it('is clean when it drained and every queue was empty', () => {
+    expect(drainIsClean({ stop: 'idle', deadLetters: { 'engagement.cdp.int4': 0 } })).toBe(true);
+    expect(drainIsClean({ stop: 'empty', deadLetters: {} })).toBe(true);
+  });
+
+  it('is NOT clean with a dead letter', () => {
+    expect(drainIsClean({ stop: 'idle', deadLetters: { 'engagement.crm.int4': 2 } })).toBe(false);
+  });
+
+  it('is NOT clean when a dead-letter queue could not be READ', () => {
+    // -1 is "unknown", and the number nobody has is not zero: a gate must not read it as success.
+    expect(drainIsClean({ stop: 'idle', deadLetters: { 'engagement.ops.int4': -1 } })).toBe(false);
+  });
+
+  it('is NOT clean when the run hit its ceiling', () => {
+    // `max_run` means "nothing left" was never established, whatever the queues say.
+    expect(drainIsClean({ stop: 'max_run', deadLetters: { 'engagement.cdp.int4': 0 } })).toBe(
+      false,
+    );
   });
 });

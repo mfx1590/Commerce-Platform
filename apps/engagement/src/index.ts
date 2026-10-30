@@ -69,7 +69,7 @@ export {
 
 export { ConfigRefusedError, CONFIG_REFUSED_EXIT } from './config-error.js';
 
-export { summariseDrain, waitForIdle } from './drain.js';
+export { drainIsClean, summariseDrain, waitForIdle, DRAIN_UNCLEAN_EXIT } from './drain.js';
 export type {
   DrainLogLine,
   DrainReport,
@@ -119,6 +119,8 @@ export { readOrderHistory, readStoreFacts } from './crm/read.js';
 export type { CustomerOrderHistory, StoreFacts } from './crm/read.js';
 
 export { createAdminApiReader, mockTokenProvider } from './crm/admin-api.js';
+export { createClientCredentialsProvider } from './crm/token.js';
+export type { ClientCredentialsOptions, TokenFetch } from './crm/token.js';
 export type { AdminApiOptions, CustomerReader } from './crm/admin-api.js';
 
 export { MemoryCrmAdapter } from './crm/adapter/memory.js';

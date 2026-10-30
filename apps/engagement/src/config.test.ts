@@ -625,13 +625,22 @@ describe('--drain, the one-shot measurement mode (#594)', () => {
   });
 
   it('is on with --drain, with an idle window and a minimum run', () => {
-    const c = resolveConfig({ env: base, argv: ['node', 'main.js', '--drain'] });
+    // A fresh ops group: since #646 a drain on the live default is refused (its own tests are below).
+    const c = resolveConfig({
+      env: { ...base, ENGAGEMENT_OPS_GROUP_ID: 'engagement.ops.int4' },
+      argv: ['node', 'main.js', '--drain'],
+    });
     expect(c.drain).toEqual({ enabled: true, idleMs: 10_000, minRunMs: 20_000 });
   });
 
   it('takes both windows from the environment, and refuses a non-number', () => {
     const c = resolveConfig({
-      env: { ...base, ENGAGEMENT_DRAIN_IDLE_MS: '3000', ENGAGEMENT_DRAIN_MIN_RUN_MS: '9000' },
+      env: {
+        ...base,
+        ENGAGEMENT_OPS_GROUP_ID: 'engagement.ops.int4',
+        ENGAGEMENT_DRAIN_IDLE_MS: '3000',
+        ENGAGEMENT_DRAIN_MIN_RUN_MS: '9000',
+      },
       argv: ['--drain'],
     });
     expect(c.drain).toEqual({ enabled: true, idleMs: 3_000, minRunMs: 9_000 });
@@ -678,7 +687,9 @@ describe('resolveConfig — the CRM side (#555)', () => {
   });
 
   it('turns on with the memory adapter outside production', () => {
-    const c = resolveConfig({ env: { ...base, ENGAGEMENT_CRM_ENABLED: '1' } });
+    const c = resolveConfig({
+      env: { ...base, ENGAGEMENT_CRM_ENABLED: '1', ENGAGEMENT_CRM_TOKEN_PROVIDER: 'mock' },
+    });
     expect(c.crm).toMatchObject({ enabled: true, adapter: 'memory', tokenProvider: 'mock' });
   });
 
@@ -719,7 +730,12 @@ describe('resolveConfig — the CRM side (#555)', () => {
   it('requires a base URL and a key for twenty when enabled', () => {
     expect(() =>
       resolveConfig({
-        env: { ...base, ENGAGEMENT_CRM_ENABLED: '1', ENGAGEMENT_CRM_ADAPTER: 'twenty' },
+        env: {
+          ...base,
+          ENGAGEMENT_CRM_ENABLED: '1',
+          ENGAGEMENT_CRM_TOKEN_PROVIDER: 'mock',
+          ENGAGEMENT_CRM_ADAPTER: 'twenty',
+        },
       }),
     ).toThrow(/TWENTY_BASE_URL and TWENTY_API_KEY/);
   });
@@ -729,6 +745,7 @@ describe('resolveConfig — the CRM side (#555)', () => {
       env: {
         ...base,
         ENGAGEMENT_CRM_ENABLED: '1',
+        ENGAGEMENT_CRM_TOKEN_PROVIDER: 'mock',
         ENGAGEMENT_CRM_ADAPTER: 'twenty',
         TWENTY_BASE_URL: 'https://crm.example/rest',
         TWENTY_API_KEY: 'twenty-api-key-words-only',
@@ -753,7 +770,8 @@ describe('resolveConfig — the CRM side (#555)', () => {
 });
 
 describe('ENGAGEMENT_CRM_MOCK_TOKEN — the dev stand-in for #565 (#594)', () => {
-  const crmOn = { ...base, ENGAGEMENT_CRM_ENABLED: '1' };
+  // Since #646 a principal is an explicit choice when the CRM is on: no default is picked for us.
+  const crmOn = { ...base, ENGAGEMENT_CRM_ENABLED: '1', ENGAGEMENT_CRM_TOKEN_PROVIDER: 'mock' };
   // In production the dev transport is refused FIRST, so a production case has to be valid otherwise or it
   // proves the wrong refusal.
   const prod = { ENGAGEMENT_TRANSPORT: 'slack', SLACK_OPS_WEBHOOK_URL: WEBHOOK };
@@ -819,6 +837,7 @@ describe('buildCrmAdapter / buildTokenProvider', () => {
         env: {
           ...base,
           ENGAGEMENT_CRM_ENABLED: '1',
+          ENGAGEMENT_CRM_TOKEN_PROVIDER: 'mock',
           ENGAGEMENT_CRM_ADAPTER: 'twenty',
           TWENTY_BASE_URL: 'https://crm.example/rest',
           TWENTY_API_KEY: 'twenty-api-key-words-only',
@@ -833,12 +852,137 @@ describe('buildCrmAdapter / buildTokenProvider', () => {
     expect(buildTokenProvider(resolveConfig({ env: base })).name).toBe('mock');
   });
 
-  it('THROWS for client_credentials rather than falling back to the mock (#565 is not built)', () => {
+  it('BUILDS the client-credentials provider now that the crm-sync client exists (#646)', () => {
+    // This test asserted the old refusal ("not implemented yet"). #626/#635 shipped the client, and #646
+    // built the provider: the CRM can run on its own principal instead of only on the dev stand-in.
+    const provider = buildTokenProvider(
+      resolveConfig({
+        env: {
+          ...base,
+          ENGAGEMENT_CRM_ENABLED: '1',
+          ENGAGEMENT_CRM_TOKEN_PROVIDER: 'client_credentials',
+          KEYCLOAK_URL: 'http://localhost:8180',
+          CRM_SYNC_CLIENT_SECRET: 'words-only-not-a-real-secret',
+        },
+      }),
+    );
+    expect(provider.name).toBe('client_credentials');
+  });
+});
+
+describe('the CRM principal is an explicit choice (#646)', () => {
+  it('REFUSES a missing ENGAGEMENT_CRM_TOKEN_PROVIDER when the CRM is enabled', () => {
+    // The medium finding: `mock` was the default and every refusal was keyed on
+    // `NODE_ENV === 'production'`, which itself defaults to `development`. A staging deploy with
+    // NODE_ENV unset therefore ran the CRM on the dev stand-in and dead-lettered every consented event.
     expect(() =>
-      buildTokenProvider(
-        resolveConfig({ env: { ...base, ENGAGEMENT_CRM_TOKEN_PROVIDER: 'client_credentials' } }),
-      ),
-    ).toThrow(/not implemented yet \(REQUEST #565\)/);
+      resolveConfig({ env: { ...base, ENGAGEMENT_CRM_ENABLED: '1' }, argv: [] }),
+    ).toThrow(ConfigRefusedError);
+    expect(() =>
+      resolveConfig({ env: { ...base, ENGAGEMENT_CRM_ENABLED: '1' }, argv: [] }),
+    ).toThrow(/ENGAGEMENT_CRM_TOKEN_PROVIDER must be set/);
+  });
+
+  it('needs no principal while the CRM is OFF, because nothing will ask for one', () => {
+    expect(resolveConfig({ env: base, argv: [] }).crm.tokenProvider).toBe('mock');
+    expect(resolveConfig({ env: base, argv: [] }).crm.enabled).toBe(false);
+  });
+
+  it('builds the token endpoint from KEYCLOAK_URL and the staff realm', () => {
+    const c = resolveConfig({
+      env: {
+        ...base,
+        ENGAGEMENT_CRM_ENABLED: '1',
+        ENGAGEMENT_CRM_TOKEN_PROVIDER: 'client_credentials',
+        KEYCLOAK_URL: 'http://localhost:8180/',
+        KEYCLOAK_REALM_STAFF: 'staff',
+        CRM_SYNC_CLIENT_SECRET: 'words-only-not-a-real-secret',
+      },
+      argv: [],
+    });
+    expect(c.crm.clientCredentials).toEqual({
+      tokenUrl: 'http://localhost:8180/realms/staff/protocol/openid-connect/token',
+      clientId: 'crm-sync',
+      clientSecret: 'words-only-not-a-real-secret',
+    });
+  });
+
+  it('REFUSES client_credentials without a URL or without a secret', () => {
+    const withCrm = {
+      ...base,
+      ENGAGEMENT_CRM_ENABLED: '1',
+      ENGAGEMENT_CRM_TOKEN_PROVIDER: 'client_credentials',
+    };
+    expect(() =>
+      resolveConfig({
+        env: { ...withCrm, CRM_SYNC_CLIENT_SECRET: 'words-only-not-a-real-secret' },
+        argv: [],
+      }),
+    ).toThrow(/requires KEYCLOAK_URL/);
+    expect(() =>
+      resolveConfig({ env: { ...withCrm, KEYCLOAK_URL: 'http://localhost:8180' }, argv: [] }),
+    ).toThrow(/requires CRM_SYNC_CLIENT_SECRET/);
+  });
+});
+
+describe('--drain must not join a live consumer group (#646)', () => {
+  const fresh = {
+    ENGAGEMENT_OPS_GROUP_ID: 'engagement.ops.int4',
+    ENGAGEMENT_CDP_GROUP_ID: 'engagement.cdp.int4',
+    ENGAGEMENT_CRM_GROUP_ID: 'engagement.crm.int4',
+  };
+
+  it('REFUSES a drain on the live defaults, naming them and the way out', () => {
+    // The second medium finding: a drain reads from the BEGINNING and commits under whatever group it
+    // joins, so without an override it rebalanced the running consumer, moved its offsets and reported the
+    // live dead-letter queue as its own.
+    expect(() => resolveConfig({ env: base, argv: ['--drain'] })).toThrow(ConfigRefusedError);
+    expect(() => resolveConfig({ env: base, argv: ['--drain'] })).toThrow(
+      /--drain refuses the live consumer group\(s\) engagement\.ops/,
+    );
+  });
+
+  it('names EVERY live group that would run, not just the first', () => {
+    expect(() =>
+      resolveConfig({
+        env: {
+          ...base,
+          ENGAGEMENT_CDP_ENABLED: '1',
+          ENGAGEMENT_CRM_ENABLED: '1',
+          ENGAGEMENT_CRM_TOKEN_PROVIDER: 'mock',
+        },
+        argv: ['--drain'],
+      }),
+    ).toThrow(/engagement\.ops, engagement\.cdp, engagement\.crm/);
+  });
+
+  it('ignores the live default of a module that is OFF, because it joins nothing', () => {
+    // The #644 lesson: refuse what bites. A disabled CDP never joins `engagement.cdp`, so its default is
+    // not a reason to refuse a drain of the ops group.
+    const c = resolveConfig({
+      env: { ...base, ENGAGEMENT_OPS_GROUP_ID: 'engagement.ops.int4' },
+      argv: ['--drain'],
+    });
+    expect(c.drain.enabled).toBe(true);
+    expect(c.groups).toEqual({
+      ops: 'engagement.ops.int4',
+      cdp: 'engagement.cdp',
+      crm: 'engagement.crm',
+    });
+  });
+
+  it('accepts a drain with a fresh group per module', () => {
+    const c = resolveConfig({
+      env: { ...base, ...fresh, ENGAGEMENT_CDP_ENABLED: '1' },
+      argv: ['--drain'],
+    });
+    expect(c.drain.enabled).toBe(true);
+    expect(c.groups.cdp).toBe('engagement.cdp.int4');
+  });
+
+  it('does not touch the LONG-RUNNING mode, which is supposed to use the live groups', () => {
+    const c = resolveConfig({ env: base, argv: [] });
+    expect(c.groups.ops).toBe('engagement.ops');
   });
 });
 

@@ -109,7 +109,7 @@ describe('pollDeadLetters', () => {
     expect(alerts[0]!.fields.depth).toBe(4);
   });
 
-  it('an unreadable DLQ is depth 0 and a log line, never an alert and never a throw', async () => {
+  it('an unreadable DLQ says UNREADABLE, never an alert and never a throw (#646)', async () => {
     const lines: unknown[] = [];
     const read = async (g: string) => {
       if (g === 'accounting') throw new Error('This server does not host this topic-partition');
@@ -137,7 +137,11 @@ describe('pollDeadLetters', () => {
         module: 'ops',
         event: 'dlq_poll',
         group_id: 'accounting',
+        // `depth: 0` alone read as "nothing in the queue", which is the opposite of what happened: the
+        // depth is UNKNOWN. The flag says so, and the depth stays a number nothing downstream has to
+        // special-case (#646).
         depth: 0,
+        unreadable: true,
         threshold: 1,
         error_class: 'Error',
       },

@@ -53,6 +53,8 @@ export interface EngagementLogLine {
   outbox_id?: string;
   group_id?: string;
   depth?: number;
+  /** True when the queue could not be READ: `depth` is then unknown, not zero (#646). */
+  unreadable?: boolean;
   threshold?: number;
   suppressed?: number;
   transport?: string;
