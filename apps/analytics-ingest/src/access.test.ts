@@ -14,7 +14,7 @@ import {
   sha256Hex,
   type AccessFile,
 } from './access.js';
-import { createChClient, type ChClient } from './clickhouse.js';
+import { createChClient, createChReader, type ChClient } from './clickhouse.js';
 import { loadConfig } from './config.js';
 import { migrate, readSqlFiles } from './migrations.js';
 import { clickHouseSkipReason, throwawayDatabase } from './testing/clickhouse-gate.js';
@@ -42,7 +42,7 @@ describe('data/clickhouse/access', () => {
     expect(grants).toEqual([
       'REVOKE ALL ON *.* FROM {{user}};',
       'GRANT SELECT, INSERT ON {{database}}.* TO {{user}};',
-      'GRANT ALTER DELETE, OPTIMIZE ON {{database}}.raw_events TO {{user}};',
+      'GRANT ALTER DELETE, ALTER UPDATE(_row_exists), OPTIMIZE ON {{database}}.raw_events TO {{user}};',
     ]);
   });
 
@@ -216,7 +216,13 @@ describe.skipIf(skip !== null)('ClickHouse access as SQL (#648)', () => {
       { ...cfg, username: users.analytics_ingest, password: pw.ingest },
       db,
     );
-    asRo = createChClient({ ...cfg, username: users.analytics_ro, password: pw.ro }, db);
+    // the reader client: a readonly user is refused any per-query setting (as the metrics API reads)
+    asRo = createChReader({
+      url: cfg.url,
+      database: db,
+      username: users.analytics_ro,
+      password: pw.ro,
+    });
   }, 120_000);
 
   afterAll(async () => {
@@ -336,8 +342,9 @@ describe.skipIf(skip !== null)('ClickHouse access as SQL (#648)', () => {
         format: 'JSONEachRow',
       })
     ).json<Record<string, string | number>>();
-    expect(settings[0]).toMatchObject({ ro: '1', conc: '16', mem: '805306368' });
-    expect(Number(settings[0]!.t)).toBe(10);
+    // getSetting answers numbers or numeric strings depending on the setting's type: compare as numbers
+    const num = (k: string) => Number(settings[0]![k]);
+    expect([num('ro'), num('conc'), num('mem'), num('t')]).toEqual([1, 16, 805_306_368, 10]);
     expect(word).toMatch(/^[a-z0-9]+$/);
   });
 
@@ -351,13 +358,19 @@ describe.skipIf(skip !== null)('ClickHouse access as SQL (#648)', () => {
     const grants = await (
       await admin.query({
         query:
-          'SELECT access_type, table FROM system.grants WHERE user_name = {u:String} ORDER BY access_type, table',
+          'SELECT toString(access_type) AS access_type, table, column FROM system.grants WHERE user_name = {u:String}',
         query_params: { u: users.analytics_ingest },
         format: 'JSONEachRow',
       })
-    ).json<{ access_type: string; table: string | null }>();
-    expect(grants.map((g) => `${g.access_type}:${g.table ?? '*'}`)).toEqual([
+    ).json<{ access_type: string; table: string | null; column: string | null }>();
+    // system.grants orders access_type by its enum, not by name: compare as a sorted set
+    expect(
+      grants
+        .map((g) => `${g.access_type}:${g.table ?? '*'}${g.column ? `(${g.column})` : ''}`)
+        .sort(),
+    ).toEqual([
       'ALTER DELETE:raw_events',
+      'ALTER UPDATE:raw_events(_row_exists)',
       'INSERT:*',
       'OPTIMIZE:raw_events',
       'SELECT:*',
