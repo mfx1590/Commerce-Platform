@@ -21,6 +21,17 @@ One HIGH privacy finding: an erasure suppressed one profile out of two.
     not happen. `RUDDERSTACK_SOURCE_IDS` is therefore replaced by `RUDDERSTACK_DESTINATION_IDS`; the CDP has
     never run against a real account, so there is no deployment to migrate, and keeping an alias for a name
     the API rejects would only preserve the bug.
+    **From the #660 review (manager decision): the regulation names the hash TWICE** — beside the customer's
+    `userId` as a custom identifier, AND as a second entry `{ userId: <email_hash> }`. The doc never says a
+    custom identifier is matched against `anonymousId`, and a guest's events carry the hash only there, so the
+    first entry alone most likely leaves that profile in place while reporting success. A hash in the `userId`
+    position cannot name another person here (a sha256 against uuids), and destinations keyed by `anonymousId`
+    are then named exactly. **Reaching that profile is UNVERIFIED until a real workspace exists** — reasoned,
+    not observed, and on the launch checklist. Linking the two profiles on `identify` is a separate decision
+    and deliberately not taken here.
+    **`RUDDERSTACK_SOURCE_IDS` IS GONE**, replaced by `RUDDERSTACK_DESTINATION_IDS`. Not renamed-with-alias:
+    the API rejects source ids for this regulation, so an alias would only let the old configuration keep
+    failing silently. Nothing to migrate — the CDP has never run against a real account.
     **And one thing that API cannot do, stated rather than papered over:** a hash-only identity cannot be
     suppressed, because `userId` is mandatory. Sending the hash as a `userId` would match a different profile
     and report success, so the adapter THROWS and the event dead-letters where a person sees it. Unreachable

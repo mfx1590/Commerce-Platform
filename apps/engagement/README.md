@@ -66,50 +66,50 @@ reads and writes none of it.
 
 ### Environment
 
-| Variable                              | Default            | Meaning                                                                                |
-| ------------------------------------- | ------------------ | -------------------------------------------------------------------------------------- |
-| `DATABASE_URL_APP`                    | —                  | the `platform_app` role (RLS applies); required                                        |
-| `ENGAGEMENT_ORGANIZATION_ID`          | the seeded HQ      | the organization this process serves                                                   |
-| `ENGAGEMENT_TRANSPORT`                | `dev`              | `dev` (a local file) or `slack`; **`dev` is refused in production**                    |
-| `ENGAGEMENT_DIR`                      | `.engagement`      | where the dev sink writes (git-ignored)                                                |
-| `SLACK_OPS_WEBHOOK_URL`               | —                  | the incoming-webhook URL, **environment only**; required for `slack`, never logged     |
-| `ENGAGEMENT_ALERT_RATE_MAX`           | `5`                | alerts per (rule, store) per window                                                    |
-| `ENGAGEMENT_ALERT_RATE_WINDOW_MS`     | `900000` (15 min)  | the window                                                                             |
-| `ENGAGEMENT_DLQ_GROUPS`               | the groups it runs | groups whose DLQ depth is watched; **production must list every group on the bus**     |
-| `ENGAGEMENT_CRM_MOCK_TOKEN`           | –                  | **dev stand-in for the `crm-sync` principal (#565); never in production** (#594)       |
-| `ENGAGEMENT_CRM_TOKEN_PROVIDER`       | **none**           | `client_credentials` or `mock`; **no default when the CRM is enabled** (#646)          |
-| `CRM_SYNC_CLIENT_ID`                  | `crm-sync`         | the confidential service account for CRM sync (#565)                                   |
-| `CRM_SYNC_CLIENT_SECRET`              | –                  | its secret, from Vault in production; required with `client_credentials`               |
-| `KEYCLOAK_URL`                        | –                  | the realm host for the token exchange; **must be `https://` in production** (#654)     |
-| `ENGAGEMENT_OPS_GROUP_ID`             | `engagement.ops`   | the ops consumer group; a fresh id re-reads history without moving the live offsets    |
-| `ENGAGEMENT_CDP_GROUP_ID`             | `engagement.cdp`   | the CDP consumer group (same rule)                                                     |
-| `ENGAGEMENT_CRM_GROUP_ID`             | `engagement.crm`   | the CRM consumer group (same rule)                                                     |
-| `ENGAGEMENT_DRAIN_IDLE_MS`            | `10000`            | `--drain`: quiet for this long after the last batch = drained                          |
-| `ENGAGEMENT_DRAIN_MIN_RUN_MS`         | `20000`            | `--drain`: no run ends sooner, so a slow group join is not read as an empty bus        |
-| `ENGAGEMENT_DLQ_THRESHOLD`            | `1`                | alert when a group's live dead-letter count reaches this                               |
-| `ENGAGEMENT_DLQ_POLL_MS`              | `60000`            | poll interval for the depth watch                                                      |
-| `KAFKA_BROKERS`                       | `127.0.0.1:19092`  | read by `@platform/events` (`createKafka`)                                             |
-| `ENGAGEMENT_CDP_ENABLED`              | `0`                | `1` starts the CDP consumer (off until an account exists)                              |
-| `ENGAGEMENT_CDP_ADAPTER`              | `memory`           | `memory` or `rudderstack`; **`memory` is refused in production when enabled**          |
-| `RUDDERSTACK_WRITE_KEY`               | —                  | the source write key, **environment only**, never logged                               |
-| `RUDDERSTACK_DATA_PLANE_URL`          | —                  | the data plane, e.g. `https://hosted.rudderlabs.example`                               |
-| `RUDDERSTACK_CONTROL_PLANE_URL`       | —                  | suppressions only (a different credential from the write key)                          |
-| `RUDDERSTACK_ACCESS_TOKEN`            | —                  | suppressions only; without it a suppression **throws** instead of doing nothing        |
-| `RUDDERSTACK_SOURCE_IDS`              | —                  | comma-separated source ids a suppression applies to                                    |
-| `ENGAGEMENT_CDP_CONSENT_MODE`         | `analytics`        | global consent mode: `analytics` or `strict` (#576); an unknown value fails the boot   |
-| `ENGAGEMENT_CDP_CONSENT_MODE_<STORE>` | the global         | per-store override, e.g. `..._BRAND_A=strict` — one region made strict, no code change |
-| `ENGAGEMENT_CRM_ENABLED`              | `0`                | `1` starts the CRM consumer (off until a CRM and #565 exist)                           |
-| `ENGAGEMENT_CRM_ADAPTER`              | `memory`           | `memory` or `twenty`; **`memory` is refused in production when enabled**               |
-| `ENGAGEMENT_CRM_TOKEN_PROVIDER`       | `mock`             | `mock` or `client_credentials`; **`mock` is refused in production**                    |
-| `TWENTY_BASE_URL`                     | —                  | Twenty's REST base, e.g. `https://crm.example/rest`                                    |
-| `TWENTY_API_KEY`                      | —                  | the Twenty key, **environment only**, never logged                                     |
-| `TWENTY_EXTERNAL_ID_FIELD`            | `externalId`       | the custom person field holding OUR customer id (the upsert key)                       |
-| `ADMIN_API_URL`                       | `localhost:9000`   | the core Admin API the contact's name and e-mail are read from                         |
-| `ENGAGEMENT_SUPPORT_ENABLED`          | `0`                | `1` starts the support HTTP server                                                     |
-| `ENGAGEMENT_SUPPORT_PORT`             | `4040`             | the port it listens on                                                                 |
-| `ENGAGEMENT_SUPPORT_MAX_ORDERS`       | `25`               | how many of a customer's orders are detailed, newest first                             |
-| `CHATWOOT_WEBHOOK_SECRET`             | -                  | HMAC secret, **environment only**; without it the webhook route answers 503            |
-| `ENGAGEMENT_DEV_TOKENS`               | `0`                | `Bearer dev:<subject>` on the support routes; **refused in production**                |
+| Variable                              | Default            | Meaning                                                                                                                                                            |
+| ------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL_APP`                    | —                  | the `platform_app` role (RLS applies); required                                                                                                                    |
+| `ENGAGEMENT_ORGANIZATION_ID`          | the seeded HQ      | the organization this process serves                                                                                                                               |
+| `ENGAGEMENT_TRANSPORT`                | `dev`              | `dev` (a local file) or `slack`; **`dev` is refused in production**                                                                                                |
+| `ENGAGEMENT_DIR`                      | `.engagement`      | where the dev sink writes (git-ignored)                                                                                                                            |
+| `SLACK_OPS_WEBHOOK_URL`               | —                  | the incoming-webhook URL, **environment only**; required for `slack`, never logged                                                                                 |
+| `ENGAGEMENT_ALERT_RATE_MAX`           | `5`                | alerts per (rule, store) per window                                                                                                                                |
+| `ENGAGEMENT_ALERT_RATE_WINDOW_MS`     | `900000` (15 min)  | the window                                                                                                                                                         |
+| `ENGAGEMENT_DLQ_GROUPS`               | the groups it runs | groups whose DLQ depth is watched; **production must list every group on the bus**                                                                                 |
+| `ENGAGEMENT_CRM_MOCK_TOKEN`           | –                  | **dev stand-in for the `crm-sync` principal (#565); never in production** (#594)                                                                                   |
+| `ENGAGEMENT_CRM_TOKEN_PROVIDER`       | **none**           | `client_credentials` or `mock`; **no default when the CRM is enabled** (#646)                                                                                      |
+| `CRM_SYNC_CLIENT_ID`                  | `crm-sync`         | the confidential service account for CRM sync (#565)                                                                                                               |
+| `CRM_SYNC_CLIENT_SECRET`              | –                  | its secret, from Vault in production; required with `client_credentials`                                                                                           |
+| `KEYCLOAK_URL`                        | –                  | the realm host for the token exchange; **must be `https://` in production** (#654)                                                                                 |
+| `ENGAGEMENT_OPS_GROUP_ID`             | `engagement.ops`   | the ops consumer group; a fresh id re-reads history without moving the live offsets                                                                                |
+| `ENGAGEMENT_CDP_GROUP_ID`             | `engagement.cdp`   | the CDP consumer group (same rule)                                                                                                                                 |
+| `ENGAGEMENT_CRM_GROUP_ID`             | `engagement.crm`   | the CRM consumer group (same rule)                                                                                                                                 |
+| `ENGAGEMENT_DRAIN_IDLE_MS`            | `10000`            | `--drain`: quiet for this long after the last batch = drained                                                                                                      |
+| `ENGAGEMENT_DRAIN_MIN_RUN_MS`         | `20000`            | `--drain`: no run ends sooner, so a slow group join is not read as an empty bus                                                                                    |
+| `ENGAGEMENT_DLQ_THRESHOLD`            | `1`                | alert when a group's live dead-letter count reaches this                                                                                                           |
+| `ENGAGEMENT_DLQ_POLL_MS`              | `60000`            | poll interval for the depth watch                                                                                                                                  |
+| `KAFKA_BROKERS`                       | `127.0.0.1:19092`  | read by `@platform/events` (`createKafka`)                                                                                                                         |
+| `ENGAGEMENT_CDP_ENABLED`              | `0`                | `1` starts the CDP consumer (off until an account exists)                                                                                                          |
+| `ENGAGEMENT_CDP_ADAPTER`              | `memory`           | `memory` or `rudderstack`; **`memory` is refused in production when enabled**                                                                                      |
+| `RUDDERSTACK_WRITE_KEY`               | —                  | the source write key, **environment only**, never logged                                                                                                           |
+| `RUDDERSTACK_DATA_PLANE_URL`          | —                  | the data plane, e.g. `https://hosted.rudderlabs.example`                                                                                                           |
+| `RUDDERSTACK_CONTROL_PLANE_URL`       | —                  | suppressions only (a different credential from the write key)                                                                                                      |
+| `RUDDERSTACK_ACCESS_TOKEN`            | —                  | suppressions only; without it a suppression **throws** instead of doing nothing                                                                                    |
+| `RUDDERSTACK_DESTINATION_IDS`         | —                  | comma-separated DESTINATION ids an erasure deletes from; `suppress_with_delete` takes destinations and rejects source ids (#657). `RUDDERSTACK_SOURCE_IDS` is gone |
+| `ENGAGEMENT_CDP_CONSENT_MODE`         | `analytics`        | global consent mode: `analytics` or `strict` (#576); an unknown value fails the boot                                                                               |
+| `ENGAGEMENT_CDP_CONSENT_MODE_<STORE>` | the global         | per-store override, e.g. `..._BRAND_A=strict` — one region made strict, no code change                                                                             |
+| `ENGAGEMENT_CRM_ENABLED`              | `0`                | `1` starts the CRM consumer (off until a CRM and #565 exist)                                                                                                       |
+| `ENGAGEMENT_CRM_ADAPTER`              | `memory`           | `memory` or `twenty`; **`memory` is refused in production when enabled**                                                                                           |
+| `ENGAGEMENT_CRM_TOKEN_PROVIDER`       | `mock`             | `mock` or `client_credentials`; **`mock` is refused in production**                                                                                                |
+| `TWENTY_BASE_URL`                     | —                  | Twenty's REST base, e.g. `https://crm.example/rest`                                                                                                                |
+| `TWENTY_API_KEY`                      | —                  | the Twenty key, **environment only**, never logged                                                                                                                 |
+| `TWENTY_EXTERNAL_ID_FIELD`            | `externalId`       | the custom person field holding OUR customer id (the upsert key)                                                                                                   |
+| `ADMIN_API_URL`                       | `localhost:9000`   | the core Admin API the contact's name and e-mail are read from                                                                                                     |
+| `ENGAGEMENT_SUPPORT_ENABLED`          | `0`                | `1` starts the support HTTP server                                                                                                                                 |
+| `ENGAGEMENT_SUPPORT_PORT`             | `4040`             | the port it listens on                                                                                                                                             |
+| `ENGAGEMENT_SUPPORT_MAX_ORDERS`       | `25`               | how many of a customer's orders are detailed, newest first                                                                                                         |
+| `CHATWOOT_WEBHOOK_SECRET`             | -                  | HMAC secret, **environment only**; without it the webhook route answers 503                                                                                        |
+| `ENGAGEMENT_DEV_TOKENS`               | `0`                | `Bearer dev:<subject>` on the support routes; **refused in production**                                                                                            |
 
 Locally: `.env` with the DB rows (loopback **127.0.0.1**, not `localhost` — Memory-main's IPv6 trap), nothing
 else, then `pnpm --filter @platform/engagement dev`. Make a payment fail and
@@ -294,6 +294,15 @@ which is how [RudderStack's suppression API](https://www.rudderstack.com/docs/ap
 expresses one person known by two keys. The same doc settles two things the old code had wrong: the
 regulation type is `suppress_with_delete` and it takes **`destinationIds`**, not source ids — so a
 suppression would have been rejected outright even before the missing id mattered.
+
+**Reaching the guest-keyed profile is UNVERIFIED until a real workspace exists** (#660 review). The
+regulation names the hash twice: beside the customer's `userId` as a custom identifier, and as a `userId` of
+its own — because nothing in the doc says a custom identifier is matched against `anonymousId`, and a guest's
+events carry the hash only there. Naming it in the `userId` position cannot hit another person (in this
+service a hash is a sha256 of an address and a customer id is a uuid), and destinations that key users by
+`anonymousId` are then named exactly. But no RudderStack account has ever received one of these, so that is
+reasoned rather than observed: it is a launch-checklist check, and linking the two profiles on `identify` is
+a separate decision that is deliberately not taken here.
 
 **What that API cannot do, recorded rather than worked around:** `userId` is mandatory and `anonymousId` is
 not an accepted key, so a HASH-ONLY erasure cannot be expressed. Sending the hash as a `userId` would match a

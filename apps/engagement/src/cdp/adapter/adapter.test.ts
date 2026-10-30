@@ -260,6 +260,7 @@ describe('rudderstack adapter', () => {
     expect(JSON.parse(r.calls[0]!.body)).toEqual({
       regulationType: 'suppress_with_delete',
       destinationIds: ['destination-alpha'],
+      // One entry when there is one id: no empty second entry, and no hash invented.
       users: [{ userId: CUSTOMER }],
     });
   });
@@ -277,8 +278,15 @@ describe('rudderstack adapter', () => {
     });
 
     const body = JSON.parse(r.calls[0]!.body) as { users: Record<string, string>[] };
-    expect(body.users).toEqual([{ userId: CUSTOMER, email_hash: EMAIL_HASH }]);
-    // One regulation, not two: both keys name one person.
+    // TWO entries (#660 review): the customer-keyed profile with the hash beside its mandatory `userId`,
+    // and the GUEST-keyed profile named by the hash in the `userId` position — because nothing in the doc
+    // says a custom identifier is matched against `anonymousId`, and a guest's events carry the hash only
+    // there. Safe because a hash is never a customer id in this service, so it cannot name another person.
+    expect(body.users).toEqual([
+      { userId: CUSTOMER, email_hash: EMAIL_HASH },
+      { userId: EMAIL_HASH },
+    ]);
+    // One regulation, two entries: one call, both profiles named.
     expect(r.calls).toHaveLength(1);
   });
 

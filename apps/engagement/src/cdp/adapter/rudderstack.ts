@@ -125,9 +125,24 @@ export class RudderStackCdpAdapter implements CdpAdapter {
     const body = JSON.stringify({
       regulationType: 'suppress_with_delete',
       destinationIds: r.destinationIds,
-      // ONE entry, every id this person is known by: the mandatory `userId` plus the hash as a custom
-      // identifier. Both profiles, one regulation.
-      users: [{ userId, ...(anonymousId ? { email_hash: anonymousId } : {}) }],
+      // TWO entries when both ids are known (#660 review, manager decision), because one is not enough and
+      // the doc does not promise what the issue assumed:
+      //   * `{ userId, email_hash }` — the customer-keyed profile, with the hash as a custom identifier
+      //     beside the mandatory `userId`, which is the documented way to name one person by two keys;
+      //   * `{ userId: <email_hash> }` — the GUEST-keyed profile. Nothing in the doc says a custom
+      //     identifier is matched against `anonymousId`, and a guest's track calls carry the hash ONLY as
+      //     `anonymousId`, so the first entry most likely leaves that profile in place. Naming the hash in
+      //     the `userId` position is safe HERE because in this service a hash is never a customer id (it is
+      //     a sha256 of an address, and customer ids are uuids), so it cannot collide with another person,
+      //     and destinations that key users by `anonymousId` — Mixpanel's `distinct_id`, for instance — are
+      //     then named exactly.
+      // UNVERIFIED until a real workspace exists: no RudderStack account has ever received one of these, so
+      // whether the second entry reaches the hash-keyed profile is reasoned, not observed (launch checklist).
+      // Linking the two profiles on `identify` is a separate decision and deliberately not done here.
+      users: [
+        { userId, ...(anonymousId ? { email_hash: anonymousId } : {}) },
+        ...(anonymousId ? [{ userId: anonymousId }] : []),
+      ],
     });
     await this.#send(url, { authorization: `Bearer ${r.accessToken}` }, body, 'regulation');
   }

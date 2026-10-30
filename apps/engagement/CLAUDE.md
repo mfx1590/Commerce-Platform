@@ -198,6 +198,13 @@ package yet.
   `RUDDERSTACK_DESTINATION_IDS`), and `userId` is **mandatory**, so a hash-only identity cannot be suppressed
   through this API at all. That case THROWS rather than sending the hash as a `userId`, which would suppress
   a different profile and report success. Any new CDP adapter answers the same question before it ships.
+- **The regulation names the hash TWICE, and reaching the guest-keyed profile is UNVERIFIED** (#660 review,
+  manager decision): `{ userId, email_hash }` for the customer-keyed profile, plus a second entry
+  `{ userId: <email_hash> }` for the guest-keyed one, because the doc never says a custom identifier is
+  matched against `anonymousId` and a guest's events carry the hash only there. The hash in a `userId`
+  position cannot name another person here (sha256 vs uuid), and destinations keyed by `anonymousId` are hit
+  exactly — but no real workspace has ever received one, so it is reasoned, not observed: a launch-checklist
+  check. Linking the two profiles on `identify` is a separate decision; do not take it in passing.
 - **`failure_reason` is forwarded only when it looks like a provider CODE** (`^[a-z0-9_]{1,64}$`), else
   `unrecognised` (#657). The core stores `err.declineCode ?? err.code ?? err.message`, and a PSP message is
   free text that can quote the request. Replaced, not truncated: a shortened message is still a message.

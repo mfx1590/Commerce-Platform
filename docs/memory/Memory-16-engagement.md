@@ -197,6 +197,23 @@ API, and the real contract (https://www.rudderstack.com/docs/api/user-suppressio
 3. **A hash-only erasure CANNOT be expressed** through that API. Sending the hash as a `userId` would
    suppress a different profile and report success, so the adapter throws and the event dead-letters.
    Unreachable today; the first question a guest-erasure path must answer.
+**#660's review was a BLOCK and it was right twice over:** (a) `{ userId, email_hash }` alone most likely
+leaves the guest profile in place — the doc never says a custom identifier is matched against `anonymousId`,
+and a guest's events carry the hash ONLY there — so the regulation now names the hash twice, with a second
+entry `{ userId: <email_hash> }` (manager decision: safe because a hash is never a customer id here, and
+destinations keyed by `anonymousId` are then hit exactly); and (b) `README.md:98` still documented
+`RUDDERSTACK_SOURCE_IDS` after I had replaced it — a rename is not done until every mention is. **Reaching
+the hash-keyed profile is UNVERIFIED** until a real workspace exists, stated in the README, CLAUDE.md and the
+CHANGELOG; the manager adds a launch-checklist line. Linking the two profiles on `identify` is a LATER
+decision — do not take it in passing.
+
+**Two things left open on purpose, both the manager's to schedule:**
+1. the hash-only erasure still THROWS, although his own argument for entry (ii) would allow
+   `{ userId: <hash> }` there too. I kept the throw because he decided the both-known case only, and raised
+   the inconsistency rather than resolving it myself;
+2. his nit, recorded not fixed: the suppressed flush fires on every 60 s tick during an ONGOING burst;
+   flushing only when the window closes would be better.
+
 **THE LESSON:** when an issue hands me the fix's shape, check it against the vendor's own doc before
 implementing — two of the three facts above contradict the issue, and one of them (the destination ids) meant
 the feature had never worked at all.
