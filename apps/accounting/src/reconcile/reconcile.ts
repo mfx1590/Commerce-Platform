@@ -118,6 +118,19 @@ async function windowStartBefore(
   };
 }
 
+/** The report with its own and every row's currency upper-cased and trimmed (#651). */
+export function normalizeCurrencies(report: PayoutReport): PayoutReport {
+  const code = (c: string) => c.trim().toUpperCase();
+  return {
+    ...report,
+    currency: code(report.currency),
+    balance_transactions: report.balance_transactions.map((r) => ({
+      ...r,
+      currency: code(r.currency),
+    })),
+  };
+}
+
 async function saveLines(
   tx: Queryable,
   payoutRowId: string,
@@ -180,7 +193,12 @@ export async function reconcilePayout(
   payoutId: string,
 ): Promise<ReconcileResult> {
   const log = deps.log ?? consoleLogger;
-  const report: PayoutReport = await deps.source.payout(legalEntityId, payoutId);
+  // #651: ISO 4217 codes are upper-cased ONCE, at import, before anything is stored, matched or posted. Stripe reports
+  // `eur`; a raw code would store the payout and post its bank entry as `eur` beside the ledger's `EUR` (two
+  // currencies in one trial balance, and an API answer outside the contract's ^[A-Z]{3}$).
+  const report: PayoutReport = normalizeCurrencies(
+    await deps.source.payout(legalEntityId, payoutId),
+  );
   if (report.legal_entity_id !== legalEntityId)
     throw new Error(`payout ${payoutId} belongs to another legal entity`);
   const organizationId = deps.client.context.organizationId;

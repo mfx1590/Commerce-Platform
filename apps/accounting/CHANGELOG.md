@@ -17,7 +17,11 @@
   matched); currency codes compare without case everywhere in the matcher (Stripe reports `eur`).
 - #630 review follow-ups: the README states `entry_date` is the UTC day of the fact; the payout fixture builder's
   `dateOf` is the instant-based one (a non-Z timestamp no longer yields the local day).
-- Tests: 105 (+4).
+- Fix (Fable review of #651): currency codes are upper-cased ONCE at import (`normalizeCurrencies`: the report's and
+  every row's), before the payout upsert, the lines insert and the bank posting — a lower-case Stripe report (`eur`)
+  stored and posted `eur` beside the ledger's `EUR`. The Finance API's `discrepancy_count` ignores superseded
+  (`pending`) lines, so a posted payout with a dropped line shows none.
+- Tests: 106 (+5).
 
 ## 0.6.6 — 2026-10-27 (#627)
 

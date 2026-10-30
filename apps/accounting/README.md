@@ -240,15 +240,14 @@ reference_type?, reference_id?, expected_minor?, actual_minor?, difference_minor
 - **A reconciled payout re-imported with other figures** — another amount, arrival date or currency is a
   `reconciled_payout_changed` discrepancy (the fields in `changed`); nothing is rewritten, the posted bank entry
   stands. The same report again is the quiet no-op.
-- **Currencies** — a row in another currency than its payout is a `currency_mismatch`: never summed, never matched.
-  Codes compare without case (Stripe reports `eur`). Importing single payouts by hand out of order reports false `unmatched_ledger_line` findings for the gap —
-  import oldest first.
+- **Currencies** — a report's currency and every row's are upper-cased once, at import (`normalizeCurrencies`), before
+  anything is stored, matched or posted: a Stripe report says `eur`, the payout row, its lines and its bank entry say
+  `EUR` (#651). A row in another currency than its payout is a `currency_mismatch`: never summed, never matched.
 - **Known limits** — fee / adjustment / other rows (a Stripe fee row, a dispute adjustment) have no ledger
-  counterpart yet and are reported as `unmatched_charge` for now (#560 adds disputes); re-importing a payout whose
-  report now has FEWER rows than before keeps the earlier rows in `psp_payout_line` (lines are upserted, never
-  deleted) — the stale lines stay with their old verdict until the report is corrected and the payout re-matched.
+  counterpart yet and are reported as `unmatched_charge` for now (#560 adds disputes). A re-imported report with FEWER
+  rows resets the rows it dropped to `pending` (see "A re-issued report"; lines are never deleted).
 - **Idempotency** — `psp_payout` is UNIQUE per (legal entity, provider, payout id): a reconciled payout imported
-  again is a no-op (`already_reconciled`), a discrepant one is re-matched (the ledger may have caught up) and posts
+  again with the same figures is a no-op (`already_reconciled`; other figures are a `reconciled_payout_changed`), a discrepant one is re-matched (the ledger may have caught up) and posts
   once it is clean; `psp_payout_line` is UNIQUE per (payout, balance transaction).
 - **Fixtures** — `pnpm fixtures:payouts` builds `fixtures/payouts/{clean-month,discrepant-month}/{events,payouts}.json`
   from a deterministic 60-order month (seeded ids): the clean month's four weekly payouts per legal entity match to
@@ -415,7 +414,7 @@ ledger).
 
 ## Tests
 
-`pnpm --filter @platform/accounting test` — 105 tests in twelve files:
+`pnpm --filter @platform/accounting test` — 106 tests in twelve files:
 
 - `src/posting/posting.test.ts` — pure: the arithmetic, the worked example of every topic above, partial shipments,
   proportional refunds and cancellations, every defect class, the netted life of one order, the late shipment, event

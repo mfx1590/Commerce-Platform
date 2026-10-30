@@ -269,7 +269,7 @@ interface PayoutRow {
 
 const PAYOUT_SELECT = `SELECT p.id, p.legal_entity_id, p.provider, p.provider_payout_id, p.currency, p.amount_minor::text,
             p.arrival_date::text AS arrival_date, p.status, p.line_count, p.matched_count, p.posted_at, p.imported_at, p.reconciled_at,
-            (SELECT count(*)::text FROM psp_payout_line l WHERE l.payout_id = p.id AND l.match_status <> 'matched') AS discrepancy_count`;
+            (SELECT count(*)::text FROM psp_payout_line l WHERE l.payout_id = p.id AND l.match_status NOT IN ('matched', 'pending')) AS discrepancy_count`;
 
 const payoutOf = (row: PayoutRow) => ({
   id: row.id,

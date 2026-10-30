@@ -13,6 +13,7 @@ import type { Logger } from '../src/log.js';
 import { LE_A, LE_B } from '../src/posting/fixtures.js';
 import { buildPayoutFixtures } from '../src/reconcile/fixtures/build.js';
 import { FIXTURES_DIR } from '../src/reconcile/fixtures/write.js';
+import { listPayouts } from '../src/api/queries.js';
 import { matchPayout } from '../src/reconcile/matcher.js';
 import { pspClearingBalance, reconcileAll, reconcilePayout } from '../src/reconcile/reconcile.js';
 import {
@@ -580,6 +581,45 @@ describe('#645: a re-imported report that drops a line — the line never widens
     expect(
       r3.discrepancies.filter((x) => x.kind === 'unmatched_ledger_line').map((x) => x.reference_id),
     ).toEqual([cPayment.payment_id]);
+  });
+
+  it('#651: a lower-case currency report (Stripe: eur) is stored and posted as EUR; superseded lines are not discrepancies', async () => {
+    const p4 = cloneFile(file).payouts[3]!;
+    const lower = cloneFile(file);
+    lower.currency = 'eur';
+    p4.balance_transactions = p4.balance_transactions.map((r) => ({
+      ...r,
+      currency: r.currency.toLowerCase(),
+    }));
+    lower.payouts = [p4];
+    const r = await reconcilePayout(
+      { client: d.hq, source: createFixtureSource([lower]), log },
+      LE_A,
+      p4.payout_id,
+    );
+    expect(r).toMatchObject({ status: 'reconciled', posted: true, discrepancies: [] });
+    const stored = await d.hq.query<{ id: string; currency: string }>(
+      'SELECT id, currency FROM psp_payout WHERE provider_payout_id = $1',
+      [p4.payout_id],
+    );
+    expect(stored.rows[0]!.currency).toBe('EUR');
+    const lineCurrencies = await d.hq.query<{ currency: string }>(
+      'SELECT DISTINCT currency FROM psp_payout_line WHERE payout_id = $1',
+      [stored.rows[0]!.id],
+    );
+    expect(lineCurrencies.rows).toEqual([{ currency: 'EUR' }]);
+    const posted = await d.hq.query<{ currency: string; n: string }>(
+      'SELECT currency, count(*)::text AS n FROM ledger_entry WHERE source_event_id = $1 GROUP BY currency',
+      [stored.rows[0]!.id],
+    );
+    expect(posted.rows).toEqual([{ currency: 'EUR', n: '2' }]); // Dr 1000 / Cr 1100, in EUR
+    const books = await d.hq.transaction((tx) => balanceByCurrency(tx, LE_A));
+    expect(Object.keys(books)).toEqual(['EUR']); // one currency, never 'eur' beside it
+    expect(books.EUR).toBe(0);
+    // the API's discrepancy_count: the re-issued payout 2 has one superseded (pending) line and is posted — not discrepant
+    const listed = await listPayouts(d.hq, LE_A, { page: 1, limit: 100 });
+    const p2 = listed.items.find((x) => x.provider_payout_id === file.payouts[1]!.payout_id)!;
+    expect(p2).toMatchObject({ status: 'reconciled', discrepancy_count: 0 });
   });
 
   it('a RECONCILED payout re-imported with another amount or arrival date is reported, and nothing is rewritten', async () => {
