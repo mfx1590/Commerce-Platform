@@ -10,7 +10,7 @@
 --   ≤ 1200 queries a minute (the quota)                                         — #648 item 4
 -- SELECT on {{database}}.* only: no system table (the server's select_from_system_db_requires_grant keeps the
 -- writer's query text out of reach; README "Access"), no table function, no other database.
--- Where users.d still defines analytics_ro (the local stack today), `ch:migrate` skips this file and says so.
+-- Where users.d still defines analytics_ro (no repo stack since #648), `ch:migrate` skips this file and says so.
 CREATE SETTINGS PROFILE IF NOT EXISTS {{user}}_profile SETTINGS readonly = 1;
 ALTER SETTINGS PROFILE {{user}}_profile SETTINGS readonly = 1, max_execution_time = 10, max_result_rows = 100000, result_overflow_mode = 'throw', max_memory_usage = 536870912, max_memory_usage_for_user = 805306368, max_concurrent_queries_for_user = 16;
 CREATE USER IF NOT EXISTS {{user}} IDENTIFIED WITH sha256_hash BY '{{password_sha256}}' DEFAULT DATABASE {{database}};

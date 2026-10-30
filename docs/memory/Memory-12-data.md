@@ -52,6 +52,15 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- #648 DONE: PR #652 MERGED (3d586fe). FOLLOW-UPS (manager ten, 2026-10-30): branch data/phase5-ch-followups, code commit
+  46b8bc0; head = this memory commit; ONE PR "Refs #648" (#648 is closed), Opus review. (1) README handover = pull
+  (or recreate), then ch:migrate AT ONCE — CORRECTION: the Docker Desktop file share PROPAGATES a deletion into the
+  running container (a single-file bind mount does NOT pin it); the shared stack lost analytics_ro for minutes when
+  #648 landed, until the manager ran ch:migrate. (2) analytics_ingest INSERT only ON raw_events, customer_erasures,
+  orders_minute_events (the MV target); a unit test derives MV targets on raw_events from the migrations. (3)
+  ch:migrate: resolveAdminEnv loads the root .env when CLICKHOUSE_USER is absent, else refuses (never `default`).
+  Live access.test 21/21 (mart / ledger_lines / _migrations inserts refused), cleanup 0/0/0/0; unit 116. The
+  manager re-runs ch:migrate on the shared stack after the merge (grants reset each run).
 - #648 PLAN (2026-10-30, manager ten; branch data/phase5-ch-access from origin/main; ONE PR "Closes #648", Fable):
   items 1, 4, 5 = the SQL side. ClickHouse 25.8; system.users: analytics_ro AND platform are storage users_xml
   (infra/clickhouse/users.d, window 5/manager) — SQL can't alter them.
