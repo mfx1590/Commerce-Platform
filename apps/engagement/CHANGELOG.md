@@ -1,5 +1,37 @@
 # @platform/engagement
 
+## 0.6.2 — 2026-10-30 (#644, the Fable re-review of #585/#590)
+
+Two refusals and two documented limits. The re-review's verdict was FINDINGS with one medium.
+
+- **(medium) An empty per-store consent-mode value is refused.** `parseConsentMode` returns its fallback on
+  a blank value and `readConsentModeOverrides` passed the GLOBAL mode as that fallback, so
+  `ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A=` — an unresolved secret-manager template, a stray `=` in a compose
+  file — booted cleanly and tracked brand-a under `analytics` while the operator believed it was strict. A
+  MISSING variable is a default; a per-store variable that is set is something somebody wrote, so an empty
+  one is a `ConsentModeConfigError` (exit 2) naming the variable. The global default may still be absent or
+  blank, which is what a default is for, and a test pins that too.
+  **A test that asserted the old fallback is reversed**, with a note: it passed because the global happened
+  to be `strict` in that case, which is exactly what hid the defect.
+- **(minor) Two known store codes that normalise to one key refuse the boot.** `brand-a` and `brand_a` are
+  both `BRAND_A`, and `store.code` is unique per organization only as text, so both can exist and one
+  override would silently apply to both. The configuration language then cannot express "strict for brand-a
+  only", and an unaddressable privacy switch must not be guessed at: the boot refuses, naming both codes and
+  every colliding pair at once. It runs only where a per-store mode is resolved (the boot check and
+  `createCdpConsumer.start()`, both only when the CDP is enabled), so a service that does not use the
+  namespace is unaffected — the operator's fix is to rename a store code.
+- **(minor, latent) A vanished customer row in `analytics` mode is tracked under the payload's hash** — as a
+  guest, which is what it is indistinguishable from at the gate, because the consumer normalises a not-found
+  customer's id to null before gating. **Pinned by a test** rather than changed: it is unreachable today (the
+  core keeps an erased customer with `status = 'erased'`, refused in both modes), and changing it needs "the
+  payload named a customer" plumbed through to the gate, which is a follow-up with its own test, not a line
+  here.
+- **(minor) A store code that cannot be resolved falls back to its uuid**, so that store resolves to the
+  GLOBAL mode. Documented in the README: the fallback is #553's rule (never drop an alert because a lookup
+  failed), dropping the event would lose data for a transient failure, and the effective mode is on every
+  per-event log line, so the case is visible rather than silent.
+- Tests: **452 passing / 9 live skipped** offline (was 445/9) — config 94, CDP consumer 31 + 3 live, boot 4.
+
 ## 0.6.1 — 2026-10-25 (#599, Phase 5 wave 1)
 
 A group override moved the DLQ watch and left the consumer behind. One builder now chooses every group.

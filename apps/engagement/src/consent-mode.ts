@@ -85,6 +85,17 @@ export function readConsentModeOverrides(
       );
     }
     const storeKey = storeEnvKey(suffix);
+    // #644 (medium): a per-store key that is SET BUT EMPTY used to fall back to the global mode, so
+    // `ENGAGEMENT_CDP_CONSENT_MODE_BRAND_A=` — an unresolved secret-manager template, a trailing `=` in a
+    // compose file — booted cleanly and tracked that store under `analytics` while the operator believed it
+    // was strict. The global default may be absent (that is what a default is for); a PER-STORE override is
+    // something somebody wrote on purpose, so an empty one is a refusal, not a fallback.
+    if (value === undefined || value.trim() === '') {
+      throw new ConsentModeConfigError(
+        `${key} is set but empty: a per-store override must be "analytics" or "strict" ` +
+          `(remove the variable to use ${CONSENT_MODE_ENV}, the global default)`,
+      );
+    }
     const mode = parseConsentMode(value, key, fallback);
     const first = setBy.get(storeKey);
     const already = overrides.get(storeKey);
@@ -115,6 +126,31 @@ export function assertConsentModeOverridesKnown(
   overrides: ReadonlyMap<string, ConsentMode>,
   storeCodes: readonly string[],
 ): void {
+  // #644: two KNOWN store codes that normalise to the same key make the per-store namespace ambiguous —
+  // `brand-a` and `brand_a` are both `BRAND_A`, and `store.code` is unique per organization as TEXT, so
+  // both can exist. One override would then apply to both stores, silently. That is a configuration
+  // language which cannot express "strict for brand-a only", and a privacy switch that cannot be addressed
+  // must not be guessed at: it refuses, naming both codes, whether or not an override exists today.
+  //
+  // The blast radius is bounded on purpose: this runs only where a per-store mode is actually resolved (the
+  // boot's own check and `createCdpConsumer.start()`, both only when the CDP is enabled), so a service that
+  // does not use the namespace is unaffected. The fix for an operator is to rename one store code.
+  const byKey = new Map<string, string[]>();
+  for (const code of storeCodes) {
+    const key = storeEnvKey(code);
+    byKey.set(key, [...(byKey.get(key) ?? []), code]);
+  }
+  const collisions = [...byKey.entries()].filter(([, codes]) => codes.length > 1);
+  if (collisions.length > 0) {
+    const detail = collisions
+      .map(([key, codes]) => `${[...codes].sort().join(' and ')} both normalise to ${key}`)
+      .join('; ');
+    throw new ConsentModeConfigError(
+      `two store codes share one ${CONSENT_MODE_ENV_PREFIX}<STORE_CODE> key, so a per-store consent mode ` +
+        `cannot address either: ${detail}`,
+    );
+  }
+
   if (overrides.size === 0) return;
   const known = new Set(storeCodes.map(storeEnvKey));
   const unknown = [...overrides.keys()].filter((key) => !known.has(key));

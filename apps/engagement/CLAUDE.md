@@ -169,6 +169,17 @@ package yet.
   missing mode defaults to `strict`. Never invent a consent purpose.
 - An **erased** customer is never sent in either mode, and `customer.erased` is ungated in both and carries
   BOTH ids when known (the hash arrives with #580's v2; send it when present).
+- **A per-store consent-mode value that is SET BUT EMPTY is refused** (#644, Fable re-review, medium): it
+  used to fall back to the global mode, so an unresolved template tracked a store the operator believed was
+  strict. A missing variable is a default; an empty one is a refusal. **Two known store codes that normalise
+  to one `storeEnvKey` also refuse the boot** — the namespace cannot address either store, and a privacy
+  switch is never guessed at. Both are `ConsentModeConfigError`, exit 2, each with a test.
+- Two residual behaviours are DOCUMENTED, not fixed (#644, both need a missing row): an unresolved store
+  code falls back to its uuid and therefore to the GLOBAL mode (the fallback is #553's rule — never drop an
+  alert because a lookup failed — and the effective mode is on every log line); and a vanished customer row
+  in `analytics` mode is tracked under the payload's hash, because at the gate it is identical to a guest —
+  the consumer normalises a not-found id to null before gating. Changing the second one means plumbing "the
+  payload named a customer" through to the gate, with its own test. Do not change either quietly.
 - **The CDP mode must never reach CRM sync**, which stays consent-gated because it fetches and stores PII. A
   test pins it.
 - `identify` carries ids only — `customer_id`, `email_hash`, store code. Not `status`, not `customer_group_id`
