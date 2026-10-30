@@ -29,10 +29,10 @@ ClickHouse Cloud ignores `users.d` and `config.d`, so the users exist as SQL her
 `CLICKHOUSE_USER`) recreates them anywhere. One file per user, with `-- user:` and `-- password-env:` header lines and
 `{{user}}`, `{{database}}`, `{{password_sha256}}` in its statements:
 
-| File                      | User               | Rights                                                                                                                                                                                                                                                                 | Used by                                                               |
-| ------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `10_analytics_ingest.sql` | `analytics_ingest` | `SELECT, INSERT ON analytics.*`; `ALTER DELETE, ALTER UPDATE(_row_exists), OPTIMIZE ON analytics.raw_events` (the erasure: a lightweight DELETE writes the hidden `_row_exists` column, so 25.8 checks ALTER UPDATE on that column only). No DDL, no access management | the long-running ingest (`CLICKHOUSE_INGEST_USER`)                    |
-| `20_analytics_ro.sql`     | `analytics_ro`     | `SELECT ON analytics.*`; readonly, 10 s, 100 000 rows (throw), 512 MB a query; ≤ 16 queries and ≤ 768 MB at once; ≤ 1200 queries a minute                                                                                                                              | the metrics API, BI Q&A, recommendations (`CLICKHOUSE_READONLY_USER`) |
+| File                      | User               | Rights                                                                                                                                                                                                                                                                                                                                                                                                                                           | Used by                                                               |
+| ------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| `10_analytics_ingest.sql` | `analytics_ingest` | `SELECT ON analytics.*`; `INSERT ON` `raw_events`, `customer_erasures` and every MV target an insert into `raw_events` pushes to (`orders_minute_events`) — never a mart, `ledger_lines` or `_migrations`; `ALTER DELETE, ALTER UPDATE(_row_exists), OPTIMIZE ON analytics.raw_events` (the erasure: a lightweight DELETE writes the hidden `_row_exists` column, so 25.8 checks ALTER UPDATE on that column only). No DDL, no access management | the long-running ingest (`CLICKHOUSE_INGEST_USER`)                    |
+| `20_analytics_ro.sql`     | `analytics_ro`     | `SELECT ON analytics.*`; readonly, 10 s, 100 000 rows (throw), 512 MB a query; ≤ 16 queries and ≤ 768 MB at once; ≤ 1200 queries a minute                                                                                                                                                                                                                                                                                                        | the metrics API, BI Q&A, recommendations (`CLICKHOUSE_READONLY_USER`) |
 
 The admin stays for the migrator and the reconcile job only.
 
@@ -46,13 +46,15 @@ The admin stays for the migrator and the reconcile job only.
   `analytics_ro` XML and its compose mount were removed in the manager's integration commit); only the admin comes
   from the image's `CLICKHOUSE_USER`. CI fails unless the `access` line lists both users as applied
   (`infra/ci/check-ch-access.mjs`).
-- **The handover on an existing stack: recreate, then `ch:migrate` at once.** A running container keeps the old
-  single-file mount (the deleted file's contents), so its XML `analytics_ro` survives the pull and `ch:migrate` keeps
-  skipping it. At the next recreate of the ClickHouse container the XML user is gone, and every read-only path (the
-  metrics API, BI) gets authentication errors until `ch:migrate` recreates `analytics_ro` from `20_analytics_ro.sql`
-  (with `CLICKHOUSE_READONLY_PASSWORD`, the same password, so no client changes). So: recreate, then run
-  `pnpm --filter @platform/analytics-ingest ch:migrate` immediately; its `access` line must then list `analytics_ro`
-  under `applied`, not `skipped`.
+- **The handover on an existing stack: pull (or recreate), then `ch:migrate` AT ONCE.** A single-file bind mount does
+  NOT pin the file here: the Docker Desktop file share propagates the deletion to the running container, and
+  ClickHouse reloads `users.d`, so the XML user is gone the moment the checkout without it is pulled (observed on the
+  shared stack when #648 landed: a few minutes of downtime). From then until `ch:migrate` recreates `analytics_ro`
+  from `20_analytics_ro.sql` (with `CLICKHOUSE_READONLY_PASSWORD`, the same password, so no client changes), every
+  read-only path (the metrics API, BI) gets authentication errors. So: pull, then run
+  `pnpm --filter @platform/analytics-ingest ch:migrate` immediately; its `access` line must list `analytics_ro` under
+  `applied`, not `skipped`. The same holds for any later move of a user out of `users.d`. Users created by SQL live on
+  the ClickHouse data volume, so they survive a container recreate.
 - **A missing password** skips the file in dev and fails the run in production (`NODE_ENV=production`).
 - **Server-level, not SQL:** `select_from_system_db_requires_grant` (keeps the writer's query text in `system.*` out of
   `analytics_ro`'s reach) and the `query_log` TTL are server settings (`infra/clickhouse/config.d` locally, the
