@@ -32,6 +32,16 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
       - #614 → **#648** (window 12 SQL side + manager compose side): the ClickHouse writer is an admin; ports and analytics_ro are open on all interfaces (rebinding recreates the container → owner OK first).
       - Launch-checklist lines added for #646 and #648.
       - **P3 next:** #583 commits 0191702/38338ed, #597, #596, #593, #563/#564, #617.
+    - **MERGED 10-30:**
+      - #649 (4c7cdb8, #644);
+      - #650 (625e22a, #641);
+      - #651 (4d97da6, #645);
+      - #652 (3d586fe, #648: ClickHouse users as SQL; 3/3 green runs on d603aee are in the PR body);
+      - #653 (c27175f, #639: tie, parked defects, the erp:sync per-legal-entity lock, proven live with 2 processes).
+    - **OPEN:** #654 (#646, window 16: the crm-sync client_credentials provider). Fable said MERGE. The manager requires one more commit first: https-only KEYCLOAK_URL in production + a CrmTokenError class. Re-check by hand, then queue.
+    - **Shared-stack event 10-30:** pulling #652 into the repo root removed analytics_ro AT ONCE. The Docker Desktop file share propagated the deletion, so the "single-file mount pins it" claim in data/clickhouse/README.md is WRONG. The manager rebuilt the ingest deps and ran ch:migrate with the root .env's CLICKHOUSE_* vars: analytics_ingest + analytics_ro applied by SQL, readonly = 1 verified. The BI read path was down a few minutes. The root .env got the CLICKHOUSE_INGEST_* rows.
+      - FOLLOW-UP for window 12: correct that README paragraph.
+      - Ports are still on all interfaces: owner OK pending for a recreate.
     - Window 14's model is unconfirmed: ask the owner before #605.
   - **MERGED 10-29:** #621 (#607 recommendations, 518cc4c, tagged **contracts-v0.4.29**; the shared dev DB migrated with 0204 after the backup `platform-before-0204-20261029.dump`), #631 (#623 ClickHouse erasure, 0d31c6d), #636 (#603 CONTRACT, 77ed790, tagged **contracts-v0.4.30**: Admin API 0.4.25 listMetrics/queryMetrics, live metrics, CSV via Accept, `unavailable`, the core error map, and the `(store)/[storeId]/bi/**` ownership row → window 12). Earlier: #630, #626, #628 (10-27). Wave 1 and the wave-2 contracts are DONE.
   - **OPEN / IN FLIGHT:**
@@ -376,6 +386,7 @@ On the REAL dev stack, with every write additive (backups before each step), plu
 **What Phase 2 must fix first:** core 2.1 cart + 2.2 placement (unblocks the real checkout, storefront 2.1, admin 2.2); window 1 also owns the `medusa-config.ts` ts-node noise. Window 5: #99, and a CI variant running the storefront against the core once 2.2 lands.
 
 ## Global gotchas (things every window must know)
+- **ClickHouse users come from SQL since #652 (2026-10-30):** `analytics_ingest` and `analytics_ro` are created by `pnpm --filter @platform/analytics-ingest ch:migrate` (data/clickhouse/access). The CLI does NOT read .env: export the root .env's `CLICKHOUSE_*` rows first, and rebuild the ingest's deps if `@platform/events` exports look missing (a stale dist). After any ClickHouse container recreate or volume reset, run ch:migrate at once, or every read-only path (metrics API, BI) gets AUTHENTICATION_FAILED. A Docker Desktop single-file mount does NOT pin a deleted file: the deletion reaches the container.
 - **ClickHouse SELECT aliases shadow columns in the same statement (2026-10-27, three bugs in Phase 5):** `SELECT toString(event_id) AS event_id ... WHERE event_id IN (...)` filters on the ALIAS, not the column (ClickHouse resolves aliases everywhere in the query). Seen as "aggregate inside aggregate" (#601 mart_cash_daily), wrong WHERE results (#602), and a DATA-LOSS path in #623's erasure rewrite (nothing re-inserted, then the DELETE removed the customer's orders; caught by the live run). Rule: never alias a computed value to a source column's name; prefer raw columns, or a renaming subquery. Any DELETE must be guarded by "every matched row was rewritten first".
 - **Finance API dates were a day early outside UTC (2026-10-27, #627, fix #630):** node-postgres returns a `date` column as a local-midnight Date; `toISOString()` then shifts it a day east of UTC. Integration 4's dev Odoo moves (147) are all dated entry date − 1. Rule: select `date` columns `::text`; never call toISOString() on a value read from a `date` column; pin TZ=UTC in service images.
 - **A window branch cut with `git switch -c <b> origin/main` tracks origin/main (2026-10-25, window 9):** the upstream is main, and this repo has no branch protection, so a bare `git push` could reach main. Cut with `git switch --no-track -c <b> origin/main` (or `git branch --unset-upstream`) and push with `git push -u origin <b>`; check with `git rev-parse --abbrev-ref @{u}`. Start messages since 10-25 say so.
