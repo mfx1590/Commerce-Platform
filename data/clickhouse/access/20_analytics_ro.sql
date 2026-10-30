@@ -2,7 +2,7 @@
 -- password-env: CLICKHOUSE_READONLY_PASSWORD
 --
 -- #648 items 4 + 5: the read-only user of every query path (the metrics API, BI Q&A, recommendations) as SQL, so a
--- ClickHouse Cloud deploy (which ignores users.d) recreates it. The same limits as infra/clickhouse/users.d, plus a
+-- ClickHouse Cloud deploy (which ignores users.d) recreates it. The same limits the old users.d XML had (removed in #648), plus a
 -- per-user bound: one tenant's parallel dashboards cannot take the memory or the query slots every other tenant's
 -- metrics call needs (the metrics API answers 503 `unavailable` instead of the server falling over).
 --   readonly = 1, 10 s, 100 000 result rows (throw), 512 MB per query          — as users.d

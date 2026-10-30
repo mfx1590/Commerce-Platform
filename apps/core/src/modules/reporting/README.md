@@ -67,7 +67,7 @@ mounted inside `reportingAdminRouter()`. One query path over ClickHouse for the 
   - `execute.ts` merges by key. Ratios are integer half-up and null when the divisor is 0. Totals are per currency,
     never across currencies. It applies `order_by` / `limit` (1000, `truncated`) and sets `data_as_of`.
 - **The read path** (`reader.ts`) is `analytics_ro` with no per-query settings. The profile sets readonly,
-  10 s, 100 000 rows with throw and 512 MB (infra/clickhouse/users.d). A timeout, an overflow, a missing
+  10 s, 100 000 rows with throw and 512 MB (data/clickhouse/access/20_analytics_ro.sql). A timeout, an overflow, a missing
   configuration or ClickHouse being down is a **503 `unavailable`** (contracts 0.4.30) with nothing partial. The
   executor starts every statement before awaiting any, so a failing ClickHouse never leaves an unhandled rejection.
 - **Fail closed.** The `x-permission` is resolved per request from admin-api.yaml (Admin API 0.4.25), so an

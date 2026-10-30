@@ -263,7 +263,8 @@ services:
   #     docker compose -p commerce-platform -f infra/docker/docker-compose.yml --profile analytics up -d --no-recreate clickhouse
   # Host ports 18123 (HTTP) and 19000 (native) sit outside the 8033-8232 range Windows reserved at boot on 2026-10-25,
   # and 9000 is the core. Capped at 1.5 GB (Docker Desktop on the dev laptop dies under memory pressure).
-  # Writer = CLICKHOUSE_USER below (ingest, migrations); reader = analytics_ro (infra/clickhouse/users.d, readonly=1).
+  # Admin = CLICKHOUSE_USER below (migrations only). The ingest's writer (analytics_ingest) and the reader (analytics_ro,
+  # readonly=1) are created by `ch:migrate` from data/clickhouse/access (#648), so ClickHouse Cloud gets the same users.
   # Local-only word credentials, mirrored in .env.example.
   clickhouse:
     image: clickhouse/clickhouse-server:25.8
@@ -284,7 +285,6 @@ services:
     volumes:
       - clickhouse-data:/var/lib/clickhouse
       - ../clickhouse/config.d/low-memory.xml:/etc/clickhouse-server/config.d/low-memory.xml:ro
-      - ../clickhouse/users.d/analytics-readonly.xml:/etc/clickhouse-server/users.d/analytics-readonly.xml:ro
     healthcheck:
       test:
         ['CMD-SHELL', 'clickhouse-client --user platform --password platform --query "SELECT 1"']
