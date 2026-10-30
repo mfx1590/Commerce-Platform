@@ -77,3 +77,49 @@ describe('rate limit', () => {
     expect(l.check('k').allowed).toBe(false);
   });
 });
+
+describe('flushSuppressed (#657)', () => {
+  // Carrying the count to the next allowed alert is silent for a burst that ENDS: four suppressed failures
+  // at 02:00 surface when the fifth happens, or never if the process restarts first.
+  it('hands over the pending counts and clears them', () => {
+    const limiter = createRateLimiter({ max: 1, windowMs: 60_000, now: () => 0 });
+    const key = rateLimitKey('payment-failed', 'brand-a');
+    expect(limiter.check(key).allowed).toBe(true);
+    for (let i = 0; i < 4; i += 1) expect(limiter.check(key).allowed).toBe(false);
+
+    expect(limiter.flushSuppressed()).toEqual([{ key, suppressed: 4 }]);
+    // Cleared: a flush reports each suppression once, so a timer cannot repeat the same count every tick.
+    expect(limiter.flushSuppressed()).toEqual([]);
+  });
+
+  it('reports nothing when nothing was suppressed', () => {
+    const limiter = createRateLimiter({ max: 5, windowMs: 60_000, now: () => 0 });
+    limiter.check(rateLimitKey('payment-failed', 'brand-a'));
+    expect(limiter.flushSuppressed()).toEqual([]);
+  });
+
+  it('reports every key that has a pending count', () => {
+    const limiter = createRateLimiter({ max: 1, windowMs: 60_000, now: () => 0 });
+    for (const store of ['brand-a', 'brand-b']) {
+      const key = rateLimitKey('payment-failed', store);
+      limiter.check(key);
+      limiter.check(key);
+    }
+    expect(limiter.flushSuppressed()).toEqual([
+      { key: 'payment-failed:brand-a', suppressed: 1 },
+      { key: 'payment-failed:brand-b', suppressed: 1 },
+    ]);
+  });
+
+  it('does not double-report a count the next allowed alert would have carried', () => {
+    // The two paths must not both report: after a flush, the next allowed alert carries 0.
+    let t = 0;
+    const limiter = createRateLimiter({ max: 1, windowMs: 1_000, now: () => t });
+    const key = rateLimitKey('payment-failed', 'brand-a');
+    limiter.check(key);
+    limiter.check(key);
+    expect(limiter.flushSuppressed()).toEqual([{ key, suppressed: 1 }]);
+    t = 2_000;
+    expect(limiter.check(key)).toEqual({ allowed: true, suppressed: 0 });
+  });
+});

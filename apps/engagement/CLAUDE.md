@@ -189,20 +189,25 @@ package yet.
   purpose.
 - An **erased** customer is never sent in either mode, and `customer.erased` is ungated in both and carries
   BOTH ids when known (the hash arrives with #580's v2; send it when present).
-- **A per-store consent-mode value that is SET BUT EMPTY is refused** (#644, Fable re-review, medium): it
-  used to fall back to the global mode, so an unresolved template tracked a store the operator believed was
-  strict. A missing variable is a default; an empty one is a refusal. **An override whose key matches TWO known store
-  codes also refuses the boot**, naming the pair — it cannot say which store it means, and a privacy switch
-  is never guessed at. NARROWED to keys in use (manager decision): without an override a collision changes
-  nothing, and store codes come from the onboarding UI, so a refuse-always form would let one store creation
-  stop the CDP for every store. Both refusals are `ConsentModeConfigError`, exit 2, and both directions are
-  tested — the ambiguous override refuses, a collision nobody addresses boots.
-- Two residual behaviours are DOCUMENTED, not fixed (#644, both need a missing row): an unresolved store
-  code falls back to its uuid and therefore to the GLOBAL mode (the fallback is #553's rule — never drop an
-  alert because a lookup failed — and the effective mode is on every log line); and a vanished customer row
-  in `analytics` mode is tracked under the payload's hash, because at the gate it is identical to a guest —
-  the consumer normalises a not-found id to null before gating. Changing the second one means plumbing "the
-  payload named a customer" through to the gate, with its own test. Do not change either quietly.
+- **An erasure must reach EVERY profile the person has** (#657, HIGH): the RudderStack adapter sent
+  `userId ?? anonymousId`, one id, so a guest's hash-keyed profile survived the erasure in `analytics` mode.
+  The regulation now carries the mandatory `userId` plus the hash as a custom identifier in the SAME entry,
+  which is the documented way to name one person by two keys
+  (https://www.rudderstack.com/docs/api/user-suppression-api). Two things that doc settles and the code must
+  keep: `suppress_with_delete` takes **`destinationIds`** (a `sourceIds` there is an error — hence
+  `RUDDERSTACK_DESTINATION_IDS`), and `userId` is **mandatory**, so a hash-only identity cannot be suppressed
+  through this API at all. That case THROWS rather than sending the hash as a `userId`, which would suppress
+  a different profile and report success. Any new CDP adapter answers the same question before it ships.
+- **`failure_reason` is forwarded only when it looks like a provider CODE** (`^[a-z0-9_]{1,64}$`), else
+  `unrecognised` (#657). The core stores `err.declineCode ?? err.code ?? err.message`, and a PSP message is
+  free text that can quote the request. Replaced, not truncated: a shortened message is still a message.
+- **A field value cannot break out of its Slack code span** (#657): `escapeCodeSpan` replaces backticks and
+  newlines, because one backtick ends the span and turns the rest of the value into markup — bold, a link, an
+  `@channel`.
+- **A suppressed burst is flushed, not only carried forward** (#657): `RateLimiter.flushSuppressed()` hands
+  over the pending counts and clears them, `OpsConsumer.flushSuppressed()` reports them through the transport,
+  and the entry point calls it on the DLQ-poll timer and at `stop()`. Carrying the count to the next allowed
+  alert is silent for a burst that ENDS, and the in-memory window dies with the process.
 - **The CDP mode must never reach CRM sync**, which stays consent-gated because it fetches and stores PII. A
   test pins it.
 - `identify` carries ids only — `customer_id`, `email_hash`, store code. Not `status`, not `customer_group_id`

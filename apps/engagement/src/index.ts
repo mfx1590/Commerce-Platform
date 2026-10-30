@@ -12,6 +12,7 @@ export {
   createOpsConsumer,
   handleEvent,
   errorClassOf,
+  FLUSH_PSEUDO_TOPIC,
   OPS_GROUP_ID,
   PROCESSED_TABLE,
 } from './ops/consumer.js';
@@ -169,7 +170,12 @@ export type {
 
 // transports
 export { DevSinkAlertTransport } from './transport/dev-sink.js';
-export { SlackAlertTransport, slackPayload, escapeMrkdwn } from './transport/slack.js';
+export {
+  SlackAlertTransport,
+  slackPayload,
+  escapeCodeSpan,
+  escapeMrkdwn,
+} from './transport/slack.js';
 export type { FetchLike, SlackTransportOptions } from './transport/slack.js';
 export { TransportError } from './transport/types.js';
 export type { AlertTransport } from './transport/types.js';

@@ -1,5 +1,50 @@
 # @platform/engagement
 
+## 0.8.0 — 2026-10-30 (#657, the Fable re-review of #563/#564)
+
+One HIGH privacy finding: an erasure suppressed one profile out of two.
+
+- **(HIGH) A CDP erasure now reaches EVERY profile the person has.** The gate returns both ids for
+  `customer.erased`, and `RudderStackCdpAdapter.suppress` took `userId ?? anonymousId` — one id. In the
+  default `analytics` mode a guest is tracked under `anonymousId = email_hash` and, after registering, under
+  `userId`; nothing links the two profiles, so a GDPR erasure named only the customer id and **the
+  guest-period profile survived it**.
+  **Reading the API docs changed the fix twice over**
+  (https://www.rudderstack.com/docs/api/user-suppression-api, read 2026-10-30):
+  - `users: [{userId}, {anonymousId}]` — the shape the issue suggested — is not accepted: "the userId field
+    is mandatory for all users", and `anonymousId` is not a documented key. Additional identifiers for the
+    same person go BESIDE `userId` in one entry, which is exactly what our hash is, so one regulation now
+    carries `{ userId, email_hash }`;
+  - `suppress_with_delete` takes **`destinationIds`**, and "specify only destinationIds with the
+    suppress_with_delete regulation" or the API errors. This code sent `sourceIds` with that regulation type,
+    so **every suppression would have been rejected outright** — a second, separate reason the erasure did
+    not happen. `RUDDERSTACK_SOURCE_IDS` is therefore replaced by `RUDDERSTACK_DESTINATION_IDS`; the CDP has
+    never run against a real account, so there is no deployment to migrate, and keeping an alias for a name
+    the API rejects would only preserve the bug.
+    **And one thing that API cannot do, stated rather than papered over:** a hash-only identity cannot be
+    suppressed, because `userId` is mandatory. Sending the hash as a `userId` would match a different profile
+    and report success, so the adapter THROWS and the event dead-letters where a person sees it. Unreachable
+    today (`customer.erased` always carries a `customer_id`), and the first question a guest-erasure path has
+    to answer.
+- The memory adapter already kept the whole call; a test now pins that **both** ids are recorded and
+  `isSuppressed` answers for either, because a recorder that kept one could not have shown this bug.
+- **(medium) `failure_reason` is forwarded only when it looks like a provider CODE** (`^[a-z0-9_]{1,64}$`),
+  otherwise `unrecognised`. The core stores `err.declineCode ?? err.code ?? err.message`, and a Stripe
+  message is free text that can quote the request — an address, an e-mail, whatever was in the call.
+  **The test that documented the old behaviour said: "a day when a provider is found to echo customer data
+  into them, this test is the thing that has to be changed deliberately." That day was today**, and it is
+  changed with that note beside it.
+- **(minor) A field value cannot break out of its Slack code span.** Values are wrapped in backticks, so one
+  backtick in a value ended the span and turned the rest into markup (bold, a link, an `@channel`), and a
+  newline invented bullets. `escapeCodeSpan` replaces both, visibly rather than silently.
+- **(minor) A suppressed burst that ends inside its window is reported.** The count rode on the next allowed
+  alert for that key — which may never come, and is lost on restart. `flushSuppressed()` hands the pending
+  counts over and clears them; the ops consumer reports each through the transport, and the entry point
+  flushes on the DLQ-poll tick and at shutdown. A transport failure there is logged, never thrown: it runs on
+  a timer and during shutdown.
+- Tests: **484 passing / 9 live skipped** offline (was 478/9) — the three erasure cases (userId only, both,
+  hash-only refused), the provider-code shapes, the code-span escapes, and the flush at both levels.
+
 ## 0.7.0 — 2026-10-30 (#646, the Fable re-reviews of #598 and #613)
 
 CRM sync can run on its own principal, and a measurement can no longer disturb what it measures.

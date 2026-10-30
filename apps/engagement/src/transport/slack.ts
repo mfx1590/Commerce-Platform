@@ -80,6 +80,20 @@ export function escapeMrkdwn(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/**
+ * A value that is about to be wrapped in a `code span`, made unable to leave it (#657).
+ *
+ * A backtick closes the span, so the rest of the value becomes Slack markup — bold, a link, a mention. A
+ * newline ends the bullet, so a multi-line value invents bullets of its own. Both are replaced rather than
+ * dropped so the value stays legible and obviously altered: a reader sees `card_declined ' + "'" + ' and knows the
+ * quote was not in the data.
+ */
+export function escapeCodeSpan(value: string): string {
+  return escapeMrkdwn(value)
+    .replace(/`/g, "'")
+    .replace(/\r\n|[\r\n]/g, ' ⏎ ');
+}
+
 /** The webhook body. `text` is the notification fallback; the section block is what a human reads. */
 export function slackPayload(alert: Alert): {
   text: string;
@@ -88,7 +102,7 @@ export function slackPayload(alert: Alert): {
   const icon = alert.severity === 'critical' ? ':rotating_light:' : ':warning:';
   const head = `${icon} *${escapeMrkdwn(alert.title)}*`;
   const lines = Object.entries(alert.fields).map(
-    ([k, v]) => `• ${escapeMrkdwn(k)}: \`${escapeMrkdwn(String(v))}\``,
+    ([k, v]) => `• ${escapeMrkdwn(k)}: \`${escapeCodeSpan(String(v))}\``,
   );
   if (alert.suppressed > 0) {
     lines.push(`• _${alert.suppressed} more of this rule suppressed by the rate limit_`);

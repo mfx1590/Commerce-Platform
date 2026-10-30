@@ -129,7 +129,11 @@ export interface CdpConfig {
   writeKey?: string;
   dataPlaneUrl?: string;
   /** Only when all three are set: without them a suppression throws rather than silently doing nothing. */
-  regulation?: { controlPlaneUrl: string; accessToken: string; sourceIds: string[] };
+  /**
+   * For suppressions: the control plane, a personal access token and the DESTINATION ids (#657 — a
+   * `suppress_with_delete` regulation takes destinations, and the API refuses a `sourceIds` there).
+   */
+  regulation?: { controlPlaneUrl: string; accessToken: string; destinationIds: string[] };
 }
 
 export interface ResolveOptions {
@@ -508,13 +512,17 @@ function resolveCdp(env: Record<string, string | undefined>, isProduction: boole
 
   const controlPlaneUrl = env.RUDDERSTACK_CONTROL_PLANE_URL?.trim();
   const accessToken = env.RUDDERSTACK_ACCESS_TOKEN?.trim();
-  const sourceIds = (env.RUDDERSTACK_SOURCE_IDS?.trim() || '')
+  // DESTINATION ids, not source ids: `suppress_with_delete` is documented to take `destinationIds`, and
+  // naming sources there is an error (#657). `RUDDERSTACK_SOURCE_IDS` is gone rather than kept as an alias —
+  // the CDP has never run against a real account, so there is no deployment to break, and an alias for a
+  // name the API rejects would only preserve the bug.
+  const destinationIds = (env.RUDDERSTACK_DESTINATION_IDS?.trim() || '')
     .split(',')
     .map((x) => x.trim())
     .filter(Boolean);
   const regulation =
-    controlPlaneUrl && accessToken && sourceIds.length
-      ? { controlPlaneUrl, accessToken, sourceIds }
+    controlPlaneUrl && accessToken && destinationIds.length
+      ? { controlPlaneUrl, accessToken, destinationIds }
       : undefined;
 
   return {

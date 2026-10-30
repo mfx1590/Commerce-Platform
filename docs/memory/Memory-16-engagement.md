@@ -177,7 +177,44 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **Never commit a 64-hex email_hash fixture.** The `sha256` $def needs a real 64-hex value, so a word will not validate — compute it: `createHash('sha256').update('…').digest('hex')`, which is what apps/core does. I had three such literals before catching it; one would have reddened every open PR.
 - `pg` is deliberately NOT a dependency of this app: for a pool type use `Parameters<typeof createTenantClient>[0]`.
 
-## RESUME HERE — 2026-10-30: #646 (the real crm-sync principal) done, PR open
+## RESUME HERE — 2026-10-30: #657 (the erasure HIGH) done, PR open
+
+**Manager session TEN.** Branch `engagement/phase5-erasure-ids`, cut `--no-track` from main `5eb002a`.
+**#610 (support reply drafts, default OFF) is still my wave-3 task.**
+
+**#657 — one HIGH privacy finding, and READING THE DOCS CHANGED THE FIX TWICE.** The issue said: the
+RudderStack adapter sends `userId ?? anonymousId`, so a guest's hash-keyed profile survives an erasure in
+`analytics` mode. True. Its suggested shape — `users: [{userId}, {anonymousId}]` — is NOT accepted by the
+API, and the real contract (https://www.rudderstack.com/docs/api/user-suppression-api, read 2026-10-30) is:
+1. **`userId` is mandatory for every entry** and `anonymousId` is not a documented key. Extra identifiers for
+   the SAME person go beside `userId` in one entry, which is what our hash is — so one regulation now carries
+   `{ userId, email_hash }`.
+2. **`suppress_with_delete` takes `destinationIds`, not `sourceIds`** ("specify only destinationIds … or the
+   API errors"). The old code sent `sourceIds` with that regulation type, so **every suppression would have
+   been rejected outright** — a second, independent reason the erasure never happened, which the issue did
+   not know about. `RUDDERSTACK_SOURCE_IDS` is replaced by `RUDDERSTACK_DESTINATION_IDS` (no deployment to
+   migrate: the CDP has never run against a real account).
+3. **A hash-only erasure CANNOT be expressed** through that API. Sending the hash as a `userId` would
+   suppress a different profile and report success, so the adapter throws and the event dead-letters.
+   Unreachable today; the first question a guest-erasure path must answer.
+**THE LESSON:** when an issue hands me the fix's shape, check it against the vendor's own doc before
+implementing — two of the three facts above contradict the issue, and one of them (the destination ids) meant
+the feature had never worked at all.
+
+Also in #657: `failure_reason` is forwarded only when it matches `^[a-z0-9_]{1,64}$`, else `unrecognised`
+(the core stores `err.message` as a fallback and a PSP message can quote the request). **The test that
+documented the old behaviour had said "a day when a provider is found to echo customer data into them, this
+test is the thing that has to be changed deliberately" — that day was today.** Slack field values go through
+`escapeCodeSpan` (a backtick ended the code span and turned the rest into markup; a newline invented
+bullets). And a suppressed burst is FLUSHED — `RateLimiter.flushSuppressed()` plus
+`OpsConsumer.flushSuppressed()`, called on the DLQ-poll tick and at `stop()`; the ops consumer gained a
+`limiter` test seam so the wiring is proven, not assumed (#599's lesson).
+
+**Verified:** 491 passed / 9 live skipped offline; typecheck, lint, prettier, ownership clean. Package 0.8.0.
+
+<!-- Earlier blocks below remain accurate for their own tasks. -->
+
+## RESUME (superseded) — #646, the crm-sync principal
 
 **Manager session TEN.** Branch `engagement/phase5-crm-client`, cut `--no-track` from main `4c7cdb8`.
 **#610 (support reply drafts, default OFF) is still my wave-3 task.**

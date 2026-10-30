@@ -35,6 +35,15 @@ export interface RateLimiter {
   check(key: string): RateLimitDecision;
   /** Keys currently holding a window — diagnostics only. */
   size(): number;
+  /**
+   * The suppressed counts nobody has been told about yet, handed over and cleared (#657).
+   *
+   * Carrying the count to the next allowed alert is fine for a burst that continues, and silent for one that
+   * ENDS: four suppressed payment failures at 02:00 surface only when the fifth happens — or never, if the
+   * process restarts first. A caller flushes on a timer and at shutdown, so the count is reported while it
+   * still means something.
+   */
+  flushSuppressed(): { key: string; suppressed: number }[];
 }
 
 /** `payment-failed:brand-a` — the key the limit is per. */
@@ -71,6 +80,16 @@ export function createRateLimiter(opts: RateLimitOptions): RateLimiter {
       }
       b.suppressed += 1;
       return { allowed: false, suppressed: b.suppressed };
+    },
+    flushSuppressed() {
+      const pending: { key: string; suppressed: number }[] = [];
+      for (const [key, b] of buckets) {
+        if (b.suppressed > 0) {
+          pending.push({ key, suppressed: b.suppressed });
+          b.suppressed = 0;
+        }
+      }
+      return pending;
     },
     size() {
       return buckets.size;

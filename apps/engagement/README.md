@@ -287,6 +287,20 @@ ignores it on purpose.** A decision can therefore contradict the event's own sna
 granted, the customer revoked in between, nothing is sent. That is the ruling working, not a bug, and a test
 asserts the two events produce identical traits whatever that field says.
 
+**An erasure reaches every profile the person has** (#657). The gate returns both ids, and the RudderStack
+adapter used to send `userId ?? anonymousId` — one — so a guest's hash-keyed profile survived the erasure in
+`analytics` mode. One regulation now carries the mandatory `userId` plus the hash as a custom identifier,
+which is how [RudderStack's suppression API](https://www.rudderstack.com/docs/api/user-suppression-api)
+expresses one person known by two keys. The same doc settles two things the old code had wrong: the
+regulation type is `suppress_with_delete` and it takes **`destinationIds`**, not source ids — so a
+suppression would have been rejected outright even before the missing id mattered.
+
+**What that API cannot do, recorded rather than worked around:** `userId` is mandatory and `anonymousId` is
+not an accepted key, so a HASH-ONLY erasure cannot be expressed. Sending the hash as a `userId` would match a
+different profile and report success, so the adapter throws instead and the event dead-letters where a person
+sees it. It cannot happen today — `customer.erased` always carries a `customer_id`, and a guest who never
+registered produces no erasure at all — but it is the first question a guest-erasure path has to answer.
+
 `customer.erased` is the one call **not** consent-gated: a suppression must go out precisely for the customer
 who withdrew everything, and it still goes out when the customer row has already been deleted.
 

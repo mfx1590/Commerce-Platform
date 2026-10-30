@@ -223,6 +223,50 @@ describe('return-requested', () => {
   });
 });
 
+describe('failure_reason is a provider CODE or nothing (#657)', () => {
+  it('forwards a code-shaped reason unchanged', () => {
+    for (const code of ['card_declined', 'insufficient_funds', 'do_not_honor', 'expired_card']) {
+      const alert = evaluateRules(input(paymentFailed({ failure_reason: code })))[0]!;
+      expect(alert.fields.reason).toBe(code);
+    }
+  });
+
+  it('replaces anything that is not code-shaped with `unrecognised`', () => {
+    // These are the shapes a PSP message actually takes, and each one is a sentence that can quote the
+    // request. Replaced rather than trimmed: a truncated message is still a message.
+    const messages = [
+      'Your card was declined. Please contact ada.lovelace@example.com',
+      'The address 12 Example Street could not be verified',
+      'card_declined (see https://dashboard.stripe.com/payments/pi_123)',
+      'Card declined',
+      'CARD_DECLINED',
+      'a'.repeat(65),
+    ];
+    for (const message of messages) {
+      const alert = evaluateRules(input(paymentFailed({ failure_reason: message })))[0]!;
+      expect(alert.fields.reason).toBe('unrecognised');
+      expect(JSON.stringify(alert)).not.toContain('Example Street');
+      expect(JSON.stringify(alert)).not.toContain('ada.lovelace');
+    }
+  });
+
+  it('keeps the dash for a missing reason, so "none given" and "not a code" stay different', () => {
+    const alert = evaluateRules(input(paymentFailed({ failure_reason: null })))[0]!;
+    expect(alert.fields.reason).toBe('-');
+  });
+
+  it('applies to refund.failed as well, which has the same field', () => {
+    expect(
+      evaluateRules(input(refundFailed({ failure_reason: 'charge_already_refunded' })))[0]!.fields
+        .reason,
+    ).toBe('charge_already_refunded');
+    expect(
+      evaluateRules(input(refundFailed({ failure_reason: 'Refund failed: card expired' })))[0]!
+        .fields.reason,
+    ).toBe('unrecognised');
+  });
+});
+
 describe('no PII can reach a message', () => {
   // Every string the three payloads allow, filled with personal data. The schemas have no name/e-mail/address
   // field at all (ADR 0003 item 5) — these are the free-text and provider fields, the only way PII could ride
@@ -263,11 +307,19 @@ describe('no PII can reach a message', () => {
       expect(text).not.toContain('12 Example Street, ');
     }
 
-    // The provider fields of payment.failed / refund.failed ARE forwarded by design (they are the PSP's own
-    // reason codes). This asserts the DESIGN, so that a day when a provider is found to echo customer data
-    // into them, this test is the thing that has to be changed deliberately.
+    // THE DAY THIS TEST WAS WRITTEN FOR ARRIVED (#657). It used to assert that the provider's
+    // `failure_reason` is forwarded verbatim, with the note: "a day when a provider is found to echo
+    // customer data into them, this test is the thing that has to be changed deliberately". The Fable
+    // re-review found exactly that — the core stores `err.declineCode ?? err.code ?? err.message`, and a
+    // Stripe message can quote the request — so a reason is now forwarded only when it LOOKS like a provider
+    // code, and anything else becomes `unrecognised`.
     const paymentAlert = evaluateRules(input(stuffed[0]!))[0]!;
-    expect(paymentAlert.fields.reason).toBe(PERSONAL[2]!);
+    expect(paymentAlert.fields.reason).toBe('unrecognised');
+    expect(JSON.stringify(paymentAlert)).not.toContain(PERSONAL[2]!);
+    const refundAlert = evaluateRules(input(stuffed[1]!))[0]!;
+    expect(refundAlert.fields.reason).toBe('unrecognised');
+    expect(JSON.stringify(refundAlert)).not.toContain(PERSONAL[3]!);
+    // The provider's own IDS are still forwarded by design: they are ids, not prose.
     expect(paymentAlert.fields.provider_payment_id).toBe(PERSONAL[0]!);
   });
 
