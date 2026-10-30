@@ -427,11 +427,15 @@ Environment: `DATABASE_URL_APP` (the app role — never the owner URL), `KAFKA_B
 (`infra/redpanda/create-topics.mjs`); the consumer creates `dlq.<group>` itself on first start. A fresh group reads
 from the beginning into the SAME ledger: every event it has not processed under that group is posted, so only point it
 at a ledger that has not seen those events under another group (Integration 4, #594: a fresh group on the empty dev
-ledger).
+ledger). Since #658 the process ENFORCES that: a non-default group is refused at boot (`AccountingGroupRefused`, exit 2)
+when `consumer_processed` holds rows of another `accounting.*` group — a typo in `ACCOUNTING_GROUP_ID` would otherwise
+dead-letter the whole history into `dlq.<typo>` while the real group stops being consumed. For a known-empty or
+throwaway ledger pass `--allow-new-group` (`ACCOUNTING_ALLOW_NEW_GROUP=1`; logged as `new_group_allowed`). The default
+group is never refused.
 
 ## Tests
 
-`pnpm --filter @platform/accounting test` — 109 tests in twelve files:
+`pnpm --filter @platform/accounting test` — 116 tests in fourteen files:
 
 - `src/posting/posting.test.ts` — pure: the arithmetic, the worked example of every topic above, partial shipments,
   proportional refunds and cancellations, every defect class, the netted life of one order, the late shipment, event
@@ -461,7 +465,13 @@ ledger).
   re-entered one found), a create with nothing committed rethrowing; `odoo:init` against the mock (an existing company
   in another currency left alone and skipped, a re-run creating and writing nothing, a remote host refused before any
   call unless `--allow-remote`); a live block for the dev-stack Odoo (skipped with the reason when it is down).
-- `src/config.test.ts` — the consumer group: default, env, `--group` in both spellings, invalid names refused.
+- `src/config.test.ts` — the consumer group: default, env, `--group` in both spellings, invalid names refused; the
+  new-group opt-in.
+- `src/packaging.test.ts` — `@platform/test-utils` is a devDependency only and the build leaves out the modules that
+  import it (#658).
+- `test/group-guard.test.ts` — the boot guard: an empty ledger takes any group, other services' groups do not count,
+  a mistyped group on a filled ledger is refused, the opt-in allows it, the default is never refused — on an empty
+  ledger (a fresh deploy, no flag) as on a filled one (#658).
 - `test/timezones.test.ts` — #627: the Finance API and the Odoo sync (mock) under UTC, Asia/Tokyo and
   America/Los_Angeles give identical dates equal to the database's `::text` dates (with a check that the zone really
   changed and that an uncast `date` read still shows the bug).

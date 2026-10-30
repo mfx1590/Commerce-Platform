@@ -1,5 +1,17 @@
 # Changelog — @platform/accounting
 
+## 0.6.9 — 2026-10-30 (#658, the Fable re-reviews of #596 / #597 and #593 / #617)
+
+- Fix (medium): a non-default consumer group on a ledger another accounting group filled is refused at boot
+  (`assertGroupIsSafe`, `AccountingGroupRefused`, exit 2); opt-in `--allow-new-group` / `ACCOUNTING_ALLOW_NEW_GROUP=1`
+  for a known-empty or throwaway ledger. A mistyped `ACCOUNTING_GROUP_ID` no longer abandons the real group.
+- Fix (medium): `@platform/test-utils` is a devDependency; the build excludes `src/posting/fixtures.ts` and
+  `src/reconcile/fixtures/**` (the generator, run from source by `pnpm fixtures:payouts`), so the image never ships
+  the month generator or its owner-pool writer.
+- Gate: the spawned CLIs get a minimal allow-listed env; a non-JSON summary rejects at once (was a hang to the test
+  timeout); reconciliation asserts payouts > 0 and lines > 0. The `createLedgerConsumer` comment names `dlq.<group>`.
+- Tests: 116 (+7).
+
 ## 0.6.8 — 2026-10-30 (#639, the Fable re-reviews of #588 and #591)
 
 - Fix: a shipment AT the cancellation instant counts as shipped before it (`>` instead of `>=`): the ledger of an

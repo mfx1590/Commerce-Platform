@@ -50,13 +50,13 @@ importers:
       '@platform/events':
         specifier: workspace:*
         version: link:../../packages/events
-      '@platform/test-utils':
-        specifier: workspace:*
-        version: link:../../packages/test-utils
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
     devDependencies:
+      '@platform/test-utils':
+        specifier: workspace:*
+        version: link:../../packages/test-utils
       '@types/node':
         specifier: ^20.19.0
         version: 20.19.43
