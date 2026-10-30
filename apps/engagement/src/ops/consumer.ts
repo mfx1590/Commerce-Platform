@@ -45,6 +45,12 @@ export const OPS_GROUP_ID = 'engagement.ops';
 /** The shared processed table (packages/db 0202). Every Phase 4 consumer group writes its own rows here. */
 export const PROCESSED_TABLE = 'consumer_processed';
 
+/**
+ * The `topic` on a flushed-suppression alert: it comes from the rate limiter rather than from an event, the
+ * same way `DLQ_PSEUDO_TOPIC` marks an alert that came from the poller (#657).
+ */
+export const FLUSH_PSEUDO_TOPIC = 'engagement.rate-limit.flush';
+
 export interface OpsConsumerOptions {
   /** Organization-scoped client on the `platform_app` role (RLS applies). */
   hq: ScopedClient;
@@ -58,6 +64,12 @@ export interface OpsConsumerOptions {
   log?: (line: EngagementLogLine) => void;
   /** Test seam, forwarded to the rate limiter. */
   now?: () => number;
+  /**
+   * Test seam: the rate limiter to use. Default: one built from `rateLimit`. Injected so the suppressed
+   * FLUSH can be proven end to end (#657) — drive the limiter to suppress, then assert the alert the flush
+   * sends. Untested wiring is what #599 was.
+   */
+  limiter?: RateLimiter;
   /** Test seam: start at the latest offset instead of the beginning. */
   fromBeginning?: boolean;
   /**
@@ -75,6 +87,16 @@ export interface OpsConsumer {
   readonly dlqTopic: string;
   readonly sent: number;
   readonly suppressed: number;
+  /**
+   * Report any suppressed counts nobody has been told about yet, and clear them (#657). Carrying a count to
+   * the next allowed alert is silent for a burst that ENDS: four suppressed failures at 02:00 surface when
+   * the fifth happens, or never if the process restarts first. The entry point calls this on its poll timer
+   * and at shutdown, so the count is reported while it still means something.
+   *
+   * Returns how many keys were reported. A transport failure is logged, never thrown: this runs on a timer
+   * and during shutdown, and neither is a place to crash.
+   */
+  flushSuppressed(): Promise<number>;
   start(): Promise<void>;
   stop(): Promise<void>;
 }
@@ -137,10 +159,12 @@ export async function handleEvent(args: {
 export function createOpsConsumer(opts: OpsConsumerOptions): OpsConsumer {
   const groupId = opts.groupId ?? OPS_GROUP_ID;
   const rules = opts.rules ?? OPS_RULES;
-  const limiter = createRateLimiter({
-    ...opts.rateLimit,
-    ...(opts.now ? { now: opts.now } : {}),
-  });
+  const limiter =
+    opts.limiter ??
+    createRateLimiter({
+      ...opts.rateLimit,
+      ...(opts.now ? { now: opts.now } : {}),
+    });
   const storeCodes = createStoreCodes(opts.hq);
   const processed = createPgProcessedStore(opts.hq, PROCESSED_TABLE);
   let sent = 0;
@@ -214,8 +238,53 @@ export function createOpsConsumer(opts: OpsConsumerOptions): OpsConsumer {
         transport: opts.transport.name,
       });
     },
+    async flushSuppressed() {
+      const pending = limiter.flushSuppressed();
+      for (const { key, suppressed: n } of pending) {
+        // The key is `<rule>:<storeCode>` — the two things the burst was about, and all this needs.
+        const [rule = key, storeCode = 'organization'] = key.split(':');
+        opts.log?.({
+          service: 'engagement',
+          module: 'ops',
+          event: 'alert_suppressed',
+          rule,
+          store_code: storeCode,
+          suppressed: n,
+          group_id: groupId,
+        });
+        try {
+          await opts.transport.send({
+            rule,
+            severity: 'warn',
+            title: `${n} ${rule} alert(s) suppressed by the rate limit (${storeCode})`,
+            fields: { rule, store: storeCode, suppressed: n },
+            organizationId: opts.hq.context.organizationId,
+            storeId: null,
+            storeCode,
+            topic: FLUSH_PSEUDO_TOPIC,
+            outboxId: '',
+            occurredAt: new Date().toISOString(),
+            suppressed: n,
+          });
+        } catch (err) {
+          // Never throw from a timer or a shutdown path; the count is already in the log line above.
+          opts.log?.({
+            service: 'engagement',
+            module: 'ops',
+            event: 'alert_failed',
+            rule,
+            store_code: storeCode,
+            group_id: groupId,
+            error_class: err instanceof Error ? err.name : 'Error',
+          });
+        }
+      }
+      return pending.length;
+    },
     async stop() {
       await consumer.stop();
+      // At shutdown, because the in-memory window dies with the process (#657).
+      await this.flushSuppressed();
       opts.log?.({
         service: 'engagement',
         module: 'ops',

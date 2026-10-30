@@ -195,6 +195,80 @@ describe('store codes', () => {
   });
 });
 
+describe('the suppressed count is FLUSHED, not only carried forward (#657)', () => {
+  // The wiring, not the limiter: #599 was wiring that nobody tested, so the consumer's own flush is proven
+  // here — it sends through the transport and `stop()` calls it, because the in-memory window dies with the
+  // process.
+  const recordingTransport = () => {
+    const sent: Alert[] = [];
+    const transport: AlertTransport = {
+      name: 'recording',
+      async send(alert) {
+        sent.push(alert);
+      },
+    };
+    return { transport, sent };
+  };
+
+  const consumerWith = (limiter: ReturnType<typeof createRateLimiter>, t: AlertTransport) =>
+    createOpsConsumer({
+      hq,
+      transport: t,
+      rateLimit: { max: 1, windowMs: 60_000 },
+      limiter,
+      log: () => undefined,
+    });
+
+  it('sends one alert per key that had a suppressed count, then reports nothing', async () => {
+    const limiter = createRateLimiter({ max: 1, windowMs: 60_000, now: () => 0 });
+    const key = 'payment-failed:brand-a';
+    limiter.check(key);
+    limiter.check(key);
+    limiter.check(key);
+
+    const { transport, sent } = recordingTransport();
+    const consumer = consumerWith(limiter, transport);
+    expect(await consumer.flushSuppressed()).toBe(1);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.rule).toBe('payment-failed');
+    expect(sent[0]!.storeCode).toBe('brand-a');
+    expect(sent[0]!.suppressed).toBe(2);
+    expect(sent[0]!.title).toContain('2 payment-failed alert(s) suppressed');
+    // Cleared, so a timer does not repeat the same burst every tick.
+    expect(await consumer.flushSuppressed()).toBe(0);
+    expect(sent).toHaveLength(1);
+  });
+
+  it('never throws when the transport fails: it runs on a timer and at shutdown', async () => {
+    const limiter = createRateLimiter({ max: 1, windowMs: 60_000, now: () => 0 });
+    limiter.check('payment-failed:brand-a');
+    limiter.check('payment-failed:brand-a');
+    const failing: AlertTransport = {
+      name: 'failing',
+      async send() {
+        throw new TransportError('slack refused', { retryable: false });
+      },
+    };
+    const consumer = consumerWith(limiter, failing);
+    await expect(consumer.flushSuppressed()).resolves.toBe(1);
+  });
+
+  it('reports a count that would otherwise die with the process', async () => {
+    // The burst ends inside its window and the process stops: without the flush the count is simply lost.
+    const limiter = createRateLimiter({ max: 1, windowMs: 900_000, now: () => 0 });
+    limiter.check('refund-failed:brand-b');
+    limiter.check('refund-failed:brand-b');
+    const { transport, sent } = recordingTransport();
+    const consumer = consumerWith(limiter, transport);
+    // `stop()` would also stop the SDK consumer, which was never started here; the flush is what this pins.
+    await consumer.flushSuppressed();
+    expect(sent.map((a) => [a.rule, a.storeCode, a.suppressed])).toEqual([
+      ['refund-failed', 'brand-b', 1],
+    ]);
+  });
+});
+
 describe('handleEvent (the decision path)', () => {
   it('sends one alert with the resolved store code', async () => {
     const transport = new RecordingTransport();

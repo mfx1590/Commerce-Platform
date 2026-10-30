@@ -181,7 +181,8 @@ describe('resolveConfig — the CDP side (#554)', () => {
         RUDDERSTACK_DATA_PLANE_URL: 'https://dataplane.rudderstack.example',
         RUDDERSTACK_CONTROL_PLANE_URL: 'https://api.rudderstack.example',
         RUDDERSTACK_ACCESS_TOKEN: 'control-plane-token-words-only',
-        RUDDERSTACK_SOURCE_IDS: 'source-alpha, source-beta',
+        // Destinations, not sources: `suppress_with_delete` takes destinationIds (#657).
+        RUDDERSTACK_DESTINATION_IDS: 'destination-alpha, destination-beta',
       },
     });
     expect(c.cdp).toMatchObject({
@@ -193,7 +194,7 @@ describe('resolveConfig — the CDP side (#554)', () => {
       regulation: {
         controlPlaneUrl: 'https://api.rudderstack.example',
         accessToken: 'control-plane-token-words-only',
-        sourceIds: ['source-alpha', 'source-beta'],
+        destinationIds: ['destination-alpha', 'destination-beta'],
       },
     });
   });

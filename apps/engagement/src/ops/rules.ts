@@ -8,6 +8,11 @@
 // names and provider reason codes. What may not: anything a human typed or that identifies a person. Two
 // judgement calls worth knowing about:
 //
+//  * `failure_reason` is forwarded ONLY when it looks like a provider CODE (#657): the core writes
+//    `err.declineCode ?? err.code ?? err.message`, and a Stripe message is free text that can echo request
+//    parameters - an e-mail, an address, whatever was in the call. A code (`card_declined`,
+//    `insufficient_funds`) is safe and is the useful part anyway; anything else becomes `unrecognised`, which
+//    tells an operator to look in the PSP dashboard rather than quietly forwarding prose into Slack.
 //  * `payment.failed.failure_reason` and `refund.failed.failure_reason` ARE included. They are the PSP's reason
 //    code (`insufficient_funds`, `card_declined`) and they are the first thing an operator needs. They come
 //    from the provider, not from a person.
@@ -65,6 +70,22 @@ function money(amountMinor: number, currency: string): string {
 }
 
 /** A payload field that may be null in the schema; `-` reads better than `null` in a Slack line. */
+/**
+ * A PSP reason CODE, or `unrecognised` (#657).
+ *
+ * The core stores `err.declineCode ?? err.code ?? err.message`, so this field is a code most of the time and
+ * free text the rest of the time - and a PSP's message can quote the request, which is how an address or an
+ * e-mail would reach Slack through an ops alert. A code is `[a-z0-9_]`, short, and the part an operator acts
+ * on; anything else is REPLACED rather than trimmed, because a truncated message is still a message.
+ */
+const PROVIDER_CODE = /^[a-z0-9_]{1,64}$/;
+
+export function providerCode(value: string | null | undefined): string {
+  if (value === null || value === undefined || value.trim() === '') return '-';
+  const v = value.trim();
+  return PROVIDER_CODE.test(v) ? v : 'unrecognised';
+}
+
 function orDash(value: string | null | undefined): string {
   return value === null || value === undefined || value === '' ? '-' : value;
 }
@@ -95,7 +116,7 @@ export const paymentFailedRule: Rule = {
       amount: money(p.amount_minor, p.currency),
       provider: p.provider,
       provider_payment_id: orDash(p.provider_payment_id),
-      reason: orDash(p.failure_reason),
+      reason: providerCode(p.failure_reason),
     });
   },
 };
@@ -124,7 +145,7 @@ export const refundFailedRule: Rule = {
       refund_id: p.refund_id,
       payment_id: p.payment_id,
       amount: money(p.amount_minor, p.currency),
-      reason: orDash(p.failure_reason),
+      reason: providerCode(p.failure_reason),
     });
   },
 };

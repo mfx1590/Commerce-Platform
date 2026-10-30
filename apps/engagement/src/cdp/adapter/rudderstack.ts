@@ -8,9 +8,10 @@
 // Shape (RudderStack HTTP API, same as Segment's): POST /v1/identify and /v1/track with
 // `{ userId | anonymousId, event, properties | traits, timestamp, messageId }`, authenticated by the write key
 // as HTTP Basic with an EMPTY password. A suppression is not a data-plane call: it is
-// POST /v2/regulations on the control plane (`sourceIds`, `regulationType: "Suppress_With_Delete"`), which
-// needs a personal access token rather than the write key — a different credential, so it is a separate option
-// and the adapter refuses a suppression it cannot make rather than pretending one happened.
+// POST /v2/regulations on the control plane (`destinationIds`, `regulationType: "suppress_with_delete"` —
+// the names and the casing come from the docs; see `suppress` below, #657), which needs a personal access
+// token rather than the write key — a different credential, so it is a separate option and the adapter
+// refuses a suppression it cannot make rather than pretending one happened.
 
 import type { CdpAdapter, CdpIdentifyCall, CdpSuppressCall, CdpTrackCall } from '../types.js';
 import { CdpError } from '../types.js';
@@ -27,14 +28,15 @@ export interface RudderStackOptions {
   /** The data plane, e.g. `https://hosted.rudderlabs.example`. */
   dataPlaneUrl: string;
   /**
-   * For suppressions only: the control-plane URL, a personal access token and the source ids to suppress in.
-   * Without all three, `suppress` throws instead of silently doing nothing — an erasure that quietly fails is
-   * the one failure this service must never hide.
+   * For suppressions only: the control-plane URL, a personal access token and the DESTINATION ids to delete
+   * from. Destinations rather than sources because that is what `suppress_with_delete` takes (#657; the docs
+   * say a `sourceIds` there is an error). Without all three, `suppress` throws instead of silently doing
+   * nothing — an erasure that quietly fails is the one failure this service must never hide.
    */
   regulation?: {
     controlPlaneUrl: string;
     accessToken: string;
-    sourceIds: string[];
+    destinationIds: string[];
   };
   fetchImpl?: FetchLike;
 }
@@ -78,20 +80,69 @@ export class RudderStackCdpAdapter implements CdpAdapter {
     });
   }
 
+  /**
+   * An erasure. It must reach EVERY profile this person has, which is the whole point of #657's HIGH
+   * finding: the gate returns both ids for `customer.erased`, and this used to send `userId ?? anonymousId`
+   * — one id — so in `analytics` mode a guest's hash-keyed profile survived the erasure.
+   *
+   * THE SHAPE COMES FROM THE DOCS, and they constrain it more than the issue assumed
+   * (https://www.rudderstack.com/docs/api/user-suppression-api, read 2026-10-30):
+   *   * `users` is an array of USERS, and "the userId field is mandatory for all users". There is no
+   *     documented `anonymousId` key, so `users: [{userId}, {anonymousId}]` is not a shape this API accepts;
+   *   * additional identifiers for the SAME person go beside `userId` in the same entry ("you can pass
+   *     additional custom identifiers such as email in the users object"). Our hash is exactly that: the
+   *     same person, known to the CDP under a second key;
+   *   * `suppress_with_delete` takes `destinationIds`, NOT `sourceIds` — "specify only destinationIds with
+   *     the suppress_with_delete regulation", otherwise the API answers an error. This code sent `sourceIds`
+   *     with that regulation type, so the call was rejected outright.
+   *
+   * What is NOT possible, stated rather than papered over: a hash-only identity cannot be suppressed through
+   * this API, because `userId` is mandatory. Sending the hash AS a `userId` would match userId-keyed
+   * profiles and silently miss the anonymousId-keyed one — an erasure that reports success and deletes
+   * nothing. So it throws, the event dead-letters, and a person sees it. It cannot happen today
+   * (`customer.erased` always carries a customer_id; a guest who never registered produces no erasure at
+   * all — the gap recorded in data/cdp/README.md), and when a guest-erasure path exists this is the line
+   * that has to be answered first.
+   */
   async suppress(call: CdpSuppressCall): Promise<void> {
     const r = this.#regulation;
     if (!r) {
       // Loud on purpose: the caller asked for an erasure and this adapter cannot make one.
-      throw new CdpError('rudderstack: suppression needs a control-plane token and source ids');
+      throw new CdpError(
+        'rudderstack: suppression needs a control-plane token and destination ids',
+      );
     }
-    const id = call.identity.userId ?? call.identity.anonymousId;
-    if (!id) throw new CdpError('rudderstack: suppression needs an identity');
+    const { userId, anonymousId } = call.identity;
+    if (!userId && !anonymousId) throw new CdpError('rudderstack: suppression needs an identity');
+    if (!userId) {
+      throw new CdpError(
+        'rudderstack: cannot suppress an anonymousId-only identity — the regulation API requires a userId, ' +
+          'and sending the hash as one would suppress a different profile',
+      );
+    }
 
     const url = `${r.controlPlaneUrl.replace(/\/+$/, '')}/v2/regulations`;
     const body = JSON.stringify({
-      regulationType: 'Suppress_With_Delete',
-      sourceIds: r.sourceIds,
-      users: [call.identity.userId ? { userId: id } : { anonymousId: id }],
+      regulationType: 'suppress_with_delete',
+      destinationIds: r.destinationIds,
+      // TWO entries when both ids are known (#660 review, manager decision), because one is not enough and
+      // the doc does not promise what the issue assumed:
+      //   * `{ userId, email_hash }` — the customer-keyed profile, with the hash as a custom identifier
+      //     beside the mandatory `userId`, which is the documented way to name one person by two keys;
+      //   * `{ userId: <email_hash> }` — the GUEST-keyed profile. Nothing in the doc says a custom
+      //     identifier is matched against `anonymousId`, and a guest's track calls carry the hash ONLY as
+      //     `anonymousId`, so the first entry most likely leaves that profile in place. Naming the hash in
+      //     the `userId` position is safe HERE because in this service a hash is never a customer id (it is
+      //     a sha256 of an address, and customer ids are uuids), so it cannot collide with another person,
+      //     and destinations that key users by `anonymousId` — Mixpanel's `distinct_id`, for instance — are
+      //     then named exactly.
+      // UNVERIFIED until a real workspace exists: no RudderStack account has ever received one of these, so
+      // whether the second entry reaches the hash-keyed profile is reasoned, not observed (launch checklist).
+      // Linking the two profiles on `identify` is a separate decision and deliberately not done here.
+      users: [
+        { userId, ...(anonymousId ? { email_hash: anonymousId } : {}) },
+        ...(anonymousId ? [{ userId: anonymousId }] : []),
+      ],
     });
     await this.#send(url, { authorization: `Bearer ${r.accessToken}` }, body, 'regulation');
   }

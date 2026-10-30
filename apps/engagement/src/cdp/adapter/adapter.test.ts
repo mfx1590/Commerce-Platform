@@ -2,6 +2,7 @@
 //
 // Test keys are WORDS, never digit/hex tails (the gitleaks rule in Memory-main).
 
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   CdpError,
@@ -14,6 +15,8 @@ import { MemoryCdpAdapter } from './memory.js';
 import { identityOf, RudderStackCdpAdapter, type FetchLike } from './rudderstack.js';
 
 const CUSTOMER = '77777777-7777-4777-8777-777777777777';
+// Computed, never a committed 64-hex literal (the gitleaks rule in Memory-main).
+const EMAIL_HASH = createHash('sha256').update('adapter-fixture@example.test').digest('hex');
 const WRITE_KEY = 'write-key-words-only';
 const TOKEN = 'control-plane-token-words-only';
 const DATA_PLANE = 'https://dataplane.rudderstack.example';
@@ -71,6 +74,20 @@ describe('memory adapter', () => {
     expect(a.suppressions).toHaveLength(1);
     expect(a.count).toBe(3);
     expect(a.all.map((c) => c.kind)).toEqual(['identify', 'track', 'suppress']);
+  });
+
+  it('RECORDS BOTH ids of a suppression, so a test can see the whole erasure (#657)', async () => {
+    const a = new MemoryCdpAdapter();
+    await a.suppress({
+      ...suppress,
+      kind: 'suppress',
+      identity: { userId: CUSTOMER, anonymousId: EMAIL_HASH },
+    });
+    // Not "an id was suppressed" but "these ids were": the HIGH finding of #657 was a suppression that
+    // carried one id, and a recorder that kept only one could not have shown it.
+    expect(a.suppressions[0]!.identity).toEqual({ userId: CUSTOMER, anonymousId: EMAIL_HASH });
+    expect(a.isSuppressed(CUSTOMER)).toBe(true);
+    expect(a.isSuppressed(EMAIL_HASH)).toBe(true);
   });
 
   it('answers whether an identity was suppressed, by either key', async () => {
@@ -213,52 +230,80 @@ describe('rudderstack adapter', () => {
       fetchImpl: r.fetchImpl,
     });
     await expect(a.suppress({ ...suppress, kind: 'suppress' })).rejects.toThrow(
-      /control-plane token and source ids/,
+      /control-plane token and destination ids/,
     );
     expect(r.calls).toHaveLength(0);
   });
 
-  it('posts a suppression to the control plane as a Suppress_With_Delete regulation', async () => {
-    const r = recorder();
-    const a = new RudderStackCdpAdapter({
+  /** The regulation adapter, with the destination ids `suppress_with_delete` documents (#657). */
+  const withRegulation = (r: ReturnType<typeof recorder>) =>
+    new RudderStackCdpAdapter({
       writeKey: WRITE_KEY,
       dataPlaneUrl: DATA_PLANE,
       fetchImpl: r.fetchImpl,
       regulation: {
         controlPlaneUrl: CONTROL_PLANE,
         accessToken: TOKEN,
-        sourceIds: ['source-alpha'],
+        destinationIds: ['destination-alpha'],
       },
     });
-    await a.suppress({ ...suppress, kind: 'suppress' });
+
+  it('suppresses a customer id as a suppress_with_delete regulation on the DESTINATIONS', async () => {
+    // The names and the casing are the documented ones: `suppress_with_delete` takes `destinationIds`, and
+    // naming sources there is an error. This used to send `sourceIds` with `Suppress_With_Delete`, so the
+    // call was rejected outright (#657).
+    const r = recorder();
+    await withRegulation(r).suppress({ ...suppress, kind: 'suppress' });
 
     expect(r.calls[0]!.url).toBe(`${CONTROL_PLANE}/v2/regulations`);
     expect(r.calls[0]!.headers.authorization).toBe(`Bearer ${TOKEN}`);
     expect(JSON.parse(r.calls[0]!.body)).toEqual({
-      regulationType: 'Suppress_With_Delete',
-      sourceIds: ['source-alpha'],
+      regulationType: 'suppress_with_delete',
+      destinationIds: ['destination-alpha'],
+      // One entry when there is one id: no empty second entry, and no hash invented.
       users: [{ userId: CUSTOMER }],
     });
   });
 
-  it('suppresses an anonymous identity by anonymousId', async () => {
+  it('suppresses BOTH ids in one regulation when the erasure knows both (#657, HIGH)', async () => {
+    // The finding: the gate returns both ids for `customer.erased`, and this sent `userId ?? anonymousId` —
+    // so in `analytics` mode the guest-period profile, keyed by the hash, survived the erasure. The hash
+    // travels beside the mandatory `userId` as a custom identifier, which is how the API expresses "the same
+    // person, known by a second key".
     const r = recorder();
-    const a = new RudderStackCdpAdapter({
-      writeKey: WRITE_KEY,
-      dataPlaneUrl: DATA_PLANE,
-      fetchImpl: r.fetchImpl,
-      regulation: {
-        controlPlaneUrl: CONTROL_PLANE,
-        accessToken: TOKEN,
-        sourceIds: ['source-alpha'],
-      },
-    });
-    await a.suppress({
+    await withRegulation(r).suppress({
       ...suppress,
       kind: 'suppress',
-      identity: { userId: null, anonymousId: 'hash-alpha' },
+      identity: { userId: CUSTOMER, anonymousId: EMAIL_HASH },
     });
-    expect(JSON.parse(r.calls[0]!.body).users).toEqual([{ anonymousId: 'hash-alpha' }]);
+
+    const body = JSON.parse(r.calls[0]!.body) as { users: Record<string, string>[] };
+    // TWO entries (#660 review): the customer-keyed profile with the hash beside its mandatory `userId`,
+    // and the GUEST-keyed profile named by the hash in the `userId` position — because nothing in the doc
+    // says a custom identifier is matched against `anonymousId`, and a guest's events carry the hash only
+    // there. Safe because a hash is never a customer id in this service, so it cannot name another person.
+    expect(body.users).toEqual([
+      { userId: CUSTOMER, email_hash: EMAIL_HASH },
+      { userId: EMAIL_HASH },
+    ]);
+    // One regulation, two entries: one call, both profiles named.
+    expect(r.calls).toHaveLength(1);
+  });
+
+  it('REFUSES a hash-only erasure rather than suppressing the wrong profile (#657)', async () => {
+    // `userId` is mandatory in the regulation API and `anonymousId` is not a documented key, so there is no
+    // way to erase a hash-keyed profile through it. Sending the hash AS a userId would match a different
+    // profile and report success — an erasure that deletes nothing. It throws, the event dead-letters, and a
+    // person sees it. Unreachable today: `customer.erased` always carries a customer_id.
+    const r = recorder();
+    await expect(
+      withRegulation(r).suppress({
+        ...suppress,
+        kind: 'suppress',
+        identity: { userId: null, anonymousId: EMAIL_HASH },
+      }),
+    ).rejects.toThrow(/requires a userId/);
+    expect(r.calls).toHaveLength(0);
   });
 
   it('a refusal is a CdpError with the status only, and 429/5xx are retryable', async () => {

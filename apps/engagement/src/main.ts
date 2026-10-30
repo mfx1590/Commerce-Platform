@@ -453,6 +453,9 @@ async function main(): Promise<void> {
   }
 
   const timer = setInterval(() => {
+    // #657: report any suppressed burst that ended inside its window, on the same tick as the DLQ poll —
+    // otherwise the count waits for the next alert of that rule, which may never come.
+    void consumer.flushSuppressed().catch(() => undefined);
     void runDlqWatch({
       groups: config.dlq.groups,
       threshold: config.dlq.threshold,
