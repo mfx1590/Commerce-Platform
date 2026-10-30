@@ -3,7 +3,7 @@
 # Fails (exit 1) if the current branch changed files outside the paths allowed for its prefix.
 #
 # Usage:
-#   scripts/check-ownership.sh                 # compares origin/main...HEAD (CI) or main...HEAD (local)
+#   scripts/check-ownership.sh                 # compares origin/main...HEAD (main...HEAD only without the remote ref)
 #   OWNERSHIP_BRANCH=core/phase1 OWNERSHIP_FILES=$'apps/core/x.ts\npackages/db/y.sql' scripts/check-ownership.sh
 #                                              # test mode: no git needed
 set -euo pipefail
@@ -56,8 +56,10 @@ done <<< "$PATTERNS"
 if [ -n "${OWNERSHIP_FILES+x}" ]; then
   FILES="$OWNERSHIP_FILES"
 else
-  # CI (PR checkout) has origin/main; a local worktree has an up-to-date local main. Prefer the local one.
-  BASE="$(git -C "$ROOT" merge-base main HEAD 2>/dev/null || git -C "$ROOT" merge-base origin/main HEAD)"
+  # Prefer origin/main: the local `main` branch belongs to the repo-root checkout and goes stale whenever that
+  # checkout has not pulled, so a window that merged a newer origin/main saw main's own commits as its violations
+  # (window 16, 2026-10-30). The local main is only the fallback for a clone without the remote ref.
+  BASE="$(git -C "$ROOT" merge-base origin/main HEAD 2>/dev/null || git -C "$ROOT" merge-base main HEAD)"
   FILES="$(git -C "$ROOT" diff --name-only "$BASE...HEAD")"
 fi
 
