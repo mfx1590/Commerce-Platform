@@ -44,6 +44,13 @@ The admin stays for the migrator and the reconcile job only.
 - **users.d still wins where it defines a user.** ClickHouse cannot alter a user from the read-only `users_xml`
   storage, so the runner skips that file and reports why. On the local stack `analytics_ro` (and the admin) are still
   in `infra/clickhouse/users.d`; removing `analytics_ro` there hands it to SQL (window 5 / the manager).
+- **The handover order: pull, then `ch:migrate` at once.** Compose mounts `users.d` from the repo-root checkout, and
+  ClickHouse reloads it on change: the moment a checkout without the `analytics_ro` block is pulled there, the XML
+  user is gone and every read-only path (the metrics API, BI) gets authentication errors until `ch:migrate` recreates
+  `analytics_ro` from `20_analytics_ro.sql` (with `CLICKHOUSE_READONLY_PASSWORD`, the same password, so no client
+  changes). So: pull, then run `pnpm --filter @platform/analytics-ingest ch:migrate` immediately; its `access` line
+  must then list `analytics_ro` under `applied`, not `skipped`. The same holds for any later move of a user out of
+  users.d.
 - **A missing password** skips the file in dev and fails the run in production (`NODE_ENV=production`).
 - **Server-level, not SQL:** `select_from_system_db_requires_grant` (keeps the writer's query text in `system.*` out of
   `analytics_ro`'s reach) and the `query_log` TTL are server settings (`infra/clickhouse/config.d` locally, the
