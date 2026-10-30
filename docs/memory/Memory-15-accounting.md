@@ -1,20 +1,26 @@
 # Memory 15 — Automatic accounting
+
 Window: 15 · Key: `accounting` · Branch prefix: `accounting/` · Model: Opus 5.5 since 2026-10-24 (owner switch; was Fable)
-Last updated: 2026-10-30 (window 15) · Branch: `accounting/phase5-reconcile-fix` (cut `--no-track` from main 41e4a96; push with `git push -u origin <branch>`) · Manager: **Manager session ten** · Status: **#645 = PR #651 (code commit 80becc4 + review fix 1d18cca; head = this memory commit)**, Fable BLOCK answered (currency upper-cased at import; discrepancy_count ignores pending lines); #627 MERGED (PR #630 = 33b8365, Fable MERGE).
+Last updated: 2026-10-30 (window 15) · Branch: `accounting/phase5-588-fixes` (cut `--no-track` from main 4d97da6) · Manager: **Manager session ten** · Status: **#639 PR open (code commit 52d56db; head = this memory commit)**; Fable review (money). #645 = PR #651 MERGED 4d97da6.
 
 ## Identity (does not change)
+
 Owned paths (write):
+
 - `apps/accounting/**`
-Reads:
+  Reads:
 - everything; especially packages/events (events-v1 consumer SDK: `createConsumer`, `createPgProcessedStore`, `readDeadLetters`), apps/core/src/outbox/README.md (relay + `outbox:replay`), docs/domain.md (legal_entity, ledger_entry), docs/adr/0003-outbox-events.md item 6, packages/db/migrations/0008_ledger.sql + 0009 (ledger_entry is store-kind RLS)
-Never touches:
+  Never touches:
 - core internals, packages/* (CONTRACT CHANGE issues instead), other apps
 
 ## Mission — Phase 4 (Events, accounting, CRM)
+
 Double-entry ledger from events (order.placed, order.cancelled, payment.captured, refund.issued, shipment.shipped — each carries legal_entity_id; payment.captured carries fee_minor): chart of accounts per legal entity, balanced journal entries, PSP fee matching and payout reconciliation, Odoo sync, Finance-only read API. Gate (Integration 4): a month replayed balances per legal entity and matches PSP payouts to the cent.
 
 ## Done
+
 Phase 4, all merged (details: apps/accounting/CHANGELOG.md 0.2.0–0.6.3, the PR bodies, git log):
+
 - 2026-10-23 **#548 15.1 ledger consumer + posting rules** — MERGED 022c13b (integration PR #567, with CONTRACT CHANGE #558 = db 0203). Consumer group `accounting.ledger` on the events-v1 SDK; parking of events before their order; per-order advisory lock.
 - 2026-10-23 **#549 15.2 PSP fee matching + payout reconciliation** — MERGED 6b63bd9 (PR #571, incl. the strictly-earlier window fix after the Fable BLOCK).
 - 2026-10-24 **#550 15.3 Odoo sync** — MERGED 3550bf0 (PR #574). JSON-RPC client + mock, mapping steps, one move per (event, journal).
@@ -27,17 +33,22 @@ Phase 4, all merged (details: apps/accounting/CHANGELOG.md 0.2.0–0.6.3, the PR
 - 2026-10-25 **The #552 gate on the real relay / replay CLIs** — PR #597 MERGED 0263ad8 (3/3 green CI, gate 4/4): spawns apps/core `relay-cli --once --topic-prefix --throwaway-db` and `replay-cli --topic-prefix` per topic; the wire-function reproduction is gone; relay / replay ceilings 60 s.
 
 ## In progress
-- **#645 = PR #651 (code commit 80becc4, review fix 1d18cca; head = this memory commit).** Fable BLOCK (one defect, manager-verified): sameCurrency accepted `eur` but reconcile.ts stored the payout and posted BANK / PSP_CLEARING with the raw report currency → `eur` beside `EUR` in the trial balance, an API answer outside ^[A-Z]{3}$. Fixed: `normalizeCurrencies` upper-cases the report and every row ONCE at import (before upsert, lines insert, line()); DB test: an `eur` report stores and posts `EUR`, balanceByCurrency keys only EUR (mutation-checked: without the call only that test fails). Nit: the API discrepancy_count excludes `pending` (superseded) lines. README stale-line sentences corrected. Suite minus broker files 96 + 1 skipped; root lint + typecheck green. Pushed only after the previous CI finished (manager). Was: **#645 (Fable post-merge re-review of #571 / dd9cc80; package 0.6.7).** (1) medium: stale `psp_payout_line` rows widened the next window — `saveLines` now resets lines the CURRENT report does not carry to `pending` with no match (0203 revokes DELETE; `pending` is in the API enum), returns the count (`ReconcileResult.superseded_lines`, log line). Test = the issue's exact scenario (payout 2 discrepant with its latest capture C matched → re-issued without C → posts, superseded 1 → payout 3 reports C as unmatched_ledger_line). (2) medium: ONE ordering — `reconcileAll` sorts in SQL (`unnest … ORDER BY arrival, id COLLATE "C"`), `windowStartBefore` compares `(arrival_date, provider_payout_id COLLATE "C")`, the API lists payouts the same way, the fixture source sorts bytewise; test = po_Zfirst / po_asecond same day (linguistic order is the other one). (3) minor: a reconciled payout re-imported with another amount / arrival date / currency → `reconciled_payout_changed` (status discrepant, already_reconciled, `changed`), nothing rewritten. (4) minor: a row in another currency → `currency_mismatch` (never summed or matched); every currency compare in the matcher is case-insensitive (`sameCurrency`; the matcher compared row vs payment strictly before — lower-case Stripe codes would have been amount differences). #630 follow-ups: README `entry_date` = UTC day of the fact; fixtures/build.ts uses the instant `dateOf`. Mutation-checked (stale reset off → the scenario test fails; old ordering → the mixed-case test fails). Ran: reconcile 15/15; full suite minus the two broker files 95 + 1 skipped (live Odoo); root lint + typecheck, ownership. NOT run locally: consumer-live and month-replay (need the machine; the gate calls reconcileAll, whose ordering changed — CI live job covers it). ONE PR "Closes #645"; Fable review (money).
+
+- **#639 PR (code commit 52d56db; head = this memory commit).** Manager additions applied: parked_event_defect at ERROR level; `stuckParkedEvents(q, le?)` (parked rows whose order exists) asserted empty by the month-replay gate after the live run and the replay; lock comments (the lock tx only holds the lock; a hashtext collision only serialises two entities). LIVE (machine granted 2026-10-30): throwaway DB, fresh generated month (91 events, Brand A 61 refs), two CLI processes at once vs dev Odoo company 5 → process 1 exit 1 after 163 ms ErpSyncInProgress, process 2 exit 0 created 61 / marked 170 / refused 0; third run 0; Odoo 61 refs → 61 posted moves, refs with > 1 move = 0; DB dropped; machine free. FULL suite 108 + 1 skipped (live Odoo), gate 4/4 (relay 1,942 / consume 6,262 / replay 2,400 / replay_consume 4,000 / reconcile 201 ms). Was: **#639 (Fable re-reviews of #588 + #591; package 0.6.8).** (1) tie: shipment-shipped `>` instead of `>=` (a shipment AT the cancel instant counts as shipped before it; pure test both arrival orders; the #589 equal-instants test now asserts `recognised` with the instants swapped so a text compare still fails it). (2) a PARKED event that is a PostingError when order.placed applies it is skipped: stays in accounting_parked_event, `deleteParkedEvents(tx, order, appliedIds)`, `HandledEvent.parked_defects`, consumer logs `parked_event_defect`; other errors still throw. No real DLQ record (SDK deadLetter is internal; option B = REQUEST to window 14, told the manager). DB test in ledger.test. (3) README note: shipping revenue / floor remainder attach to the first-consumed shipment. (4) erp:sync lock: `syncLegalEntity` = `client.transaction` holding `pg_try_advisory_xact_lock(hashtext('erp_sync'), hashtext(le))`, body in `runSync`; overlap → `ErpSyncInProgress`. Test: mock seam `pauseCreates()` holds every create until both runs are in flight (a plain Promise.all did NOT reproduce the race: the in-process mock is too fast); mutant without the lock → the first ref gets 2 moves. Gotcha: `vitest -t` on one erp test skips the mapping tests before it → LegalEntityUnmapped; run the whole file for mutation checks. Offline: 99 + 1 skipped (109 with the broker files), build, root gates, ownership green. NEXT: the machine → scratchpad `live-lock-proof.mjs` (fresh generated month, 2 CLI processes at once vs dev Odoo company 5, a third run, refs counted in Odoo) → PR "Closes #639" with the numbers → manager (number + head sha) → checks.
 - Resume checklist for any task: start from a fresh branch off main with `git switch --no-track -c <b> origin/main`; `pnpm install --frozen-lockfile`; build the workspace packages incl. `@platform/test-utils` (new since #617); after any stack restart re-run `pnpm --filter @platform/auth-sdk fga:seed`; warm Odoo with one request before the live ERP block.
+
 ## Next
+
 - Nothing assigned: wait for the next manager session (Phase 5 planning).
 
 ## Blocked / waiting
+
 - Open follow-ups filed by this window, not in the Phase 4 gate: #559 CONTRACT CHANGE unit cost on shipment.shipped items (COGS), #560 CONTRACT CHANGE payment.disputed (chargebacks) (#561 and #579 closed by #595).
 - Live Stripe (test keys, #361): fixture payout reports until then (waiver on #549).
 - The dev ledger now holds the Integration 4 run (group `accounting.ledger.int4`; Brand A synced to Odoo company 5, Brand B not synced). A future dev run must use another fresh group only on a fresh ledger, or the same int4 group (it dedupes).
 
 ## Decisions made (with reasons)
+
 - 2026-10-23 (window 15, #550): **Odoo ref = `<source_event_id>/<journal>`** (an event can post two journals — shipment: sales + shipping — and Odoo wants one journal per move); **a move is posted only in the company's currency** (shipment cost in another currency is skipped with `currency_unsupported`; no FX this phase); **the mock is a JSON-RPC server, not an adapter stub**, so the real client's request shapes, auth and fault mapping are what the tests exercise; **a 5xx is a transport failure** (retried, then `OdooTransport`), an Odoo fault is never retried.
 - 2026-10-23 (window 15, #549 fix after the Fable BLOCK on #571): **a payout's window start comes only from payouts strictly EARLIER by (arrival_date, provider_payout_id)** — `l.payout_id <> $2` let later payouts widen the window, so a re-import of an older discrepant payout came out clean and POSTED; `reconcileAll` sorts oldest first; a second-pass test on the discrepant month pins it (fails on the old code).
 - 2026-10-23 (window 15, #549): **payouts match per (legal entity, provider)**: only accounting_payment rows of the report's provider are candidates and the window of earlier payouts is that provider's. **Unmatched ledger lines are found per payout window** — from the latest ledger time an earlier payout matched (exclusive) to the latest this payout matched, kept PER TYPE (captures settle +2 days, refunds at once; one window mixed them and misreported) — so a missing capture is reported exactly once, by the payout that should have carried it. **A discrepant payout posts nothing** (status discrepant, lines kept with their verdict); re-import re-matches it. **The payout posting carries store_id NULL** (a payout spans stores; manager). **Fixture determinism**: generateMonth(deterministicIds) seeds every id incl. event ids and display ids; a test compares the committed files with the builder's output.
@@ -45,6 +56,7 @@ Phase 4, all merged (details: apps/accounting/CHANGELOG.md 0.2.0–0.6.3, the PR
 - 2026-10-23 (manager, kickoff — full text on #548–#552): tables in packages/db, manager-landed (integration landing: manager's db commit on `integration/<name>`, you cut your commit from that sha); shared `consumer_processed` (db 0202) landed by the manager before your first PR, markProcessed in the ledger's own transaction; revenue recognised at shipment (order.placed → contract liability), the accountant validates the chart before launch; COGS and chargebacks out of the gate (no cost field, no dispute event) — file the CONTRACT CHANGEs that would add them; per-currency balance, no FX conversion this phase; Stripe and Odoo live use waived to the launch checklist until keys / an instance exist.
 
 ## Gotchas learned
+
 - The consumer SDK dead-letter path crashed once with `producer` undefined (`Cannot read properties of undefined (reading 'send')`) when `stop()` raced an in-flight dead letter during afterAll — harmless for the gate (nothing dead-letters any more), worth a nit to window 14.
 - kafkajs redelivers a batch after a rebalance (slow handlers → session timeout): `duplicates` in the SDK stats are normal on a shared machine; assert handled counts and ledger counts, never `duplicates: 0`.
 - Lockfile churn on every clean `pnpm install` here (medusa admin-bundler / admin-vite-plugin / fdir / picomatch / @vitest/mocker jiti peer keys flip): the manager wants only our lines. Recipe that passes `pnpm install --frozen-lockfile`: take the BASE's lockfile (`git show <base>:pnpm-lock.yaml`), insert only the apps/accounting importer lines (specifier + version per dependency; yaml/ajv/ajv-formats package entries already exist in the lockfile), write it back (scratchpad/fix-lockfile.mjs). Never hand-edit snapshot keys.
@@ -72,5 +84,6 @@ Phase 4, all merged (details: apps/accounting/CHANGELOG.md 0.2.0–0.6.3, the PR
 - 2026-10-24: during a pause or review freeze, commit memory notes on a LOCAL branch (not the PR head); they ride along with the next allowed push.
 
 ## How to run & test this package
+
 - Setup once per worktree: `pnpm install --frozen-lockfile`, `pnpm turbo run build --filter=@platform/auth-sdk --filter=@platform/db --filter=@platform/events --filter=@platform/contracts`, `pnpm --filter @platform/auth-sdk fga:seed` (done 2026-10-23).
 - Package: `pnpm --filter @platform/accounting test|typecheck|lint`; DB tests need the stack (Postgres 127.0.0.1:5433), broker tests need Redpanda 127.0.0.1:19092 (skip with a printed reason otherwise).
