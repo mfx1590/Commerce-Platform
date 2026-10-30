@@ -16,6 +16,7 @@ import { consoleLogger, type Logger } from '../log.js';
 import { finalizeEntry, line } from '../posting/balance.js';
 import { matchPayout, type LedgerWindow } from './matcher.js';
 import type {
+  Discrepancy,
   LedgerPayment,
   LedgerRefund,
   MatchedLine,
@@ -85,7 +86,10 @@ async function loadLedger(
 
 /**
  * The latest ledger time an EARLIER payout of this legal entity and provider matched — earlier by (arrival_date,
- * provider_payout_id) — the exclusive start of this payout's window. Later payouts never count: a re-import of an
+ * provider_payout_id COLLATE "C"), the same bytewise order reconcileAll imports in (#645: Stripe ids are mixed-case, and
+ * a JS localeCompare next to a collation-dependent SQL `<` could disagree) — the exclusive start of this payout's
+ * window. Only lines the payout's CURRENT report carries count: a line a re-imported report dropped is reset to
+ * `pending` with no match (saveLines), so it never widens a later window (#645). Later payouts never count: a re-import of an
  * older payout must see the same window it saw the first time (Fable review of #571).
  */
 async function windowStartBefore(
@@ -99,7 +103,7 @@ async function windowStartBefore(
           earlier AS (
             SELECT o.id FROM psp_payout o, me
              WHERE o.legal_entity_id = $1 AND o.provider = $3 AND o.id <> $2
-               AND (o.arrival_date, o.provider_payout_id) < (me.arrival_date, me.provider_payout_id))
+               AND (o.arrival_date, o.provider_payout_id COLLATE "C") < (me.arrival_date, me.provider_payout_id COLLATE "C"))
      SELECT
        (SELECT max(p.captured_at) FROM psp_payout_line l JOIN accounting_payment p ON p.payment_id = l.matched_reference_id
          WHERE l.legal_entity_id = $1 AND l.matched_reference_type = 'payment' AND l.payout_id IN (SELECT id FROM earlier)) AS payments,
@@ -114,14 +118,37 @@ async function windowStartBefore(
   };
 }
 
+/** The report with its own and every row's currency upper-cased and trimmed (#651). */
+export function normalizeCurrencies(report: PayoutReport): PayoutReport {
+  const code = (c: string) => c.trim().toUpperCase();
+  return {
+    ...report,
+    currency: code(report.currency),
+    balance_transactions: report.balance_transactions.map((r) => ({
+      ...r,
+      currency: code(r.currency),
+    })),
+  };
+}
+
 async function saveLines(
   tx: Queryable,
   payoutRowId: string,
   organizationId: string,
   legalEntityId: string,
   lines: MatchedLine[],
-): Promise<void> {
-  if (lines.length === 0) return;
+): Promise<number> {
+  // #645: the lines of this payout that its CURRENT report no longer carries (the PSP re-issued it). Lines are never
+  // deleted (0203 revokes DELETE): they are reset to `pending` with no match, so they stay visible but never count
+  // toward a later payout's window. Without this, a capture dropped on re-import stayed matched here and nobody
+  // reported it.
+  const superseded = await tx.query(
+    `UPDATE psp_payout_line SET match_status = 'pending', matched_reference_type = NULL, matched_reference_id = NULL,
+            difference_minor = 0
+      WHERE payout_id = $1 AND NOT (provider_txn_id = ANY($2::text[])) AND match_status <> 'pending'`,
+    [payoutRowId, lines.map((l) => l.row.balance_transaction_id)],
+  );
+  if (lines.length === 0) return superseded.rowCount ?? 0;
   await tx.query(
     `INSERT INTO psp_payout_line (payout_id, organization_id, legal_entity_id, provider_txn_id, kind, provider_reference,
        amount_minor, fee_minor, net_minor, currency, available_on, matched_reference_type, matched_reference_id,
@@ -156,6 +183,7 @@ async function saveLines(
       lines.map((l) => l.difference_minor),
     ],
   );
+  return superseded.rowCount ?? 0;
 }
 
 /** Imports, matches and (when clean) posts one payout. */
@@ -165,7 +193,12 @@ export async function reconcilePayout(
   payoutId: string,
 ): Promise<ReconcileResult> {
   const log = deps.log ?? consoleLogger;
-  const report: PayoutReport = await deps.source.payout(legalEntityId, payoutId);
+  // #651: ISO 4217 codes are upper-cased ONCE, at import, before anything is stored, matched or posted. Stripe reports
+  // `eur`; a raw code would store the payout and post its bank entry as `eur` beside the ledger's `EUR` (two
+  // currencies in one trial balance, and an API answer outside the contract's ^[A-Z]{3}$).
+  const report: PayoutReport = normalizeCurrencies(
+    await deps.source.payout(legalEntityId, payoutId),
+  );
   if (report.legal_entity_id !== legalEntityId)
     throw new Error(`payout ${payoutId} belongs to another legal entity`);
   const organizationId = deps.client.context.organizationId;
@@ -176,18 +209,49 @@ export async function reconcilePayout(
       [legalEntityId, report.provider, report.payout_id],
     );
     if (existing.rows[0]?.status === 'reconciled') {
-      const counts = await tx.query<{ n: string; m: string }>(
-        `SELECT line_count::text AS n, matched_count::text AS m FROM psp_payout WHERE id = $1`,
+      const stored = await tx.query<{
+        n: string;
+        m: string;
+        amount: string;
+        arrival: string;
+        currency: string;
+      }>(
+        `SELECT line_count::text AS n, matched_count::text AS m, amount_minor::text AS amount,
+                arrival_date::text AS arrival, currency FROM psp_payout WHERE id = $1`,
         [existing.rows[0].id],
       );
+      const s = stored.rows[0]!;
+      // #645: a reconciled (and posted) payout is never rewritten; a re-import that disagrees with it is REPORTED
+      const changed: ('amount_minor' | 'arrival_date' | 'currency')[] = [];
+      if (Number(s.amount) !== report.amount_minor) changed.push('amount_minor');
+      if (s.arrival !== report.arrival_date) changed.push('arrival_date');
+      if (s.currency.trim().toUpperCase() !== report.currency.toUpperCase())
+        changed.push('currency');
+      const discrepancies: Discrepancy[] = changed.length
+        ? [
+            {
+              reconcile: 'psp.payout',
+              legal_entity_id: legalEntityId,
+              payout_id: report.payout_id,
+              kind: 'reconciled_payout_changed',
+              currency: report.currency,
+              reference_type: 'payout',
+              reference_id: existing.rows[0].id,
+              expected_minor: Number(s.amount),
+              actual_minor: report.amount_minor,
+              difference_minor: report.amount_minor - Number(s.amount),
+              changed,
+            },
+          ]
+        : [];
       return {
         payout_id: report.payout_id,
         legal_entity_id: legalEntityId,
-        status: 'reconciled',
+        status: changed.length ? 'discrepant' : 'reconciled',
         already_reconciled: true,
-        lines: Number(counts.rows[0]!.n),
-        matched: Number(counts.rows[0]!.m),
-        discrepancies: [],
+        lines: Number(s.n),
+        matched: Number(s.m),
+        discrepancies,
         posted: false,
       };
     }
@@ -218,7 +282,7 @@ export async function reconcilePayout(
       refunds: ledger.refunds,
       windowStart,
     });
-    await saveLines(tx, payoutRowId, organizationId, legalEntityId, match.lines);
+    const superseded = await saveLines(tx, payoutRowId, organizationId, legalEntityId, match.lines);
     const matched = match.lines.filter((l) => l.status === 'matched' && l.kind !== 'payout').length;
     const clean = match.discrepancies.length === 0;
 
@@ -261,6 +325,7 @@ export async function reconcilePayout(
       matched,
       discrepancies: match.discrepancies,
       posted,
+      superseded_lines: superseded,
     };
   });
 
@@ -275,6 +340,7 @@ export async function reconcilePayout(
     matched: result.matched,
     discrepancies: result.discrepancies.length,
     posted: result.posted,
+    superseded_lines: result.superseded_lines ?? 0,
     amount_minor: report.amount_minor,
     currency: report.currency,
   });
@@ -282,8 +348,8 @@ export async function reconcilePayout(
 }
 
 /**
- * Every payout the source lists for the legal entity, oldest first — sorted here by (arrival_date, payout_id)
- * whatever order the source returned, because the window rule needs the earlier payouts matched before a later
+ * Every payout the source lists for the legal entity, oldest first — sorted IN POSTGRES by (arrival_date, payout_id
+ * COLLATE "C"), the one ordering windowStartBefore uses (#645), whatever order the source returned, because the window rule needs the earlier payouts matched before a later
  * one (an out-of-order first import would report false unmatched ledger lines).
  */
 export async function reconcileAll(
@@ -291,11 +357,14 @@ export async function reconcileAll(
   legalEntityId: string,
 ): Promise<ReconcileResult[]> {
   const out: ReconcileResult[] = [];
-  const payouts = [...(await deps.source.listPayouts(legalEntityId))].sort(
-    (a, b) =>
-      a.arrival_date.localeCompare(b.arrival_date) || a.payout_id.localeCompare(b.payout_id),
+  const listed = await deps.source.listPayouts(legalEntityId);
+  if (listed.length === 0) return out;
+  const order = await deps.client.query<{ id: string }>(
+    `SELECT t.id FROM unnest($1::text[], $2::date[]) AS t(id, arrival)
+      ORDER BY t.arrival, t.id COLLATE "C"`,
+    [listed.map((p) => p.payout_id), listed.map((p) => p.arrival_date)],
   );
-  for (const p of payouts) out.push(await reconcilePayout(deps, legalEntityId, p.payout_id));
+  for (const { id } of order.rows) out.push(await reconcilePayout(deps, legalEntityId, id));
   return out;
 }
 

@@ -123,7 +123,7 @@ describe.runIf(down === null)('live ingest (local Redpanda + ClickHouse)', () =>
     const i = createIngest({
       config: {
         groupId,
-        dlqTopic: `${prefix}dlq.${groupId}`,
+        // no dlqTopic: createIngest derives `<prefix>dlq.<group>` (#641 item 3; asserted below)
         topicPrefix: prefix,
         batchSize: 200,
         flushMs: 200,

@@ -52,6 +52,21 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- #604 DONE: PR #643 MERGED (e1e1d3d, 2026-10-29). NOW #641 (manager ten, 2026-10-30), branch data/phase5-ingest-ops
+  (cut --no-track from origin/main e1e1d3d). PR #650 (code commit 1db1025; head = this memory commit). Review
+  (manager ten) = small BLOCK: reconcile-gate.test.ts:189 still passed `dlqTopic` (the core tsconfig excludes tests,
+  the import is dynamic: typecheck never saw it) → deleted in this commit; an ESM tsc over that file shows TS2353
+  without the fix and nothing with it. GOTCHA: a dynamic `await import()` in an excluded test file is checked by
+  NOTHING — grep for callers when an options type narrows. Items:
+  - item 2: /health = readiness — joined (GROUP_JOIN; REBALANCING/CRASH/STOP/DISCONNECT clear it) AND progress (any
+    FETCH or a commit) within ANALYTICS_READY_STALE_MS (default 300 000, ≥ 10 000) AND no batch in flight past it.
+    GOTCHA: kafkajs 2.2.4's FETCH event ALWAYS says numberOfBatches: 0 (runner.js: kept for compatibility), so it
+    cannot tell an empty fetch from a full one → the in-flight age is the stuck signal. healthVerdict is pure.
+  - item 3: createIngest derives `<prefix>dlq.<group>`; IngestOptions.config has no dlqTopic.
+  - items 1+4: README "Deploying" (Recreate, replicas 1, restart backoff > 30 s, the probes) + the over-scrub note;
+    REQUEST #647 (window 5: a chart `strategy` value; the chart sets none = RollingUpdate with surge).
+  - Unit + static only (no machine): ingest 93 passed / 19 skipped; root lint + typecheck green. Gotcha: the
+    package `typecheck` script covers the tests, `npx tsc -p .` does not — run the package script.
 - #604 PLAN (2026-10-29; branch data/phase5-bi-v2, cut --no-track from origin/main after #638 + #637 merged):
   done: df722fa (#502 nits), b9b3319 (BI v2 data layer), 05e7987 (#638 review A: an empty filter list → 400).
   1. _lib/metrics.ts on the GENERATED types (contracts 0.4.30) + refundsByDayQuery + an optional store filter.
