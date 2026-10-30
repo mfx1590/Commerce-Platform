@@ -15,6 +15,8 @@ export interface AccountingConfig {
    * (#594). Same shape as `consumer_processed.group_id`.
    */
   groupId: string;
+  /** `--allow-new-group` / `ACCOUNTING_ALLOW_NEW_GROUP=1`: a non-default group on a ledger another accounting group filled (#658). */
+  allowNewGroup: boolean;
   /** `Bearer dev:<subject>` accepted on the read API (never in production). */
   devTokens: boolean;
   keycloakUrl: string | undefined;
@@ -57,6 +59,7 @@ export function resolveConfig(env: NodeJS.ProcessEnv, argv: string[]): Accountin
     onceIdleMs: intOf(env.ACCOUNTING_ONCE_IDLE_MS, 5_000, 'ACCOUNTING_ONCE_IDLE_MS'),
     retries: intOf(env.ACCOUNTING_RETRIES, 5, 'ACCOUNTING_RETRIES'),
     groupId,
+    allowNewGroup: argv.includes('--allow-new-group') || env.ACCOUNTING_ALLOW_NEW_GROUP === '1',
     devTokens: env.ACCOUNTING_DEV_TOKENS === '1' && env.NODE_ENV !== 'production',
     keycloakUrl: env.KEYCLOAK_URL,
     keycloakRealm: env.KEYCLOAK_REALM_STAFF,

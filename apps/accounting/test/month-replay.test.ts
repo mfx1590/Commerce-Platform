@@ -130,6 +130,26 @@ describe.runIf(brokerDown === null)(
       consumers.push(c);
       return c;
     };
+    const CHILD_ENV_KEYS = [
+      'PATH',
+      'PATHEXT',
+      'SystemRoot',
+      'windir',
+      'ComSpec',
+      'TEMP',
+      'TMP',
+      'TMPDIR',
+      'HOME',
+      'USERPROFILE',
+      'APPDATA',
+      'LOCALAPPDATA',
+      'KAFKA_BROKERS',
+      'CI',
+    ];
+    const childEnv = (): Record<string, string> =>
+      Object.fromEntries(
+        CHILD_ENV_KEYS.flatMap((k) => (process.env[k] === undefined ? [] : [[k, process.env[k]!]])),
+      );
     /** Spawns one of apps/core's outbox CLIs against the LIVE throwaway database; its last stdout line is the summary. */
     const runCoreCli = (script: string, args: string[]) => {
       const url = new URL(process.env.DATABASE_URL_APP!);
@@ -140,8 +160,9 @@ describe.runIf(brokerDown === null)(
           [tsxCli, `src/outbox/${script}`, ...args, '--no-registry', '--topic-prefix', prefix],
           {
             cwd: coreDir,
+            // #658: a minimal allow-list, never the whole parent env: the OS basics node and tsx need, the broker, CI
             env: {
-              ...process.env,
+              ...childEnv(),
               DATABASE_URL_APP: url.toString(),
               CORE_ORGANIZATION_ID: SEED_IDS.organization,
             },
@@ -153,8 +174,18 @@ describe.runIf(brokerDown === null)(
               return fail(
                 new Error(`${script} ${args.join(' ')} failed: ${String(stderr).slice(-2000)}`),
               );
-            const last = String(stdout).trim().split('\n').at(-1) ?? '{}';
-            done(JSON.parse(last) as Record<string, unknown>);
+            const last = String(stdout).trim().split('\n').at(-1) ?? '';
+            // #658: a summary that is not JSON rejects at once (a throw here would leave the promise pending until the
+            // test timeout)
+            try {
+              done(JSON.parse(last) as Record<string, unknown>);
+            } catch {
+              fail(
+                new Error(
+                  `${script} ${args.join(' ')} printed no JSON summary: ${last.slice(0, 500)}`,
+                ),
+              );
+            }
           },
         );
       });
@@ -356,7 +387,13 @@ describe.runIf(brokerDown === null)(
         for (const e of entities) {
           const results = await reconcileAll(deps, e.le);
           const report = reports.find((r) => r.legal_entity_id === e.le)!;
+          // #658: never vacuous — the month has payouts and their lines are matched
+          expect(report.payouts.length, e.code).toBeGreaterThan(0);
           expect(results.length, e.code).toBe(report.payouts.length);
+          expect(
+            results.reduce((a, r) => a + r.lines, 0),
+            e.code,
+          ).toBeGreaterThan(0);
           expect(
             results.every(
               (r) => r.status === 'reconciled' && r.discrepancies.length === 0 && r.posted,

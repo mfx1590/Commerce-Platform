@@ -10,6 +10,7 @@ import { createFinanceAuth } from './api/auth.js';
 import { createAccountingApi } from './api/server.js';
 import { resolveConfig } from './config.js';
 import { createLedgerConsumer } from './consumer.js';
+import { assertGroupIsSafe } from './group-guard.js';
 import { consoleLogger, errorClassOf } from './log.js';
 import { createHealthServer } from './server.js';
 
@@ -23,6 +24,15 @@ async function main(): Promise<void> {
     organizationId: config.organizationId,
     actorId: null,
   });
+
+  // #658: a non-default group on a ledger another accounting group filled is refused before anything starts
+  const guard = await assertGroupIsSafe(client, config.groupId, config.allowNewGroup);
+  if (guard.other_groups.length > 0)
+    log.warn({
+      event: 'new_group_allowed',
+      group: config.groupId,
+      other_groups: guard.other_groups,
+    });
 
   let lastBatchAt = Date.now();
   const consumer = createLedgerConsumer({
@@ -100,5 +110,6 @@ main().catch((err: unknown) => {
     }),
   );
   console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
+  // a configuration refusal exits 2 (the Phase 5 convention); anything else 1
+  process.exit(err instanceof Error && err.name === 'AccountingGroupRefused' ? 2 : 1);
 });

@@ -26,6 +26,10 @@ issue; tick it only with a link to the evidence.
       multipart params since #631's fix; keep it that way).
 - [ ] **Bus retention vs erasure (#629):** bounded retention for topics carrying pseudonymous ids; outbox pruning,
       if ever added, exempts `customer.erased`.
+- [ ] **CDP erasure verified end to end on the real RudderStack workspace (#657, PR #660):** erase a customer who
+      was first tracked as a guest, and confirm BOTH the customer-id profile and the guest-period profile
+      (anonymousId = email_hash) are gone in every destination. A guest who never registered cannot be erased
+      through the suppression API (userId is mandatory): decide that path before real guests are tracked.
 - [ ] Migration backfills that assume BYPASSRLS (#497) fixed before any cloud database.
 
 ## Access
