@@ -33,7 +33,7 @@ export interface SqlFile {
   checksum: string;
 }
 
-const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../..');
+export const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../..');
 export const DEFAULT_SQL_SOURCES: readonly SqlSource[] = [
   { dir: join(REPO_ROOT, 'data/clickhouse/migrations'), kind: 'migration' },
   { dir: join(REPO_ROOT, 'data/clickhouse/models'), kind: 'model' },

@@ -1,5 +1,15 @@
 # Changelog — @platform/analytics-ingest
 
+## 0.8.0 — unreleased (#648, the ClickHouse re-review: items 1, 4, 5)
+
+- `data/clickhouse/access/`: the users as versioned SQL, applied by `ch:migrate` after the models on every run
+  (`applyAccess`, `readAccessFiles`, `lintAccessFiles`): passwords from env hashed at run time, `log_queries = 0`, a
+  users.d user skipped with the reason, a missing password fatal in production.
+- `analytics_ingest` (least privilege) and the ingest switched to it (`CLICKHOUSE_INGEST_USER` / `_PASSWORD`;
+  `IngestConfig.ingestClickhouse`); the admin stays for the migrator and reconcile.
+- `analytics_ro` as SQL with per-user bounds: `max_concurrent_queries_for_user = 16`,
+  `max_memory_usage_for_user = 768 MB`, a 1200-queries-a-minute quota.
+
 ## 0.7.0 — unreleased (#641, the ingest's operational re-review)
 
 - `GET /health` is readiness: 200 only while the consumer is joined, made progress (a fetch or a commit) within

@@ -4,7 +4,7 @@
 // from the environment only and are never logged or embedded in an error (`redact`), like the Algolia key.
 //
 // Three things make this a READ-ONLY path by construction:
-//   * the user is `CLICKHOUSE_READONLY_USER` (infra/clickhouse/users.d/analytics-readonly.xml: `readonly 1`, a
+//   * the user is `CLICKHOUSE_READONLY_USER` (data/clickhouse/access/20_analytics_ro.sql: `readonly 1`, a
 //     SELECT-only grant on `analytics.*`, 10 s execution cap, 100 000 result rows);
 //   * every query here is a SELECT with bound parameters (`{name:Type}` + `param_name=`), never string
 //     interpolation, so no caller value can become SQL;

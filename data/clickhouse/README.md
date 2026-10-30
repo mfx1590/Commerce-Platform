@@ -8,6 +8,7 @@ its schema is versioned SQL in this folder, applied by
 | ------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- | ----- |
 | `migrations/` | tables, materialised views and their TO tables                                             | in file-name order, each file once; editing an applied file is refused (add a new one) | #600  |
 | `models/`     | plain views only (`CREATE OR REPLACE VIEW`): staging, dimensions, facts, marts, live tiles | after the migrations, in file-name order; re-applied whenever the file's text changes  | #601  |
+| `access/`     | users, settings profiles, quotas and grants (server-level), one file per user              | after the models, on EVERY run (never recorded): each run resets its user to the file  | #648  |
 
 `_migrations` keeps a sha256 per file (models as `models/<file>`). The runner relies on every statement being
 idempotent, so a file that failed halfway can simply run again. A test lints both folders and accepts only:
@@ -21,6 +22,42 @@ renews its claim every 2 minutes, so a run longer than the 10-minute TTL keeps t
 the 0002 backfill over `raw_events FINAL`: seconds today, minutes at years of history). A claim not renewed for 10
 minutes is a crashed runner's: it no longer counts, and the next runner sweeps it (#628 review, finding 3).
 Materialised views never go in `models/`: re-creating an MV that has no TO table drops its data.
+
+## Access (#648)
+
+ClickHouse Cloud ignores `users.d` and `config.d`, so the users exist as SQL here and `ch:migrate` (as the admin,
+`CLICKHOUSE_USER`) recreates them anywhere. One file per user, with `-- user:` and `-- password-env:` header lines and
+`{{user}}`, `{{database}}`, `{{password_sha256}}` in its statements:
+
+| File                      | User               | Rights                                                                                                                                                                                                                                                                 | Used by                                                               |
+| ------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `10_analytics_ingest.sql` | `analytics_ingest` | `SELECT, INSERT ON analytics.*`; `ALTER DELETE, ALTER UPDATE(_row_exists), OPTIMIZE ON analytics.raw_events` (the erasure: a lightweight DELETE writes the hidden `_row_exists` column, so 25.8 checks ALTER UPDATE on that column only). No DDL, no access management | the long-running ingest (`CLICKHOUSE_INGEST_USER`)                    |
+| `20_analytics_ro.sql`     | `analytics_ro`     | `SELECT ON analytics.*`; readonly, 10 s, 100 000 rows (throw), 512 MB a query; ≤ 16 queries and ≤ 768 MB at once; ≤ 1200 queries a minute                                                                                                                              | the metrics API, BI Q&A, recommendations (`CLICKHOUSE_READONLY_USER`) |
+
+The admin stays for the migrator and the reconcile job only.
+
+- **Passwords never in git, never in the query log.** The runner hashes the env value (`IDENTIFIED WITH sha256_hash`)
+  and runs every access statement with `log_queries = 0`; its report names users and reasons only.
+- **Idempotent and exact.** `CREATE … IF NOT EXISTS` then `ALTER …` (a rotated password applies on the next run), and
+  `REVOKE ALL ON *.*` before the grants, so a right removed from a file is removed from the server. The lint refuses
+  `DROP`, `GRANT ALL`, grants on `*.*` or `system`, `WITH GRANT OPTION`, access management and literal passwords.
+- **users.d still wins where it defines a user.** ClickHouse cannot alter a user from the read-only `users_xml`
+  storage, so the runner skips that user and reports why. Since #648 the repo defines no user in `users.d` (the
+  `analytics_ro` XML and its compose mount were removed in the manager's integration commit); only the admin comes
+  from the image's `CLICKHOUSE_USER`. CI fails unless the `access` line lists both users as applied
+  (`infra/ci/check-ch-access.mjs`).
+- **The handover on an existing stack: recreate, then `ch:migrate` at once.** A running container keeps the old
+  single-file mount (the deleted file's contents), so its XML `analytics_ro` survives the pull and `ch:migrate` keeps
+  skipping it. At the next recreate of the ClickHouse container the XML user is gone, and every read-only path (the
+  metrics API, BI) gets authentication errors until `ch:migrate` recreates `analytics_ro` from `20_analytics_ro.sql`
+  (with `CLICKHOUSE_READONLY_PASSWORD`, the same password, so no client changes). So: recreate, then run
+  `pnpm --filter @platform/analytics-ingest ch:migrate` immediately; its `access` line must then list `analytics_ro`
+  under `applied`, not `skipped`.
+- **A missing password** skips the file in dev and fails the run in production (`NODE_ENV=production`).
+- **Server-level, not SQL:** `select_from_system_db_requires_grant` (keeps the writer's query text in `system.*` out of
+  `analytics_ro`'s reach) and the `query_log` TTL are server settings (`infra/clickhouse/config.d` locally, the
+  service's settings on Cloud). `access.test.ts` asserts, on whatever server it runs against, that neither user can
+  read `system.query_log`.
 
 ## raw_events (#600)
 

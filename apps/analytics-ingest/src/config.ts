@@ -19,7 +19,12 @@ export interface IngestConfig {
   dlqTopic: string;
   /** Applied to every event topic and to the DLQ (tests and the CI gate). */
   topicPrefix: string;
+  /** The ADMIN: the migrator (`ch:migrate` creates databases, tables and users) and the reconcile job. */
   clickhouse: ClickHouseConfig;
+  /** The long-running ingest's writer (CLICKHOUSE_INGEST_USER / _PASSWORD), least privilege (#648). */
+  ingestClickhouse: ClickHouseConfig;
+  /** CLICKHOUSE_INGEST_USER is unset, so ingestClickhouse is the admin (dev only; refused in production). */
+  ingestAsAdmin: boolean;
   /** Flush when this many rows are buffered… */
   batchSize: number;
   /** …or when the oldest buffered row has waited this long. */
@@ -67,12 +72,35 @@ function flag(argv: readonly string[], name: string): string | undefined {
   return v;
 }
 
+/**
+ * #648: the long-running ingest writes as `analytics_ingest` (data/clickhouse/access: INSERT + the reads its erasure
+ * needs, no DDL, no access management), never as the admin `CLICKHOUSE_USER` the migrator uses. Unset in dev, it
+ * falls back to the admin and says so (`ingestAsAdmin`); the process refuses that fallback in production (main.ts).
+ */
+function ingestCredentials(
+  env: NodeJS.ProcessEnv,
+  admin: ClickHouseConfig,
+): Pick<IngestConfig, 'ingestClickhouse' | 'ingestAsAdmin'> {
+  const username = env.CLICKHOUSE_INGEST_USER?.trim();
+  if (!username) return { ingestClickhouse: admin, ingestAsAdmin: true };
+  return {
+    ingestClickhouse: { ...admin, username, password: env.CLICKHOUSE_INGEST_PASSWORD ?? '' },
+    ingestAsAdmin: false,
+  };
+}
+
 export function loadConfig(
   env: NodeJS.ProcessEnv = process.env,
   argv: readonly string[] = process.argv.slice(2),
 ): IngestConfig {
   const groupId = (flag(argv, '--group') ?? env.ANALYTICS_GROUP_ID?.trim()) || DEFAULT_GROUP;
   const topicPrefix = (flag(argv, '--topic-prefix') ?? env.ANALYTICS_TOPIC_PREFIX?.trim()) || '';
+  const clickhouse: ClickHouseConfig = {
+    url: env.CLICKHOUSE_URL?.trim() || 'http://127.0.0.1:18123',
+    username: env.CLICKHOUSE_USER?.trim() || 'default',
+    password: env.CLICKHOUSE_PASSWORD ?? '',
+    database: env.CLICKHOUSE_DATABASE?.trim() || 'analytics',
+  };
   let dlq: string;
   try {
     dlq = dlqTopicName(groupId);
@@ -83,12 +111,8 @@ export function loadConfig(
     groupId,
     dlqTopic: `${topicPrefix}${dlq}`,
     topicPrefix,
-    clickhouse: {
-      url: env.CLICKHOUSE_URL?.trim() || 'http://127.0.0.1:18123',
-      username: env.CLICKHOUSE_USER?.trim() || 'default',
-      password: env.CLICKHOUSE_PASSWORD ?? '',
-      database: env.CLICKHOUSE_DATABASE?.trim() || 'analytics',
-    },
+    clickhouse,
+    ...ingestCredentials(env, clickhouse),
     batchSize: int(env, 'ANALYTICS_BATCH_SIZE', 5_000, 1),
     flushMs: int(env, 'ANALYTICS_FLUSH_MS', 1_000, 1),
     concurrency: int(env, 'ANALYTICS_CONCURRENCY', 8, 1),
