@@ -83,6 +83,11 @@ export interface MockOdoo {
   commitThenFailNextCreate(): void;
   /** Test seam: the next `account.move create` fails with HTTP 503 BEFORE Odoo commits anything. */
   failNextCreate(): void;
+  /**
+   * Test seam (#639): hold every `account.move create` until `release()` — a slow Odoo, so two overlapping sync runs
+   * really interleave (both search by ref before either create lands). `waiting()` counts the held creates.
+   */
+  pauseCreates(): { release(): void; waiting(): number };
   /** Test seam: an accountant cancels this move in Odoo (#591). */
   cancelMove(id: number): void;
 }
@@ -132,6 +137,7 @@ export function createMockOdoo(opts: MockOdooOptions = {}): MockOdoo {
   let refuse: { name: string; message: string } | null = null;
   let loseNextCreateAnswer = false;
   let failNextCreateUncommitted = false;
+  let createGate: { waiters: (() => void)[] } | null = null;
   let failFirst = opts.failFirst ?? 0;
   const uid = 7;
 
@@ -412,6 +418,10 @@ export function createMockOdoo(opts: MockOdooOptions = {}): MockOdoo {
         ];
         if (d !== db || u !== uid || k !== apiKey)
           throw new OdooFault('odoo.exceptions.AccessDenied', 'Access Denied');
+        if (model === 'account.move' && m === 'create' && createGate) {
+          const gate = createGate;
+          await new Promise<void>((resolve) => gate.waiters.push(resolve));
+        }
         if (model === 'account.move' && m === 'create' && failNextCreateUncommitted) {
           failNextCreateUncommitted = false; // nothing reached Odoo
           return { ok: false, status: 503, json: async () => ({}) };
@@ -441,6 +451,17 @@ export function createMockOdoo(opts: MockOdooOptions = {}): MockOdoo {
     },
     commitThenFailNextCreate() {
       loseNextCreateAnswer = true;
+    },
+    pauseCreates() {
+      const gate = { waiters: [] as (() => void)[] };
+      createGate = gate;
+      return {
+        release() {
+          if (createGate === gate) createGate = null;
+          for (const w of gate.waiters.splice(0)) w();
+        },
+        waiting: () => gate.waiters.length,
+      };
     },
     failNextCreate() {
       failNextCreateUncommitted = true;

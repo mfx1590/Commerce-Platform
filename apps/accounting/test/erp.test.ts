@@ -583,6 +583,70 @@ describe('sync on a seeded database with the clean-month ledger', () => {
     expect(marked.rows).toEqual([{ erp_reference: String(reentered.id) }]);
   });
 
+  it('#639: two OVERLAPPING erp:sync runs for one legal entity create each move once — the second is refused with ErpSyncInProgress', async () => {
+    const ids = [
+      '00000000-0000-4000-8000-00000000d1b1',
+      '00000000-0000-4000-8000-00000000d1b2',
+      '00000000-0000-4000-8000-00000000d1b3',
+    ];
+    for (const [i, eventId] of ids.entries())
+      await t.hq.query(
+        `INSERT INTO ledger_entry (organization_id, legal_entity_id, store_id, journal, entry_date, account_code, debit_minor, credit_minor, currency, source_event_id, source_topic, reference_type, reference_id)
+         SELECT organization_id, $1, NULL, 'bank', '2026-10-30', a, d, c, 'EUR', $2, 'psp.payout', 'payout', $2
+           FROM legal_entity, unnest(ARRAY['1000', '1100'], ARRAY[$3::bigint, 0], ARRAY[0, $3::bigint]) AS x(a, d, c)
+          WHERE legal_entity.id = $1`,
+        [LE_A, eventId, 100 * (i + 1)],
+      );
+    const refs = ids.map((id) => `${id}/bank`);
+    // a slow Odoo: every create is held, so the runs really overlap. WITHOUT the lock both search by ref, find nothing
+    // and both create (two creates held, then two moves per ref); WITH it the second run is refused at once.
+    const gate = mock.pauseCreates();
+    const runs = [syncLegalEntity(deps(), LE_A), syncLegalEntity(deps(), LE_A)];
+    let settled = 0;
+    for (const r of runs)
+      void r.then(
+        () => (settled += 1),
+        () => (settled += 1),
+      );
+    const t0 = Date.now();
+    while (!(settled >= 1 || gate.waiting() >= 2) && Date.now() - t0 < 10_000)
+      await new Promise((r) => setTimeout(r, 20));
+    gate.release();
+    const both = await Promise.allSettled(runs);
+    const done = both.filter((x) => x.status === 'fulfilled');
+    const refused = both.filter((x) => x.status === 'rejected');
+    expect(done).toHaveLength(1);
+    expect(refused).toHaveLength(1);
+    expect((refused[0] as PromiseRejectedResult).reason).toMatchObject({
+      name: 'ErpSyncInProgress',
+    });
+    expect(
+      (done[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof syncLegalEntity>>>).value,
+    ).toMatchObject({
+      moves_created: 3,
+      entries_marked: 6,
+      refused: [],
+    });
+    for (const ref of refs)
+      expect(
+        mock.state.moves.filter((m) => m.ref === ref),
+        ref,
+      ).toHaveLength(1);
+    // the lock is released with the run: the next run takes it and finds nothing to do
+    expect(await syncLegalEntity(deps(), LE_A)).toMatchObject({
+      moves_created: 0,
+      entries_marked: 0,
+    });
+    // another legal entity is never blocked by A's run (the lock is per legal entity)
+    const other = await Promise.allSettled([
+      syncLegalEntity(deps(), LE_A),
+      syncLegalEntity(deps(), LE_B),
+    ]);
+    expect(
+      other.map((x) => (x.status === 'rejected' ? (x.reason as Error).name : 'ok')),
+    ).not.toContain('ErpSyncInProgress');
+  });
+
   it('a code map and a missing Odoo account: mapped through the map, the missing code skips only its entries', async () => {
     // a third company whose chart uses other codes and lacks our 6100 (PSP fees)
     const codes = [
