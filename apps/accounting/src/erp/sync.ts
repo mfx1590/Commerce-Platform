@@ -188,11 +188,36 @@ async function unpostedGroups(
   return r.rows;
 }
 
-/** Posts every unposted entry of the legal entity; returns what happened. Safe to re-run. */
+/**
+ * Posts every unposted entry of the legal entity; returns what happened. Safe to re-run, and ONE run per legal entity
+ * at a time (#639): a dedicated transaction holds `pg_try_advisory_xact_lock(hashtext('erp_sync'), hashtext(<legal
+ * entity>))` for the whole run (the two-key form: its own keyspace, never an order's lock). A second run that overlaps
+ * fails fast with `ErpSyncInProgress` and touches nothing; before, two overlapping runs both found no move by ref and
+ * both created one, two posted moves with one ref in Odoo. The lock is released when the run ends (commit) or the
+ * process dies (the session ends). It holds one pool connection for the run's duration (the CLI pool has two).
+ */
 export async function syncLegalEntity(
   deps: ErpSyncDeps,
   legalEntityId: string,
 ): Promise<ErpSyncResult> {
+  // The lock transaction does NOTHING but hold the lock: runSync uses deps.client, so every ledger write (the marks)
+  // commits in its own short statement on another connection and a long Odoo call never holds a row lock. A
+  // hashtext collision between two legal entities only serialises their two syncs — harmless (#639).
+  return deps.client.transaction(async (lockTx) => {
+    const got = await lockTx.query<{ ok: boolean }>(
+      `SELECT pg_try_advisory_xact_lock(hashtext('erp_sync'), hashtext($1)) AS ok`,
+      [legalEntityId],
+    );
+    if (!got.rows[0]?.ok)
+      throw new ErpError(
+        'ErpSyncInProgress',
+        `another erp:sync is running for legal entity ${legalEntityId}`,
+      );
+    return runSync(deps, legalEntityId);
+  });
+}
+
+async function runSync(deps: ErpSyncDeps, legalEntityId: string): Promise<ErpSyncResult> {
   const log = deps.log ?? consoleLogger;
   const batch = deps.batchSize ?? 200;
   await assertSyncable(deps.client, legalEntityId);

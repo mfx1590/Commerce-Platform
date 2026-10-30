@@ -539,6 +539,42 @@ describe('a shipment that happened before the cancellation but arrives after it 
     });
     expect(() => postEvent(after, cancelled)).toThrow(/cancelled order/);
   });
+
+  it('#639: a shipment AT the cancellation instant counts as shipped before it — the same ledger in either arrival order', () => {
+    const e = orderPlaced({
+      lines: [{ quantity: 2, unit_price_minor: 5_000, tax_rate_bp: 2000 }],
+      shipping_minor: 1_000,
+      shipping_tax_minor: 200,
+    });
+    const lineId = e.payload.line_items[0]!.order_line_item_id;
+    // the same instant, written two ways
+    const ship = shipmentShipped(e, [{ order_line_item_id: lineId, quantity: 1 }], {
+      cost_minor: 0,
+      shipped_at: '2026-10-08T09:00:00.000Z',
+    });
+    const cancel = orderCancelled(e, { cancelled_at: '2026-10-08T11:00:00+02:00' });
+    const net = (events: Parameters<typeof postEvent>[0][]) => {
+      let order: OrderProjection | null = null;
+      const lines: JournalLine[] = [];
+      for (const ev of events) {
+        const r = postEvent(ev, order);
+        if (r.order) order = r.order;
+        for (const en of r.entries) lines.push(...en.lines);
+      }
+      return Object.fromEntries(
+        aggregateLines(lines).map((l) => [l.account_code, l.debit_minor - l.credit_minor]),
+      );
+    };
+    const factOrder = net([e, ship, cancel]);
+    expect(factOrder).toEqual({ '1200': 7_200, '4000': -5_000, '4010': -1_000, '2200': -1_200 });
+    expect(net([e, cancel, ship])).toEqual(factOrder); // before #639 (>=): ShipmentOfCancelledOrder
+    // one millisecond after the cancellation is still a defect
+    const later = shipmentShipped(e, [{ order_line_item_id: lineId, quantity: 1 }], {
+      shipped_at: '2026-10-08T09:00:00.001Z',
+    });
+    const cancelled = postEvent(cancel, postEvent(e, null).order!).order!;
+    expect(() => postEvent(later, cancelled)).toThrow(/cancelled order/);
+  });
 });
 
 // #589 (Opus review of #588): "before or after the cancellation" compared the strings. The contract only promises
@@ -584,12 +620,11 @@ describe('event times are compared as instants, not strings (#589)', () => {
     recognised(lateShipment('2026-10-08T07:30:00.000Z', '2026-10-08T10:00:00+02:00'));
   });
 
-  it('equal instants written differently are equal: a shipment AT the cancellation stays a defect', () => {
+  it('equal instants written differently are equal: a shipment AT the cancellation counts as shipped before it (#639)', () => {
     expect(instantOf('2026-10-08T09:00:00.000Z')).toBe(instantOf('2026-10-08T11:00:00+02:00'));
     expect(instantOf('2026-10-08T09:00:00Z')).toBe(instantOf('2026-10-08T09:00:00.000Z'));
-    expect(lateShipment('2026-10-08T09:00:00.000Z', '2026-10-08T11:00:00+02:00')).toThrow(
-      /cancelled order/,
-    );
+    // the shipment's text sorts AFTER the cancel's ('11…' > '09…'), but the instants are equal: recognised, not a defect
+    recognised(lateShipment('2026-10-08T11:00:00+02:00', '2026-10-08T09:00:00.000Z'));
     expect(() => instantOf('not a time')).toThrow(TypeError);
   });
 });

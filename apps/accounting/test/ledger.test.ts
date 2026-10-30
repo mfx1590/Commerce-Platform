@@ -9,6 +9,7 @@ import {
 } from '@platform/events';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { handleLedgerEvent, LEDGER_GROUP, PROCESSED_TABLE } from '../src/consumer.js';
+import { stuckParkedEvents } from '../src/projection.js';
 import { balanceByCurrency, trialBalance } from '../src/ledger.js';
 import { orderIdOf, postEvent, type OrderProjection } from '../src/posting/index.js';
 import {
@@ -233,6 +234,67 @@ describe('one event, one transaction', () => {
 
     const after = await t.hq.transaction((tx) => balanceByCurrency(tx, LE_B));
     expect(after).toEqual({ ...before, GBP: 0 });
+  });
+
+  it('#639: a PARKED shipment dated after the cancellation fails on its own — the order and the cancel post, the shipment stays parked', async () => {
+    const e = orderPlaced({
+      legalEntityId: LE_A,
+      storeId: STORE_A,
+      currency: 'EUR',
+      lines: [{ quantity: 2, unit_price_minor: 5_000, tax_rate_bp: 2000 }],
+      shipping_minor: 1_000,
+      shipping_tax_minor: 200,
+    });
+    const lineId = e.payload.line_items[0]!.order_line_item_id;
+    const cancel = orderCancelled(e, { cancelled_at: '2026-10-08T09:00:00.000Z' });
+    const bad = shipmentShipped(e, [{ order_line_item_id: lineId, quantity: 1 }], {
+      cost_minor: 0,
+      shipped_at: '2026-10-09T08:00:00.000Z', // after the cancellation: a producer defect
+    });
+    const before = await t.hq.transaction((tx) => balanceByCurrency(tx, LE_A));
+    expect(await consume(cancel)).toMatchObject({ action: 'parked' });
+    expect(await consume(bad)).toMatchObject({ action: 'parked' });
+    // before #639 this threw ShipmentOfCancelledOrder: the SDK retried the order.placed 5× and dead-lettered it
+    const r = await consume(e);
+    expect(r).toMatchObject({
+      action: 'posted',
+      applied_parked: 1,
+      parked_defects: [
+        {
+          outbox_id: bad.event_id,
+          topic: 'shipment.shipped',
+          error_class: 'ShipmentOfCancelledOrder',
+        },
+      ],
+    });
+    const parked = await t.hq.query<{ outbox_id: string }>(
+      'SELECT outbox_id FROM accounting_parked_event WHERE order_id = $1',
+      [e.payload.order_id],
+    );
+    expect(parked.rows).toEqual([{ outbox_id: bad.event_id }]); // kept, never deleted; the cancel was applied
+    // what the month-replay gate checks: exactly this stuck row (its order exists)
+    expect(await t.hq.transaction((tx) => stuckParkedEvents(tx, LE_A))).toEqual([
+      { outbox_id: bad.event_id, topic: 'shipment.shipped', order_id: e.payload.order_id },
+    ]);
+    expect(await count('ledger_entry WHERE source_event_id = $1', [bad.event_id])).toBe(0);
+    expect(await count('ledger_entry WHERE source_event_id = $1', [e.event_id])).toBeGreaterThan(0);
+    expect(
+      await count('ledger_entry WHERE source_event_id = $1', [cancel.event_id]),
+    ).toBeGreaterThan(0);
+    const status = await t.hq.query<{ status: string }>(
+      'SELECT status FROM accounting_order WHERE order_id = $1',
+      [e.payload.order_id],
+    );
+    expect(status.rows[0]!.status).toBe('cancelled');
+    // placed then fully reversed: the books of A are where they were, still balanced
+    expect(await t.hq.transaction((tx) => balanceByCurrency(tx, LE_A))).toEqual({
+      ...before,
+      EUR: 0,
+    });
+    // remove the defective parked row so later tests in this file start with an empty parked table
+    await t.db.owner.query('DELETE FROM accounting_parked_event WHERE outbox_id = $1', [
+      bad.event_id,
+    ]);
   });
 
   it('a shipment and its order racing on two connections (two instances of the group) never leave the shipment parked', async () => {

@@ -45,7 +45,9 @@ export function postShipmentShipped(
   const afterCancel = order.status === 'cancelled';
   if (
     afterCancel &&
-    (order.cancelled_at === null || instantOf(p.shipped_at) >= instantOf(order.cancelled_at))
+    // #639: strictly AFTER the cancellation is a defect; a shipment AT the cancel instant counts as shipped before it, so
+    // the ledger is the same whichever of the two is consumed first (in fact order it posts while the order is placed)
+    (order.cancelled_at === null || instantOf(p.shipped_at) > instantOf(order.cancelled_at))
   )
     throw new ShipmentOfCancelledOrderError(order.order_id, p.shipment_id);
   const storeId = e.store_id ?? order.store_id;

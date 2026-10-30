@@ -261,8 +261,11 @@ services:
 
   # ClickHouse, the Phase 5 analytics store (docs/plan/phase5-plan.md D1, D12; #612 step 0), opt-in only:
   #     docker compose -p commerce-platform -f infra/docker/docker-compose.yml --profile analytics up -d --no-recreate clickhouse
-  # Host ports 18123 (HTTP) and 19000 (native) sit outside the 8033-8232 range Windows reserved at boot on 2026-10-25,
-  # and 9000 is the core. Capped at 1.5 GB (Docker Desktop on the dev laptop dies under memory pressure).
+  # Host port 18123 (HTTP) sits outside the 8033-8232 range Windows reserved at boot on 2026-10-25, and 9000 is the core.
+  # It is bound to 127.0.0.1 only (#648 item 2): tenant scope lives in the app (D4), so a port open to the LAN would let
+  # anyone on the network read every store's analytics. The native port (19000) is not published: every client is
+  # @clickhouse/client over HTTP. After a recreate of this container run `ch:migrate` at once (the users are SQL-defined;
+  # see data/clickhouse/README.md). Capped at 1.5 GB (Docker Desktop on the dev laptop dies under memory pressure).
   # Admin = CLICKHOUSE_USER below (migrations only). The ingest's writer (analytics_ingest) and the reader (analytics_ro,
   # readonly=1) are created by `ch:migrate` from data/clickhouse/access (#648), so ClickHouse Cloud gets the same users.
   # Local-only word credentials, mirrored in .env.example.
@@ -275,8 +278,7 @@ services:
       CLICKHOUSE_PASSWORD: platform
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1'
     ports:
-      - '18123:8123'
-      - '19000:9000'
+      - '127.0.0.1:18123:8123'
     mem_limit: 1536m
     ulimits:
       nofile:

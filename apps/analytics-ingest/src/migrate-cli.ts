@@ -2,10 +2,23 @@
 // migrations, the models, then the access files (users, profiles, quotas, grants; #648). It runs as the admin
 // (CLICKHOUSE_USER): the only process that may create users. The ingest itself runs as analytics_ingest.
 import { applyAccess, readAccessFiles } from './access.js';
+import { resolveAdminEnv } from './admin-env.js';
 import { createChClient } from './clickhouse.js';
-import { migrate, readSqlFiles } from './migrations.js';
+import { migrate, readSqlFiles, REPO_ROOT } from './migrations.js';
 import { loadConfig } from './config.js';
 
+// which admin: the environment, else the repo-root .env, else refuse (never the silent `default` user)
+const adminEnv = resolveAdminEnv(process.env, REPO_ROOT);
+if (!adminEnv.ok) {
+  console.error(
+    JSON.stringify({
+      service: 'analytics-ingest',
+      event: 'migrate_refused',
+      message: adminEnv.message,
+    }),
+  );
+  process.exit(1);
+}
 const config = loadConfig();
 const admin = createChClient(config.clickhouse, 'default');
 const db = createChClient(config.clickhouse);

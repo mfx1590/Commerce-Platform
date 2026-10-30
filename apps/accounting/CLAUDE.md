@@ -99,3 +99,6 @@ keycloakUrl?, keycloakRealm?, verifier?, permission? })`; `loadApiSpec(path?)` /
   (`toISOString()` is a day early east of UTC, #627). `timestamptz` Dates are instants and safe.
 - Payout order is bytewise everywhere (`payout_id COLLATE "C"`, in SQL — #645); a payout's lines are its CURRENT
   report: lines a re-import drops are reset to `pending`, never deleted, and never count toward a window.
+- `syncLegalEntity` takes a per-legal-entity advisory lock for the whole run (#639): it holds one pool connection while
+  it works, so give its client a pool of at least 2; an overlapping run is `ErpSyncInProgress`.
+- A parked event that is a posting defect stays parked when its order arrives (#639): `parked_defects` on the result.

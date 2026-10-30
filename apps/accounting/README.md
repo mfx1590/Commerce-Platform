@@ -72,8 +72,14 @@ and its processed mark commits in the same transaction (nothing posted). When th
 applies the order's parked events in `occurred_at` order inside its own transaction and deletes them. A redelivery of a
 parked event is a duplicate like any other. The DLQ is for real failures only (a shipment beyond the ordered quantity,
 an unknown line, an invalid payload …): the SDK retries 5 times, then `dlq.accounting.ledger` records the class and
-the partition continues. A parked event that fails when the order applies it fails the order's transaction, which then
-dead-letters with that class. The month replay gate (#552) therefore needs no topic order.
+the partition continues. A parked event that is a DEFECT when the order applies it (a shipment dated after the cancellation, an
+over-shipment …) fails on its own since #639: it stays in `accounting_parked_event` (never deleted, visible through
+`listParkedEvents` although its order exists), the order and the other parked events post, and the handler reports it
+(`parked_defects`, and an ERROR-level log line `parked_event_defect` with the class). `stuckParkedEvents(q, le?)`
+lists such rows (parked although their order exists); the month replay gate fails on any, so its zero differences can
+never coexist with a stuck shipment. Before, its throw failed the order's transaction, and the
+`order.placed` itself dead-lettered with the whole order unposted. Any other error (the database) still fails the
+transaction and retries. The month replay gate (#552) therefore needs no topic order.
 
 Logs are JSON lines with ids, counts, amounts and error classes only — never a payload field (tested over every line
 the live test produces).
@@ -289,6 +295,13 @@ reference_type?, reference_id?, expected_minor?, actual_minor?, difference_minor
   never retried blindly (writes are sent once; only reads retry): the client searches by `ref`, uses the move it finds
   (draft → posted) and only rethrows the transport error when nothing was committed — one move per ref, always. Both
   tested with the mock (`commitThenFailNextCreate`, a draft left on purpose).
+- **One run per legal entity (#639)** — `syncLegalEntity` holds `pg_try_advisory_xact_lock(hashtext('erp_sync'),
+hashtext(<legal entity>))` in a dedicated transaction for the whole run. An overlapping second run for the same legal
+  entity fails fast with `ErpSyncInProgress` and touches nothing (the CLI exits non-zero); other legal entities are not
+  blocked; the lock goes with the run (commit) or the process (session end). Before, two overlapping runs both found no
+  move by ref and both created one: two posted moves with one ref in Odoo, while Postgres looked clean. Tested with a
+  slow Odoo (the mock holds every create until both runs are in flight; without the lock the first ref gets two moves).
+  The launch checklist's "one erp:sync runner" rule is no longer needed once this is deployed.
 - **A move cancelled in Odoo (#591)** — an accountant may cancel one of our moves. It is never re-posted and its rows
   are never marked: the sync reports it like a refusal (`OdooMoveCancelled`), the rest continue, and every run reports
   it again until someone decides. When several moves carry the same `ref` (cancelled, then entered again), a posted
@@ -371,8 +384,12 @@ consecutive green CI runs on one head before it merges.
 **Arrival order is not fact order.** The five topics are separate partitions, so a later `order.cancelled` can be
 consumed before an earlier `shipment.shipped` of the same order. The cancel reverses the then-unreleased remainder;
 the late shipment (dated before the cancellation) then recognises the shipped part against the receivable and gives back
-the VAT the cancel reversed for it — the same ledger as in fact order (tested). A shipment dated at or after the
-cancellation stays a defect. "Before" and "after" are compared as INSTANTS (`instantOf`, #589), never as strings: the
+the VAT the cancel reversed for it — the same ledger as in fact order (tested). A shipment dated strictly AFTER the
+cancellation stays a defect; one dated AT the cancellation instant counts as shipped before it (#639), so an exact tie
+posts the same ledger whichever of the two is consumed first. One more arrival-order effect is accepted: shipping
+revenue (released with the first shipment) and the floor remainder of a line attach to whichever shipment of the
+order is consumed FIRST, so their `entry_date` can move by a day between two arrival orders; the totals are identical,
+and it is practically unreachable because one order's shipments share a partition (#639 note). "Before" and "after" are compared as INSTANTS (`instantOf`, #589), never as strings: the
 events contract only promises `format: date-time`, so `09:00:00.500Z`, `09:00:00Z` and `11:00:00+02:00` do not sort
 by time as text. The reconciliation window compares instants the same way.
 
@@ -414,7 +431,7 @@ ledger).
 
 ## Tests
 
-`pnpm --filter @platform/accounting test` — 106 tests in twelve files:
+`pnpm --filter @platform/accounting test` — 109 tests in twelve files:
 
 - `src/posting/posting.test.ts` — pure: the arithmetic, the worked example of every topic above, partial shipments,
   proportional refunds and cancellations, every defect class, the netted life of one order, the late shipment, event

@@ -1,5 +1,22 @@
 # Changelog — @platform/accounting
 
+## 0.6.8 — 2026-10-30 (#639, the Fable re-reviews of #588 and #591)
+
+- Fix: a shipment AT the cancellation instant counts as shipped before it (`>` instead of `>=`): the ledger of an
+  exact tie no longer depends on arrival order.
+- Fix: a PARKED event that is a posting defect (a shipment dated after the cancellation …) fails on its own: it stays
+  parked, the order and the other parked events post, the handler reports `parked_defects` and logs
+  `parked_event_defect` at ERROR level. `stuckParkedEvents()` lists parked rows whose order exists; the month replay
+  gate fails on any. Before, it dead-lettered the order.placed and left the whole order unposted.
+- Fix (launch-relevant): one `erp:sync` per legal entity at a time — `pg_try_advisory_xact_lock(hashtext('erp_sync'),
+hashtext(<legal entity>))` held for the run; an overlapping run fails with `ErpSyncInProgress`. Before, two
+  overlapping runs could post two moves with one ref in Odoo. Mock seam `pauseCreates()` (a slow Odoo). The lock
+  transaction does nothing but hold the lock (the marks commit on other connections); a hashtext collision only
+  serialises two legal entities. Live: two CLI processes at once against the dev Odoo → one ErpSyncInProgress, 61
+  moves created once, a third run 0.
+- Docs: shipping revenue and the floor remainder attach to the first-consumed shipment (totals identical).
+- Tests: 109 (+3).
+
 ## 0.6.7 — 2026-10-30 (#645, the Fable re-review of #571 / dd9cc80)
 
 - Fix (medium): a re-imported payout report that drops a line no longer leaves the stale match behind. `saveLines`
