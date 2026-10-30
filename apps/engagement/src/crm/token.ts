@@ -20,7 +20,7 @@
 // `staff_user` row — `support` on brand A only — so a token from here can read exactly the customers the
 // tuples allow and nothing else.
 
-import { CrmError, type TokenProvider } from './types.js';
+import { CrmTokenError, type TokenProvider } from './types.js';
 
 /** The slice of `fetch` this needs: a form POST with a timeout. */
 export type TokenFetch = (
@@ -78,7 +78,7 @@ export function createClientCredentialsProvider(opts: ClientCredentialsOptions):
     } catch {
       // The error itself is dropped on purpose: a fetch error can carry the request, and the request carries
       // the secret. The class and the fact that it is retryable are all a consumer needs.
-      throw new CrmError('crm-sync token: the identity provider could not be reached', {
+      throw new CrmTokenError('crm-sync token: the identity provider could not be reached', {
         retryable: true,
       });
     }
@@ -89,7 +89,7 @@ export function createClientCredentialsProvider(opts: ClientCredentialsOptions):
       // three are an operator's problem rather than this event's: retryable, then the dead-letter queue.
       // `error` is Keycloak's short code; `error_description` is not carried, because it echoes input.
       const code = typeof body.error === 'string' ? ` (${body.error})` : '';
-      throw new CrmError(`crm-sync token: HTTP ${res.status}${code}`, { retryable: true });
+      throw new CrmTokenError(`crm-sync token: HTTP ${res.status}${code}`, { retryable: true });
     }
 
     const lifetimeMs = (typeof body.expires_in === 'number' ? body.expires_in : 60) * 1000;

@@ -907,6 +907,47 @@ describe('the CRM principal is an explicit choice (#646)', () => {
     });
   });
 
+  it('REFUSES a non-https KEYCLOAK_URL in production (#654 review)', () => {
+    // The client SECRET travels in the token request body, so an http:// endpoint hands it to the network
+    // before Keycloak can refuse anything - and a misconfigured URL is exactly when that happens.
+    const prodCrm = {
+      ...base,
+      ENGAGEMENT_TRANSPORT: 'slack',
+      SLACK_OPS_WEBHOOK_URL: WEBHOOK,
+      ENGAGEMENT_CRM_ENABLED: '1',
+      ENGAGEMENT_CRM_ADAPTER: 'twenty',
+      TWENTY_BASE_URL: 'https://crm.example/rest',
+      TWENTY_API_KEY: 'twenty-api-key-words-only',
+      ENGAGEMENT_CRM_TOKEN_PROVIDER: 'client_credentials',
+      CRM_SYNC_CLIENT_SECRET: 'words-only-not-a-real-secret',
+    };
+    expect(() =>
+      resolveConfig({
+        env: { ...prodCrm, KEYCLOAK_URL: 'http://keycloak.internal:8180' },
+        nodeEnv: 'production',
+        argv: [],
+      }),
+    ).toThrow(ConfigRefusedError);
+    expect(() =>
+      resolveConfig({
+        env: { ...prodCrm, KEYCLOAK_URL: 'http://keycloak.internal:8180' },
+        nodeEnv: 'production',
+        argv: [],
+      }),
+    ).toThrow(/KEYCLOAK_URL must be https/);
+    // https is accepted in production, and the dev stack's http stays fine outside it.
+    expect(() =>
+      resolveConfig({
+        env: { ...prodCrm, KEYCLOAK_URL: 'https://keycloak.example' },
+        nodeEnv: 'production',
+        argv: [],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      resolveConfig({ env: { ...prodCrm, KEYCLOAK_URL: 'http://localhost:8180' }, argv: [] }),
+    ).not.toThrow();
+  });
+
   it('REFUSES client_credentials without a URL or without a secret', () => {
     const withCrm = {
       ...base,

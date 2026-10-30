@@ -404,6 +404,16 @@ function resolveCrm(env: Record<string, string | undefined>, isProduction: boole
         'ENGAGEMENT_CRM_TOKEN_PROVIDER=client_credentials requires KEYCLOAK_URL (the realm token endpoint)',
       );
     }
+    // #654 review: in production the token endpoint must be https. The client SECRET travels in that
+    // request body, so an `http://` URL hands it to the network before Keycloak can refuse anything — and a
+    // misconfigured URL is exactly the case this would happen in. Outside production `http://localhost:8180`
+    // is the dev stack and stays allowed.
+    if (enabled && isProduction && keycloakUrl && !/^https:\/\//i.test(keycloakUrl)) {
+      throw new ConfigRefusedError(
+        'KEYCLOAK_URL must be https:// in production: the crm-sync client secret travels in the token ' +
+          'request body, and an http:// endpoint sends it in clear',
+      );
+    }
     if (enabled && !clientSecret) {
       throw new ConfigRefusedError(
         'ENGAGEMENT_CRM_TOKEN_PROVIDER=client_credentials requires CRM_SYNC_CLIENT_SECRET (from Vault in production)',

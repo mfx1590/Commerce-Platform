@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { createClientCredentialsProvider, type TokenFetch } from './token.js';
-import { CrmError } from './types.js';
+import { CrmError, CrmTokenError } from './types.js';
 
 const TOKEN_URL = 'http://localhost:8180/realms/staff/protocol/openid-connect/token';
 // A word, never a secret-shaped literal: gitleaks scans every branch's whole history.
@@ -107,7 +107,7 @@ describe('createClientCredentialsProvider', () => {
       fetchImpl: kc.fetchImpl,
     });
 
-    await expect(provider.token()).rejects.toThrow(CrmError);
+    await expect(provider.token()).rejects.toThrow(CrmTokenError);
     expect(await provider.token()).toBe('later');
     expect(kc.calls).toHaveLength(2);
   });
@@ -181,5 +181,36 @@ describe('createClientCredentialsProvider', () => {
     // 60 s assumed, 30 s skew: at 31 s it must be re-fetched rather than trusted indefinitely.
     t = 31_000;
     expect(await provider.token()).toBe('after');
+  });
+
+  it('fails as a CrmTokenError, so a dead-letter record alone says "could not authenticate" (#654)', () => {
+    // The DLQ carries the error CLASS and no payload, so the class IS the diagnosis. `CrmTokenError` means
+    // this service could not get a token (a wrong secret, a disabled client, Keycloak down); a plain
+    // `CrmError` means the Admin API refused or failed. Those send an operator to different places, and
+    // before this they looked identical in the queue.
+    const err = new CrmTokenError('crm-sync token: HTTP 401 (invalid_client)', { retryable: true });
+    expect(err.name).toBe('CrmTokenError');
+    expect(err).toBeInstanceOf(CrmError);
+    expect(err.retryable).toBe(true);
+  });
+
+  it('every token failure is a CrmTokenError, whatever went wrong', async () => {
+    const refused = createClientCredentialsProvider({
+      tokenUrl: TOKEN_URL,
+      clientId: 'crm-sync',
+      clientSecret: SECRET,
+      fetchImpl: fakeKeycloak([{ ok: false, status: 503, body: {} }]).fetchImpl,
+    });
+    await expect(refused.token()).rejects.toThrow(CrmTokenError);
+
+    const unreachable = createClientCredentialsProvider({
+      tokenUrl: TOKEN_URL,
+      clientId: 'crm-sync',
+      clientSecret: SECRET,
+      fetchImpl: async () => {
+        throw new Error('ECONNREFUSED');
+      },
+    });
+    await expect(unreachable.token()).rejects.toThrow(CrmTokenError);
   });
 });

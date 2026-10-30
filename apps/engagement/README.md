@@ -80,6 +80,7 @@ reads and writes none of it.
 | `ENGAGEMENT_CRM_TOKEN_PROVIDER`       | **none**           | `client_credentials` or `mock`; **no default when the CRM is enabled** (#646)          |
 | `CRM_SYNC_CLIENT_ID`                  | `crm-sync`         | the confidential service account for CRM sync (#565)                                   |
 | `CRM_SYNC_CLIENT_SECRET`              | –                  | its secret, from Vault in production; required with `client_credentials`               |
+| `KEYCLOAK_URL`                        | –                  | the realm host for the token exchange; **must be `https://` in production** (#654)     |
 | `ENGAGEMENT_OPS_GROUP_ID`             | `engagement.ops`   | the ops consumer group; a fresh id re-reads history without moving the live offsets    |
 | `ENGAGEMENT_CDP_GROUP_ID`             | `engagement.cdp`   | the CDP consumer group (same rule)                                                     |
 | `ENGAGEMENT_CRM_GROUP_ID`             | `engagement.crm`   | the CRM consumer group (same rule)                                                     |

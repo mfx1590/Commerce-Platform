@@ -210,7 +210,13 @@ and audience assumptions are confirmed against the real identity provider, not j
 two drove `--drain` on live defaults, one asserted the old `client_credentials` throw, one pinned the old
 unreadable-DLQ line). Every one carries a comment saying so — the manager has seen the list.
 
-**Verified:** 470 passed / 9 live skipped offline; typecheck, lint, prettier, ownership clean. Package 0.7.0.
+**#654's review was MERGE with two manager-required hardenings, both done in one follow-up commit:** in
+production a non-`https://` `KEYCLOAK_URL` is refused (the client secret travels in the token request body,
+so `http://` leaks it before Keycloak can refuse anything — a good catch I had missed), and token failures
+are a **`CrmTokenError`** so a dead-letter record alone tells "could not authenticate" from "the Admin API
+refused". The reviewer also confirmed my three self-flagged points held.
+
+**Verified:** 478 passed / 9 live skipped offline; typecheck, lint, prettier, ownership clean. Package 0.7.0.
 
 <!-- Earlier blocks below are still accurate for their own tasks. -->
 
@@ -484,6 +490,14 @@ colliding keys that disagree fail, consumer start both ways. ~30 tool calls, siz
 - External accounts (Slack webhook, RudderStack, Twenty/HubSpot, Chatwoot): mocks until the owner provides them; live use on the launch checklist.
 
 ## Gotchas learned
+- **`scripts/check-ownership.sh` reports OTHER windows' files after you merge main — and it is wrong, not
+  you** (2026-10-30). It prefers `merge-base main HEAD`, and in this worktree setup the local `main` BRANCH
+  belongs to the main window's checkout (`C:/Users/mehdi/Desktop/commerce-platform`), so it is stale whenever
+  that window has not pulled. Merge a newer `origin/main` into your branch and the merge-base is the OLD main
+  tip, so main's own newer commits land in the diff and get judged under your prefix. `git fetch origin
+  main:main` is REFUSED (the branch is checked out elsewhere) and must not be forced. CI is authoritative and
+  green, because it measures from the PR base. Verify locally with
+  `git diff --name-only origin/main...HEAD` and read the list instead.
 - **A shared fixture and a version-pinned test are a trap.** Bumping the shared `customer.erased` fixture to v2 (#583) silently turned the "v1 carries no hash" test into a v2 test that asserted the wrong thing — and it only went red when #583 reached main, i.e. in the MERGE QUEUE, not on my branch. A test that is about one schema version must build its own envelope with an explicit `version` and assert that version, because `makeEvent` always stamps `LATEST_VERSION`. The same applies to any frozen-version path (stock.moved v1, customer.export_requested v1).
 - **A window-prefixed branch cut from an INTEGRATION branch always fails the ownership job.** `scripts/check-ownership.sh` diffs `merge-base(main, HEAD)...HEAD`, so it judges the integration branch's OWN commits under your prefix too. Cutting `engagement/phase4-580-fixtures` from `integration/customer-erased-v2` was flagged for `packages/events/test/registry.test.ts` — the manager's own events landing, a file not in my diff. Name such a branch `integration/…` (it may write anywhere, and the prefix is honest: it IS the integration branch plus a commit). Accepted by the manager 2026-10-24.
 - (from Memory-main, read its Global gotchas) loopback 127.0.0.1 for DB and broker; rebuild workspace packages after every merge of main (stale dist); a new workspace package breaks `app images` until every Dockerfile COPYs its manifest — the manager lands mine, I never touch a Dockerfile.

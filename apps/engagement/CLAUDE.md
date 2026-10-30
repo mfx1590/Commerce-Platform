@@ -124,6 +124,10 @@ package yet.
   indistinguishable from here. One token is cached until shortly before expiry and the in-flight exchange is
   shared, so a batch does one exchange. The client is read-only by code (auth-sdk's
   `READ_ONLY_SERVICE_CLIENTS`) and reaches only the stores its OpenFGA tuples name.
+  **In production `KEYCLOAK_URL` must be `https://`** (#654 review): the secret travels in the token request
+  body, so an `http://` endpoint hands it to the network before Keycloak can refuse anything. A token failure
+  is a **`CrmTokenError`** — retryable like `CrmError`, but named so a dead-letter record alone distinguishes
+  "could not authenticate" from "the Admin API refused", which send an operator to different places.
 - **`ENGAGEMENT_CRM_MOCK_TOKEN` is a dev stand-in for the `crm-sync` principal (#565); never in production.**
   It feeds `mockTokenProvider` so the CRM path can be measured end to end on the dev stack (#594), where no
   service principal exists: with the core on `CORE_DEV_TOKENS=1` a `dev:<subject>` token lets consent → PII

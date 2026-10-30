@@ -35,7 +35,15 @@ CRM sync can run on its own principal, and a measurement can no longer disturb w
   process runs (since #613, not `KNOWN_GROUPS`), the duplicated exit-2 rule is one rule again, and "a missing
   mode defaults to `strict`" now says what it means — a CONSUMER given no resolver defaults to strict, which
   is a library default for a forgetful caller, not an operator-facing one.
-- Tests: **470 passing / 9 live skipped** offline (was 453/9) — the token provider 8, config 100+, drain 11,
+- **From the #654 review, before the queue:** in production a `KEYCLOAK_URL` that is not `https://` is
+  refused (exit 2). The client secret travels in the token request body, so an `http://` endpoint hands it to
+  the network before Keycloak can refuse anything — and a misconfigured URL is exactly the case where that
+  happens. The dev stack's `http://localhost:8180` stays allowed outside production.
+- **From the same review: token failures are a `CrmTokenError`**, retryable as before but named. The DLQ
+  carries the error CLASS and no payload, so the class IS the diagnosis: `CrmTokenError` means this service
+  could not authenticate (a wrong secret, a disabled client, Keycloak down) while `CrmError` means the Admin
+  API refused or failed, and those send an operator to different places.
+- Tests: **478 passing / 9 live skipped** offline (was 453/9) — the token provider 10, config 100+, drain 11,
   boot 5.
 
 ## 0.6.2 — 2026-10-30 (#644, the Fable re-review of #585/#590)
