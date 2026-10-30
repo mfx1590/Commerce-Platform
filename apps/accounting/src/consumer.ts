@@ -193,7 +193,11 @@ export interface LedgerConsumerDeps {
   onBatch?: (batch: { topic: string; partition: number; size: number }) => void;
 }
 
-/** The consumer; `start()` ensures `dlq.accounting.ledger`, subscribes and runs; `stop()` leaves the group. */
+/**
+ * The consumer; `start()` ensures `dlq.<group>` (`dlq.accounting.ledger` for the default group, with the topic prefix in
+ * tests), subscribes and runs; `stop()` leaves the group. The process (`main.ts`) refuses a non-default group on a ledger
+ * another accounting group filled (`assertGroupIsSafe`, #658); this builder does not check.
+ */
 export function createLedgerConsumer(deps: LedgerConsumerDeps): EventConsumer {
   const log = deps.log ?? consoleLogger;
   const groupId = deps.groupId ?? LEDGER_GROUP;

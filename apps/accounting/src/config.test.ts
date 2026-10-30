@@ -33,3 +33,12 @@ describe('resolveConfig: the consumer group', () => {
     expect(() => resolveConfig({}, ['--group'])).toThrow(/consumer group must match/);
   });
 });
+
+describe('resolveConfig: the new-group opt-in (#658)', () => {
+  it('is off by default, on with --allow-new-group or ACCOUNTING_ALLOW_NEW_GROUP=1', () => {
+    expect(resolveConfig({}, []).allowNewGroup).toBe(false);
+    expect(resolveConfig({ ACCOUNTING_ALLOW_NEW_GROUP: '0' }, []).allowNewGroup).toBe(false);
+    expect(resolveConfig({}, ['--once', '--allow-new-group']).allowNewGroup).toBe(true);
+    expect(resolveConfig({ ACCOUNTING_ALLOW_NEW_GROUP: '1' }, []).allowNewGroup).toBe(true);
+  });
+});

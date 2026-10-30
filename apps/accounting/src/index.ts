@@ -54,3 +54,4 @@ export * from './erp/index.js';
 export * from './api/index.js';
 export { consoleLogger, silentLogger, errorClassOf } from './log.js';
 export type { Logger, LogLine } from './log.js';
+export { AccountingGroupRefusedError, assertGroupIsSafe } from './group-guard.js';
