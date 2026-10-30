@@ -48,23 +48,52 @@ Redpanda (every topic of @platform/events, from the beginning)
 | Command                                                  | What                                                                                                                                                                                                                                                           |
 | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pnpm --filter @platform/analytics-ingest ch:migrate`    | applies `data/clickhouse/migrations/*.sql` (each once; an edited applied file is refused) and then `data/clickhouse/models/*.sql` (views, re-applied when changed) to `CLICKHOUSE_DATABASE` (creates it), under `_migrations_lock`, after the idempotency lint |
-| `pnpm --filter @platform/analytics-ingest dev` / `start` | long-running consumer; `GET /health` on `$PORT` when set (the container contract)                                                                                                                                                                              |
+| `pnpm --filter @platform/analytics-ingest dev` / `start` | long-running consumer; `GET /health` on `$PORT` when set (the container contract; readiness, see Deploying)                                                                                                                                                    |
 | `pnpm --filter @platform/analytics-ingest once`          | `--once`: drain to idle (≥ `ANALYTICS_MIN_RUN_MS`, then `ANALYTICS_IDLE_MS` quiet, hard stop `ANALYTICS_MAX_RUN_MS`), print one JSON report (rows per topic, dead letters this run, records on the group's DLQ), exit 0 (1 on max_run)                         |
 
 Flags: `--once`, `--group <id>`, `--topic-prefix <p>` (tests and gates; applies to the DLQ too).
 
-| Variable                                                    | Default                                                     |
-| ----------------------------------------------------------- | ----------------------------------------------------------- |
-| `CLICKHOUSE_URL`                                            | `http://127.0.0.1:18123`                                    |
-| `CLICKHOUSE_USER` / `CLICKHOUSE_PASSWORD`                   | `default` / empty (the shared stack: the writer `platform`) |
-| `CLICKHOUSE_READONLY_USER` / `CLICKHOUSE_READONLY_PASSWORD` | readers only (`analytics_ro`)                               |
-| `CLICKHOUSE_DATABASE`                                       | `analytics`                                                 |
-| `KAFKA_BROKERS`                                             | `127.0.0.1:19092`                                           |
-| `ANALYTICS_GROUP_ID`                                        | `analytics.raw`                                             |
-| `ANALYTICS_TOPIC_PREFIX`                                    | empty                                                       |
-| `ANALYTICS_BATCH_SIZE` / `ANALYTICS_FLUSH_MS`               | 5000 rows / 1000 ms                                         |
-| `ANALYTICS_CONCURRENCY`                                     | 8 partitions at once (the buffer fills across them)         |
-| `OTEL_EXPORTER_OTLP_ENDPOINT`                               | unset = no export                                           |
+| Variable                                                    | Default                                                                       |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `CLICKHOUSE_URL`                                            | `http://127.0.0.1:18123`                                                      |
+| `CLICKHOUSE_USER` / `CLICKHOUSE_PASSWORD`                   | `default` / empty (the shared stack: the writer `platform`)                   |
+| `CLICKHOUSE_READONLY_USER` / `CLICKHOUSE_READONLY_PASSWORD` | readers only (`analytics_ro`)                                                 |
+| `CLICKHOUSE_DATABASE`                                       | `analytics`                                                                   |
+| `KAFKA_BROKERS`                                             | `127.0.0.1:19092`                                                             |
+| `ANALYTICS_GROUP_ID`                                        | `analytics.raw`                                                               |
+| `ANALYTICS_TOPIC_PREFIX`                                    | empty                                                                         |
+| `ANALYTICS_BATCH_SIZE` / `ANALYTICS_FLUSH_MS`               | 5000 rows / 1000 ms                                                           |
+| `ANALYTICS_CONCURRENCY`                                     | 8 partitions at once (the buffer fills across them)                           |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`                               | unset = no export                                                             |
+| `ANALYTICS_READY_STALE_MS`                                  | 300000 (5 min; ≥ 10000): `/health` turns 503 after this long without progress |
+
+## Deploying (#641)
+
+- **`GET /health` is readiness, not just "the process is up".** 200 only while ALL hold, 503 otherwise:
+  - the consumer is a member of its group (not before the first join, nor while rebalancing, crashed or stopped);
+  - it made progress within `ANALYTICS_READY_STALE_MS` — a fetch completed (an idle consumer fetches every few
+    seconds, so a quiet bus stays ready) or a batch was committed;
+  - no batch has been in flight longer than that (ClickHouse or the DLQ not acknowledging): a hung batch on any
+    partition fails it even while other partitions fetch. kafkajs 2's FETCH event cannot tell an empty fetch from a
+    full one, hence this check.
+
+  The body carries the inputs (`joined`, `progress_age_ms`, `last_commit_age_ms`, `oldest_in_flight_ms`, the group).
+  The image's `HEALTHCHECK` and the chart's startup / readiness / liveness probes all point at `/health`: startup
+  covers the join (the chart allows 150 s), liveness restarts a stuck consumer. Nothing is lost by a restart: offsets
+  move only after the ClickHouse and DLQ acks, so the uncommitted batch comes back.
+
+- **One replica, deployed with `Recreate`, never a surge (#641 item 1).** The single-replica guard (`SecondReplicaError`,
+  Erasure below) refuses to start while the group has live members. After a SIGKILL or an OOM the dead member stays in
+  the group until its session times out (`sessionTimeout` 30 s), and during a rolling update with surge the old pod
+  is still a member. So:
+  - **deployment strategy `Recreate`** (the old pod is gone before the new one starts), `replicas: 1`, no autoscaling;
+  - **a restart backoff above 30 s** (the orchestrator's first restarts after a crash otherwise exit 1 on
+    `SecondReplicaError` until the dead member expires; Kubernetes' CrashLoopBackOff reaches that on its own after a
+    few attempts, and `restartPolicy` must stay `Always`).
+
+  The chart (`infra/helm/platform-app`, window 5) sets no `strategy` today, which means RollingUpdate with surge: the
+  ingest's values need `Recreate` there (REQUEST #647 to window 5). A crash-loop of a few exits after a hard
+  kill is expected and harmless: no batch is committed by a process that exits.
 
 ## Metrics (OpenTelemetry, exported only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set)
 
@@ -164,6 +193,15 @@ carries, in every schema that has one.
   4. `DELETE` the older versions, so not even a non-FINAL read sees them.
 
   Every step is idempotent: a crash redelivers and the steps run again.
+
+- **The index can run ahead of the erasure list: an over-scrub, never an under-scrub (#641 item 4).** Step 1 adds the
+  digests to the in-memory index BEFORE the `customer_erasures` insert is acknowledged, so the flush in step 2
+  already scrubs. If that insert then fails, the batch is not committed, but rows classified in the meantime by this
+  process (other partitions) are scrubbed for a customer the list does not hold yet. That is deliberate: the safe
+  direction for personal data. The batch redelivers, the insert succeeds, and the list catches up with the index; a
+  restart before that reloads the index from the list without the digest, and the redelivered `customer.erased`
+  adds it again. Nothing is ever scrubbed that the customer did not ask for, and no row stays unscrubbed once its
+  erasure is committed.
 
 - **No raw identifier in the erasure list.** `customer_erasures.digest` = HMAC-SHA256 under `ANALYTICS_ERASURE_KEY` (env
   or Vault) of `<store>:<kind>:<value>`; without the key it links to nobody. **The ingest refuses to start without the

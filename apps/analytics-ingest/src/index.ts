@@ -28,6 +28,7 @@ export {
   assertSingleReplica,
   consoleLog,
   createIngest,
+  healthVerdict,
   processBatch,
   SecondReplicaError,
   SimulatedCrash,
@@ -36,12 +37,16 @@ export type {
   BatchDeps,
   BatchResult,
   DeadLetterSink,
+  HealthState,
   Ingest,
+  IngestHealth,
   IngestLogLine,
   IngestOptions,
   IngestStats,
   Log,
 } from './ingest.js';
+export { healthAnswer } from './health.js';
+export type { HealthAnswer } from './health.js';
 export { createIngestMetrics } from './metrics.js';
 export type { IngestMetrics } from './metrics.js';
 export { idleState, waitForIdle } from './once.js';

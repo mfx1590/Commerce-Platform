@@ -35,6 +35,11 @@ export interface IngestConfig {
   maxRunMs: number;
   /** Health endpoint for the container contract (`GET /health`); 0 = none. */
   port: number;
+  /**
+   * #641: `/health` answers 503 when the consumer made no progress (a committed batch or a caught-up fetch) for this
+   * long (ANALYTICS_READY_STALE_MS, default 5 min, ≥ 10 s: above kafkajs's 5 s fetch wait, so a quiet bus stays ready).
+   */
+  readyStaleMs: number;
   /** #623: HMAC key of the erasure list (ANALYTICS_ERASURE_KEY, from env/Vault). The process refuses to start without it. */
   erasureKey: string | undefined;
 }
@@ -92,6 +97,7 @@ export function loadConfig(
     minRunMs: int(env, 'ANALYTICS_MIN_RUN_MS', 15_000, 0),
     maxRunMs: int(env, 'ANALYTICS_MAX_RUN_MS', 600_000, 1),
     port: int(env, 'PORT', 0, 0),
+    readyStaleMs: int(env, 'ANALYTICS_READY_STALE_MS', 300_000, 10_000),
     erasureKey: env.ANALYTICS_ERASURE_KEY?.trim() || undefined,
   };
 }
