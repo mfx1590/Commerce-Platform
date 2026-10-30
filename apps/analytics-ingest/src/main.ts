@@ -5,6 +5,7 @@ import { createServer, type Server } from 'node:http';
 import { createKafka, readDeadLetters } from '@platform/events';
 import { createChClient, createRawEventsSink } from './clickhouse.js';
 import { ConfigError, loadConfig } from './config.js';
+import { healthAnswer } from './health.js';
 import { createIngest } from './ingest.js';
 import { createIngestMetrics } from './metrics.js';
 import { waitForIdle, type OnceReport } from './once.js';
@@ -30,12 +31,12 @@ async function main(): Promise<number> {
 
   let server: Server | undefined;
   if (config.port > 0) {
-    // the container contract (apps/analytics-ingest/Dockerfile): GET /health on $PORT
+    // the container contract (apps/analytics-ingest/Dockerfile): GET /health on $PORT, 503 until joined and while
+    // stuck (#641; README "Deploying")
     server = createServer((req, res) => {
-      res.writeHead(req.url === '/health' ? 200 : 404, { 'content-type': 'application/json' });
-      res.end(
-        req.url === '/health' ? JSON.stringify({ ok: true, group_id: config.groupId }) : '{}',
-      );
+      const a = healthAnswer(req.url, config.groupId, ingest.health(config.readyStaleMs));
+      res.writeHead(a.status, { 'content-type': 'application/json' });
+      res.end(a.body);
     }).listen(config.port);
   }
 

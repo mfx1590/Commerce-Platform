@@ -34,6 +34,8 @@ issue; tick it only with a link to the evidence.
       production secret exists; then provision the `crm-sync` / `analytics-sync` staff_user rows + OpenFGA
       tuples in production with window 2's `provision:service-accounts` (see infra/keycloak/README, production
       section); secrets from the secrets manager only.
+- [ ] **CRM sync on the real `crm-sync` principal (#646):** engagement's `client_credentials` token provider built,
+      `mock` an explicit opt-in that production refuses; until then CRM sync runs only on the dev stand-in.
 - [ ] Read-only customer relation (#625) decided (until then, service accounts rely on #632's allowlist).
 
 ## Accounting
@@ -48,3 +50,5 @@ issue; tick it only with a link to the evidence.
 - [ ] Integration 5 gate green (#612): the money identities at 0 in CI (the #602 gate) and on the dev stack with
       the coverage gaps stated; the access matrix; the PII sweep; metrics p95 < 300 ms.
 - [ ] ClickHouse in production: the read-only user, system tables behind a grant, a memory cap sized for the host.
+- [ ] **ClickHouse users as SQL migrations, not XML (#648):** Cloud ignores users.d/config.d; a least-privilege ingest
+      writer (no access management), per-user concurrency/quota, private network only, passwords from the secrets manager.

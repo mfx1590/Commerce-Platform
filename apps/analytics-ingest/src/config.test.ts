@@ -40,4 +40,10 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ANALYTICS_BATCH_SIZE: '0' }, [])).toThrow(ConfigError);
     expect(() => loadConfig({}, ['--group'])).toThrow(ConfigError);
   });
+
+  it('readiness turns stale after 5 min by default; never below 10 s (above the 5 s fetch wait)', () => {
+    expect(loadConfig({}, []).readyStaleMs).toBe(300_000);
+    expect(loadConfig({ ANALYTICS_READY_STALE_MS: '60000' }, []).readyStaleMs).toBe(60_000);
+    expect(() => loadConfig({ ANALYTICS_READY_STALE_MS: '5000' }, [])).toThrow(ConfigError);
+  });
 });
