@@ -56,6 +56,12 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
       - #660 (8a62daf, #657): the RudderStack suppress uses destinationIds (the old sourceIds were always rejected) and names both profiles, `[{userId, email_hash}, {userId: <hash>}]`; reaching the guest profile is UNVERIFIED until a real workspace exists (launch checklist f7f7f98). A hash-only erasure keeps THROWING by decision (no request route or ownership check yet).
     - **STATE AT 10-30 evening:** no open PRs, no window building, check-in loop deleted.
     - **NEXT:**
+      - **#661 MERGED 10-31 (3bc0528, #605 closed): packages/ai on main.**
+        - Fable BLOCK on compact E.164 phones (fixed in d7222fc).
+        - The shared dev DB is migrated with 0205 after the backup platform-before-0205-20261031.dump.
+        - Live smoke: ONE call, sonnet-5-5, 163/145 tokens, 2.3 s, ≈ $0.0018 (recorded on #605).
+        - Window 14 is now on #640.
+        - Wave 3 next: #606 (BI Q&A, window 12; OFF until the DPA answer) and #608 (product copy drafts, windows 1 + 4; models unconfirmed), then #610 (OFF until the DPA).
       - Wave 3 STARTED 10-31: #605 → window 14, `local_47d82451-cf22-43d5-a207-6c1fcbf6c648`, **Opus 5.5 (owner confirmed 10-31)**, branch events/phase5-ai. The AI_ANTHROPIC_API_KEY line was copied into wt-events/.env (gitignored, not printed). The audit table comes as a CONTRACT CHANGE → the manager lands it on integration/phase5-ai. One live call at the end with the manager's OK. Gift credit expires 11-10.
       - The manager's own: minItems contract landing; BI write journeys in CI; #633; the #593 lock timeout.
       - Assign #634 / #624 / #609 / #642 / #647 / #640.
