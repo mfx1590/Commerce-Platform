@@ -15,7 +15,6 @@ const STATUS: Record<ErrorCode, number> = {
   unavailable: 503,
   payment_failed: 402,
   internal: 500,
-  // the AI gateway's outcomes the admin can explain (#608, CONTRACT CHANGE #664)
   ai_disabled: 503,
   ai_budget_exceeded: 429,
   ai_rate_limited: 429,
