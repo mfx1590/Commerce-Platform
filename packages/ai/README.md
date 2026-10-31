@@ -13,6 +13,7 @@ src/denylist.ts            denied customer fields (type-level NoDeniedFields + r
 src/redact.ts              e-mail, IBAN (mod-97), card (Luhn), address/postcode, phone
 src/limiter.ts             per-store monthly token budget + per-minute rate limit (memory, Redis)
 src/audit.ts               AuditRecord, AuditSink, in-memory sink
+src/pg-audit.ts            createPgAuditSink: ai_call_audit (packages/db 0205) through the tenant client
 src/transport.ts           Anthropic SDK transport, deterministic fake
 src/gateway.ts             createAiGateway
 ```
@@ -20,7 +21,12 @@ src/gateway.ts             createAiGateway
 ## Using it
 
 ```ts
-import { createAiGateway, createAnthropicTransport, createRedisLimiter } from '@platform/ai';
+import {
+  createAiGateway,
+  createAnthropicTransport,
+  createPgAuditSink,
+  createRedisLimiter,
+} from '@platform/ai';
 
 const ai = createAiGateway({
   organizationId,
@@ -29,7 +35,7 @@ const ai = createAiGateway({
   actorId,
   transport: createAnthropicTransport(), // reads AI_ANTHROPIC_API_KEY only
   limiter: createRedisLimiter(), // REDIS_URL
-  audit, // an AuditSink; the Postgres sink lands with the ai_call_audit migration
+  audit: createPgAuditSink(appPool), // ai_call_audit, store scope, append-only
 });
 
 const draft = await ai.complete('product-copy-draft@1', {
@@ -85,7 +91,7 @@ An override must be a priced model (`PRICES`), else `AiConfigError`. Cost is int
 - Templates: `TEMPLATES`, `getTemplate`, `renderTemplate`; types `TemplateKey`, `TemplateVariables<K>`
 - Guards: `DENIED_FIELDS`, `findDeniedFields`, type `NoDeniedFields`; `redact`
 - Limits: `createMemoryLimiter`, `createRedisLimiter`, `limitsFromEnv`, `DEFAULT_LIMITS`; types `Limits`, `UsageLimiter`
-- Audit: `OUTCOMES`, `createMemoryAuditSink`; types `AuditRecord`, `AuditSink`
+- Audit: `OUTCOMES`, `createPgAuditSink(appPool)`, `createMemoryAuditSink`, `NO_INPUT_SHA256` (the hash of a call refused before rendering); types `AuditRecord`, `AuditSink`
 - Transport: `createAnthropicTransport`, `createFakeTransport`, `FALLBACK_BETA`; types `AiTransport`, `AiRequest`, `AiResponse`
 - Errors: `AiError`, `AiConfigError`, `AiDisabledError`, `AiBudgetExceededError`, `AiRateLimitedError`,
   `DeniedFieldError`, `TemplateError`, `AiRefusedError`, `AiTransportError`, `AiAuditError`

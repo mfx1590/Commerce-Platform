@@ -2,6 +2,7 @@
 export {
   createAiGateway,
   estimateInputTokens,
+  NO_INPUT_SHA256,
   type AiDraft,
   type AiGateway,
   type AiGatewayOptions,
@@ -55,6 +56,7 @@ export {
   type AuditSink,
   type MemoryAuditSink,
 } from './audit.js';
+export { createPgAuditSink } from './pg-audit.js';
 export {
   createAnthropicTransport,
   createFakeTransport,

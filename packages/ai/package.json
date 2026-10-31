@@ -26,10 +26,13 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.3.0",
-    "ioredis": "6.0.0"
+    "@platform/db": "workspace:*",
+    "ioredis": "6.0.0",
+    "pg": "^8.16.0"
   },
   "devDependencies": {
     "@types/node": "^20.19.0",
+    "@types/pg": "^8.15.0",
     "typescript": "^5.8.0",
     "vitest": "^3.2.0"
   }

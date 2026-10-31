@@ -89,6 +89,11 @@ export interface AiGateway {
 export const estimateInputTokens = (system: string, user: string) =>
   Math.ceil((system.length + user.length) / 3);
 
+/** The input hash of a call refused before rendering (nothing was rendered): the SHA-256 of the empty string. */
+export const NO_INPUT_SHA256 = createHash('sha256').update('').digest('hex');
+
+const TEMPLATE_ID = /^[a-z][a-z0-9-]*$/;
+
 export function createAiGateway(opts: AiGatewayOptions): AiGateway {
   if (!isPurpose(opts.purpose)) throw new AiConfigError(`unknown purpose ${String(opts.purpose)}`);
   const env = opts.env ?? process.env;
@@ -101,15 +106,18 @@ export function createAiGateway(opts: AiGatewayOptions): AiGateway {
     templateKey: string,
     fields: Partial<AuditRecord> & { outcome: AuditOutcome },
   ): Promise<string> {
-    const [idFromKey, versionFromKey] = templateKey.split('@');
+    // an unknown key is caller input: keep it only when it fits the table's template_id/version checks
+    const [idFromKey = '', versionFromKey] = templateKey.split('@');
+    const keyVersion = Number(versionFromKey);
     const record: AuditRecord = {
       organizationId: opts.organizationId,
       storeId: opts.storeId,
       actorId: opts.actorId ?? null,
       purpose: opts.purpose,
-      templateId: t?.id ?? idFromKey ?? templateKey,
-      templateVersion: t?.version ?? (Number(versionFromKey) || 1),
-      inputSha256: '',
+      templateId: t?.id ?? (TEMPLATE_ID.test(idFromKey) ? idFromKey : 'unknown'),
+      templateVersion:
+        t?.version ?? (Number.isInteger(keyVersion) && keyVersion >= 1 ? keyVersion : 1),
+      inputSha256: NO_INPUT_SHA256,
       redactions: 0,
       model,
       servedModel: null,

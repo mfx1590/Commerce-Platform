@@ -14,6 +14,7 @@ import {
   createMemoryLimiter,
   DeniedFieldError,
   estimateInputTokens,
+  NO_INPUT_SHA256,
   TemplateError,
   type AiGatewayOptions,
   type AiResponse,
@@ -181,7 +182,7 @@ describe('refusals before any call (nothing is sent; one audit row each)', () =>
     expect(transport.calls).toHaveLength(0);
     expect(audit.records[0]).toMatchObject({
       outcome: 'denied_field',
-      inputSha256: '',
+      inputSha256: NO_INPUT_SHA256,
       redactions: 0,
     });
   });

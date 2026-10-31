@@ -1,6 +1,6 @@
-// One audit record per gateway call (D8, #605) — NEVER the content: no prompt, no variable, no output. The table
-// (`ai_call_audit`) is a CONTRACT CHANGE landed by the manager; until then the gateway writes through `AuditSink`
-// and tests use the in-memory sink. A Postgres sink over the tenant client follows the landing.
+// One audit record per gateway call (D8, #605) — NEVER the content: no prompt, no variable, no output. The gateway
+// writes through `AuditSink`: `createPgAuditSink` (pg-audit.ts) into `ai_call_audit` (packages/db 0205) in the apps,
+// the in-memory sink in tests. The fields mirror the table's columns and CHECKs.
 import type { Purpose } from './models.js';
 
 export const OUTCOMES = [
@@ -23,7 +23,7 @@ export interface AuditRecord {
   purpose: Purpose;
   templateId: string;
   templateVersion: number;
-  /** sha256 (hex) of the REDACTED rendered input; empty string when nothing was rendered. */
+  /** sha256 (hex) of the REDACTED rendered input; NO_INPUT_SHA256 (the empty string's) when nothing was rendered. */
   inputSha256: string;
   redactions: number;
   model: string;
