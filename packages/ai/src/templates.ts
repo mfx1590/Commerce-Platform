@@ -35,9 +35,18 @@ export function getTemplate(key: string): Template {
 
 const PLACEHOLDER = /\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g;
 
-const asText = (v: TemplateValue): string => (Array.isArray(v) ? v.join('\n') : String(v));
+// Values are data: `&`, `<` and `>` are escaped, so no value can open or close a tag of the template (`</facts>`
+// inside a fact stays inside <facts>). The template text itself is never escaped (#665).
+const escapeValue = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-/** Fills the placeholders. The variables must be exactly the declared set (no missing, no extra keys). */
+const asText = (v: TemplateValue): string =>
+  escapeValue(Array.isArray(v) ? v.join('\n') : String(v));
+
+/**
+ * Fills the placeholders with the values, `&` `<` `>` escaped as `&amp;` `&lt;` `&gt;`. The variables must be
+ * exactly the declared set (no missing, no extra keys).
+ */
 export function renderTemplate(
   t: Template,
   variables: Record<string, TemplateValue>,
