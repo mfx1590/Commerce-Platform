@@ -1,0 +1,39 @@
+{
+  "name": "@platform/ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "templates"
+  ],
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "build": "node scripts/generate.mjs && tsc -p tsconfig.json",
+    "typecheck": "node scripts/generate.mjs && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "node scripts/generate.mjs && vitest run",
+    "clean": "rm -rf dist .turbo src/generated",
+    "live-smoke": "pnpm run build && node scripts/live-smoke.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "1.3.0",
+    "@platform/db": "workspace:*",
+    "ioredis": "6.0.0",
+    "pg": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.0",
+    "@types/pg": "^8.15.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  }
+}

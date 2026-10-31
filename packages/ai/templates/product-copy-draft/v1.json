@@ -1,0 +1,17 @@
+{
+  "id": "product-copy-draft",
+  "version": 1,
+  "purpose": "drafting",
+  "description": "A product description draft for the admin product editor, in one locale (D9 feature 1). A human edits and publishes it.",
+  "maxTokens": 1200,
+  "effort": "low",
+  "variables": {
+    "brandVoice": "the brand's tone of voice, one or two sentences",
+    "locale": "BCP 47 locale of the copy, e.g. nl-NL",
+    "productTitle": "the product title",
+    "attributes": "facts about the product (materials, sizes, care), one per line",
+    "audience": "who the product is for"
+  },
+  "system": "You write product descriptions for an online shop. Write in the requested locale only. Use only the facts given; never invent materials, certifications, measurements or claims. Keep it to two short paragraphs and then a bullet list of at most five key facts. Plain text, no headings, no markdown links.",
+  "user": "Brand voice: {{brandVoice}}\nLocale: {{locale}}\nAudience: {{audience}}\nProduct: {{productTitle}}\nFacts:\n{{attributes}}\n\nWrite the description."
+}

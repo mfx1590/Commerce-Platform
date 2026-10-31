@@ -139,3 +139,12 @@ has no UPDATE (the job rewrites per (store, kind, window_days) with DELETE + INS
 `UNIQUE NULLS NOT DISTINCT (store_id, kind, window_days, product_id, related_product_id)`; composite keys to
 `product (store_id, id)`, so a recommendation can never point at another store's product. Product ids and numbers
 only: no money, no customer or order ids.
+
+## AI call audit (0205, db 0.3.20)
+
+`ai_call_audit` (CONTRACT CHANGE #605, D8) holds one row per packages/ai gateway call attempt, including the
+gateway's own refusals before any network call (`disabled`, `over_budget`, `rate_limited`, `denied_field`). Never the
+content: no prompt, no variables, no output — a template id and version, `input_sha256` (the hash of the REDACTED
+rendered input, lower-case hex), a redaction count, the requested and served model, token counts, the cost as integer
+micro-USD (`cost_estimate_micro_usd`), latency, the `outcome` and the error CLASS only. RLS kind `store` (the gateway
+always runs for one store; organization scope sees every store); append-only for the app role (no UPDATE, no DELETE).

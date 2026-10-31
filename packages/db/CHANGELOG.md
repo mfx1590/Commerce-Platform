@@ -1,5 +1,9 @@
 # Changelog — @platform/db
 
+## 0.3.20 — 2026-10-31
+
+- `0205_ai_call_audit.sql` (CONTRACT CHANGE #605, window 14, D8; manager landing on `integration/phase5-ai`): `ai_call_audit`, one row per packages/ai gateway call attempt, including the gateway's own refusals before any network call. Never the content: template id + version, `input_sha256` of the REDACTED rendered input (CHECK lower-case 64-hex), redaction count, requested and served model, token counts (CHECK ≥ 0), `cost_estimate_micro_usd` bigint, latency, `outcome` (ok | refused | max_tokens | error | disabled | over_budget | rate_limited | denied_field), error class only. RLS kind `store`; append-only for platform_app (UPDATE and DELETE revoked; SELECT/INSERT from 0009's default privileges). Indexes (store_id, created_at) and (organization_id, created_at). New test `test/ai-call-audit.test.ts` (5 cases).
+
 ## 0.3.19 — 2026-10-26
 
 - `0204_product_recommendation.sql` (CONTRACT CHANGE #607, window 9, P5.8; manager landing): `product_recommendation` (RLS kind `store`, no UPDATE grant for the app role; the `index-recommendations` job rewrites per (store, kind, window_days) with DELETE + INSERT in one transaction). `product_id IS NULL` = the store-wide popular list (`window_days` 7 or 30); `bought_together` rows are anchored with `window_days = 0`; `score` is a lift ratio for pairs and a unit count for popular. `UNIQUE NULLS NOT DISTINCT (store_id, kind, window_days, product_id, related_product_id)`. Manager amendment: composite foreign keys `(store_id, product_id)` and `(store_id, related_product_id)` → `product (store_id, id)` (new unique index `product_store_id_id_key`), so a recommendation can never point at another store's product.
