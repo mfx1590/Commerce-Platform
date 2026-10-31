@@ -17,6 +17,22 @@ export {
   updateVariant,
 } from './service';
 export { getStoreProduct, listStoreCategories, listStoreProducts } from './read-model';
+// AI copy drafts (#608): a draft, never written to the product
+export {
+  COPY_FIELDS,
+  COPY_TEMPLATE,
+  DEFAULT_AUDIENCE,
+  DEFAULT_BRAND_VOICE,
+  draftProductCopy,
+  parseDraft,
+  setCopyDraftGatewayFactory,
+} from './copy-draft';
+export type {
+  CopyDraftGatewayFactory,
+  CopyField,
+  DraftProductCopyInput,
+  ProductCopyDraft,
+} from './copy-draft';
 export { PRODUCT_SORT_FIELDS } from './types';
 export type { MediaInput, MediaPatch } from './service';
 export type {

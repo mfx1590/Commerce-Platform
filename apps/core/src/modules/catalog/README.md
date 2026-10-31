@@ -52,6 +52,34 @@ Rules the module enforces:
 - Variants without a price in the requested currency are omitted from the store shapes; products with no priced
   variant are not listed.
 
+## AI copy drafts (`copy-draft.ts`, #608, CONTRACT CHANGE #664)
+
+`draftProductCopy(client, storeId, { productId, locale, fields, actorId })` → `ProductCopyDraft` — Admin API
+`POST /admin/stores/{storeId}/products/{productId}/copy-drafts` (store_staff, the same as `updateProduct`). It asks
+the guarded gateway (`@platform/ai`, purpose `drafting`, D8) for a draft of the requested `fields` (`title`,
+`description`, `bullets`, `seo`) in one enabled store locale and RETURNS it: **nothing is written to the product** —
+the admin shows it beside the current copy, a human edits and saves with `updateProduct`. The only write is the
+gateway's `ai_call_audit` row (no content). No outbox event: no business state changes.
+
+- **What the model sees:** the product's own facts (title, subtitle, brand, category name, tags, scalar
+  `attributes`, option names and values), the store's `settings.content.brand_voice` / `.audience` (defaults:
+  "clear, friendly and factual" / "everyone"; `brand_voice_source` says which) and the locale. No customer, order or
+  cart table is read; the gateway's denylist refuses customer fields at type level and at runtime.
+- **Template:** `product-copy-draft@1` until window 14 lands `@2` (JSON with exactly the requested keys + a
+  `fields` variable) — `COPY_TEMPLATE` and the variables change then. `parseDraft` reads both: @2's JSON object and
+  @1's plain text (paragraphs → `description`, bullet lines → `bullets`, max 5). A requested field the answer lacks
+  is 502 `ai_invalid_draft { missing }` — with @1 that is every `title` / `seo` request.
+- **Outcomes the admin can explain:** `AiDisabledError` 503 `ai_disabled` · `AiBudgetExceededError` 429
+  `ai_budget_exceeded { used_tokens, limit_tokens, resets_at }` · `AiRateLimitedError` 429 `ai_rate_limited
+{ limit_per_minute }` + `Retry-After: 60` · `AiRefusedError` 422 `ai_refused { category }` · `AiTransportError` 502
+  `ai_unavailable { error_class }` (never a message) · limiter / audit failures 503 `unavailable` (nothing sent, no
+  unaudited output) · config / template / denied-field errors 500 `internal` (our bug).
+- **The gateway:** `createAiGateway` with the store's organization, store and actor, `createRedisLimiter()` (one per
+  process), `createPgAuditSink(pool)`, and the Anthropic transport resolved only when a call goes out (so `AI_ENABLED`
+  off is `ai_disabled` even with no key). `setCopyDraftGatewayFactory` swaps it — tests use `createFakeTransport`
+  with a memory limiter and audit sink; no test touches the network. The product is read in one short transaction;
+  the model call runs outside any transaction.
+
 ## Events
 
 `product.updated` v1 (create, update, variant create/update — `changed_fields`, `variants[]`), `product.published`
@@ -61,8 +89,8 @@ same transaction as the row change and the `audit_log` row.
 ## Permissions (Admin API, task 1.7)
 
 `listCategories` / `listProducts` / `getProduct` viewer `store:{id}` · `createCategory` / `createProduct` /
-`updateProduct` / `publishProduct` / `createVariant` / `updateVariant` store_staff `store:{id}` · `archiveProduct`
-store_admin `store:{id}`.
+`updateProduct` / `publishProduct` / `createVariant` / `updateVariant` / `draftProductCopy` store_staff `store:{id}` ·
+`archiveProduct` store_admin `store:{id}`.
 
 ## How to test
 
@@ -70,7 +98,10 @@ store_admin `store:{id}`.
 (3 stores × 200 products) and runs as `platform_app`: brand-a lists 200 published products (`total = 200`), a
 variant with 0 available reports `in_stock: false`, create → publish yields exactly `product.updated` then
 `product.published` (`store_id` set, `version = 1`, `published_at IS NULL`), archive emits `product.archived`,
-category filter includes children, duplicate handle/sku → 409, brand-b cannot read brand-a.
+category filter includes children, duplicate handle/sku → 409, brand-b cannot read brand-a. `copy-draft.test.ts`
+(the gateway's fake only): the requested fields with model and template, the product row unchanged, the brand voice
+from settings, no customer data in the request, 400 / 404, every gateway outcome's typed result, one
+`ai_call_audit` row per call with no content.
 
 ## Media (public functions, #179 part 1 · task 2.6)
 

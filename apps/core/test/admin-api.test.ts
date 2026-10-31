@@ -3,6 +3,12 @@
 // bodies are validated against the spec, responses are checked against the spec's components.
 import express from 'express';
 import request from 'supertest';
+import {
+  createAiGateway,
+  createFakeTransport,
+  createMemoryAuditSink,
+  createMemoryLimiter,
+} from '@platform/ai';
 import { CONTRACTS_VERSION } from '@platform/contracts';
 import { SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
@@ -21,6 +27,7 @@ import {
 } from '../src/http';
 import { closePool, initDb, organizationClient, tenantClient } from '../src/lib/db';
 import { addLineItem, createCart, taxOn, updateCart } from '../src/modules/cart';
+import { setCopyDraftGatewayFactory, type CopyDraftGatewayFactory } from '../src/modules/catalog';
 import { completeCart, createPaymentSession } from '../src/modules/checkout';
 import {
   confirmOrder,
@@ -1787,5 +1794,128 @@ describe('listOrders customer_id (CONTRACT CHANGE #569)', () => {
     expect(bad.status).toBe(400);
     spec.assertSchema('Error', bad.body);
     expect(bad.body).toMatchObject({ code: 'validation_error', details: { customer_id: 'uuid' } });
+  });
+});
+
+describe('draftProductCopy (#608, CONTRACT CHANGE #664): POST …/products/{productId}/copy-drafts', () => {
+  let restore: CopyDraftGatewayFactory;
+  const useFake = (
+    env: NodeJS.ProcessEnv,
+    limits?: { monthlyTokens: number; perMinute: number },
+  ) => {
+    const transport = createFakeTransport(() => ({
+      text: 'Pure linen.\n- 100% linen\n- 50 x 70 cm',
+    }));
+    const limiter = createMemoryLimiter();
+    const audit = createMemoryAuditSink();
+    setCopyDraftGatewayFactory((ctx) =>
+      createAiGateway({
+        ...ctx,
+        purpose: 'drafting',
+        transport,
+        limiter,
+        audit,
+        env,
+        ...(limits ? { limits } : {}),
+      }),
+    );
+    return { transport, audit };
+  };
+  const productOf = async (storeId: string) =>
+    (
+      await db.owner.query<{ id: string }>(
+        `SELECT id FROM product WHERE store_id = $1 ORDER BY handle LIMIT 1`,
+        [storeId],
+      )
+    ).rows[0]!.id;
+
+  beforeAll(() => {
+    restore = setCopyDraftGatewayFactory(() => {
+      throw new Error('no test may reach the real gateway');
+    });
+  });
+  afterAll(() => {
+    setCopyDraftGatewayFactory(restore);
+  });
+
+  it('store staff gets a draft (spec shape) that is never saved; viewer-only roles 403; 400 / 404', async () => {
+    const { transport, audit } = useFake({ AI_ENABLED: '1' });
+    const product = await productOf(A);
+    const path = `/admin/stores/${A}/products/${product}/copy-drafts`;
+    const before = (await storeStaff.get(`/admin/stores/${A}/products/${product}`)).body;
+
+    const res = await storeStaff.post(path, {
+      locale: 'de-DE',
+      fields: ['description', 'bullets'],
+    });
+    expect(res.status).toBe(200);
+    spec.assertSchema('ProductCopyDraft', res.body);
+    expect(res.body).toMatchObject({
+      product_id: product,
+      locale: 'de-DE',
+      draft: { description: 'Pure linen.', bullets: ['100% linen', '50 x 70 cm'] },
+      model: 'claude-sonnet-5-5',
+      template: { id: 'product-copy-draft', version: 1 },
+    });
+    expect(transport.calls).toHaveLength(1);
+    expect(audit.records).toHaveLength(1);
+    expect((await storeStaff.get(`/admin/stores/${A}/products/${product}`)).body).toEqual(before);
+
+    expect((await analyst.post(path, { locale: 'de-DE', fields: ['description'] })).status).toBe(
+      403,
+    );
+    expect(
+      (
+        await request(app)
+          .post(path)
+          .send({ locale: 'de-DE', fields: ['description'] })
+      ).status,
+    ).toBe(401);
+    expect((await storeStaff.post(path, { locale: 'de-DE', fields: [] })).status).toBe(400);
+    expect(
+      (await storeStaff.post(path, { locale: 'de-DE', fields: ['description'], extra: 1 })).status,
+    ).toBe(400);
+    expect((await storeStaff.post(path, { locale: 'ja-JP', fields: ['description'] })).status).toBe(
+      400,
+    );
+    const foreign = await storeStaff.post(
+      `/admin/stores/${A}/products/${await productOf(B)}/copy-drafts`,
+      {
+        locale: 'en-GB',
+        fields: ['description'],
+      },
+    );
+    expect(foreign.status).toBe(404);
+    expect(transport.calls).toHaveLength(1); // none of the refused requests reached the model
+  });
+
+  it('the typed results: 503 ai_disabled, 429 ai_rate_limited with Retry-After, 502 ai_invalid_draft', async () => {
+    const product = await productOf(A);
+    const path = `/admin/stores/${A}/products/${product}/copy-drafts`;
+    useFake({ AI_ENABLED: '0' });
+    const off = await storeStaff.post(path, { locale: 'de-DE', fields: ['description'] });
+    expect(off.status).toBe(503);
+    spec.assertSchema('Error', off.body);
+    expect(off.body.code).toBe('ai_disabled');
+
+    useFake({ AI_ENABLED: '1' }, { monthlyTokens: 1_000_000, perMinute: 1 });
+    expect((await storeStaff.post(path, { locale: 'de-DE', fields: ['description'] })).status).toBe(
+      200,
+    );
+    const limited = await storeStaff.post(path, { locale: 'de-DE', fields: ['description'] });
+    expect(limited.status).toBe(429);
+    expect(limited.headers['retry-after']).toBe('60');
+    expect(limited.body).toMatchObject({
+      code: 'ai_rate_limited',
+      details: { limit_per_minute: 1 },
+    });
+
+    useFake({ AI_ENABLED: '1' });
+    const noTitle = await storeStaff.post(path, { locale: 'de-DE', fields: ['title'] });
+    expect(noTitle.status).toBe(502);
+    expect(noTitle.body).toMatchObject({
+      code: 'ai_invalid_draft',
+      details: { missing: ['title'] },
+    });
   });
 });

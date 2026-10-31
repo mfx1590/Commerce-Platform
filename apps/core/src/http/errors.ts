@@ -10,6 +10,7 @@ import { AppError } from '../lib/errors';
 export const coreErrorHandler: ErrorRequestHandler = (err, req, res, next) => {
   if (res.headersSent) return next(err);
   if (err instanceof AppError) {
+    for (const [name, value] of Object.entries(err.headers ?? {})) res.setHeader(name, value);
     res.status(err.status).json(err.toBody());
     return;
   }

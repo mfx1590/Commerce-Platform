@@ -15,6 +15,13 @@ const STATUS: Record<ErrorCode, number> = {
   unavailable: 503,
   payment_failed: 402,
   internal: 500,
+  // the AI gateway's outcomes the admin can explain (#608, CONTRACT CHANGE #664)
+  ai_disabled: 503,
+  ai_budget_exceeded: 429,
+  ai_rate_limited: 429,
+  ai_refused: 422,
+  ai_unavailable: 502,
+  ai_invalid_draft: 502,
 };
 
 /**
@@ -29,6 +36,8 @@ export class AppError extends Error {
     readonly details?: Record<string, unknown>,
     /** Overrides the status the code implies (503 `internal` when OpenFGA is unreachable, 502 for the proxy). */
     status?: number,
+    /** Response headers the error carries (`Retry-After` on `ai_rate_limited`, #608). */
+    readonly headers?: Readonly<Record<string, string>>,
   ) {
     super(message);
     this.name = 'AppError';
