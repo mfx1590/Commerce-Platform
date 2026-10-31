@@ -192,7 +192,8 @@ describe('queryMetrics', () => {
       expect(r.status, field).toBe(400);
       expect(r.body).toMatchObject({
         code: 'validation_error',
-        details: { field: `filters.${field}` },
+        // The spec validator rejects it first since contracts 0.4.31 (MetricQuery.filters minItems: 1, #664).
+        details: { [`filters.${field}`]: expect.any(String) },
       });
       expect(seen).toEqual([]);
     }

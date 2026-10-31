@@ -479,3 +479,19 @@
   metrics module (window 12); consumers: the admin BI section incl. `(store)/[storeId]/bi` and the #606 BI Q&A tool.
 - docs/ownership.md: the `data/` row gains `apps/admin/src/app/(store)/[storeId]/bi/**`.
 - Store API (0.5.9), Accounting API (0.1.0), events and db unchanged.
+
+## 0.4.31 — 2026-10-31 (Admin API 0.4.26; CONTRACT CHANGE #664, window 1, for #608)
+
+- Admin API: `draftProductCopy` (`POST /admin/stores/{storeId}/products/{productId}/copy-drafts`, tag `catalog`,
+  `store_staff` on the store, the same as `updateProduct`). It returns an AI DRAFT (`ProductCopyDraft`) of the
+  requested fields (title, description, bullets, seo) in one enabled store locale. It is NEVER written to the
+  product: a human edits it and saves with `updateProduct`. The only write is the gateway's `ai_call_audit` row,
+  which holds no content. The input is the product's own facts plus `store.settings.content.brand_voice` /
+  `content.audience`; no customer data. Statuses: 422 `ai_refused`, 429 `ai_rate_limited` (with `Retry-After`) /
+  `ai_budget_exceeded`, 502 `ai_unavailable` / `ai_invalid_draft`, 503 `ai_disabled` / `unavailable`.
+  138 admin operations.
+- `ERROR_CODES` gains `ai_disabled`, `ai_budget_exceeded`, `ai_rate_limited`, `ai_refused`, `ai_unavailable`,
+  `ai_invalid_draft`, and the Admin `Error.code` description lists them.
+- `MetricQuery.filters`: each of the four arrays gets `minItems: 1` (accepted on #604). An empty filter list is now
+  a 400, not "no filter".
+- apps/core depends on `@platform/ai` (workspace). Store API (0.5.9), Accounting API, events and db are unchanged.
