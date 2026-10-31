@@ -354,7 +354,7 @@ export interface paths {
         put?: never;
         /**
          * An AI draft of the product's copy in one locale — never saved; a human edits it and saves with updateProduct
-         * @description Runs the AI gateway (purpose `drafting`, template `product-copy-draft`) on the product's own facts (title, subtitle, brand name, category name, tags, `attributes`, variant options), the store's brand voice (`store.settings.content.brand_voice`, a neutral default when unset) and the locale. No customer data is read or sent; the gateway's denylist refuses it at type level and at runtime. The draft is returned and NOT written to the product; one `ai_call_audit` row per call (no content). POST because every call costs tokens and is audited: it is neither safe nor idempotent.
+         * @description Runs the AI gateway (purpose `drafting`, template `product-copy-draft`) on the product's own facts (title, subtitle, brand name, category name, tags, `attributes`, variant options), the store's brand voice (`store.settings.content.brand_voice`, a neutral default when unset) and the locale. No customer data is read or sent; the gateway's denylist refuses it at type level and at runtime. The draft is returned and NOT written to the product; one `ai_call_audit` row per call (no content). POST because every call costs tokens and is audited: it is neither safe nor idempotent. The token budget and the per-minute limit are per store, shared by every AI purpose and every staff member of the store.
          */
         post: operations["draftProductCopy"];
         delete?: never;
@@ -5054,6 +5054,8 @@ export interface operations {
             /** @description `ai_rate_limited` (`details: { limit_per_minute }`, `Retry-After` seconds) or `ai_budget_exceeded` (`details: { used_tokens, limit_tokens, resets_at }` — the store's monthly token budget, UTC month) */
             429: {
                 headers: {
+                    /** @description Seconds to wait; sent with `ai_rate_limited` only. */
+                    "Retry-After"?: number;
                     [name: string]: unknown;
                 };
                 content: {

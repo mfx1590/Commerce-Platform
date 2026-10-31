@@ -996,7 +996,8 @@ paths:
         (`store.settings.content.brand_voice`, a neutral default when unset) and the locale. No customer data is
         read or sent; the gateway's denylist refuses it at type level and at runtime. The draft is returned and NOT
         written to the product; one `ai_call_audit` row per call (no content). POST because every call costs
-        tokens and is audited: it is neither safe nor idempotent.
+        tokens and is audited: it is neither safe nor idempotent. The token budget and the per-minute limit are
+        per store, shared by every AI purpose and every staff member of the store.
       x-permission: { relation: store_staff, object: 'store:{storeId}' }
       requestBody:
         required: true
@@ -1047,6 +1048,10 @@ paths:
           description: >-
             `ai_rate_limited` (`details: { limit_per_minute }`, `Retry-After` seconds) or `ai_budget_exceeded`
             (`details: { used_tokens, limit_tokens, resets_at }` — the store's monthly token budget, UTC month)
+          headers:
+            Retry-After:
+              description: 'Seconds to wait; sent with `ai_rate_limited` only.'
+              schema: { type: integer, minimum: 1 }
           content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
         '502':
           description: >-
@@ -5536,7 +5541,13 @@ components:
       properties:
         product_id: { type: string, format: uuid }
         locale: { type: string }
-        fields: { type: array, items: { type: string, enum: [title, description, bullets, seo] } }
+        fields:
+          {
+            type: array,
+            minItems: 1,
+            uniqueItems: true,
+            items: { type: string, enum: [title, description, bullets, seo] },
+          }
         draft:
           type: object
           additionalProperties: false
