@@ -66,6 +66,12 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
       - The manager's own: minItems contract landing; BI write journeys in CI; #633; the #593 lock timeout.
       - Assign #634 / #624 / #609 / #642 / #647 / #640.
       - Owner: port binding for the other services (optional).
+      - **#663 MERGED 10-31 (16c935f, #640 closed).**
+      - **#608 STARTED 10-31:** windows 1 and 4 are both **Opus (owner confirmed 10-31)**.
+        - Window 1 (`local_36325de4-…`, wt-core, branch core/phase5-608) builds the core endpoint and sends a PLAN with the exact `draftProductCopy` contract diff. The manager lands it on integration/*.
+        - Window 4 (`local_7caabd48-…`) is activated only after the contract lands.
+        - No AI key was copied to wt-core: its tests use the fake, and the key goes in only if window 1 asks for a live call.
+        - The check-in loop runs again (7,37).
     - Window 14's model is unconfirmed: ask the owner before #605.
   - **MERGED 10-29:** #621 (#607 recommendations, 518cc4c, tagged **contracts-v0.4.29**; the shared dev DB migrated with 0204 after the backup `platform-before-0204-20261029.dump`), #631 (#623 ClickHouse erasure, 0d31c6d), #636 (#603 CONTRACT, 77ed790, tagged **contracts-v0.4.30**: Admin API 0.4.25 listMetrics/queryMetrics, live metrics, CSV via Accept, `unavailable`, the core error map, and the `(store)/[storeId]/bi/**` ownership row → window 12). Earlier: #630, #626, #628 (10-27). Wave 1 and the wave-2 contracts are DONE.
   - **OPEN / IN FLIGHT:**
