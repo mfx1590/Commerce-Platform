@@ -11,7 +11,8 @@
   shapes, 422 when wrong) and the locale; no customer data. The gateway's errors map to `ai_disabled` 503,
   `ai_budget_exceeded` / `ai_rate_limited` 429 (+ `Retry-After`), `ai_refused` 422, `ai_unavailable` /
   `ai_invalid_draft` 502, `unavailable` 503, `internal` 500. `AppError` can carry response headers. Template
-  `product-copy-draft@1` until window 14's `@2` (JSON); tests on the deterministic fake only.
+  `product-copy-draft@2` (window 14, #665: strict JSON; a `max_tokens` cut-off is `ai_invalid_draft` `truncated`);
+  tests on the deterministic fake only.
 
 ### 2026-10-23 · listOrders filters by customer (CONTRACT CHANGE #569, contracts 0.4.27)
 

@@ -65,10 +65,11 @@ gateway's `ai_call_audit` row (no content). No outbox event: no business state c
   `attributes`, option names and values), the store's `settings.content.brand_voice` / `.audience` (defaults:
   "clear, friendly and factual" / "everyone"; `brand_voice_source` says which) and the locale. No customer, order or
   cart table is read; the gateway's denylist refuses customer fields at type level and at runtime.
-- **Template:** `product-copy-draft@1` until window 14 lands `@2` (JSON with exactly the requested keys + a
-  `fields` variable) — `COPY_TEMPLATE` and the variables change then. `parseDraft` reads both: @2's JSON object and
-  @1's plain text (paragraphs → `description`, bullet lines → `bullets`, max 5). A requested field the answer lacks
-  is 502 `ai_invalid_draft { missing }` — with @1 that is every `title` / `seo` request.
+- **Template:** `product-copy-draft@2` (window 14, #665): ONE strict-JSON object with exactly the requested keys;
+  `fields` goes in as a comma-separated string. `parseDraft` checks, in this order: an answer cut off at
+  `max_tokens` → 502 `ai_invalid_draft { reason: 'truncated' }` before any parsing; not a JSON object →
+  `{ reason: 'not_json' }`; a requested key missing or ill-shaped → `{ reason: 'missing_fields', missing }`.
+  Unrequested keys are dropped; `bullets: []` is valid (thin facts); limits are the contract's.
 - **Outcomes the admin can explain:** `AiDisabledError` 503 `ai_disabled` · `AiBudgetExceededError` 429
   `ai_budget_exceeded { used_tokens, limit_tokens, resets_at }` · `AiRateLimitedError` 429 `ai_rate_limited
 { limit_per_minute }` + `Retry-After: 60` · `AiRefusedError` 422 `ai_refused { category }` · `AiTransportError` 502

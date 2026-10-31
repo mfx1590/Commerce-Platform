@@ -34,8 +34,13 @@ let productA: string;
 let productB: string;
 let previous: CopyDraftGatewayFactory;
 
-const V1_ANSWER =
-  'A tea towel of pure linen that dries quickly.\n\nIt softens with every wash.\n- 100% linen\n- 50 x 70 cm';
+/** What template @2 answers: ONE strict-JSON object (the fake returns it for every request). */
+const ANSWER = JSON.stringify({
+  title: 'Linen tea towel',
+  description: 'A tea towel of pure linen that dries quickly.\n\nIt softens with every wash.',
+  bullets: ['100% linen', '50 x 70 cm'],
+  seo: { title: 'Linen tea towel', description: 'A tea towel of pure linen.' },
+});
 
 /** A fake gateway per test: the fake transport (records every request), memory limiter and audit sink. */
 function fake(
@@ -47,7 +52,7 @@ function fake(
   } = {},
 ) {
   const transport = createFakeTransport(() =>
-    opts.answer instanceof Error ? opts.answer : { text: V1_ANSWER, ...opts.answer },
+    opts.answer instanceof Error ? opts.answer : { text: ANSWER, ...opts.answer },
   );
   const audit = opts.audit ?? createMemoryAuditSink();
   const limiter = createMemoryLimiter();
@@ -128,6 +133,7 @@ describe('draftProductCopy (#608): a draft, never saved', () => {
     expect(sent).toContain(title);
     expect(sent).toContain('de-DE');
     expect(sent).toContain(DEFAULT_BRAND_VOICE);
+    expect(sent).toContain('Requested keys: description, bullets'); // @2's `fields` variable
     expect((audit as ReturnType<typeof createMemoryAuditSink>).records).toHaveLength(1);
     // never written: the row is byte-for-byte what it was
     const after = await owner.query(
@@ -180,40 +186,45 @@ describe('draftProductCopy (#608): a draft, never saved', () => {
     });
   });
 
-  it('a JSON answer (template v2) fills title and seo; a plain-text answer cannot → 502 ai_invalid_draft', async () => {
-    fake({
-      answer: {
-        text: JSON.stringify({
-          title: 'Linen tea towel',
-          description: 'Pure linen.',
-          bullets: ['100% linen'],
-          seo: { title: 'Linen tea towel', description: 'A tea towel of pure linen.' },
-        }),
-      },
-    });
+  it('title and seo come back only when asked; a cut-off, non-JSON or incomplete answer → 502 ai_invalid_draft', async () => {
+    fake();
     const res = await draft(['title', 'seo']);
     expect(res.draft).toEqual({
       title: 'Linen tea towel',
       seo: { title: 'Linen tea towel', description: 'A tea towel of pure linen.' },
     });
-    fake(); // @1's plain text
-    await expect(draft(['title', 'seo', 'description'])).rejects.toMatchObject({
+    // cut off at max_tokens: refused before any parsing, even when the text happens to parse (#665 review)
+    fake({ answer: { stopReason: 'max_tokens' } });
+    await expect(draft(['description'])).rejects.toMatchObject({
       code: 'ai_invalid_draft',
       status: 502,
-      details: { missing: ['title', 'seo'] },
+      details: { reason: 'truncated' },
+    });
+    fake({ answer: { text: 'Here is your copy: a linen tea towel.' } });
+    await expect(draft(['description'])).rejects.toMatchObject({
+      code: 'ai_invalid_draft',
+      details: { reason: 'not_json' },
+    });
+    fake({ answer: { text: JSON.stringify({ description: 'Linen.' }) } });
+    await expect(draft(['title', 'seo', 'description'])).rejects.toMatchObject({
+      code: 'ai_invalid_draft',
+      details: { reason: 'missing_fields', missing: ['title', 'seo'] },
     });
   });
 
-  it('parseDraft: fenced JSON, bullet styles, limits', () => {
-    expect(parseDraft('```json\n{"title":"T"}\n```', ['title'])).toEqual({ title: 'T' });
-    expect(parseDraft('Body.\n• one\n* two\n1. three', ['description', 'bullets'])).toEqual({
-      description: 'Body.',
-      bullets: ['one', 'two', 'three'],
-    });
-    expect(
-      parseDraft(JSON.stringify({ bullets: ['a', 'b', 'c', 'd', 'e', 'f'] }), ['bullets']).bullets,
-    ).toHaveLength(5);
-    expect(() => parseDraft('{"seo":{"title":"x"}}', ['seo'])).toThrow(AppError);
+  it('parseDraft: strict JSON only, unrequested keys dropped, empty bullets allowed, limits', () => {
+    const ok = (o: unknown, f: Parameters<typeof parseDraft>[1]) =>
+      parseDraft({ text: JSON.stringify(o), stopReason: 'end_turn' }, f);
+    expect(ok({ title: 'T', description: 'D' }, ['title'])).toEqual({ title: 'T' });
+    expect(ok({ bullets: [] }, ['bullets'])).toEqual({ bullets: [] }); // thin facts: [] is a valid answer
+    expect(ok({ bullets: ['a', 'b', 'c', 'd', 'e', 'f'] }, ['bullets']).bullets).toHaveLength(5);
+    expect(ok({ title: 'x'.repeat(250) }, ['title']).title).toHaveLength(200);
+    expect(() => ok({ bullets: 'one' }, ['bullets'])).toThrow(AppError);
+    expect(() => ok({ seo: { title: 'x' } }, ['seo'])).toThrow(AppError);
+    expect(() => ok([], ['title'])).toThrow(AppError);
+    expect(() =>
+      parseDraft({ text: '```json\n{"title":"T"}\n```', stopReason: 'end_turn' }, ['title']),
+    ).toThrow(AppError); // the template forbids fences: a fenced answer is not strict JSON
   });
 });
 

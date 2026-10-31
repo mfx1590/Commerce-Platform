@@ -1804,7 +1804,7 @@ describe('draftProductCopy (#608, CONTRACT CHANGE #664): POST …/products/{prod
     limits?: { monthlyTokens: number; perMinute: number },
   ) => {
     const transport = createFakeTransport(() => ({
-      text: 'Pure linen.\n- 100% linen\n- 50 x 70 cm',
+      text: JSON.stringify({ description: 'Pure linen.', bullets: ['100% linen', '50 x 70 cm'] }),
     }));
     const limiter = createMemoryLimiter();
     const audit = createMemoryAuditSink();
@@ -1855,7 +1855,7 @@ describe('draftProductCopy (#608, CONTRACT CHANGE #664): POST …/products/{prod
       locale: 'de-DE',
       draft: { description: 'Pure linen.', bullets: ['100% linen', '50 x 70 cm'] },
       model: 'claude-sonnet-5-5',
-      template: { id: 'product-copy-draft', version: 1 },
+      template: { id: 'product-copy-draft', version: 2 },
     });
     expect(transport.calls).toHaveLength(1);
     expect(audit.records).toHaveLength(1);
@@ -1915,7 +1915,7 @@ describe('draftProductCopy (#608, CONTRACT CHANGE #664): POST …/products/{prod
     expect(noTitle.status).toBe(502);
     expect(noTitle.body).toMatchObject({
       code: 'ai_invalid_draft',
-      details: { missing: ['title'] },
+      details: { reason: 'missing_fields', missing: ['title'] },
     });
   });
 });

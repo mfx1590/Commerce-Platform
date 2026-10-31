@@ -36,15 +36,14 @@ export const COPY_FIELDS = ['title', 'description', 'bullets', 'seo'] as const;
 export type CopyField = (typeof COPY_FIELDS)[number];
 
 /**
- * The template the endpoint renders. `product-copy-draft@2` (window 14: one JSON object with exactly the requested
- * keys, and a `fields` variable) replaces @1 when it lands — a change of this constant and of `variablesFor`. @1
- * answers plain text (paragraphs + up to five "- " bullets): `parseDraft` reads both, and with @1 a request for
- * `title` or `seo` is `ai_invalid_draft` (the answer cannot hold them).
+ * The template the endpoint renders: `product-copy-draft@2` (window 14, #665) — ONE strict-JSON object with exactly
+ * the requested keys; `fields` is the comma-separated list of them. A changed prompt is a new version there, and a
+ * new version here is a change of this constant (and of the variables, when they change).
  */
 export const COPY_TEMPLATE = {
-  key: 'product-copy-draft@1',
+  key: 'product-copy-draft@2',
   id: 'product-copy-draft',
-  version: 1,
+  version: 2,
 } as const;
 
 /** When `store.settings.content.brand_voice` / `.audience` are unset (#664 decision 2). */
@@ -185,35 +184,27 @@ async function productFacts(
   };
 }
 
-const BULLET = /^\s*(?:[-•*]|\d+[.)])\s+(.+?)\s*$/;
+const invalid = (reason: string, extra: Record<string, unknown> = {}) =>
+  new AppError('ai_invalid_draft', 'the AI answer was not a usable draft', { reason, ...extra });
 
 /**
- * The model's answer → the requested fields. Reads @2's JSON object, and @1's plain text (paragraphs → `description`,
- * bullet lines → `bullets`). Anything requested that the answer does not hold → `ai_invalid_draft { missing }`.
+ * The model's answer → the requested fields (template @2: one strict-JSON object). Order of checks: an answer cut
+ * off at `max_tokens` is `truncated` before any parsing (#665 review); then it must be a JSON object (`not_json`);
+ * then every requested key must be there with its shape (`missing_fields`, `details.missing`). Keys that were not
+ * requested are dropped. Limits are the contract's: title 200, description 5000, bullets ≤ 5 × 200, seo 70 / 160.
  */
-export function parseDraft(answer: string, fields: readonly CopyField[]): ProductCopyDraftBody {
-  let parsed: Record<string, unknown> | null = null;
-  const trimmed = answer.trim();
-  const json = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/)?.[1] ?? trimmed;
-  if (json.startsWith('{')) {
-    try {
-      const v: unknown = JSON.parse(json);
-      if (v && typeof v === 'object' && !Array.isArray(v)) parsed = v as Record<string, unknown>;
-    } catch {
-      parsed = null;
-    }
-  }
-  if (!parsed) {
-    const lines = trimmed.split(/\r?\n/);
-    const bullets = lines.map((l) => l.match(BULLET)?.[1]).filter((b): b is string => !!b);
-    const prose = lines
-      .filter((l) => !BULLET.test(l))
-      .join('\n')
-      .trim();
-    parsed = {
-      ...(prose ? { description: prose } : {}),
-      ...(bullets.length ? { bullets } : {}),
-    };
+export function parseDraft(
+  answer: { text: string; stopReason: string | null },
+  fields: readonly CopyField[],
+): ProductCopyDraftBody {
+  if (answer.stopReason === 'max_tokens') throw invalid('truncated');
+  let parsed: Record<string, unknown>;
+  try {
+    const v: unknown = JSON.parse(answer.text.trim());
+    if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error('not an object');
+    parsed = v as Record<string, unknown>;
+  } catch {
+    throw invalid('not_json');
   }
 
   const draft: ProductCopyDraftBody = {};
@@ -225,14 +216,13 @@ export function parseDraft(answer: string, fields: readonly CopyField[]): Produc
       if (s) draft[f] = s;
       else missing.push(f);
     } else if (f === 'bullets') {
-      const list = Array.isArray(v)
-        ? v
-            .map((b) => text(b, 200))
-            .filter((b): b is string => !!b)
-            .slice(0, 5)
-        : [];
-      if (list.length) draft.bullets = list;
-      else missing.push(f);
+      // [] is a valid answer when the facts are thin (the template says so); a non-array is not
+      if (Array.isArray(v)) {
+        draft.bullets = v
+          .map((b) => text(b, 200))
+          .filter((b): b is string => !!b)
+          .slice(0, 5);
+      } else missing.push(f);
     } else {
       const seo = v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
       const title = text(seo.title, 70);
@@ -241,11 +231,7 @@ export function parseDraft(answer: string, fields: readonly CopyField[]): Produc
       else missing.push(f);
     }
   }
-  if (missing.length) {
-    throw new AppError('ai_invalid_draft', 'the AI answer did not contain the requested fields', {
-      missing,
-    });
-  }
+  if (missing.length) throw invalid('missing_fields', { missing });
   return draft;
 }
 
@@ -333,6 +319,7 @@ export async function draftProductCopy(
   let answer: Awaited<ReturnType<AiGateway['complete']>>;
   try {
     answer = await ai.complete(COPY_TEMPLATE.key, {
+      fields: fields.join(', '),
       brandVoice: facts.brandVoice,
       locale: input.locale,
       audience: facts.audience,
@@ -346,7 +333,7 @@ export async function draftProductCopy(
     product_id: input.productId,
     locale: input.locale,
     fields: fields as CopyField[],
-    draft: parseDraft(answer.text, fields as CopyField[]),
+    draft: parseDraft(answer, fields as CopyField[]),
     brand_voice_source: facts.voiceSource,
     model: answer.servedModel || answer.model,
     template: { id: COPY_TEMPLATE.id, version: COPY_TEMPLATE.version },
