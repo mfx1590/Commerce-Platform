@@ -7,8 +7,11 @@
 // WARNING: the relay MARKS every row it publishes, so a prefixed relay against the shared dev database would publish
 // the real unpublished rows to `<p>*` and hide them from the real consumers for good. Therefore --topic-prefix needs
 // --throwaway-db, and --throwaway-db refuses the shared dev database (`platform` and the database the repo-root
-// .env names). Recovery after a mistaken run: the rows are published, so an UNPREFIXED
-// `outbox:replay --topic <t> --after-seq <seq before the run>` republishes them to the real topics (consumers dedupe).
+// .env names); the other way round, --throwaway-db needs --topic-prefix (#640), so a throwaway database's rows never
+// reach the real topics. Recovery after a mistaken run: the rows are published, so an UNPREFIXED
+// `outbox:replay --topic <t> --after-seq <s>` republishes them to the real topics (consumers dedupe), where <s> is
+// below the LOWEST seq that was still unpublished before the run (`SELECT min(seq) - 1 FROM outbox WHERE
+// published_at IS NULL`, taken before; stuck rows can sit far below the high-water mark), or replay the whole topic.
 // Argument errors exit 2; a refused start (missing topic, unreachable registry) exits 1.
 //
 // Env: DATABASE_URL_APP (the app role, organization scope — never the owner), CORE_ORGANIZATION_ID (default: the
@@ -67,6 +70,10 @@ export const PREFIX_NEEDS_THROWAWAY =
   'against the shared dev database would hide those rows from the real consumers; and --throwaway-db refuses the ' +
   'shared dev database (platform, or the database the repo-root .env names)';
 
+export const THROWAWAY_NEEDS_PREFIX =
+  '--throwaway-db on the relay needs --topic-prefix: a throwaway database holds fixture rows, and an unprefixed ' +
+  'relay would publish them to the real topics on the shared broker, where the real consumers would act on them';
+
 const TOPIC_PREFIX = /^[A-Za-z0-9._-]{1,200}$/;
 
 /**
@@ -91,6 +98,7 @@ export function parseArgs(argv: string[]): RelayCliArgs {
   const topicPrefix = parseTopicPrefix(argv);
   const throwawayDb = argv.includes('--throwaway-db');
   if (topicPrefix && !throwawayDb) throw new CliUsageError(PREFIX_NEEDS_THROWAWAY);
+  if (throwawayDb && !topicPrefix) throw new CliUsageError(THROWAWAY_NEEDS_PREFIX);
   const num = (flag: string, fallback: number): number => {
     const i = argv.indexOf(flag);
     if (i === -1) return fallback;

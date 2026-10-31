@@ -60,7 +60,11 @@ export function parseReplayArgs(argv: string[]): ReplayCliArgs {
   const to = date('--to');
   const storeId = value('--store');
   const afterSeq = value('--after-seq');
-  if (afterSeq !== undefined && !/^\d{1,19}$/.test(afterSeq)) {
+  // a bigint seq: digits only, and at most bigint max (a larger value would be a Postgres error, exit 1, #640)
+  if (
+    afterSeq !== undefined &&
+    (!/^\d{1,19}$/.test(afterSeq) || BigInt(afterSeq) > 9223372036854775807n)
+  ) {
     throw new CliUsageError(`--after-seq needs a non-negative integer seq (got ${afterSeq})`);
   }
   return {

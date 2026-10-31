@@ -168,9 +168,9 @@ marked exactly as without the flag. **On the relay, `--topic-prefix` needs `--th
 a prefixed relay against the shared dev database would publish the real unpublished rows to `<p>*` and hide them
 from the real consumers for good. `--throwaway-db` checks `current_database()` before anything is read and refuses
 the shared dev database (`platform`, plus the database names in the repo-root `.env` — read from the file, since the
-environment points elsewhere on purpose); both refusals exit 2. **Recovery after a mistaken prefixed run**: the rows
-are published, so an UNPREFIXED `outbox:replay --topic <t> --after-seq <a seq before the run>` per topic republishes
-them to the real topics (consumers dedupe on `outbox_id`). The replay never marks rows, so a prefixed replay needs no
+environment points elsewhere on purpose); and the other way round, **`--throwaway-db` needs `--topic-prefix`** (#640), so a throwaway database's fixture rows never reach the real topics and their consumers. All three refusals exit 2. **Recovery after a mistaken prefixed run**: the rows
+are published, so an UNPREFIXED `outbox:replay --topic <t> --after-seq <s>` per topic republishes
+them to the real topics (consumers dedupe on `outbox_id`). Take `<s>` below the LOWEST seq that was still unpublished before the run (`SELECT min(seq) - 1 FROM outbox WHERE published_at IS NULL`, taken before the run): stuck rows can sit far below the high-water mark. Without that number, replay the whole topic. The replay never marks rows, so a prefixed replay needs no
 safety catch; it prints a one-line note to stderr. Argument errors exit 2, a refused start (missing topic,
 unreachable registry) exits 1. It is for tests on a shared broker — window 15's #552 gate spawns
 `outbox:relay --once --topic-prefix <p> --throwaway-db --no-registry` against its throwaway database. `relayOnce` /
