@@ -240,6 +240,13 @@ describe('replay-cli arguments', () => {
     expect(() => parseReplayArgs(['--topic', 'order.placed', '--after-seq', '-1'])).toThrow(
       /non-negative integer/,
     );
+    // #640: 19 digits can exceed bigint max — an argument error (exit 2), not a Postgres error (exit 1)
+    expect(
+      parseReplayArgs(['--topic', 'order.placed', '--after-seq', '9223372036854775807']).afterSeq,
+    ).toBe('9223372036854775807');
+    expect(() =>
+      parseReplayArgs(['--topic', 'order.placed', '--after-seq', '9223372036854775808']),
+    ).toThrow(/non-negative integer/);
     expect(() =>
       parseReplayArgs(['--topic', 'order.placed', '--topic-prefix', 'no spaces']),
     ).toThrow(/not a Kafka topic prefix/);

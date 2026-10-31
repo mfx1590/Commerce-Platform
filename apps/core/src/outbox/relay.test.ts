@@ -614,7 +614,9 @@ describe('relayOnce (database, recording publisher)', () => {
     expect(() => parseArgs(['--once', '--topic-prefix', 'gate-abc123.'])).toThrow(
       /needs --throwaway-db.*refuses the shared dev database/,
     );
-    expect(parseArgs(['--throwaway-db']).throwawayDb).toBe(true); // allowed alone: only the database check
+    // #640: the other way round too — a throwaway database's fixture rows must never reach the real topics
+    expect(() => parseArgs(['--once', '--throwaway-db'])).toThrow(CliUsageError);
+    expect(() => parseArgs(['--once', '--throwaway-db'])).toThrow(/needs --topic-prefix/);
     expect(() => parseArgs(['--batch', 'x'])).toThrow(CliUsageError);
     expect(parseTopicPrefix([])).toBe('');
     expect(() => parseTopicPrefix(['--topic-prefix'])).toThrow(/needs a value/);
