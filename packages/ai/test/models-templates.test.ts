@@ -19,7 +19,7 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 
 describe('model registry', () => {
-  it('drafting = Sonnet 5.5, classification = Haiku 5.5; both priced; fallbacks only for drafting', () => {
+  it('drafting = Sonnet 5.5, classification = Haiku 5.5; both priced; server-side fallbacks off for both (Phase 5)', () => {
     expect(DEFAULT_MODELS).toEqual({
       drafting: 'claude-sonnet-5-5',
       classification: 'claude-haiku-5-5',
@@ -27,7 +27,7 @@ describe('model registry', () => {
     expect(modelFor('drafting', {})).toBe('claude-sonnet-5-5');
     expect(modelFor('classification', {})).toBe('claude-haiku-5-5');
     for (const m of Object.values(DEFAULT_MODELS)) expect(PRICES[m]).toBeDefined();
-    expect(FALLBACKS).toEqual({ drafting: true, classification: false });
+    expect(FALLBACKS).toEqual({ drafting: false, classification: false });
   });
 
   it('env overrides, but only to a priced model', () => {

@@ -68,7 +68,7 @@ function setup(
 }
 
 describe('a successful draft', () => {
-  it('renders, redacts, calls the drafting model with fallbacks, settles the budget, and audits without content', async () => {
+  it('renders, redacts, calls the drafting model without fallbacks, settles the budget, and audits without content', async () => {
     const { ai, transport, limiter, audit } = setup();
     const draft = await ai.complete('product-copy-draft@1', copy);
 
@@ -78,7 +78,7 @@ describe('a successful draft', () => {
       model: 'claude-sonnet-5-5',
       maxTokens: 1200,
       effort: 'low',
-      fallbacks: true,
+      fallbacks: false,
     });
     expect(sent.user).toContain('write to [email] for wholesale');
     expect(sent.user).not.toContain('anna@example.org');
@@ -145,7 +145,7 @@ describe('a successful draft', () => {
     expect(audit.records[0]!.outcome).toBe('max_tokens');
   });
 
-  it('a server-side fallback is priced by the model that answered', async () => {
+  it('an answer from another model (a fallback, if ever enabled) is priced by the model that answered', async () => {
     const { ai, audit } = setup({}, () => ({
       servedModel: 'claude-opus-5-5',
       usage: { inputTokens: 1000, outputTokens: 100, cacheReadTokens: 0 },

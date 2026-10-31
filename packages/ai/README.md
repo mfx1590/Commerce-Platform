@@ -58,18 +58,20 @@ error and, if it gets through `as` casts, a `DeniedFieldError` at runtime.
 3. Render; redact the system and user text; hash the redacted input (SHA-256).
 4. Kill switch: `AI_ENABLED` must be exactly `1` (`AiDisabledError`).
 5. Reserve the input estimate plus `maxTokens` against the store's month and minute (`AiBudgetExceededError`, `AiRateLimitedError`).
-6. Call the model (drafting with server-side fallbacks, classification without).
+6. Call the model. Server-side refusal fallbacks are off in Phase 5: a refusal is `AiRefusedError` for the human to reword.
 7. Settle the reservation to the real usage (a failed call refunds it all).
 8. Price by the model that answered; write the audit row; a refusal throws `AiRefusedError` with its category.
 
-Every outcome, including each refusal before the call, writes exactly one audit row. A failed audit write withholds
+Every outcome, including each refusal before the call, writes exactly one audit row. A call refused before
+rendering (unknown template, denied field) has no input, so its `input_sha256` is `NO_INPUT_SHA256` = SHA-256 of the
+empty string (the column is NOT NULL, 64 hex); an ill-shaped template key is audited as `unknown`. A failed audit write withholds
 the draft (`AiAuditError`).
 
 ## Models and prices
 
 | Purpose        | Default             | Override env              | Fallbacks |
 | -------------- | ------------------- | ------------------------- | --------- |
-| drafting       | `claude-sonnet-5-5` | `AI_MODEL_DRAFTING`       | on        |
+| drafting       | `claude-sonnet-5-5` | `AI_MODEL_DRAFTING`       | off       |
 | classification | `claude-haiku-5-5`  | `AI_MODEL_CLASSIFICATION` | off       |
 
 An override must be a priced model (`PRICES`), else `AiConfigError`. Cost is integer micro-USD, rounded up.
@@ -80,8 +82,8 @@ An override must be a priced model (`PRICES`), else `AiConfigError`. Cost is int
 | -------------------------- | ------------------------ | ----------------------------------------- |
 | `AI_ENABLED`               | off                      | exactly `1` to allow calls                |
 | `AI_ANTHROPIC_API_KEY`     | —                        | the key; never `ANTHROPIC_API_KEY`        |
-| `AI_MONTHLY_TOKEN_BUDGET`  | `1000000`                | tokens per store per calendar month (UTC) |
-| `AI_RATE_LIMIT_PER_MINUTE` | `20`                     | calls per store per minute                |
+| `AI_MONTHLY_TOKEN_BUDGET`  | `200000`                 | tokens per store per calendar month (UTC) |
+| `AI_RATE_LIMIT_PER_MINUTE` | `10`                     | calls per store per minute                |
 | `REDIS_URL`                | `redis://127.0.0.1:6381` | the Redis limiter                         |
 
 ## Public API

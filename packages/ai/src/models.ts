@@ -34,11 +34,13 @@ export const PRICES: Readonly<Record<string, ModelPrice>> = {
 };
 
 /**
- * Whether the API's server-side refusal fallback is requested for this purpose (Sonnet 5.5 supports
- * `fallbacks: "default"`; Haiku 5.5 has no server-side fallback). The served model is audited either way.
+ * Whether the API's server-side refusal fallback is requested for this purpose. OFF for both in Phase 5 (manager,
+ * 2026-10-31): a refusal returns AiRefusedError to the human, who rewords and retries — no beta header, no second
+ * model the template was not written for, no unpredictable spend on gift credit. The transport still supports it and
+ * the served model is audited either way, so turning it on later is this table only.
  */
 export const FALLBACKS: Readonly<Record<Purpose, boolean>> = {
-  drafting: true,
+  drafting: false,
   classification: false,
 };
 

@@ -23,7 +23,8 @@ export interface UsageLimiter {
   usedTokens(storeId: string, now: Date): Promise<number>;
 }
 
-export const DEFAULT_LIMITS: Limits = { monthlyTokens: 1_000_000, perMinute: 20 };
+/** Phase-5 defaults while gift credit is the only money (manager, 2026-10-31); production sets its own via env. */
+export const DEFAULT_LIMITS: Limits = { monthlyTokens: 200_000, perMinute: 10 };
 
 function positiveInt(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
   const raw = env[name]?.trim();
