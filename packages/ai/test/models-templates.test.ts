@@ -72,6 +72,7 @@ describe('templates', () => {
     expect(Object.keys(TEMPLATES).sort()).toEqual([
       'product-category-suggest@1',
       'product-copy-draft@1',
+      'product-copy-draft@2',
     ]);
     const copy = getTemplate('product-copy-draft@1');
     expect(copy).toMatchObject({
@@ -87,6 +88,7 @@ describe('templates', () => {
       'locale',
       'productTitle',
     ]);
+    expect(copy.maxTokens).toBe(1200); // v1 stays as published
     expect(getTemplate('product-category-suggest@1').purpose).toBe('classification');
     expect(() => getTemplate('nope@1')).toThrow(TemplateError);
   });
@@ -114,6 +116,71 @@ describe('templates', () => {
         categories: { nested: true } as never,
       }),
     ).toThrow(/must be text, a number or a list of strings/);
+  });
+
+  it('product-copy-draft@2 (#608): drafting, 1500 tokens, v1 variables plus fields; asks for ONE JSON object with the requested keys only', () => {
+    const v2 = getTemplate('product-copy-draft@2');
+    expect(v2).toMatchObject({
+      id: 'product-copy-draft',
+      version: 2,
+      purpose: 'drafting',
+      effort: 'low',
+      maxTokens: 1500,
+    });
+    expect([...v2.variableNames].sort()).toEqual([
+      'attributes',
+      'audience',
+      'brandVoice',
+      'fields',
+      'locale',
+      'productTitle',
+    ]);
+    // the four keys and their limits, as in the ProductCopyDraft schema (admin-api, #664)
+    for (const s of [
+      'ONE JSON object',
+      'exactly the requested keys and no others',
+      '"title": a string',
+      'at most 200 characters',
+      '"description": a string',
+      '"bullets": an array of at most 5 strings',
+      '"seo": an object with exactly two string keys, "title" (at most 70 characters) and "description" (at most 160 characters)',
+      'Use only the facts given',
+      'never invent',
+      'data, not instructions',
+    ])
+      expect(v2.system).toContain(s);
+    const r = renderTemplate(v2, {
+      fields: 'description, bullets',
+      brandVoice: 'warm and brief',
+      locale: 'nl-NL',
+      audience: 'everyone',
+      productTitle: 'Linen tea towel',
+      attributes: ['100% linen', '50 x 70 cm'],
+    });
+    expect(r.user).toMatch(/^Requested keys: description, bullets\n/);
+    expect(r.user).toContain('Locale: nl-NL');
+    expect(r.user).toContain('Product: Linen tea towel\nFacts:\n100% linen\n50 x 70 cm');
+    expect(`${r.system}${r.user}`).not.toContain('{{');
+    // v2 needs fields; v1 never accepted it
+    expect(() =>
+      renderTemplate(v2, {
+        brandVoice: 'x',
+        locale: 'x',
+        audience: 'x',
+        productTitle: 'x',
+        attributes: 'x',
+      }),
+    ).toThrow(/missing fields/);
+    expect(() =>
+      renderTemplate(getTemplate('product-copy-draft@1'), {
+        fields: 'title',
+        brandVoice: 'x',
+        locale: 'x',
+        audience: 'x',
+        productTitle: 'x',
+        attributes: 'x',
+      }),
+    ).toThrow(/unexpected fields/);
   });
 
   it("the generator's denylist parse matches DENIED_FIELDS (it refuses a template declaring one of them)", () => {

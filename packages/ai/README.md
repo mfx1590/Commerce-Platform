@@ -51,6 +51,20 @@ const draft = await ai.complete('product-copy-draft@1', {
 The variables are typed per template; passing a denylisted field (`email`, `phone`, `postalCode`, …) is a compile
 error and, if it gets through `as` casts, a `DeniedFieldError` at runtime.
 
+## Templates
+
+A published template is never edited: a changed prompt is a new `v<N+1>.json`, and callers move to it by key.
+
+| Key                          | Purpose        | maxTokens | Variables                                                                        | Answer                                                                                                                                                                                                                        |
+| ---------------------------- | -------------- | --------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `product-copy-draft@1`       | drafting       | 1200      | `brandVoice`, `locale`, `audience`, `productTitle`, `attributes`                 | plain text: two short paragraphs, then up to five bullets                                                                                                                                                                     |
+| `product-copy-draft@2`       | drafting       | 1500      | as v1, plus `fields` (comma-separated: `title`, `description`, `bullets`, `seo`) | ONE JSON object with exactly the requested keys: `title` ≤ 200, `description` (plain paragraphs), `bullets` ≤ 5 × ≤ 200, `seo: { title ≤ 70, description ≤ 160 }` — the `ProductCopyDraft` shape of `draftProductCopy` (#608) |
+| `product-category-suggest@1` | classification | 64        | `productTitle`, `attributes`, `categories`                                       | one category handle from the list, or `none`                                                                                                                                                                                  |
+
+Every drafting template uses only the given facts and treats them as data, not instructions. The gateway returns
+the model's text as it is: the caller of `product-copy-draft@2` parses the JSON and checks the keys and limits
+itself (the core answers `ai_invalid_draft` otherwise); the gateway never trusts or repairs an answer.
+
 ## Order of a call
 
 1. The template exists and matches the gateway's purpose (`TemplateError`).

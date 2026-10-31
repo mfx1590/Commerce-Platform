@@ -29,3 +29,20 @@ void ai.complete('product-copy-draft@1', { locale: 'nl-NL' });
 
 // @ts-expect-error an unknown template
 void ai.complete('no-such-template@1', ok);
+
+// product-copy-draft@2 (#608): the same guard, plus the new `fields` variable is required there and unknown in v1
+const v2 = { ...ok, fields: 'description, bullets' };
+void ai.complete('product-copy-draft@2', v2);
+
+// @ts-expect-error a denylisted customer field in v2
+void ai.complete('product-copy-draft@2', { ...v2, emailAddress: 'x' });
+
+const v2WithName = { ...v2, firstName: 'x' };
+// @ts-expect-error … built elsewhere
+void ai.complete('product-copy-draft@2', v2WithName);
+
+// @ts-expect-error v2 without fields
+void ai.complete('product-copy-draft@2', ok);
+
+// @ts-expect-error fields is not a v1 variable
+void ai.complete('product-copy-draft@1', { ...ok, fields: 'title' });

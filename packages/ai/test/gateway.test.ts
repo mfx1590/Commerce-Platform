@@ -188,6 +188,23 @@ describe('refusals before any call (nothing is sent; one audit row each)', () =>
     });
   });
 
+  it('product-copy-draft@2 too: a denylisted field is refused before rendering, nothing is sent (#608)', async () => {
+    const { ai, transport, audit } = setup();
+    const v2 = { ...copy, fields: 'description, seo' };
+    const bad = { ...v2, attributes: ['linen'], customer: { phone: 'x' } } as unknown as typeof v2;
+    const err = await ai.complete('product-copy-draft@2', bad).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(DeniedFieldError);
+    expect((err as DeniedFieldError).fields).toEqual(['customer.phone']);
+    expect(transport.calls).toHaveLength(0);
+    expect(audit.records[0]).toMatchObject({
+      outcome: 'denied_field',
+      templateId: 'product-copy-draft',
+      templateVersion: 2,
+    });
+    await ai.complete('product-copy-draft@2', v2);
+    expect(transport.calls[0]).toMatchObject({ maxTokens: 1500 });
+  });
+
   it('a template of another purpose, an unknown template, or wrong variables', async () => {
     const { ai, transport, audit } = setup();
     await expect(

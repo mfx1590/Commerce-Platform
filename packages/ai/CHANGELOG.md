@@ -1,5 +1,9 @@
 # Changelog — @platform/ai
 
+## Unreleased
+
+- Template `product-copy-draft@2` (#608, for `draftProductCopy`, CONTRACT CHANGE #664): purpose drafting, maxTokens 1500, the v1 variables plus `fields` (a comma-separated list from `title`, `description`, `bullets`, `seo`). It asks for ONE JSON object with exactly the requested keys, within the `ProductCopyDraft` limits (`bullets` ≤ 5, `seo.title` ≤ 70, `seo.description` ≤ 160), from the given facts only. `product-copy-draft@1` is unchanged. Tests: the template's shape and rendering, typed variables (`fields` required in v2, unknown in v1), and the denylist at compile time and at runtime for v2.
+
 ## 0.1.0 — unreleased (#605, Phase 5 D8)
 
 - `createAiGateway({ organizationId, storeId, purpose, … })` over the official `@anthropic-ai/sdk` 1.3.0 (exact pin).
