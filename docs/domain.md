@@ -1018,6 +1018,28 @@ Owner: main window (schema); written by every bus consumer.
 | name | text | consumer name (e.g. `cart_recovery`); UNIQUE `(store_id, name)` |
 | seq | bigint | how far this consumer has read the outbox; advanced with GREATEST in the processing transaction |
 
+### ai_call_audit (AI gateway; migration 0205, #605 D8)
+One row per packages/ai gateway call attempt, including the gateway's refusals before any network call. NEVER the content: no prompt, no variables, no output. RLS `store`; append-only for the app role (no UPDATE, no DELETE).
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| organization_id / store_id | uuid FK | RLS `store`; the gateway always runs for one store |
+| actor_id | uuid NULL | staff_user.id who asked for the draft; NULL for a job |
+| purpose | text | `drafting` / `classification` |
+| template_id / template_version | text · integer | versioned template in packages/ai/templates; id `^[a-z][a-z0-9-]*$`, version ≥ 1 |
+| input_sha256 | char(64) | lower-case hex of the REDACTED rendered input |
+| redactions | integer | masked spans in the input (count only) |
+| model / served_model | text · text NULL | asked for / answered (differ after a refusal fallback) |
+| input_tokens / output_tokens / cache_read_tokens | integer | ≥ 0 |
+| cost_estimate_micro_usd | bigint | integer micro-USD, rounded up; price table in packages/ai |
+| latency_ms | integer NULL | ≥ 0 |
+| outcome | text | `ok` / `refused` / `max_tokens` / `error` / `disabled` / `over_budget` / `rate_limited` / `denied_field` |
+| error_class | text NULL | the error class name only, never a message |
+| created_at | timestamptz | indexes (store_id, created_at), (organization_id, created_at) |
+
+Owner: main window (schema); written by packages/ai (window 14).
+
 ---
 
 ## 3. Shared value objects (JSON, not tables)
