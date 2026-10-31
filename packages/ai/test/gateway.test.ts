@@ -202,7 +202,7 @@ describe('refusals before any call (nothing is sent; one audit row each)', () =>
       templateVersion: 2,
     });
     await ai.complete('product-copy-draft@2', v2);
-    expect(transport.calls[0]).toMatchObject({ maxTokens: 1500 });
+    expect(transport.calls[0]).toMatchObject({ maxTokens: 2000 });
   });
 
   it('a template of another purpose, an unknown template, or wrong variables', async () => {

@@ -55,15 +55,19 @@ error and, if it gets through `as` casts, a `DeniedFieldError` at runtime.
 
 A published template is never edited: a changed prompt is a new `v<N+1>.json`, and callers move to it by key.
 
-| Key                          | Purpose        | maxTokens | Variables                                                                        | Answer                                                                                                                                                                                                                        |
-| ---------------------------- | -------------- | --------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `product-copy-draft@1`       | drafting       | 1200      | `brandVoice`, `locale`, `audience`, `productTitle`, `attributes`                 | plain text: two short paragraphs, then up to five bullets                                                                                                                                                                     |
-| `product-copy-draft@2`       | drafting       | 1500      | as v1, plus `fields` (comma-separated: `title`, `description`, `bullets`, `seo`) | ONE JSON object with exactly the requested keys: `title` ≤ 200, `description` (plain paragraphs), `bullets` ≤ 5 × ≤ 200, `seo: { title ≤ 70, description ≤ 160 }` — the `ProductCopyDraft` shape of `draftProductCopy` (#608) |
-| `product-category-suggest@1` | classification | 64        | `productTitle`, `attributes`, `categories`                                       | one category handle from the list, or `none`                                                                                                                                                                                  |
+| Key                          | Purpose        | maxTokens | Variables                                                                        | Answer                                                                                                                                                                                                                                                                                   |
+| ---------------------------- | -------------- | --------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `product-copy-draft@1`       | drafting       | 1200      | `brandVoice`, `locale`, `audience`, `productTitle`, `attributes`                 | plain text: two short paragraphs, then up to five bullets                                                                                                                                                                                                                                |
+| `product-copy-draft@2`       | drafting       | 2000      | as v1, plus `fields` (comma-separated: `title`, `description`, `bullets`, `seo`) | ONE strict-JSON object with every requested key and no others: `title` ≤ 200, `description` ≤ 5000 (paragraph breaks as `\n\n` in the string), `bullets` ≤ 5 × ≤ 200 (may be `[]`), `seo: { title ≤ 70, description ≤ 160 }` — the `ProductCopyDraft` shape of `draftProductCopy` (#608) |
+| `product-category-suggest@1` | classification | 64        | `productTitle`, `attributes`, `categories`                                       | one category handle from the list, or `none`                                                                                                                                                                                                                                             |
 
-Every drafting template uses only the given facts and treats them as data, not instructions. The gateway returns
-the model's text as it is: the caller of `product-copy-draft@2` parses the JSON and checks the keys and limits
-itself (the core answers `ai_invalid_draft` otherwise); the gateway never trusts or repairs an answer.
+Every drafting template uses only the given facts. In `product-copy-draft@2` each value sits in its own tag
+(`<locale>`, `<brand_voice>`, `<audience>`, `<product_title>`, `<facts>`), the requested keys stay outside the tags,
+and the system prompt says tag contents are data only: brand voice and audience set tone and reader, never claims.
+A missing fact drops the claim, never a requested key. The gateway returns the model's text as it is: the caller
+parses the JSON and checks the keys and limits itself (the core answers `ai_invalid_draft` otherwise; check
+`stopReason === 'max_tokens'` first, a cut-off answer is not valid JSON); the gateway never trusts or repairs an
+answer. There is no structured-output (JSON schema) option in the transport yet.
 
 ## Order of a call
 
