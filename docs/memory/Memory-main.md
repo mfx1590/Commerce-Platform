@@ -56,7 +56,7 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
       - #660 (8a62daf, #657): the RudderStack suppress uses destinationIds (the old sourceIds were always rejected) and names both profiles, `[{userId, email_hash}, {userId: <hash>}]`; reaching the guest profile is UNVERIFIED until a real workspace exists (launch checklist f7f7f98). A hash-only erasure keeps THROWING by decision (no request route or ownership check yet).
     - **STATE AT 10-30 evening:** no open PRs, no window building, check-in loop deleted.
     - **NEXT:**
-      - Wave 3 (#605 window 14: model unconfirmed, ASK the owner; gift credit expires 11-10).
+      - Wave 3 STARTED 10-31: #605 → window 14, `local_47d82451-cf22-43d5-a207-6c1fcbf6c648`, **Opus 5.5 (owner confirmed 10-31)**, branch events/phase5-ai. The AI_ANTHROPIC_API_KEY line was copied into wt-events/.env (gitignored, not printed). The audit table comes as a CONTRACT CHANGE → the manager lands it on integration/phase5-ai. One live call at the end with the manager's OK. Gift credit expires 11-10.
       - The manager's own: minItems contract landing; BI write journeys in CI; #633; the #593 lock timeout.
       - Assign #634 / #624 / #609 / #642 / #647 / #640.
       - Owner: port binding for the other services (optional).
