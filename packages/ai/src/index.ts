@@ -59,6 +59,7 @@ export {
 export { createPgAuditSink } from './pg-audit.js';
 export {
   createAnthropicTransport,
+  ANTHROPIC_API_URL,
   createFakeTransport,
   errorClassOf,
   FALLBACK_BETA,
@@ -74,6 +75,7 @@ export {
   AiConfigError,
   AiDisabledError,
   AiError,
+  AiLimiterError,
   AiRateLimitedError,
   AiRefusedError,
   AiTransportError,

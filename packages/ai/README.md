@@ -94,6 +94,6 @@ An override must be a priced model (`PRICES`), else `AiConfigError`. Cost is int
 - Guards: `DENIED_FIELDS`, `findDeniedFields`, type `NoDeniedFields`; `redact`
 - Limits: `createMemoryLimiter`, `createRedisLimiter`, `limitsFromEnv`, `DEFAULT_LIMITS`; types `Limits`, `UsageLimiter`
 - Audit: `OUTCOMES`, `createPgAuditSink(appPool)`, `createMemoryAuditSink`, `NO_INPUT_SHA256` (the hash of a call refused before rendering); types `AuditRecord`, `AuditSink`
-- Transport: `createAnthropicTransport`, `createFakeTransport`, `FALLBACK_BETA`; types `AiTransport`, `AiRequest`, `AiResponse`
+- Transport: `createAnthropicTransport`, `createFakeTransport`, `FALLBACK_BETA`, `ANTHROPIC_API_URL` (the fixed host; `ANTHROPIC_BASE_URL` is never read); types `AiTransport`, `AiRequest`, `AiResponse`
 - Errors: `AiError`, `AiConfigError`, `AiDisabledError`, `AiBudgetExceededError`, `AiRateLimitedError`,
-  `DeniedFieldError`, `TemplateError`, `AiRefusedError`, `AiTransportError`, `AiAuditError`
+  `DeniedFieldError`, `TemplateError`, `AiRefusedError`, `AiTransportError`, `AiAuditError`, `AiLimiterError` (the limiter could not reserve; audited as `error`, nothing sent)

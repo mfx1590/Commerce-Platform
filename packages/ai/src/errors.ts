@@ -66,3 +66,13 @@ export class AiTransportError extends AiError {
 
 /** The audit row could not be written; the call's output is withheld (no unaudited AI output). */
 export class AiAuditError extends AiError {}
+
+/** The usage limiter (Redis) could not reserve; nothing was sent. `errorClass` is the class name, never a message. */
+export class AiLimiterError extends AiError {
+  constructor(
+    readonly errorClass: string,
+    options?: { cause?: unknown },
+  ) {
+    super(`the AI usage limiter failed (${errorClass}); nothing was sent`, options);
+  }
+}

@@ -17,10 +17,12 @@ const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 // 13–19 digits, optionally grouped by single spaces or hyphens
 const CARD_CANDIDATE = /\b\d(?:[ -]?\d){12,18}\b/g;
 const IBAN_CANDIDATE = /\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]){11,30}\b/g;
-// a phone-shaped run: an optional international prefix, then digits with optional separators. Kept only when it has
-// at least 9 digits AND looks like a phone (starts with +, 00 or 0, or uses separators), so a bare 13-digit order
-// number or GTIN is left alone.
-const PHONE = /(?:(?:\+|\b00)\d{1,3}[\s.-]?)?\(?\b0?\d{1,4}\)?(?:[\s.-]?\d){6,12}\b/g;
+// a phone-shaped run. Two shapes: an international one that starts with + or 00 and runs on through digits and
+// separators ("+31612345678", "+1 (415) 555-2671") — its own branch, because a `\b` after the country code cannot
+// sit between two digits, which once cut "+31612345678" down to a prefix-less run the check below rejected — and a
+// national one (optional "(", optional trunk 0). Kept only when it has at least 9 digits AND looks like a phone
+// (starts with +, 00 or 0, or uses separators), so a bare 13-digit order number or GTIN is left alone.
+const PHONE = /(?:\+|\b00)\d(?:[\s.()-]{0,2}\d){7,16}\b|\(?\b0?\d{1,4}\)?(?:[\s.-]?\d){6,12}\b/g;
 const looksLikePhone = (m: string) =>
   m.replace(/\D/g, '').length >= 9 && (/^\s*(?:\+|00|0|\()/.test(m) || /\d[\s.()-]+\d/.test(m));
 

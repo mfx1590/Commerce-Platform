@@ -20,13 +20,14 @@ import {
   AiConfigError,
   AiDisabledError,
   AiError,
+  AiLimiterError,
   AiRateLimitedError,
   AiRefusedError,
   AiTransportError,
   DeniedFieldError,
   TemplateError,
 } from './errors.js';
-import { limitsFromEnv, type Limits, type UsageLimiter } from './limiter.js';
+import { limitsFromEnv, type Limits, type ReserveResult, type UsageLimiter } from './limiter.js';
 import {
   costMicroUsd,
   FALLBACKS,
@@ -138,6 +139,16 @@ export function createAiGateway(opts: AiGatewayOptions): AiGateway {
     }
   }
 
+  // A failed settle leaves the whole reservation counted — the safe side (it over-counts, never under-counts) — and
+  // must not cost the audit row of a call that already happened.
+  async function settle(deltaTokens: number, at: Date): Promise<void> {
+    try {
+      await opts.limiter.settle(opts.storeId, deltaTokens, at);
+    } catch {
+      /* the reservation stands */
+    }
+  }
+
   return {
     storeId: opts.storeId,
     purpose: opts.purpose,
@@ -193,7 +204,15 @@ export function createAiGateway(opts: AiGatewayOptions): AiGateway {
       // 5. budget and rate
       const at = now();
       const reservation = estimateInputTokens(system, user) + t.maxTokens;
-      const r = await opts.limiter.reserve(opts.storeId, reservation, limits, at);
+      let r: ReserveResult;
+      try {
+        r = await opts.limiter.reserve(opts.storeId, reservation, limits, at);
+      } catch (err) {
+        // Redis down: refuse (no call without a budget check), audited with the class only
+        const errorClass = (err as Error)?.name || 'Error';
+        await audit(t, key, { ...base, outcome: 'error', errorClass });
+        throw new AiLimiterError(errorClass, { cause: err });
+      }
       if (!r.ok) {
         if (r.reason === 'rate_limited') {
           await audit(t, key, {
@@ -225,7 +244,7 @@ export function createAiGateway(opts: AiGatewayOptions): AiGateway {
         });
       } catch (err) {
         const latencyMs = Math.round(performance.now() - started);
-        await opts.limiter.settle(opts.storeId, -reservation, at);
+        await settle(-reservation, at);
         const errorClass =
           err instanceof AiTransportError ? err.errorClass : (err as Error).name || 'Error';
         await audit(t, key, { ...base, outcome: 'error', errorClass, latencyMs });
@@ -233,7 +252,7 @@ export function createAiGateway(opts: AiGatewayOptions): AiGateway {
       }
       const latencyMs = Math.round(performance.now() - started);
       const used = res.usage.inputTokens + res.usage.outputTokens;
-      await opts.limiter.settle(opts.storeId, used - reservation, at);
+      await settle(used - reservation, at);
       const cost = costMicroUsd(res.servedModel, res.usage, model);
       const measured = {
         ...base,

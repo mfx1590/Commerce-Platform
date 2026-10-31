@@ -5,6 +5,7 @@ import {
   AiBudgetExceededError,
   AiConfigError,
   AiDisabledError,
+  AiLimiterError,
   AiRateLimitedError,
   AiRefusedError,
   AiTransportError,
@@ -262,6 +263,46 @@ describe('after the call', () => {
     expect(audit.records[0]).toMatchObject({ outcome: 'refused', errorClass: 'AiRefusedError' });
     expect(audit.records[0]!.inputTokens).toBeGreaterThan(0);
     expect(await limiter.usedTokens(STORE, NOW)).toBeGreaterThan(0);
+  });
+
+  it('a limiter failure (Redis down) refuses before the call, audited as error with the class only', async () => {
+    const down = new Error('connect ECONNREFUSED words that must not be kept');
+    down.name = 'MaxRetriesPerRequestError';
+    const limiter = {
+      reserve: async () => {
+        throw down;
+      },
+      settle: async () => {},
+      usedTokens: async () => 0,
+    };
+    const { ai, transport, audit } = setup({ limiter });
+    const err = await ai.complete('product-copy-draft@1', copy).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AiLimiterError);
+    expect((err as AiLimiterError).errorClass).toBe('MaxRetriesPerRequestError');
+    expect((err as Error).message).not.toContain('must not be kept');
+    expect(transport.calls).toHaveLength(0);
+    expect(audit.records[0]).toMatchObject({
+      outcome: 'error',
+      errorClass: 'MaxRetriesPerRequestError',
+      inputTokens: 0,
+    });
+    expect(JSON.stringify(audit.records[0])).not.toContain('must not be kept');
+  });
+
+  it('a settle failure after the call keeps the reservation counted and still audits and returns the draft', async () => {
+    const mem = createMemoryLimiter();
+    const limiter = {
+      ...mem,
+      settle: async () => {
+        throw new Error('redis gone');
+      },
+    };
+    const { ai, audit } = setup({ limiter });
+    const d = await ai.complete('product-copy-draft@1', copy);
+    expect(audit.records[0]).toMatchObject({ id: d.auditId, outcome: 'ok' });
+    expect(await mem.usedTokens(STORE, NOW)).toBeGreaterThan(
+      d.usage.inputTokens + d.usage.outputTokens,
+    );
   });
 
   it('no unaudited output: when the audit cannot be written, the draft is withheld', async () => {

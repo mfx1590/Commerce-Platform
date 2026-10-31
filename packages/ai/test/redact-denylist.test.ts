@@ -26,6 +26,16 @@ describe('redact', () => {
     expect(redact('call +31 6 1234 5678 now').text).toBe('call [phone] now');
     expect(redact('call 020-555 1234 now').counts.phone).toBe(1);
     expect(redact('call (020) 555 1234').counts.phone).toBe(1);
+    // international numbers without separators: the + must reach the phone check (#661 review)
+    expect(redact('Call +31612345678 now').text).toBe('Call [phone] now');
+    expect(redact('Call +447946095800 now').text).toBe('Call [phone] now');
+    expect(redact('Call +14155552671 now').text).toBe('Call [phone] now');
+    expect(redact('Call +1 (415) 555-2671 now').text).toBe('Call [phone] now');
+    expect(redact('Call 0031612345678 now').text).toBe('Call [phone] now');
+    // bare long numbers stay: a GTIN-13 and an order number (both fail Luhn, neither looks like a phone)
+    for (const keep of ['GTIN 8712345678906', 'order 1234567890123', 'SKU 4006381333931']) {
+      expect(redact(keep).text, keep).toBe(keep);
+    }
     const keep = redact('A 2024 linen shirt, 120 x 80 cm, € 49.95, 500 ml, model 7731');
     expect(keep.total).toBe(0);
     expect(keep.text).toBe('A 2024 linen shirt, 120 x 80 cm, € 49.95, 500 ml, model 7731');

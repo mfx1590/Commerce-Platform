@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AiConfigError,
   AiTransportError,
+  ANTHROPIC_API_URL,
   createAnthropicTransport,
   createFakeTransport,
   FALLBACK_BETA,
@@ -106,6 +107,24 @@ describe('createAnthropicTransport', () => {
     });
     expect('temperature' in s.body).toBe(false);
     expect('thinking' in s.body).toBe(false);
+  });
+
+  it('talks to the fixed API host even when ANTHROPIC_BASE_URL is set in the process environment', async () => {
+    const before = process.env.ANTHROPIC_BASE_URL;
+    process.env.ANTHROPIC_BASE_URL = 'http://127.0.0.1:9/elsewhere';
+    try {
+      const seen: Seen[] = [];
+      const t = createAnthropicTransport({
+        env: { AI_ANTHROPIC_API_KEY: KEY },
+        fetch: stubFetch({ json: message() }, seen),
+        maxRetries: 0,
+      });
+      await t.complete(req);
+      expect(seen[0]!.url.startsWith(`${ANTHROPIC_API_URL}/v1/messages`)).toBe(true);
+    } finally {
+      if (before === undefined) delete process.env.ANTHROPIC_BASE_URL;
+      else process.env.ANTHROPIC_BASE_URL = before;
+    }
   });
 
   it('with fallbacks: the beta endpoint, the beta header and fallbacks "default"; the served model is reported', async () => {

@@ -30,6 +30,8 @@ export interface AiTransport {
 }
 
 export const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
+/** The only API host the transport talks to; never read from the environment. */
+export const ANTHROPIC_API_URL = 'https://api.anthropic.com';
 
 /** The SDK's error class name (e.g. `RateLimitError`), for the audit row; never the message. */
 export function errorClassOf(err: unknown): string {
@@ -65,6 +67,8 @@ export function createAnthropicTransport(opts: AnthropicTransportOptions = {}): 
   }
   const client = new Anthropic({
     apiKey,
+    // explicit, because the SDK would otherwise take ANTHROPIC_BASE_URL from the process environment
+    baseURL: ANTHROPIC_API_URL,
     timeout: opts.timeoutMs ?? 60_000,
     maxRetries: opts.maxRetries ?? 2,
     ...(opts.fetch ? { fetch: opts.fetch } : {}),
