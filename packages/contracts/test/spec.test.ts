@@ -245,7 +245,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.25/);
+    expect(text).toMatch(/version: 0\.4\.26/);
     for (const tag of [
       'registry',
       'catalog',
@@ -976,7 +976,7 @@ describe('report operations (contracts 0.4.22, Admin API 0.4.19, #493)', () => {
 
   it('the four reads exist under the reports tag with their x-permission, responses and examples', () => {
     expect(text).toMatch(/\n {2}- name: search\n {2}- name: reports\n/);
-    expect(ops.length).toBe(137); // 128 at 0.4.19; +listCustomerExports / getCustomerExport at 0.4.20 (#498); +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +listMetrics / queryMetrics at 0.4.25 (#603)
+    expect(ops.length).toBe(138); // +draftProductCopy at 0.4.26 (#664); 128 at 0.4.19; +listCustomerExports / getCustomerExport at 0.4.20 (#498); +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +listMetrics / queryMetrics at 0.4.25 (#603)
     const expected: Record<string, { path: string; perm: [string, string]; codes: string[] }> = {
       getStoreSalesReport: {
         path: '/admin/stores/{storeId}/reports/sales',
@@ -1062,7 +1062,9 @@ describe('customer exports (contracts 0.4.23, Store API 0.5.8, Admin API 0.4.20,
       ['store', store],
       ['admin', admin],
     ] as const) {
-      expect(text, name).toMatch(/description: '[^']*\bconflict\b[^']*, expired, internal'/);
+      expect(text, name).toMatch(
+        /description: '[^']*\bconflict\b[^']*, expired, internal(, ai_[a-z_]+)*'/,
+      );
       const start = text.indexOf('\n    Gone:\n');
       expect(start, name).toBeGreaterThan(text.indexOf('\n  responses:\n'));
       const gone = text.slice(start, text.indexOf('\n  schemas:\n', start));
@@ -1108,7 +1110,7 @@ describe('customer exports (contracts 0.4.23, Store API 0.5.8, Admin API 0.4.20,
   });
 
   it('listCustomerExports / getCustomerExport at store_admin; listCustomerConsents documents 400 (#496)', () => {
-    expect(adminOps.length).toBe(137); // +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +listMetrics / queryMetrics at 0.4.25 (#603)
+    expect(adminOps.length).toBe(138); // +draftProductCopy at 0.4.26 (#664); +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +listMetrics / queryMetrics at 0.4.25 (#603)
     expect(admin).toMatch(
       /\n {2}\/admin\/stores\/\{storeId\}\/customers\/\{customerId\}\/exports:\n/,
     );
@@ -1157,9 +1159,9 @@ describe('customer identity (contracts 0.4.24, Admin API 0.4.21, #504)', () => {
       .slice(1);
 
   it('getCustomerIdentity: HQ-only (support on organization:hq), ids only, 401 / 403 / 404', () => {
-    expect(admin).toMatch(/^ {2}version: 0\.4\.25$/m);
+    expect(admin).toMatch(/^ {2}version: 0\.4\.26$/m);
     expect(store).toMatch(/^ {2}version: 0\.5\.9$/m); // Store API unchanged (#504)
-    expect(adminOps.length).toBe(137); // 130 at 0.4.20; +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +2 metrics operations at 0.4.25 (#603)
+    expect(adminOps.length).toBe(138); // +draftProductCopy at 0.4.26 (#664); 130 at 0.4.20; +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +2 metrics operations at 0.4.25 (#603)
     const start = admin.indexOf('\n  /admin/customer-identities/{identityId}:\n');
     expect(start).toBeGreaterThan(0);
     // next to /admin/users
@@ -1200,7 +1202,7 @@ describe('customer identity (contracts 0.4.24, Admin API 0.4.21, #504)', () => {
 describe('segment consent never_asked (contracts 0.4.25, Admin API 0.4.22, #508 / #491)', () => {
   const admin = readFileSync(resolve(here, '../openapi/admin-api.yaml'), 'utf8');
   it('the SegmentPredicate consent op gains never_asked; granted and not_granted stay', () => {
-    expect(admin).toMatch(/^ {2}version: 0\.4\.25$/m);
+    expect(admin).toMatch(/^ {2}version: 0\.4\.26$/m);
     expect(admin).toMatch(/op: \{ type: string, enum: \[granted, not_granted, never_asked\] \}/);
   });
 });
@@ -1218,9 +1220,9 @@ describe('store tax rates (contracts 0.4.26, Admin API 0.4.23, #522 / #520)', ()
     admin.slice(admin.indexOf(`\n  ${path}:\n`), admin.indexOf(`\n  ${next}:\n`));
 
   it('the four operations on their paths, after the sales channels, with their x-permission and codes', () => {
-    expect(admin).toMatch(/^ {2}version: 0\.4\.25$/m);
+    expect(admin).toMatch(/^ {2}version: 0\.4\.26$/m);
     expect(store).toMatch(/^ {2}version: 0\.5\.9$/m); // Store API unchanged (#522)
-    expect(adminOps.length).toBe(137); // 131 at 0.4.22; +listTaxRates / createTaxRate / updateTaxRate / deleteTaxRate; +listMetrics / queryMetrics at 0.4.25 (#603)
+    expect(adminOps.length).toBe(138); // +draftProductCopy at 0.4.26 (#664); 131 at 0.4.22; +listTaxRates / createTaxRate / updateTaxRate / deleteTaxRate; +listMetrics / queryMetrics at 0.4.25 (#603)
     const list = admin.indexOf('\n  /admin/stores/{storeId}/tax-rates:\n');
     expect(list).toBeGreaterThan(admin.indexOf('\n  /admin/stores/{storeId}/sales-channels:\n'));
     expect(list).toBeLessThan(admin.indexOf('\n  /admin/stores/{storeId}/api-keys:\n'));
@@ -1508,4 +1510,79 @@ describe('no flow-mapping value is cut at a comma (2026-10-27)', () => {
       expect(hits).toEqual([]);
     });
   }
+});
+
+describe('product copy drafts (contracts 0.4.31, Admin API 0.4.26, #664 / #608)', () => {
+  const admin = read('admin-api.yaml');
+  const ops = operations(admin);
+  const body = (id: string) => ops.find((o) => o.id === id)!.body;
+  const schema = (name: string) => {
+    const start = admin.indexOf(`\n    ${name}:\n`);
+    expect(start, name).toBeGreaterThan(admin.indexOf('\n  schemas:\n'));
+    const next = admin.slice(start + 1).search(/\n {4}\w+:\n/);
+    return admin.slice(start, start + 1 + next);
+  };
+
+  it('draftProductCopy is POST …/products/{productId}/copy-drafts, store_staff on the store (as updateProduct)', () => {
+    const start = admin.indexOf('\n  /admin/stores/{storeId}/products/{productId}/copy-drafts:\n');
+    expect(start).toBeGreaterThan(
+      admin.indexOf('\n  /admin/stores/{storeId}/products/{productId}:\n'),
+    );
+    expect(admin.slice(start, start + 400)).toMatch(
+      /post:\n {6}tags: \[catalog\]\n {6}operationId: draftProductCopy\n/,
+    );
+    expect(body('draftProductCopy')).toMatch(
+      /x-permission: \{ relation: store_staff, object: 'store:\{storeId\}' \}/,
+    );
+    expect(body('updateProduct')).toMatch(
+      /x-permission: \{ relation: store_staff, object: 'store:\{storeId\}' \}/,
+    );
+  });
+
+  it('the body is closed: locale plus a non-empty unique list of known fields', () => {
+    const b = body('draftProductCopy');
+    expect(b).toMatch(/additionalProperties: false\n\s+required: \[locale, fields\]/);
+    expect(b).toMatch(
+      /minItems: 1\n\s+uniqueItems: true\n\s+items: \{ type: string, enum: \[title, description, bullets, seo\] \}/,
+    );
+  });
+
+  it('documents 400/401/403/404 and the AI statuses 422/429/502/503', () => {
+    const b = body('draftProductCopy');
+    for (const code of ['400', '401', '403', '404', '422', '429', '502', '503'])
+      expect(b).toContain(`'${code}':`);
+    for (const c of [
+      'ai_refused',
+      'ai_rate_limited',
+      'ai_budget_exceeded',
+      'ai_unavailable',
+      'ai_invalid_draft',
+      'ai_disabled',
+    ]) {
+      expect(b).toContain(`\`${c}\``);
+      expect(ERROR_CODES).toContain(c);
+    }
+  });
+
+  it('ProductCopyDraft is closed, with the draft limited to the requested fields and the template id + version', () => {
+    const s = schema('ProductCopyDraft');
+    expect(s).toMatch(
+      /required: \[product_id, locale, fields, draft, brand_voice_source, model, template, created_at\]/,
+    );
+    expect(s).toMatch(/brand_voice_source:\s*\{ type: string, enum: \[settings, default\]/);
+    expect(s).toMatch(
+      /template:\s*\{\s*type: object,\s*additionalProperties: false,\s*required: \[id, version\]/,
+    );
+    expect(s).toMatch(/bullets: \{ type: array, maxItems: 5/);
+    expect(s).toMatch(/title: \{ type: string, maxLength: 70 \}/);
+    expect(s).toMatch(/description: \{ type: string, maxLength: 160 \}/);
+  });
+
+  it('MetricQuery filter arrays are non-empty when present (accepted on #604)', () => {
+    const s = schema('MetricQuery');
+    const filters = s.slice(s.indexOf('\n        filters:\n'));
+    const arrays = filters.split('type: array\n').length - 1;
+    expect(arrays).toBe(4);
+    expect(filters.split('type: array\n              minItems: 1\n').length - 1).toBe(4);
+  });
 });

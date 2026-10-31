@@ -23,6 +23,7 @@
     "@medusajs/draft-order": "2.20.1",
     "@medusajs/framework": "2.20.1",
     "@medusajs/medusa": "2.20.1",
+    "@platform/ai": "workspace:*",
     "@platform/auth-sdk": "workspace:*",
     "@platform/contracts": "workspace:*",
     "@platform/db": "workspace:*",
