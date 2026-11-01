@@ -1,7 +1,8 @@
 // The Postgres audit sink: one ai_call_audit row per gateway call (0205, #605), written through the tenant client in
-// store scope, so RLS checks that the row belongs to the store the session acts for. Append-only: the app role has
+// store scope, so RLS checks that the row belongs to the store the session acts for; an organization-scope call's
+// row (store_id NULL, #669) through the organization client. Append-only: the app role has
 // INSERT and SELECT only. Never content: the record type has no field that could carry any.
-import { createTenantClient } from '@platform/db';
+import { createOrganizationClient, createTenantClient } from '@platform/db';
 import type { Pool } from 'pg';
 import type { AuditRecord, AuditSink } from './audit.js';
 
@@ -16,11 +17,14 @@ const INSERT = `INSERT INTO ai_call_audit (
 export function createPgAuditSink(pool: Pool): AuditSink {
   return {
     async write(r: AuditRecord): Promise<string> {
-      const db = createTenantClient(pool, {
-        organizationId: r.organizationId,
-        storeIds: [r.storeId],
-        actorId: r.actorId,
-      });
+      const db =
+        r.storeId === null
+          ? createOrganizationClient(pool, { organizationId: r.organizationId, actorId: r.actorId })
+          : createTenantClient(pool, {
+              organizationId: r.organizationId,
+              storeIds: [r.storeId],
+              actorId: r.actorId,
+            });
       const res = await db.query<{ id: string }>(INSERT, [
         r.organizationId,
         r.storeId,

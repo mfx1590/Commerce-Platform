@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(here, '../templates');
 const OUT = resolve(here, '../src/generated');
-const PURPOSES = ['drafting', 'classification'];
+const PURPOSES = ['drafting', 'classification', 'analysis'];
 const EFFORTS = ['low', 'medium', 'high'];
 const ID = /^[a-z][a-z0-9-]*$/;
 const VAR = /^[a-z][A-Za-z0-9]*$/;

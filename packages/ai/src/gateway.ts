@@ -8,7 +8,8 @@
 //   2. no denylisted customer field among the variables (any depth);
 //   3. the variables are exactly the template's declared set; render; redact every rendered string; hash it;
 //   4. the kill switch: AI_ENABLED must be exactly '1';
-//   5. reserve the worst case (estimated input + maxTokens) against the store's month and minute;
+//   5. reserve the worst case (estimated input + maxTokens) against the month and minute of the store, or of the
+//      organization for a call with storeId null (#669; its own budget, never a store's);
 //   6. call the model; settle the reservation to the real usage (all of it back after a failure);
 //   7. audit; only then return the draft. AI drafts, a human publishes: nothing here publishes anything.
 import { createHash } from 'node:crypto';
@@ -27,7 +28,14 @@ import {
   DeniedFieldError,
   TemplateError,
 } from './errors.js';
-import { limitsFromEnv, type Limits, type ReserveResult, type UsageLimiter } from './limiter.js';
+import {
+  limitsFromEnv,
+  orgLimitsFromEnv,
+  type LimitScope,
+  type Limits,
+  type ReserveResult,
+  type UsageLimiter,
+} from './limiter.js';
 import {
   costMicroUsd,
   FALLBACKS,
@@ -49,17 +57,23 @@ import type { AiTransport } from './transport.js';
 
 export interface AiGatewayOptions {
   organizationId: string;
-  storeId: string;
+  /** null: an organization-scope call (an HQ question over several stores, #669), with the organization's own budget. */
+  storeId: string | null;
   purpose: Purpose;
   /** staff_user.id of the person asking; omit for a job. */
   actorId?: string | null;
   transport: AiTransport;
   limiter: UsageLimiter;
   audit: AuditSink;
-  /** Default: process.env (AI_ENABLED, AI_MODEL_*, AI_MONTHLY_TOKEN_BUDGET, AI_RATE_LIMIT_PER_MINUTE). */
+  /**
+   * Default: process.env (AI_ENABLED, AI_MODEL_*, AI_MONTHLY_TOKEN_BUDGET, AI_ORG_MONTHLY_TOKEN_BUDGET,
+   * AI_RATE_LIMIT_PER_MINUTE).
+   */
   env?: NodeJS.ProcessEnv;
   /** Per-store limits; default from env. */
   limits?: Limits;
+  /** The organization's limits, for storeId null; default from env (orgLimitsFromEnv). */
+  orgLimits?: Limits;
   now?: () => Date;
 }
 
@@ -77,7 +91,7 @@ export interface AiDraft {
 }
 
 export interface AiGateway {
-  readonly storeId: string;
+  readonly storeId: string | null;
   readonly purpose: Purpose;
   readonly model: string;
   complete<K extends TemplateKey>(
@@ -90,6 +104,10 @@ export interface AiGateway {
 export const estimateInputTokens = (system: string, user: string) =>
   Math.ceil((system.length + user.length) / 3);
 
+/** The first instant of the next UTC month: when a monthly budget resets. */
+export const nextUtcMonth = (at: Date) =>
+  new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth() + 1, 1));
+
 /** The input hash of a call refused before rendering (nothing was rendered): the SHA-256 of the empty string. */
 export const NO_INPUT_SHA256 = createHash('sha256').update('').digest('hex');
 
@@ -99,7 +117,13 @@ export function createAiGateway(opts: AiGatewayOptions): AiGateway {
   if (!isPurpose(opts.purpose)) throw new AiConfigError(`unknown purpose ${String(opts.purpose)}`);
   const env = opts.env ?? process.env;
   const model = modelFor(opts.purpose, env);
-  const limits = opts.limits ?? limitsFromEnv(env);
+  const orgScope = opts.storeId === null;
+  const scope: LimitScope = orgScope
+    ? { kind: 'organization', id: opts.organizationId }
+    : { kind: 'store', id: opts.storeId as string };
+  const limits = orgScope
+    ? (opts.orgLimits ?? orgLimitsFromEnv(env))
+    : (opts.limits ?? limitsFromEnv(env));
   const now = opts.now ?? (() => new Date());
 
   async function audit(
@@ -128,6 +152,9 @@ export function createAiGateway(opts: AiGatewayOptions): AiGateway {
       costMicroUsd: 0,
       latencyMs: null,
       errorClass: null,
+      conversationId: null,
+      step: null,
+      toolNames: [],
       ...fields,
     };
     try {
@@ -143,7 +170,7 @@ export function createAiGateway(opts: AiGatewayOptions): AiGateway {
   // must not cost the audit row of a call that already happened.
   async function settle(deltaTokens: number, at: Date): Promise<void> {
     try {
-      await opts.limiter.settle(opts.storeId, deltaTokens, at);
+      await opts.limiter.settle(scope, deltaTokens, at);
     } catch {
       /* the reservation stands */
     }
@@ -206,7 +233,7 @@ export function createAiGateway(opts: AiGatewayOptions): AiGateway {
       const reservation = estimateInputTokens(system, user) + t.maxTokens;
       let r: ReserveResult;
       try {
-        r = await opts.limiter.reserve(opts.storeId, reservation, limits, at);
+        r = await opts.limiter.reserve(scope, reservation, limits, at);
       } catch (err) {
         // Redis down: refuse (no call without a budget check), audited with the class only
         const errorClass = (err as Error)?.name || 'Error';
@@ -220,14 +247,20 @@ export function createAiGateway(opts: AiGatewayOptions): AiGateway {
             outcome: 'rate_limited',
             errorClass: 'AiRateLimitedError',
           });
-          throw new AiRateLimitedError(opts.storeId, r.limitPerMinute);
+          throw new AiRateLimitedError(opts.storeId, r.limitPerMinute, scope.kind);
         }
         await audit(t, key, {
           ...base,
           outcome: 'over_budget',
           errorClass: 'AiBudgetExceededError',
         });
-        throw new AiBudgetExceededError(opts.storeId, r.usedTokens, r.limitTokens);
+        throw new AiBudgetExceededError(
+          opts.storeId,
+          r.usedTokens,
+          r.limitTokens,
+          scope.kind,
+          nextUtcMonth(at),
+        );
       }
 
       // 6. the call

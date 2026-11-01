@@ -19,20 +19,26 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 
 describe('model registry', () => {
-  it('drafting = Sonnet 5.5, classification = Haiku 5.5; both priced; server-side fallbacks off for both (Phase 5)', () => {
+  it('drafting = Sonnet 5.5, classification = Haiku 5.5, analysis = Sonnet 5.5 (#669); all priced; server-side fallbacks off for all (Phase 5)', () => {
     expect(DEFAULT_MODELS).toEqual({
       drafting: 'claude-sonnet-5-5',
       classification: 'claude-haiku-5-5',
+      analysis: 'claude-sonnet-5-5',
     });
     expect(modelFor('drafting', {})).toBe('claude-sonnet-5-5');
     expect(modelFor('classification', {})).toBe('claude-haiku-5-5');
+    expect(modelFor('analysis', {})).toBe('claude-sonnet-5-5');
     for (const m of Object.values(DEFAULT_MODELS)) expect(PRICES[m]).toBeDefined();
-    expect(FALLBACKS).toEqual({ drafting: false, classification: false });
+    expect(FALLBACKS).toEqual({ drafting: false, classification: false, analysis: false });
   });
 
   it('env overrides, but only to a priced model', () => {
     expect(modelFor('drafting', { AI_MODEL_DRAFTING: 'claude-opus-5-5' })).toBe('claude-opus-5-5');
     expect(modelFor('classification', { AI_MODEL_CLASSIFICATION: ' ' })).toBe('claude-haiku-5-5');
+    expect(modelFor('analysis', { AI_MODEL_ANALYSIS: 'claude-opus-5-5' })).toBe('claude-opus-5-5');
+    expect(() => modelFor('analysis', { AI_MODEL_ANALYSIS: 'some-unpriced-model' })).toThrow(
+      /AI_MODEL_ANALYSIS/,
+    );
     expect(() => modelFor('drafting', { AI_MODEL_DRAFTING: 'some-unpriced-model' })).toThrow(
       AiConfigError,
     );
