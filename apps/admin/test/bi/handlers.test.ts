@@ -6,13 +6,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
-const api = vi.hoisted(() => ({ queryMetrics: vi.fn(), queryMetricsCsv: vi.fn() }));
+const api = vi.hoisted(() => ({
+  queryMetrics: vi.fn(),
+  queryMetricsCsv: vi.fn(),
+  askMetrics: vi.fn(),
+  askMetricsFeedback: vi.fn(),
+}));
 vi.mock('@/app/(hq)/bi/_api', () => api);
 
 const { exportFileName, exportResponse, liveResponse } =
   await import('@/app/(hq)/bi/_lib/handlers');
 const { GET: storeLive } = await import('@/app/(store)/[storeId]/bi/live/route');
 const { GET: storeExport } = await import('@/app/(store)/[storeId]/bi/export/route');
+const { POST: hqAsk } = await import('@/app/(hq)/bi/ask/route');
+const { POST: storeAsk } = await import('@/app/(store)/[storeId]/bi/ask/route');
+const { POST: storeQuery } = await import('@/app/(store)/[storeId]/bi/query/route');
+const { POST: feedbackRoute } = await import('@/app/(hq)/bi/ask/[conversationId]/feedback/route');
 
 const A = '00000000-0000-4000-8000-000000000031';
 
@@ -132,5 +141,76 @@ describe('the CSV export', () => {
     expect(exportFileName('money', '../"evil"\r\n', '2026-03-01', '2026-03-04')).toBe(
       'bi-money-evil-2026-03-01-to-2026-03-04.csv',
     );
+  });
+});
+
+describe('BI Q&A handlers (#606)', () => {
+  const post = (body: unknown) =>
+    new Request('http://x/bi/ask', { method: 'POST', body: JSON.stringify(body) });
+
+  it('HQ asks over every store; the store view narrows to its store; the answer passes through as it came', async () => {
+    api.askMetrics.mockResolvedValue({ status: 200, body: '{"answer":"ok"}' });
+    const hq = await hqAsk(post({ question: '  bookings?  ', from: '2026-10-01', to: 'nonsense' }));
+    expect(hq.status).toBe(200);
+    expect(await hq.text()).toBe('{"answer":"ok"}');
+    expect(api.askMetrics).toHaveBeenLastCalledWith({ question: 'bookings?', from: '2026-10-01' });
+    await storeAsk(post({ question: 'bookings?' }), { params: Promise.resolve({ storeId: A }) });
+    expect(api.askMetrics).toHaveBeenLastCalledWith({ question: 'bookings?', store_ids: [A] });
+  });
+
+  it('an empty or over-long question is a 400 and nothing is sent', async () => {
+    for (const question of ['', '   ', 'x'.repeat(501), 42]) {
+      const r = await hqAsk(post({ question }));
+      expect(r.status).toBe(400);
+    }
+    expect(api.askMetrics).not.toHaveBeenCalled();
+  });
+
+  it('the API refusal keeps its status and body (403 bi_qa_off, 429, 503)', async () => {
+    for (const status of [403, 429, 503]) {
+      api.askMetrics.mockResolvedValueOnce({ status, body: '{"code":"x"}' });
+      const r = await hqAsk(post({ question: 'q' }));
+      expect(r.status).toBe(status);
+    }
+  });
+
+  it('feedback: only up/down reach the server; a 204 stays a 204', async () => {
+    api.askMetricsFeedback.mockResolvedValue({ status: 204, body: '' });
+    const ctx = { params: Promise.resolve({ conversationId: 'c-1' }) };
+    const ok = await feedbackRoute(
+      new Request('http://x', { method: 'POST', body: JSON.stringify({ rating: 'down' }) }),
+      ctx,
+    );
+    expect(ok.status).toBe(204);
+    expect(api.askMetricsFeedback).toHaveBeenCalledWith('c-1', 'down');
+    const bad = await feedbackRoute(
+      new Request('http://x', { method: 'POST', body: JSON.stringify({ rating: 'meh' }) }),
+      ctx,
+    );
+    expect(bad.status).toBe(400);
+    expect(api.askMetricsFeedback).toHaveBeenCalledTimes(1);
+  });
+
+  it('an edited query runs through queryMetrics, narrowed to the store of the URL', async () => {
+    api.queryMetrics.mockResolvedValue({ ok: true, status: 200, data: { rows: [] } });
+    const body = {
+      metrics: ['orders'],
+      dimensions: [],
+      grain: 'total',
+      from: '2026-10-01',
+      to: '2026-11-01',
+      limit: 10,
+    };
+    const r = await storeQuery(
+      new Request('http://x', { method: 'POST', body: JSON.stringify(body) }),
+      {
+        params: Promise.resolve({ storeId: A }),
+      },
+    );
+    expect(r.status).toBe(200);
+    expect(api.queryMetrics.mock.calls.at(-1)![0]).toEqual({
+      ...body,
+      filters: { store_ids: [A] },
+    });
   });
 });
