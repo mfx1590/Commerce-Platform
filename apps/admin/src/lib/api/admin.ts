@@ -6,7 +6,7 @@
  * type parameter is the contract `operationId`, so `AdminResponse<'listProducts'>` is exactly the
  * response body `admin-api.yaml` documents and a contract rename breaks the build.
  *
- * Contract: Admin API 0.4.23.
+ * Contract: Admin API 0.4.26.
  */
 
 import 'server-only';
@@ -924,5 +924,29 @@ export async function deleteTaxRate(
   return adminCall<'deleteTaxRate'>({
     path: buildPath('/admin/stores/{storeId}/tax-rates/{taxRateId}', { storeId, taxRateId }),
     method: 'DELETE',
+  });
+}
+
+// ---------------------------------------------------------------------------- copy drafts (#608, Admin API 0.4.26)
+
+export type DraftProductCopyBody =
+  operations['draftProductCopy']['requestBody']['content']['application/json'];
+
+/**
+ * An AI draft of the product's copy in one locale (store_staff). NEVER written to the product; a
+ * failed result carries `retryAfterSeconds` for `ai_rate_limited`.
+ */
+export async function draftProductCopy(
+  storeId: string,
+  productId: string,
+  body: DraftProductCopyBody,
+): Promise<ApiResult<AdminResponse<'draftProductCopy'>>> {
+  return adminCall<'draftProductCopy'>({
+    path: buildPath('/admin/stores/{storeId}/products/{productId}/copy-drafts', {
+      storeId,
+      productId,
+    }),
+    method: 'POST',
+    body,
   });
 }

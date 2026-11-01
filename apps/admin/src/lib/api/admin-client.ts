@@ -28,7 +28,27 @@ type SuccessBody<O> = O extends { responses: infer R }
 export type AdminResponse<K extends keyof operations> = SuccessBody<operations[K]>;
 
 export type ApiResult<T> =
-  { ok: true; status: number; data: T } | { ok: false; status: number; error: AdminError };
+  | { ok: true; status: number; data: T }
+  | {
+      ok: false;
+      status: number;
+      error: AdminError;
+      /** A failed response's `Retry-After` in whole seconds (e.g. `ai_rate_limited`), when sent. */
+      retryAfterSeconds?: number;
+    };
+
+/** `Retry-After` as seconds: an integer, or an HTTP date turned into seconds from now (≥ 1). */
+export function parseRetryAfter(value: string | null, now = Date.now()): number | undefined {
+  if (value === null || value.trim() === '') return undefined;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) {
+    const seconds = Number(trimmed);
+    return seconds >= 1 ? seconds : undefined;
+  }
+  const at = Date.parse(trimmed);
+  if (Number.isNaN(at)) return undefined;
+  return Math.max(1, Math.ceil((at - now) / 1000));
+}
 
 export type QueryValue = string | number | boolean | undefined;
 
@@ -123,10 +143,12 @@ export async function adminRequest<K extends keyof operations>(
   }
 
   if (!response.ok) {
+    const retryAfterSeconds = parseRetryAfter(response.headers.get('retry-after'));
     return {
       ok: false,
       status: response.status,
       error: coerceError(response.status, payload, response.statusText || 'Request failed'),
+      ...(retryAfterSeconds === undefined ? {} : { retryAfterSeconds }),
     };
   }
 
