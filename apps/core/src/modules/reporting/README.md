@@ -85,3 +85,29 @@ Tests:
   queries < 300 ms (measured 52–56 ms). The `analytics_ro` read path. The scope-escape tests over HTTP: (a) another
   store → 403, (b) no filter → exactly its own totals, (c) a store dimension → only its own store, (d) finance → 403,
   and an organization principal sees all three brands.
+
+## BI Q&A (#606, D9) — `ask/`
+
+A question in words, answered with AI tool use over the metrics API. **No SQL is generated or accepted anywhere.**
+`POST /admin/metrics/ask` and `POST /admin/metrics/ask/{conversationId}/feedback` (CONTRACT CHANGE #668), both
+`viewer` on `store:*`. They answer 503 until three things land: the contract (#668), the AI gateway's tool loop
+(REQUEST #669, window 14) and the `ai_qa_feedback` table (packages/db, the manager).
+
+- **Before the model sees anything** (`ask.ts`):
+  - a `store_ids` entry outside the caller's scope → 403;
+  - stores with `store.settings.ai.bi_qa = false` are left out and listed in `excluded_store_ids`. Absent means ON (owner decision 2026-11-01), and only stores the caller may see are ever listed. If none are left → 403 `bi_qa_off`.
+  - One store is charged and audited to that store; several (an HQ question) to the organization (`storeId: null`).
+- **One tool, `query_metrics`** (`tool.ts`): a `MetricQuery` schema narrowed to the caller's metrics and stores.
+  - Every call goes through the SAME `parseMetricQuery` → `scopeForQuery` (`metrics/scope.ts`, shared with `queryMetrics`) → `executeMetricQuery`.
+  - A call outside the scope, or not a valid query, becomes a tool error: the analytics store is never read, and the model sees the refusal.
+  - Each result carries a `ref` (`q1`, `q2` …) that the answer cites. At most 200 rows go back to the model; the caller gets the full, capped result.
+- **The answer** (`MetricAnswer`): the text, every query that parsed (its result or its error), a chart hint (the first day-grain query), `excluded_store_ids`, the model and the template.
+- **Gateway errors** map to the contract (`gateway.ts`): `ai_disabled` 503, `ai_budget_exceeded` / `ai_rate_limited` 429 (+ `Retry-After`), `ai_refused` / `ai_tool_limit` 422, `ai_unavailable` 502, `unavailable` 503. `ai_tool_limit` is passed with an explicit 422 until #668 adds it to `ERROR_CODES`.
+- **Feedback** (`feedback.ts`): up or down from the asker only (a 404 for anyone else, so ids are not confirmed). No free text; append-only, and the newest rating counts.
+- **The gateway** is a `GatewayLike` interface: exactly `runTools` as #669 asks. `testing/fake-gateway.ts` plays recorded tool calls with #669's rules (the loop cap, unknown tools, gateway errors). When #669 lands, `createAiGateway` replaces it at the factory.
+
+Tests:
+
+- `ask/ask.test.ts` (22): the five store-B cases (body 403 before the model; the tool refused with the analytics store untouched; scope [A] only; no finance for an analyst; injected SQL has no path), the per-store switch, the budget scope, the error map, the window and the chart hint.
+- `ask/routes.test.ts` (8): over HTTP with dev tokens and a seeded database: 401, store B, the organization budget for an analyst, a store switched off, Retry-After, feedback by the asker only, fail closed.
+- `ask/golden/` (32): the **golden set of 30 questions** with recorded tool calls (`cases.ts`), each held to its results by `run.ts`: refused calls refused, every figure in the answer backed by the result it cites, citations resolve, no other store's row. A test proves the checks are not vacuous. Unit on a fake reader; **live** on the generated month in ClickHouse (opt-in like the other live tests). A real-model run replays the same questions once the owner's key exists.

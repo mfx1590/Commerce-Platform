@@ -62,6 +62,17 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   (additionalProperties) → the switch is `settings.ai.bi_qa` (absent = on), documented, no schema change.
   Plan = REQUEST (window 14: tool-use loop in the gateway), CONTRACT CHANGE (askMetrics + askFeedback), a db REQUEST
   (feedback table; org-level audit rows), then the build in reporting/ask + admin (hq)/bi and (store)/bi.
+  APPROVED (manager ten 2026-11-01): (a) org-scope budget/audit (db change = manager: ai_call_audit.store_id nullable +
+  org RLS, + conversation_id / step / tool_names, + ai_qa_feedback); ai_tool_limit 422; feedback no free text.
+  FILED: CONTRACT CHANGE #668 (exact diff on 0.4.26; checked on a scratch copy: only the version pins + op count
+  138→140 fail), REQUEST #669 (runTools; + a comment: cite the server's `ref`, not call order). BUILT (pushed,
+  upstream set): b52825b3 core (tool + askMetrics + GatewayLike stand-in + scripted fake; scope.ts shared with
+  queryMetrics), efcefaf3 routes (fail closed; bi_qa from store.settings; Retry-After), b233deb2 golden set (30, a
+  checker proven non-vacuous), 3de74d4f admin (Ask box, editable queries, thumbs, route handlers). Core reporting/ask
+  62 pass (+1 live skipped); admin 936. WAITING: the machine for the live golden run (asked); #668 / #669 / the db
+  landing; then swap GatewayLike → createAiGateway, drop the ai_tool_limit cast, wire the pg FeedbackStore, PR.
+  Gotchas: the compiled rows' store column is `out_store` (not out_store_id); the contracts tests pin the version
+  and the op count, and require `'403': { $ref: Forbidden }` on every admin op.
 - #648 DONE: PR #652 MERGED (3d586fe). FOLLOW-UPS (manager ten, 2026-10-30): branch data/phase5-ch-followups, code commit
   46b8bc0; head = this memory commit; ONE PR "Refs #648" (#648 is closed), Opus review. (1) README handover = pull
   (or recreate), then ch:migrate AT ONCE — CORRECTION: the Docker Desktop file share PROPAGATES a deletion into the
