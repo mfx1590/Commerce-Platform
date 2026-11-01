@@ -61,10 +61,9 @@ const reply = {
   shippedAt: '',
   deliveredAt: '',
   carrier: '',
-  totalMinor: '2495',
-  currency: 'EUR',
+  total: '€24.95',
   refundStatus: '',
-  refundedMinor: '',
+  refunded: '',
   returnStatus: '',
   returnRequestedAt: '',
 };

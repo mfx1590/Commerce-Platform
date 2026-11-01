@@ -28,10 +28,9 @@ const facts: TemplateVariables<typeof KEY> = {
   shippedAt: '2026-10-27',
   deliveredAt: '',
   carrier: 'DHL',
-  totalMinor: '2495',
-  currency: 'EUR',
+  total: '€24.95',
   refundStatus: '',
-  refundedMinor: '',
+  refunded: '',
   returnStatus: '',
   returnRequestedAt: '',
 };
@@ -54,7 +53,7 @@ function setup() {
 }
 
 describe('support-reply-draft@1 (#667)', () => {
-  it('drafting, 700 tokens, effort low, the eighteen declared variables', () => {
+  it('drafting, 700 tokens, effort low, the seventeen declared variables', () => {
     const t = getTemplate(KEY);
     expect(t).toMatchObject({
       id: 'support-reply-draft',
@@ -74,12 +73,9 @@ describe('support-reply-draft@1 (#667)', () => {
       'Never invent a date, an amount, a carrier, a tracking number, a delivery time or a promise',
       'An empty value means unknown',
       'say plainly what is not known yet instead of guessing',
-      // money by the ISO 4217 exponent, never assumed to be 2 (review of #671)
-      "Convert them with the currency's ISO 4217 exponent and never assume 2",
-      'divide by 100 for EUR, USD, GBP and most others (2495 EUR is 24.95 EUR)',
-      'by 1 for JPY and KRW (2495 JPY is 2,495 JPY)',
-      'by 1000 for BHD, KWD and OMR (2495 BHD is 2.495 BHD)',
-      'rather than guess',
+      // money arrives formatted and is copied, never recomputed (review of #671, as revised)
+      'Amounts are already written as the customer sees them, currency included',
+      'copy an amount exactly as given, and never recompute, convert, round or add amounts',
       // the redaction placeholders (review of #671)
       '[email], [phone], [address], [card], [iban] and [tracking] mark details removed for privacy',
       'never repeat them, and never ask the customer for them',
@@ -114,9 +110,9 @@ describe('support-reply-draft@1 (#667)', () => {
         'shipped at: 2026-10-27\n' +
         'delivered at: \n' +
         'carrier: DHL\n' +
-        'total (minor units): 2495 EUR\n' +
+        'total: €24.95\n' +
         'refund status: \n' +
-        'refunded (minor units): \n' +
+        'refunded: \n' +
         'return status: \n' +
         'return requested at: \n' +
         '</order>\n' +
@@ -125,17 +121,16 @@ describe('support-reply-draft@1 (#667)', () => {
     );
   });
 
-  it('a zero-decimal currency renders as given (2495 JPY), for the exponent rule to convert (review of #671)', () => {
+  it('pre-formatted money renders verbatim: ¥2,495 stays ¥2,495 (review of #671, as revised)', () => {
     const user = renderTemplate(getTemplate(KEY), {
       ...facts,
-      totalMinor: '2495',
-      currency: 'JPY',
+      total: '¥2,495',
       refundStatus: 'issued',
-      refundedMinor: '500',
+      refunded: '¥500',
     }).user;
-    expect(user).toContain('total (minor units): 2495 JPY\n');
-    expect(user).toContain('refunded (minor units): 500\n');
-    expect(user).not.toContain('24.95');
+    expect(user).toContain('total: ¥2,495\n');
+    expect(user).toContain('refunded: ¥500\n');
+    expect(getTemplate(KEY).system).not.toMatch(/minor units|exponent/);
   });
 
   it('an instruction-shaped question stays text inside the one <question>; a fake tag is escaped', () => {
