@@ -51,11 +51,32 @@ const draft = await ai.complete('product-copy-draft@1', {
 The variables are typed per template; passing a denylisted field (`email`, `phone`, `postalCode`, …) is a compile
 error and, if it gets through `as` casts, a `DeniedFieldError` at runtime.
 
+## Templates
+
+A published template is never edited: a changed prompt is a new `v<N+1>.json`, and callers move to it by key.
+
+| Key                          | Purpose        | maxTokens | Variables                                                                        | Answer                                                                                                                                                                                                                                                                                   |
+| ---------------------------- | -------------- | --------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `product-copy-draft@1`       | drafting       | 1200      | `brandVoice`, `locale`, `audience`, `productTitle`, `attributes`                 | plain text: two short paragraphs, then up to five bullets                                                                                                                                                                                                                                |
+| `product-copy-draft@2`       | drafting       | 2000      | as v1, plus `fields` (comma-separated: `title`, `description`, `bullets`, `seo`) | ONE strict-JSON object with every requested key and no others: `title` ≤ 200, `description` ≤ 5000 (paragraph breaks as `\n\n` in the string), `bullets` ≤ 5 × ≤ 200 (may be `[]`), `seo: { title ≤ 70, description ≤ 160 }` — the `ProductCopyDraft` shape of `draftProductCopy` (#608) |
+| `product-category-suggest@1` | classification | 64        | `productTitle`, `attributes`, `categories`                                       | one category handle from the list, or `none`                                                                                                                                                                                                                                             |
+
+Every drafting template uses only the given facts. In `product-copy-draft@2` each value sits in its own tag
+(`<locale>`, `<brand_voice>`, `<audience>`, `<product_title>`, `<facts>`), the requested keys stay outside the tags,
+and the system prompt says tag contents are data only: brand voice and audience set tone and reader, never claims.
+A value cannot fake a tag boundary: the renderer escapes `&`, `<` and `>` in every value (step 3 below).
+A missing fact drops the claim, never a requested key. The gateway returns the model's text as it is: the caller
+parses the JSON and checks the keys and limits itself (the core answers `ai_invalid_draft` otherwise; check
+`stopReason === 'max_tokens'` first, a cut-off answer is not valid JSON); the gateway never trusts or repairs an
+answer. There is no structured-output (JSON schema) option in the transport yet.
+
 ## Order of a call
 
 1. The template exists and matches the gateway's purpose (`TemplateError`).
 2. No denylisted field at any depth (`DeniedFieldError`).
-3. Render; redact the system and user text; hash the redacted input (SHA-256).
+3. Render, escaping `&`, `<` and `>` in every variable value as `&amp;`, `&lt;`, `&gt;` (the template text is not
+   escaped), so no value can open or close a tag such as `<facts>`; redact the system and user text; hash the
+   escaped, redacted input (SHA-256), which is exactly what is sent.
 4. Kill switch: `AI_ENABLED` must be exactly `1` (`AiDisabledError`).
 5. Reserve the input estimate plus `maxTokens` against the store's month and minute (`AiBudgetExceededError`, `AiRateLimitedError`).
 6. Call the model. Server-side refusal fallbacks are off in Phase 5: a refusal is `AiRefusedError` for the human to reword.
