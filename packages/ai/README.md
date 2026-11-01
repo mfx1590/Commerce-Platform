@@ -13,7 +13,7 @@ src/denylist.ts            denied customer fields (type-level NoDeniedFields + r
 src/redact.ts              e-mail, IBAN (mod-97), card (Luhn), address/postcode, phone
 src/limiter.ts             per-store monthly token budget + per-minute rate limit (memory, Redis)
 src/audit.ts               AuditRecord, AuditSink, in-memory sink
-src/pg-audit.ts            createPgAuditSink: ai_call_audit (packages/db 0205) through the tenant client
+src/pg-audit.ts            createPgAuditSink: ai_call_audit (packages/db 0205, 0206) in store or organization scope
 src/transport.ts           Anthropic SDK transport, deterministic fake
 src/gateway.ts             createAiGateway
 ```
@@ -35,7 +35,7 @@ const ai = createAiGateway({
   actorId,
   transport: createAnthropicTransport(), // reads AI_ANTHROPIC_API_KEY only
   limiter: createRedisLimiter(), // REDIS_URL
-  audit: createPgAuditSink(appPool), // ai_call_audit, store scope, append-only
+  audit: createPgAuditSink(appPool), // ai_call_audit, store (or organization) scope, append-only
 });
 
 const draft = await ai.complete('product-copy-draft@1', {

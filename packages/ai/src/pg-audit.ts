@@ -1,4 +1,4 @@
-// The Postgres audit sink: one ai_call_audit row per gateway call (0205, #605), written through the tenant client in
+// The Postgres audit sink: one ai_call_audit row per gateway call or tool-use step (0205, #605; 0206, #669), written through the tenant client in
 // store scope, so RLS checks that the row belongs to the store the session acts for; an organization-scope call's
 // row (store_id NULL, #669) through the organization client. Append-only: the app role has
 // INSERT and SELECT only. Never content: the record type has no field that could carry any.
@@ -9,8 +9,8 @@ import type { AuditRecord, AuditSink } from './audit.js';
 const INSERT = `INSERT INTO ai_call_audit (
     organization_id, store_id, actor_id, purpose, template_id, template_version, input_sha256, redactions,
     model, served_model, input_tokens, output_tokens, cache_read_tokens, cost_estimate_micro_usd, latency_ms,
-    outcome, error_class
-  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+    outcome, error_class, conversation_id, step, tool_names
+  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
   RETURNING id`;
 
 /** `pool` is the application-role pool (DATABASE_URL_APP), subject to RLS. */
@@ -43,6 +43,9 @@ export function createPgAuditSink(pool: Pool): AuditSink {
         r.latencyMs,
         r.outcome,
         r.errorClass,
+        r.conversationId,
+        r.step,
+        [...r.toolNames],
       ]);
       return res.rows[0]!.id;
     },
