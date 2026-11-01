@@ -10080,6 +10080,118 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "conversation_id": "7c1e2a4b-0000-4000-8000-000000000606",
+                     *       "answer": "Bookings in October were €12,345.00 [q1]; refunds were €410.00 [q2].",
+                     *       "queries": [
+                     *         {
+                     *           "query": {
+                     *             "metrics": [
+                     *               "bookings_minor"
+                     *             ],
+                     *             "dimensions": [],
+                     *             "grain": "total",
+                     *             "from": "2026-10-01",
+                     *             "to": "2026-11-01",
+                     *             "limit": 1000
+                     *           },
+                     *           "result": {
+                     *             "query": {
+                     *               "metrics": [
+                     *                 "bookings_minor"
+                     *               ],
+                     *               "dimensions": [],
+                     *               "grain": "total",
+                     *               "from": "2026-10-01",
+                     *               "to": "2026-11-01",
+                     *               "limit": 1000
+                     *             },
+                     *             "generated_at": "2026-11-01T09:00:00Z",
+                     *             "data_as_of": "2026-11-01T08:59:50Z",
+                     *             "truncated": false,
+                     *             "rows": [
+                     *               {
+                     *                 "period": null,
+                     *                 "currency": "EUR",
+                     *                 "store_id": null,
+                     *                 "product_id": null,
+                     *                 "refund_reason": null,
+                     *                 "provider": null,
+                     *                 "values": {
+                     *                   "bookings_minor": 1234500
+                     *                 }
+                     *               }
+                     *             ],
+                     *             "currency_totals": [
+                     *               {
+                     *                 "currency": "EUR",
+                     *                 "values": {
+                     *                   "bookings_minor": 1234500
+                     *                 }
+                     *               }
+                     *             ]
+                     *           }
+                     *         },
+                     *         {
+                     *           "query": {
+                     *             "metrics": [
+                     *               "refunds_minor"
+                     *             ],
+                     *             "dimensions": [],
+                     *             "grain": "total",
+                     *             "from": "2026-10-01",
+                     *             "to": "2026-11-01",
+                     *             "limit": 1000
+                     *           },
+                     *           "result": {
+                     *             "query": {
+                     *               "metrics": [
+                     *                 "refunds_minor"
+                     *               ],
+                     *               "dimensions": [],
+                     *               "grain": "total",
+                     *               "from": "2026-10-01",
+                     *               "to": "2026-11-01",
+                     *               "limit": 1000
+                     *             },
+                     *             "generated_at": "2026-11-01T09:00:01Z",
+                     *             "data_as_of": "2026-11-01T08:59:50Z",
+                     *             "truncated": false,
+                     *             "rows": [
+                     *               {
+                     *                 "period": null,
+                     *                 "currency": "EUR",
+                     *                 "store_id": null,
+                     *                 "product_id": null,
+                     *                 "refund_reason": null,
+                     *                 "provider": null,
+                     *                 "values": {
+                     *                   "refunds_minor": 41000
+                     *                 }
+                     *               }
+                     *             ],
+                     *             "currency_totals": [
+                     *               {
+                     *                 "currency": "EUR",
+                     *                 "values": {
+                     *                   "refunds_minor": 41000
+                     *                 }
+                     *               }
+                     *             ]
+                     *           }
+                     *         }
+                     *       ],
+                     *       "chart": null,
+                     *       "excluded_store_ids": [],
+                     *       "model": "claude-sonnet-5-5",
+                     *       "template": {
+                     *         "id": "bi-qa-answer",
+                     *         "version": 1
+                     *       },
+                     *       "created_at": "2026-11-01T09:00:02Z"
+                     *     }
+                     */
                     "application/json": components["schemas"]["MetricAnswer"];
                 };
             };
