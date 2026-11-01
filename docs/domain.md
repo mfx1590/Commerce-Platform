@@ -1019,14 +1019,14 @@ Owner: main window (schema); written by every bus consumer.
 | seq | bigint | how far this consumer has read the outbox; advanced with GREATEST in the processing transaction |
 
 ### ai_call_audit (AI gateway; migration 0205, #605 D8)
-One row per packages/ai gateway call attempt, including the gateway's refusals before any network call. NEVER the content: no prompt, no variables, no output. RLS `store`; append-only for the app role (no UPDATE, no DELETE).
+One row per packages/ai gateway call attempt (one per model step of a tool-use run, since 0206), including the gateway's refusals before any network call. NEVER the content: no prompt, no variables, no output. RLS `store_nullable` (0206; `store` before); append-only for the app role (no UPDATE, no DELETE).
 
 | Field | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| organization_id / store_id | uuid FK | RLS `store`; the gateway always runs for one store |
+| organization_id / store_id | uuid FK · store_id NULL | RLS `store_nullable`; `store_id` NULL = an organization-scope (HQ) call, visible to organization scope only (0206) |
 | actor_id | uuid NULL | staff_user.id who asked for the draft; NULL for a job |
-| purpose | text | `drafting` / `classification` |
+| purpose | text | `drafting` / `classification` / `analysis` (0206) |
 | template_id / template_version | text · integer | versioned template in packages/ai/templates; id `^[a-z][a-z0-9-]*$`, version ≥ 1 |
 | input_sha256 | char(64) | lower-case hex of the REDACTED rendered input |
 | redactions | integer | masked spans in the input (count only) |
@@ -1034,11 +1034,27 @@ One row per packages/ai gateway call attempt, including the gateway's refusals b
 | input_tokens / output_tokens / cache_read_tokens | integer | ≥ 0 |
 | cost_estimate_micro_usd | bigint | integer micro-USD, rounded up; price table in packages/ai |
 | latency_ms | integer NULL | ≥ 0 |
-| outcome | text | `ok` / `refused` / `max_tokens` / `error` / `disabled` / `over_budget` / `rate_limited` / `denied_field` |
+| outcome | text | `ok` / `refused` / `max_tokens` / `error` / `disabled` / `over_budget` / `rate_limited` / `denied_field` / `tool_loop_cap` (0206) |
+| conversation_id / step | uuid NULL · integer NULL | a tool-use run and its 0-based model step; both NULL or both set (0206) |
+| tool_names | text[] | names of the tool calls the step asked for; default `'{}'` (0206) |
 | error_class | text NULL | the error class name only, never a message |
-| created_at | timestamptz | indexes (store_id, created_at), (organization_id, created_at) |
+| created_at | timestamptz | indexes (store_id, created_at), (organization_id, created_at), (organization_id, conversation_id), (conversation_id, step) WHERE conversation_id IS NOT NULL |
 
 Owner: main window (schema); written by packages/ai (window 14).
+
+### ai_qa_feedback (BI Q&A; migration 0206, #606 / #668)
+A thumbs up/down on a BI Q&A answer, from the asker only. No free text (a comment could carry personal data). RLS `store_nullable`; append-only for the app role (the newest row per conversation and actor is the rating).
+
+| Field | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| organization_id / store_id | uuid FK · store_id NULL | NULL = an HQ (organization-scope) question |
+| conversation_id | uuid | `ai_call_audit.conversation_id` of the answer (no FK) |
+| actor_id | uuid | staff_user.id of the asker |
+| rating | text | `up` / `down` |
+| created_at | timestamptz | index (organization_id, conversation_id, actor_id, created_at DESC) |
+
+Owner: main window (schema); written by apps/core reporting (window 12).
 
 ---
 

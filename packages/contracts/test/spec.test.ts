@@ -245,7 +245,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.26/);
+    expect(text).toMatch(/version: 0\.4\.27/);
     for (const tag of [
       'registry',
       'catalog',
@@ -976,7 +976,7 @@ describe('report operations (contracts 0.4.22, Admin API 0.4.19, #493)', () => {
 
   it('the four reads exist under the reports tag with their x-permission, responses and examples', () => {
     expect(text).toMatch(/\n {2}- name: search\n {2}- name: reports\n/);
-    expect(ops.length).toBe(138); // +draftProductCopy at 0.4.26 (#664); 128 at 0.4.19; +listCustomerExports / getCustomerExport at 0.4.20 (#498); +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +listMetrics / queryMetrics at 0.4.25 (#603)
+    expect(ops.length).toBe(140); // +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); 128 at 0.4.19; +listCustomerExports / getCustomerExport at 0.4.20 (#498); +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +listMetrics / queryMetrics at 0.4.25 (#603)
     const expected: Record<string, { path: string; perm: [string, string]; codes: string[] }> = {
       getStoreSalesReport: {
         path: '/admin/stores/{storeId}/reports/sales',
@@ -1110,7 +1110,7 @@ describe('customer exports (contracts 0.4.23, Store API 0.5.8, Admin API 0.4.20,
   });
 
   it('listCustomerExports / getCustomerExport at store_admin; listCustomerConsents documents 400 (#496)', () => {
-    expect(adminOps.length).toBe(138); // +draftProductCopy at 0.4.26 (#664); +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +listMetrics / queryMetrics at 0.4.25 (#603)
+    expect(adminOps.length).toBe(140); // +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +listMetrics / queryMetrics at 0.4.25 (#603)
     expect(admin).toMatch(
       /\n {2}\/admin\/stores\/\{storeId\}\/customers\/\{customerId\}\/exports:\n/,
     );
@@ -1159,9 +1159,9 @@ describe('customer identity (contracts 0.4.24, Admin API 0.4.21, #504)', () => {
       .slice(1);
 
   it('getCustomerIdentity: HQ-only (support on organization:hq), ids only, 401 / 403 / 404', () => {
-    expect(admin).toMatch(/^ {2}version: 0\.4\.26$/m);
+    expect(admin).toMatch(/^ {2}version: 0\.4\.27$/m);
     expect(store).toMatch(/^ {2}version: 0\.5\.9$/m); // Store API unchanged (#504)
-    expect(adminOps.length).toBe(138); // +draftProductCopy at 0.4.26 (#664); 130 at 0.4.20; +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +2 metrics operations at 0.4.25 (#603)
+    expect(adminOps.length).toBe(140); // +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); 130 at 0.4.20; +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +2 metrics operations at 0.4.25 (#603)
     const start = admin.indexOf('\n  /admin/customer-identities/{identityId}:\n');
     expect(start).toBeGreaterThan(0);
     // next to /admin/users
@@ -1202,7 +1202,7 @@ describe('customer identity (contracts 0.4.24, Admin API 0.4.21, #504)', () => {
 describe('segment consent never_asked (contracts 0.4.25, Admin API 0.4.22, #508 / #491)', () => {
   const admin = readFileSync(resolve(here, '../openapi/admin-api.yaml'), 'utf8');
   it('the SegmentPredicate consent op gains never_asked; granted and not_granted stay', () => {
-    expect(admin).toMatch(/^ {2}version: 0\.4\.26$/m);
+    expect(admin).toMatch(/^ {2}version: 0\.4\.27$/m);
     expect(admin).toMatch(/op: \{ type: string, enum: \[granted, not_granted, never_asked\] \}/);
   });
 });
@@ -1220,9 +1220,9 @@ describe('store tax rates (contracts 0.4.26, Admin API 0.4.23, #522 / #520)', ()
     admin.slice(admin.indexOf(`\n  ${path}:\n`), admin.indexOf(`\n  ${next}:\n`));
 
   it('the four operations on their paths, after the sales channels, with their x-permission and codes', () => {
-    expect(admin).toMatch(/^ {2}version: 0\.4\.26$/m);
+    expect(admin).toMatch(/^ {2}version: 0\.4\.27$/m);
     expect(store).toMatch(/^ {2}version: 0\.5\.9$/m); // Store API unchanged (#522)
-    expect(adminOps.length).toBe(138); // +draftProductCopy at 0.4.26 (#664); 131 at 0.4.22; +listTaxRates / createTaxRate / updateTaxRate / deleteTaxRate; +listMetrics / queryMetrics at 0.4.25 (#603)
+    expect(adminOps.length).toBe(140); // +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); 131 at 0.4.22; +listTaxRates / createTaxRate / updateTaxRate / deleteTaxRate; +listMetrics / queryMetrics at 0.4.25 (#603)
     const list = admin.indexOf('\n  /admin/stores/{storeId}/tax-rates:\n');
     expect(list).toBeGreaterThan(admin.indexOf('\n  /admin/stores/{storeId}/sales-channels:\n'));
     expect(list).toBeLessThan(admin.indexOf('\n  /admin/stores/{storeId}/api-keys:\n'));
@@ -1590,5 +1590,105 @@ describe('product copy drafts (contracts 0.4.31, Admin API 0.4.26, #664 / #608)'
     const arrays = filters.split('type: array\n').length - 1;
     expect(arrays).toBe(4);
     expect(filters.split('type: array\n              minItems: 1\n').length - 1).toBe(4);
+  });
+});
+
+describe('BI Q&A askMetrics + askMetricsFeedback (contracts 0.4.32, Admin API 0.4.27, #668 / #606)', () => {
+  const admin = read('admin-api.yaml');
+  const ops = operations(admin);
+  const body = (id: string) => ops.find((o) => o.id === id)!.body;
+  const schema = (name: string) => {
+    const start = admin.indexOf(`\n    ${name}:\n`);
+    expect(start, name).toBeGreaterThan(admin.indexOf('\n  schemas:\n'));
+    const next = admin.slice(start + 1).search(/\n {4}\w+:\n/);
+    return next < 0 ? admin.slice(start) : admin.slice(start, start + 1 + next);
+  };
+
+  it('both are POST under /admin/metrics/ask, after queryMetrics, viewer on store:* (as queryMetrics)', () => {
+    const query = admin.indexOf('\n  /admin/metrics/query:\n');
+    const ask = admin.indexOf('\n  /admin/metrics/ask:\n');
+    const feedback = admin.indexOf('\n  /admin/metrics/ask/{conversationId}/feedback:\n');
+    expect(ask).toBeGreaterThan(query);
+    expect(feedback).toBeGreaterThan(ask);
+    expect(admin.slice(ask, ask + 200)).toMatch(
+      /post:\n {6}tags: \[reports\]\n {6}operationId: askMetrics\n/,
+    );
+    expect(admin.slice(feedback, feedback + 400)).toMatch(
+      /name: conversationId, in: path, required: true, schema: \{ type: string, format: uuid \}[\s\S]*?post:\n {6}tags: \[reports\]\n {6}operationId: askMetricsFeedback\n/,
+    );
+    for (const id of ['askMetrics', 'askMetricsFeedback', 'queryMetrics'])
+      expect(body(id)).toMatch(/x-permission: \{ relation: viewer, object: 'store:\*' \}/);
+  });
+
+  it('askMetrics takes a closed body: question 1..500, optional store_ids (1..50, unique uuids), from / to dates', () => {
+    const b = body('askMetrics');
+    expect(b).toMatch(/additionalProperties: false\n\s+required: \[question\]\n/);
+    expect(b).toMatch(/question: \{ type: string, minLength: 1, maxLength: 500 \}/);
+    expect(b).toMatch(
+      /store_ids:\n\s+type: array\n\s+minItems: 1\n\s+maxItems: 50\n\s+uniqueItems: true\n[\s\S]*?items: \{ type: string, format: uuid \}/,
+    );
+    expect(b).toMatch(/from:\s*\{\s*type: string,\s*format: date,/);
+    expect(b).toMatch(/to:\s*\{\s*type: string,\s*format: date,/);
+    // No SQL anywhere in the input.
+    expect(b).not.toMatch(/\bsql:/i);
+  });
+
+  it('askMetricsFeedback takes a closed body with the rating only: up | down, no free text', () => {
+    const b = body('askMetricsFeedback');
+    expect(b).toMatch(
+      /additionalProperties: false\n\s+required: \[rating\]\n\s+properties:\n\s+rating: \{ type: string, enum: \[up, down\] \}\n\s+responses:/,
+    );
+    expect(b).not.toMatch(/comment:|text:|note:/);
+  });
+
+  it('documents the statuses: askMetrics 200/400/401/403/422/429/502/503, feedback 204/400/401/403/404', () => {
+    const a = body('askMetrics');
+    for (const code of ['200', '400', '401', '403', '422', '429', '502', '503'])
+      expect(a).toContain(`'${code}':`);
+    expect(a).toContain("schema: { $ref: '#/components/schemas/MetricAnswer' }");
+    for (const c of [
+      'ai_refused',
+      'ai_tool_limit',
+      'ai_rate_limited',
+      'ai_budget_exceeded',
+      'ai_unavailable',
+      'ai_disabled',
+      'unavailable',
+    ]) {
+      expect(a).toContain(`\`${c}\``);
+      expect(ERROR_CODES).toContain(c);
+    }
+    expect(a).toMatch(/'422':[\s\S]*?`ai_tool_limit`[\s\S]*?max_tool_calls/);
+    expect(a).toMatch(/'429':[\s\S]*?headers:\n\s+Retry-After:\n[\s\S]*?schema: \{ type: integer/);
+    expect(a).toContain('bi_qa_off');
+    const f = body('askMetricsFeedback');
+    for (const code of ['204', '400', '401', '403', '404']) expect(f).toContain(`'${code}':`);
+    expect(f).not.toContain("'200':");
+  });
+
+  it('ai_tool_limit is in ERROR_CODES and the Error.code description', () => {
+    expect(ERROR_CODES).toContain('ai_tool_limit');
+    expect(admin).toMatch(/ai_invalid_draft, ai_tool_limit'/);
+  });
+
+  it('MetricAnswer is closed: every query with its result or error (max 8), a nullable chart, excluded stores', () => {
+    const s = schema('MetricAnswer');
+    expect(s).toMatch(/MetricAnswer:\n\s+type: object\n\s+additionalProperties: false\n/);
+    expect(s).toMatch(
+      /required:\s*\[conversation_id, answer, queries, chart, excluded_store_ids, model, template, created_at\]/,
+    );
+    expect(s).toMatch(/queries:\n\s+type: array\n\s+maxItems: 8\n/);
+    expect(s).toMatch(
+      /items:\n\s+type: object\n\s+additionalProperties: false\n\s+required: \[query\]\n\s+properties:\n\s+query: \{ \$ref: '#\/components\/schemas\/MetricQuery' \}/,
+    );
+    expect(s).toMatch(/result:\n\s+\$ref: '#\/components\/schemas\/MetricResult'/);
+    expect(s).toMatch(/error:\n\s+\$ref: '#\/components\/schemas\/Error'/);
+    expect(s).toMatch(
+      /chart:\n\s+type: \[object, 'null'\]\n\s+additionalProperties: false\n\s+required: \[query_index, metric\]/,
+    );
+    expect(s).toMatch(/metric: \{ \$ref: '#\/components\/schemas\/MetricId' \}/);
+    expect(s).toMatch(
+      /template:\n\s+type: object\n\s+additionalProperties: false\n\s+required: \[id, version\]/,
+    );
   });
 });
