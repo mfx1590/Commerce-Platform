@@ -495,3 +495,25 @@
 - `MetricQuery.filters`: each of the four arrays gets `minItems: 1` (accepted on #604). An empty filter list is now
   a 400, not "no filter".
 - apps/core depends on `@platform/ai` (workspace). Store API (0.5.9), Accounting API, events and db are unchanged.
+
+## 0.4.32 — 2026-11-01 (Admin API 0.4.27, db 0.3.21; CONTRACT CHANGE #668, window 12, for #606)
+
+- Admin API: `askMetrics` (`POST /admin/metrics/ask`, tag `reports`, `viewer` on `store:*`, as `queryMetrics`). It
+  answers a natural-language question with the AI gateway (purpose `analysis`, template `bi-qa-answer`) and ONE tool,
+  `query_metrics`: a `MetricQuery` narrowed to the caller's catalogue and stores, every call validated, scoped and
+  executed exactly as `queryMetrics`. No SQL is generated or accepted. Closed body: `question` (1..500), optional
+  `store_ids` (1..50, unique; outside the scope = 403 before any AI call), `from` / `to`. Returns the new
+  `MetricAnswer` (closed): the answer citing [q1] …, every query it ran (max 8) with its `MetricResult` or `Error`, a
+  nullable `chart` hint, `excluded_store_ids` (stores with `settings.ai.bi_qa: false`, documentation only; absent =
+  ON), model and template. Statuses: 403 (`details.reason: bi_qa_off` when every store in scope is off), 422
+  `ai_refused` / `ai_tool_limit`, 429 `ai_rate_limited` (with `Retry-After`) / `ai_budget_exceeded` (the store's, or
+  for an HQ question the organization's budget), 502 `ai_unavailable`, 503 `ai_disabled` / `unavailable`.
+- Admin API: `askMetricsFeedback` (`POST /admin/metrics/ask/{conversationId}/feedback`, `viewer` on `store:*`): a
+  closed body with `rating` (`up` | `down`) only, no free text; 204; 404 for a conversation the caller did not ask.
+  Stored in `ai_qa_feedback` (db 0.3.21, migration 0206), a later rating replaces the earlier one.
+- `ERROR_CODES` gains `ai_tool_limit`, and the Admin `Error.code` description lists it; apps/core maps it to 422.
+- `draftProductCopy`'s 200 example uses `locale: en-GB` (Prism's store example has `default_locale: en-GB`) with an
+  English draft.
+- Spec tests: the Admin version pins move to 0.4.27, the operation counts to 140, and a new block pins the two paths,
+  `x-permission`, the closed bodies, `question` 1..500, the feedback without free text, the statuses and
+  `MetricAnswer`. Store API (0.5.9), Accounting API and events are unchanged.
