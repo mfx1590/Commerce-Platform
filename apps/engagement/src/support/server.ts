@@ -23,6 +23,7 @@ import {
 import type { ScopedClient } from '@platform/db';
 import type { AgentAuth } from './auth.js';
 import { buildContext } from './context.js';
+import { buildReplyDraft, type DraftGateway } from './reply-draft.js';
 import type { ChatwootReceiver } from './chatwoot.js';
 import type { SupportReader } from './admin-api.js';
 import { SupportError } from './types.js';
@@ -30,7 +31,7 @@ import { SupportError } from './types.js';
 export interface SupportLogLine {
   service: 'engagement';
   module: 'support';
-  event: 'context' | 'webhook' | 'refused' | 'started' | 'stopped';
+  event: 'context' | 'draft' | 'webhook' | 'refused' | 'started' | 'stopped';
   route?: string;
   status?: number;
   code?: string;
@@ -40,6 +41,11 @@ export interface SupportLogLine {
   staff_user_id?: string;
   conversation_id?: string;
   orders?: number;
+  /** The template a draft was asked for (#610). NEVER the question and never the draft text. */
+  template?: string;
+  /** The order the draft was about, as the customer sees it (`display_id`), never the uuid. */
+  order_ref?: string;
+  model?: string;
 }
 
 export interface SupportServerOptions {
@@ -48,6 +54,22 @@ export interface SupportServerOptions {
   auth: AgentAuth;
   reader: SupportReader;
   chatwoot?: ChatwootReceiver;
+  /**
+   * AI reply drafts (#610). Both or neither: without a gateway factory the route cannot draft, and without
+   * the switch it would not know which stores may. Absent = the feature is not mounted at all, which is how
+   * a deployment that has no AI key behaves.
+   */
+  draft?: {
+    /** `config.support.aiDraftsFor` — ON by default per store (owner 2026-11-01). */
+    enabledFor(storeCode: string): boolean;
+    /**
+     * One gateway per request, because the budget, the rate limit and the audit row are per STORE and the
+     * audit's actor is the agent who asked.
+     */
+    gatewayFor(storeId: string, actorId: string): DraftGateway;
+    brandVoice: string;
+    defaultLocale: string;
+  };
   /** Max bytes of a webhook body. A webhook is small; anything larger is not one. */
   maxBodyBytes?: number;
   log?: (line: SupportLogLine) => void;
@@ -78,13 +100,19 @@ function requireUuid(value: string, what: string): string {
   return value;
 }
 
-function send(res: ServerResponse, status: number, body: unknown): void {
+function send(
+  res: ServerResponse,
+  status: number,
+  body: unknown,
+  extraHeaders: Record<string, string> = {},
+): void {
   const text = JSON.stringify(body);
   res.writeHead(status, {
     'content-type': 'application/json',
     'content-length': Buffer.byteLength(text),
     // A support answer is personal data: never cached by a proxy or a browser.
     'cache-control': 'no-store',
+    ...extraHeaders,
   });
   res.end(text);
 }
@@ -107,8 +135,16 @@ function fail(
     status: e.status,
     code: e.code,
   });
-  // The message is ours, never an upstream body and never the error's stack.
-  send(res, e.status, { code: e.code, message: e.message });
+  // The message is ours, never an upstream body and never the error's stack. `details` is ours too — a
+  // refusal category, a reason class — and `Retry-After` is the contract's shape for a rate limit (#610).
+  const headers =
+    e.retryAfterSeconds === undefined ? {} : { 'retry-after': String(e.retryAfterSeconds) };
+  send(
+    res,
+    e.status,
+    { code: e.code, message: e.message, ...(e.details ? { details: e.details } : {}) },
+    headers,
+  );
 }
 
 async function readBody(req: IncomingMessage, max: number): Promise<string> {
@@ -202,9 +238,87 @@ export function createSupportServer(opts: SupportServerOptions): Server {
             staff_user_id: principal.staffUserId,
             orders: built.orders.length,
           });
-          send(res, 200, built);
+          // The capability, so a dashboard hides the button instead of discovering a 404 (#610).
+          send(res, 200, { ...built, ai_drafts: opts.draft?.enabledFor(store.code) === true });
         } catch (err) {
           fail(res, err, opts.log, '/support/customers/:customerId/context');
+        }
+        return;
+      }
+
+      const draftRoute = /^\/support\/customers\/([^/]+)\/reply-draft$/.exec(path);
+      if (draftRoute) {
+        try {
+          if (req.method !== 'POST') throw new SupportError(405, 'method_not_allowed', 'Use POST');
+          // The SAME gates, in the same order, as the context route: who, then the store, then `support` on
+          // that store, then anything else. A draft is the same data by another name.
+          const principal = await opts.auth.authenticate(req.headers.authorization);
+          const storeRef = url.searchParams.get('store');
+          if (!storeRef)
+            throw new SupportError(400, 'bad_request', 'The `store` parameter is required');
+          const store = await storeOf(storeRef);
+          await opts.auth.requireSupport(principal, store.id);
+
+          // THE SWITCH, BEFORE ANY SUPPORT DATA IS READ (#610): while a store is off, nothing about a
+          // customer is fetched, let alone sent to the gateway. 404 rather than 403 — whether a store has the
+          // feature is not an agent's business, and a dashboard reads `ai_drafts` on the context instead.
+          if (!opts.draft || !opts.draft.enabledFor(store.code)) {
+            throw new SupportError(404, 'not_found', 'No such route for this store');
+          }
+
+          const customerId = requireUuid(decodeURIComponent(draftRoute[1] as string), 'customer');
+          const raw = await readBody(req, maxBody);
+          let body: { question?: unknown; orderId?: unknown; locale?: unknown };
+          try {
+            body = JSON.parse(raw || '{}') as typeof body;
+          } catch {
+            throw new SupportError(400, 'validation_error', 'The body must be JSON');
+          }
+          if (typeof body.question !== 'string') {
+            throw new SupportError(400, 'validation_error', '`question` must be a string');
+          }
+          const orderId =
+            typeof body.orderId === 'string' ? requireUuid(body.orderId, 'order') : undefined;
+          const locale =
+            typeof body.locale === 'string' && body.locale.trim()
+              ? body.locale.trim()
+              : opts.draft.defaultLocale;
+
+          const context = await buildContext({
+            reader: opts.reader,
+            storeId: store.id,
+            storeCode: store.code,
+            defaultCurrency: store.default_currency,
+            customerId,
+            authorization: principal.authorization,
+          });
+
+          const draft = await buildReplyDraft({
+            gateway: opts.draft.gatewayFor(store.id, principal.staffUserId),
+            context,
+            question: body.question,
+            orderId,
+            locale,
+            brandVoice: opts.draft.brandVoice,
+          });
+
+          opts.log?.({
+            service: 'engagement',
+            module: 'support',
+            event: 'draft',
+            route: '/support/customers/:customerId/reply-draft',
+            status: 200,
+            customer_id: customerId,
+            store_code: store.code,
+            staff_user_id: principal.staffUserId,
+            template: draft.template,
+            order_ref: draft.orderRef,
+            model: draft.model,
+          });
+          // No `accepted`, no id: there is nothing to follow up, because nothing was sent anywhere.
+          send(res, 200, draft);
+        } catch (err) {
+          fail(res, err, opts.log, '/support/customers/:customerId/reply-draft');
         }
         return;
       }

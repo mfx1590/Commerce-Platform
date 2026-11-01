@@ -66,6 +66,87 @@ export function parseConsentMode(
  * no safe answer, and letting whichever `Object.entries` yielded last win is how a region ends up on the open
  * mode by accident. Two that agree are harmless and allowed.
  */
+/**
+ * The per-store ENV shape, once, for any value (#610 needed it for a second setting — a boolean — and two
+ * copies of this loop is the bug class #586 was about).
+ *
+ * `<PREFIX><STORE_CODE>`, keyed by the NORMALISED store key, parsed now so a bad value fails the boot. An
+ * empty value is a refusal rather than a default (#644): a missing variable is a default, a variable somebody
+ * SET is a statement. Two spellings of one store that disagree throw; two that agree are allowed.
+ */
+export function readPerStoreOverrides<T>(
+  env: Record<string, string | undefined>,
+  prefix: string,
+  parse: (raw: string, where: string) => T,
+): Map<string, T> {
+  const overrides = new Map<string, T>();
+  const setBy = new Map<string, string>();
+  for (const [key, value] of Object.entries(env)) {
+    if (!key.startsWith(prefix)) continue;
+    const suffix = key.slice(prefix.length);
+    if (!suffix) {
+      throw new ConsentModeConfigError(
+        `${key} names no store (it is the prefix with nothing after it): use ${prefix}<STORE_CODE>`,
+      );
+    }
+    if (value === undefined || value.trim() === '') {
+      throw new ConsentModeConfigError(
+        `${key} is set but empty: remove the variable to use the global default`,
+      );
+    }
+    const storeKey = storeEnvKey(suffix);
+    const parsed = parse(value.trim(), key);
+    const first = setBy.get(storeKey);
+    if (first !== undefined && overrides.get(storeKey) !== parsed) {
+      throw new ConsentModeConfigError(
+        `${first} and ${key} both set ${prefix}<STORE_CODE> for store "${storeKey}" and disagree`,
+      );
+    }
+    setBy.set(storeKey, first ?? key);
+    overrides.set(storeKey, parsed);
+  }
+  return overrides;
+}
+
+/**
+ * The same refusal `assertConsentModeOverridesKnown` makes, for any prefix: an override whose key matches no
+ * known store, or matches TWO of them, cannot address a store (#644). Only keys IN USE are checked.
+ */
+export function assertPerStoreOverridesKnown(
+  prefix: string,
+  keys: Iterable<string>,
+  storeCodes: readonly string[],
+): void {
+  const inUse = [...keys];
+  if (inUse.length === 0) return;
+  const byKey = new Map<string, string[]>();
+  for (const code of storeCodes) {
+    const key = storeEnvKey(code);
+    byKey.set(key, [...(byKey.get(key) ?? []), code]);
+  }
+  const ambiguous = inUse
+    .map((key) => [key, byKey.get(key) ?? []] as const)
+    .filter(([, codes]) => codes.length > 1);
+  if (ambiguous.length > 0) {
+    const detail = ambiguous
+      .map(([key, codes]) => `${prefix}${key} matches ${[...codes].sort().join(' and ')}`)
+      .join('; ');
+    throw new ConsentModeConfigError(
+      `a per-store setting cannot say which store it means: ${detail}. ` +
+        `Rename one of the store codes`,
+    );
+  }
+  const known = new Set(storeCodes.map(storeEnvKey));
+  const unknown = inUse.filter((key) => !known.has(key));
+  if (unknown.length === 0) return;
+  const named = unknown.map((key) => `${prefix}${key}`).join(', ');
+  const codes = [...storeCodes].sort().join(', ') || '(this organization has no stores)';
+  throw new ConsentModeConfigError(
+    `${named}: no such store in this organization, so the override would silently do nothing ` +
+      `(known store codes: ${codes})`,
+  );
+}
+
 export function readConsentModeOverrides(
   env: Record<string, string | undefined>,
   fallback: ConsentMode,

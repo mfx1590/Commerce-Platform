@@ -2,7 +2,11 @@ import { SEED_IDS } from '@platform/db';
 import { describe, expect, it } from 'vitest';
 import { KNOWN_GROUPS, resolveConfig, storeEnvKey } from './config.js';
 import { ConfigRefusedError } from './config-error.js';
-import { assertConsentModeOverridesKnown, ConsentModeConfigError } from './consent-mode.js';
+import {
+  assertConsentModeOverridesKnown,
+  assertPerStoreOverridesKnown,
+  ConsentModeConfigError,
+} from './consent-mode.js';
 import { buildCdpAdapter, buildCrmAdapter, buildTokenProvider, buildTransport } from './main.js';
 
 const APP_URL = 'postgres://platform_app:platform_app@127.0.0.1:5433/platform';
@@ -1033,13 +1037,30 @@ describe('resolveConfig — the support API (#556)', () => {
 
   it('is OFF by default, with no dev tokens and no webhook secret', () => {
     const c = resolveConfig({ env: base });
-    expect(c.support).toEqual({
+    // Deliberately exhaustive: a new field in the support config is a new thing this service does, and this
+    // test is where it has to be acknowledged (#610 added the four drafting ones).
+    expect(c.support).toMatchObject({
       enabled: false,
       port: 4040,
       adminApiUrl: 'http://localhost:9000',
       maxOrders: 25,
       devTokens: false,
+      aiDrafts: true,
+      brandVoice: 'warm, brief and factual',
+      defaultLocale: 'en-GB',
     });
+    expect(Object.keys(c.support).sort()).toEqual([
+      'adminApiUrl',
+      'aiDrafts',
+      'aiDraftsFor',
+      'aiDraftsOverrides',
+      'brandVoice',
+      'defaultLocale',
+      'devTokens',
+      'enabled',
+      'maxOrders',
+      'port',
+    ]);
     expect(c.support.chatwootSecret).toBeUndefined();
   });
 
@@ -1089,6 +1110,111 @@ describe('resolveConfig — the support API (#556)', () => {
     expect(() => resolveConfig({ env: { ...base, ENGAGEMENT_SUPPORT_MAX_ORDERS: '0' } })).toThrow(
       /ENGAGEMENT_SUPPORT_MAX_ORDERS must be an integer/,
     );
+  });
+});
+
+describe('AI reply drafts are ON by default, per store (#610)', () => {
+  // Owner decision 2026-11-01: build it now and have it on, with the per-store switch kept so a store can be
+  // turned off later. So the DEFAULT is the thing to pin — a default of OFF would quietly disable the
+  // feature the owner asked for.
+  it('defaults to ON for every store', () => {
+    const c = resolveConfig({ env: base, argv: [] });
+    expect(c.support.aiDrafts).toBe(true);
+    expect(c.support.aiDraftsFor('brand-a')).toBe(true);
+    expect(c.support.aiDraftsOverrides.size).toBe(0);
+  });
+
+  it('turns off globally, and a store can be turned back on', () => {
+    const c = resolveConfig({
+      env: {
+        ...base,
+        ENGAGEMENT_SUPPORT_AI_DRAFTS: '0',
+        ENGAGEMENT_SUPPORT_AI_DRAFTS_BRAND_A: '1',
+      },
+      argv: [],
+    });
+    expect(c.support.aiDraftsFor('brand-b')).toBe(false);
+    expect(c.support.aiDraftsFor('brand-a')).toBe(true);
+  });
+
+  it('turns ONE store off while the rest stay on', () => {
+    const c = resolveConfig({
+      env: { ...base, ENGAGEMENT_SUPPORT_AI_DRAFTS_BRAND_A: '0' },
+      argv: [],
+    });
+    expect(c.support.aiDraftsFor('brand-a')).toBe(false);
+    expect(c.support.aiDraftsFor('brand-b')).toBe(true);
+  });
+
+  it('normalises the store key the same way on both sides (#586)', () => {
+    for (const key of [
+      'ENGAGEMENT_SUPPORT_AI_DRAFTS_BRAND_A',
+      'ENGAGEMENT_SUPPORT_AI_DRAFTS_brand_a',
+      'ENGAGEMENT_SUPPORT_AI_DRAFTS_brand-a',
+    ]) {
+      expect(
+        resolveConfig({ env: { ...base, [key]: '0' }, argv: [] }).support.aiDraftsFor('brand-a'),
+      ).toBe(false);
+    }
+  });
+
+  it('REFUSES an empty value, a nonsense value, and the bare prefix (#644)', () => {
+    expect(() =>
+      resolveConfig({ env: { ...base, ENGAGEMENT_SUPPORT_AI_DRAFTS_BRAND_A: '' }, argv: [] }),
+    ).toThrow(/is set but empty/);
+    expect(() =>
+      resolveConfig({ env: { ...base, ENGAGEMENT_SUPPORT_AI_DRAFTS_BRAND_A: 'maybe' }, argv: [] }),
+    ).toThrow(/must be "1" or "0"/);
+    expect(() =>
+      resolveConfig({ env: { ...base, ENGAGEMENT_SUPPORT_AI_DRAFTS_: '1' }, argv: [] }),
+    ).toThrow(ConfigRefusedError);
+    expect(() =>
+      resolveConfig({ env: { ...base, ENGAGEMENT_SUPPORT_AI_DRAFTS: 'yes' }, argv: [] }),
+    ).toThrow(/must be "1" or "0"/);
+  });
+
+  it('REFUSES two spellings of one store that disagree', () => {
+    expect(() =>
+      resolveConfig({
+        env: {
+          ...base,
+          ENGAGEMENT_SUPPORT_AI_DRAFTS_BRAND_A: '1',
+          'ENGAGEMENT_SUPPORT_AI_DRAFTS_brand-a': '0',
+        },
+        argv: [],
+      }),
+    ).toThrow(/disagree/);
+  });
+
+  it('takes a brand voice and a default locale for the draft', () => {
+    const c = resolveConfig({
+      env: {
+        ...base,
+        ENGAGEMENT_SUPPORT_BRAND_VOICE: 'playful and short',
+        ENGAGEMENT_SUPPORT_DEFAULT_LOCALE: 'nl-NL',
+      },
+      argv: [],
+    });
+    expect([c.support.brandVoice, c.support.defaultLocale]).toEqual(['playful and short', 'nl-NL']);
+  });
+});
+
+describe('assertPerStoreOverridesKnown (#610 reuses the #644 refusal)', () => {
+  it('refuses a key that names no store, and one that names two', () => {
+    expect(() =>
+      assertPerStoreOverridesKnown('ENGAGEMENT_SUPPORT_AI_DRAFTS_', ['BRANDA'], ['brand-a']),
+    ).toThrow(/no such store/);
+    expect(() =>
+      assertPerStoreOverridesKnown(
+        'ENGAGEMENT_SUPPORT_AI_DRAFTS_',
+        ['BRAND_A'],
+        ['brand-a', 'brand_a'],
+      ),
+    ).toThrow(/cannot say which store/);
+    expect(() =>
+      assertPerStoreOverridesKnown('ENGAGEMENT_SUPPORT_AI_DRAFTS_', ['BRAND_A'], ['brand-a']),
+    ).not.toThrow();
+    expect(() => assertPerStoreOverridesKnown('X_', [], [])).not.toThrow();
   });
 });
 

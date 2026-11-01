@@ -141,6 +141,37 @@ package yet.
 - Nothing from a support answer is cached or stored, and every response is `cache-control: no-store`: it is
   personal data and the agent's permission is only true at the moment the core says so.
 - A support log line carries ids, the store code and counts — never a name, address, e-mail or tracking number.
+- **AI reply drafts (#610) send a REDUCED projection, never the support context.** `draft-context.ts` builds
+  `DraftVariables` whose TYPE cannot carry a denied field; the context itself holds an e-mail, a name and
+  every tracking number. What is sent: the question, the store code, brand voice, locale, the order's
+  reference and three statuses, the placed/shipped/delivered DAYS, the carrier, formatted money, and the
+  newest refund and return. What is never sent: the e-mail, the name, any address or phone, **the tracking
+  number** (an identifier at a carrier — the same rule the CDP follows), every uuid, and the context's
+  `notes` (they are about our read failures). A test asserts the key set AND runs `@platform/ai`'s own
+  `findDeniedFields` over the projection, so the type and the gateway's runtime guard agree.
+- **Money is formatted here, never by the model**: a model given `4976` and `EUR` has to divide by a hundred,
+  and nothing tells it that JPY does not work that way. `Intl` knows; a customer-facing draft is the wrong
+  place for a model to do arithmetic.
+- **The question is UNTRUSTED and is passed through unchanged.** Redaction is the gateway's step 3 (e-mail,
+  IBAN, card, address, phone) over the text it also hashes for the audit; a second, half-done redaction here
+  would give a false sense of safety and could differ from it. Prompt injection is answered by the template
+  (each value in its own tag, tag contents are data) and structurally: **this service has no outbound channel
+  to a customer**, so a draft can only be edited and sent by an agent.
+- **`ENGAGEMENT_SUPPORT_AI_DRAFTS` is ON by default** (owner 2026-11-01), per store through
+  `..._<STORE_CODE>`, on the same env contract as the consent mode: one normalisation both ways, an empty
+  value refused, a key naming no store (or two) refused once the stores are known. **While a store is OFF the
+  route refuses BEFORE it reads any support data** and answers 404 (not 403 — whether a store has the feature
+  is not an agent's business); the context answer carries `ai_drafts` so a dashboard hides the button instead
+  of discovering the 404. A test proves the reader and the gateway were never touched.
+- The gateway's errors map to `@platform/contracts` `ERROR_CODES` **by error CLASS NAME**, not `instanceof`:
+  they cross a package boundary, and two copies of a package break `instanceof` silently. `ai_disabled` 503,
+  `ai_budget_exceeded` / `ai_rate_limited` 429 (+ `Retry-After`), `ai_refused` 422 with the category,
+  `ai_unavailable` 502, limiter/audit/template/config 503 `unavailable`, a denied field 500 `internal`.
+  An upstream message never travels to the caller.
+- **The template key lives in `draft-template.ts` and nowhere else.** `support-reply-draft@1` is window 14's
+  to publish (REQUEST #667); until it lands the gateway raises `TemplateError` before rendering or sending
+  and the route answers 503 — configured, not ready. The one `as never` cast in `main.ts` exists only because
+  `complete` is typed to the published registry; it comes out when the template lands.
 - A customer of another store gets the SAME 404 as a non-existent one: the route must not reveal that an id
   exists elsewhere.
 - The Chatwoot webhook resolves nothing and persists nothing, by ruling: it has no agent token and owns no

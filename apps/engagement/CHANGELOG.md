@@ -1,5 +1,46 @@
 # @platform/engagement
 
+## 0.9.0 — 2026-11-01 (#610, AI support reply drafts)
+
+A reply DRAFT for a support agent, through `packages/ai`'s guarded gateway. ON by default per store (owner
+decision 2026-11-01: "we need everything at start; we can limit later").
+
+- **`POST /support/customers/:customerId/reply-draft`**, behind the same gates as the context route and in the
+  same order. The agent edits and sends; **this service has no outbound channel to a customer**, so "nothing
+  is ever sent automatically" is structural rather than a rule someone has to remember.
+- **A reduced projection, not the support context** (`draft-context.ts`). The context carries an e-mail, a
+  name and every tracking number; `DraftVariables`'s type cannot carry a denied field. Sent: the question,
+  the store code, brand voice, locale, the order's `display_id` and three statuses, the placed/shipped/
+  delivered DAYS, the carrier, formatted money, the newest refund and return. Not sent: the e-mail, the name,
+  any address or phone, the **tracking number** (an identifier at a carrier — the CDP's rule), every uuid,
+  and the `notes`. A test pins the key set and runs `@platform/ai`'s own `findDeniedFields` over the
+  projection, so the type and the runtime guard cannot drift.
+- **Money is formatted here, never by the model.** A model handed `4976` and `EUR` must divide by a hundred
+  and has no way to know JPY does not work that way; `Intl` does. A customer-facing draft is the wrong place
+  for a model to do arithmetic.
+- **The question is untrusted and unchanged.** Redaction is the gateway's step over the text it also hashes
+  for the audit; a second, half-done redaction here would differ from it and give a false sense of safety.
+  Injection is answered by the template (every value in its own tag, tag contents are data) and by the
+  missing outbound channel.
+- **`ENGAGEMENT_SUPPORT_AI_DRAFTS`, default `1`**, per store through `..._<STORE_CODE>` on the consent-mode
+  env contract: one normalisation both ways, an empty value refused, a key naming no store — or two — refused
+  once `warm()` knows the stores. The generic halves of that contract are now `readPerStoreOverrides` and
+  `assertPerStoreOverridesKnown`, so there is still ONE normalisation rather than a second copy (#586's
+  lesson).
+- **While a store is OFF the route refuses before reading any support data** and answers 404 (not 403: whether
+  a store has the feature is not an agent's business). A test asserts the reader and the gateway were never
+  touched. The context answer carries `ai_drafts` so a dashboard hides the button instead of discovering the 404.
+- Gateway errors map to `@platform/contracts` `ERROR_CODES` **by class name** (they cross a package boundary,
+  where `instanceof` fails silently between two copies): `ai_disabled` 503, budget/rate 429 with
+  `Retry-After`, `ai_refused` 422 with its category, `ai_unavailable` 502, limiter/audit/template/config 503
+  `unavailable`, a denied field 500 `internal`. No upstream message ever reaches a caller.
+- **It cannot draft until `support-reply-draft@1` is published** (REQUEST #667; `packages/ai` is window 14's,
+  and a published template is frozen). The gateway refuses an unpublished key before rendering or sending,
+  and the route answers 503 `unavailable`. One `as never` in `main.ts` is the whole cost, and it comes out
+  when the template lands.
+- Tests: **535 passing / 9 live skipped** offline (was 491/9), all on a recording gateway port — no test
+  constructs the real gateway, reaches a network, or spends a budget.
+
 ## 0.8.0 — 2026-10-30 (#657, the Fable re-review of #563/#564)
 
 One HIGH privacy finding: an erasure suppressed one profile out of two.
