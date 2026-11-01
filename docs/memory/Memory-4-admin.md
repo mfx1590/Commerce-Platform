@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-11-01 · Contracts: Admin API 0.4.26 on main · Branch: `admin/phase5-608` · Manager: "Manager session ten" (local_3c029c3c…; report there) · Status: #608 — built, Q1–Q3 answered; mock e2e on the manager's handover, then PR
+Last updated: 2026-11-01 · Contracts: Admin API 0.4.26 on main · Branch: `admin/phase5-608` · Manager: "Manager session ten" (local_3c029c3c…; report there) · Status: #608 — PR #675 up; waiting for 0.4.27 on main (CI e2e save step)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -580,6 +580,11 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   e2e/copy-draft.spec.ts (mock only). Gate: unit 971/971, contract OK (settings :4217 EADDRINUSE once,
   transient). Asked for the machine for the mock e2e. Then: squash, `git push -u origin
   admin/phase5-608`, PR "Closes #608"? — NO: #608 is window 1's + mine; use "Refs #608" unless told.
+  **PR #675 opened 2026-11-01** (Refs #608; code aae712c4; opening head 8541177 = main 4fc189ea merged;
+  head = this record). Mock e2e on the handover: copy-draft + store-admin 19/19 on a LOCAL en-GB yaml
+  copy (restored); first attempt failed on a non-exact label ("Draft Description" also matched the
+  Copy button) → exact labels. CI's mock e2e will be RED on the save step until 0.4.27's en-GB
+  example is on main — merge main when the manager says it landed. Machine freed.
 - **#518 — Integration 3 G1 (tracking #517), 2026-10-20.** Manager is now **"Manager session
   seven"** (local_484d7727-b945-48ba-bb27-0366bd2bbdcc); report there. Merged main 78db5ce (Admin
   API 0.4.22, contracts-v0.4.25), install + build; `fga:seed` run (reused store 01M4ZT6H…, new
