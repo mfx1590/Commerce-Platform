@@ -12,6 +12,9 @@ issue; tick it only with a link to the evidence.
 - [ ] Lawyer review: the CDP tracking default (owner decision 2026-10-23: track by default; per-region strict via
       `ENGAGEMENT_CDP_CONSENT_MODE_<STORE>`), the erase decision (orders retained), the existing lawyer list, and
       the Anthropic processor question for BI Q&A (#606) and support drafts (#610).
+- [ ] **AI features are ON by default (owner decision 2026-11-01).** BI Q&A (#606) and support drafts (#610) are
+      built and switched on per store from the start. Before REAL customer or store data reaches Anthropic, confirm
+      that Anthropic's data-processing terms cover it, then tick this line. A store can be switched off with its setting.
 - [ ] Brand names; brands B/C invoice OK.
 - [ ] Anthropic API key with a monthly spend cap (in place for dev since 2026-10-27; the gift credit expires
       2026-11-10).
