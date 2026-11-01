@@ -46,3 +46,37 @@ void ai.complete('product-copy-draft@2', ok);
 
 // @ts-expect-error fields is not a v1 variable
 void ai.complete('product-copy-draft@1', { ...ok, fields: 'title' });
+
+// support-reply-draft@1 (#667): window 16's projection must never carry a customer's name, e-mail or address
+const reply = {
+  question: 'where is my order?',
+  storeCode: 'brand-a',
+  brandVoice: 'warm and brief',
+  locale: 'en-GB',
+  orderRef: '1042',
+  orderStatus: 'processing',
+  paymentStatus: 'captured',
+  fulfillmentStatus: 'shipped',
+  placedAt: '2026-10-24',
+  shippedAt: '',
+  deliveredAt: '',
+  carrier: '',
+  totalMinor: '2495',
+  currency: 'EUR',
+  refundStatus: '',
+  refundedMinor: '',
+  returnStatus: '',
+  returnRequestedAt: '',
+};
+void ai.complete('support-reply-draft@1', reply);
+
+// @ts-expect-error a denylisted customer field in an object literal
+void ai.complete('support-reply-draft@1', { ...reply, customerName: 'x' });
+
+const replyWithAddress = { ...reply, street_address: 'x' };
+// @ts-expect-error … and in an object built elsewhere
+void ai.complete('support-reply-draft@1', replyWithAddress);
+
+const { carrier: _carrier, ...replyWithoutCarrier } = reply;
+// @ts-expect-error a declared variable is missing
+void ai.complete('support-reply-draft@1', replyWithoutCarrier);
