@@ -148,3 +148,14 @@ content: no prompt, no variables, no output — a template id and version, `inpu
 rendered input, lower-case hex), a redaction count, the requested and served model, token counts, the cost as integer
 micro-USD (`cost_estimate_micro_usd`), latency, the `outcome` and the error CLASS only. RLS kind `store` (the gateway
 always runs for one store; organization scope sees every store); append-only for the app role (no UPDATE, no DELETE).
+
+## AI organization scope and BI Q&A feedback (0206, db 0.3.21)
+
+For #606 (BI Q&A, CONTRACT CHANGE #668). `ai_call_audit.store_id` is NULL for an organization-scope call (an HQ
+question over several stores, charged to the organization's budget). The tool-use loop writes one row per model step:
+`conversation_id` + `step` (0-based; both NULL or both set) and `tool_names` (the names of the tool calls that step
+asked for; `'{}'` = none). Purpose `analysis` and outcome `tool_loop_cap` join the CHECKs. `ai_qa_feedback` holds a
+thumbs `up` / `down` per conversation and asker, no free text; append-only, the newest row is the rating. Both tables
+are RLS kind `store_nullable`: a store row for any session that can access the store, a NULL-store row for an
+organization-scope session (`createOrganizationClient`) of that organization only — a store-scoped client neither reads
+nor inserts one.
