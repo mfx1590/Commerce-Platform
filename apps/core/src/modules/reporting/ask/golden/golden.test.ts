@@ -106,8 +106,16 @@ describe.runIf(skip === null)('golden set on the generated month (ClickHouse)', 
     });
     const validator = createValidator();
     const rows = month.events.map((e, i) => {
+      // the same wire message as metrics-live.test (message, batch, context)
       const c = ingest.classify(
-        { key: null, value: JSON.stringify(e), headers: {}, offset: String(i), timestamp: '0' },
+        {
+          key: null,
+          value: JSON.stringify(e),
+          headers: { outbox_id: e.event_id },
+          offset: String(i),
+          timestamp: String(Date.parse(e.occurred_at)),
+        },
+        { topic: e.topic, partition: 0 },
         { groupId: 'analytics.raw', validator, now: new Date('2026-11-01T00:00:00Z') },
       );
       if (c.kind !== 'row') throw new Error(`fixture ${e.topic} dead-lettered`);
