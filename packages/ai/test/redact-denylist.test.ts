@@ -51,6 +51,34 @@ describe('redact', () => {
     expect(redact('Springfield, IL 62704').text).toBe('[address]');
   });
 
+  it('masks the common carriers’ tracking numbers: UPS 1Z…, DHL 10 digits and JJD…, PostNL 3S… (#671)', () => {
+    const r = redact(
+      'UPS 1Z999AA10123456784, ups 1z999aa10123456784, DHL 1234567890, JJD000390007827411, PostNL 3SABCD1234567',
+    );
+    expect(r.text).toBe(
+      'UPS [tracking], ups [tracking], DHL [tracking], [tracking], PostNL [tracking]',
+    );
+    expect(r.counts.tracking).toBe(5);
+    // GTIN-13, UPC-12, a 13-digit order number, 9- and 11-digit runs, and a short order number stay
+    for (const keep of [
+      'GTIN 8712345678906',
+      'UPC 725272730706',
+      'order 1234567890123',
+      'ref 123456789',
+      'ref 12345678901',
+      'order 1042',
+    ])
+      expect(redact(keep).text, keep).toBe(keep);
+    // a bare 10-digit run is masked even when it is a phone number; it is masked either way
+    expect(redact('call 4155552671').text).toBe('call [tracking]');
+  });
+
+  it('does NOT mask names, an e-mail spelled out in words, or an unknown carrier’s number (documented residuals)', () => {
+    const text = 'Anna de Vries, anna at example dot org, GLS 12345678901234';
+    // GLS: 14 digits, fails Luhn → not a card; not phone-shaped → stays
+    expect(redact(text).text).toBe(text);
+  });
+
   it('leaves ordinary product copy alone', () => {
     const copy =
       'Soft linen shirt in sea blue. Relaxed fit, mother-of-pearl buttons. Machine wash at 30 degrees.';
