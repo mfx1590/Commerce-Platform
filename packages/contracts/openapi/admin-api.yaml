@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.25
+  version: 0.4.26
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -982,6 +982,87 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /admin/stores/{storeId}/products/{productId}/copy-drafts:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+      - { name: productId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [catalog]
+      operationId: draftProductCopy
+      summary: An AI draft of the product's copy in one locale — never saved; a human edits it and saves with updateProduct
+      description: >-
+        Runs the AI gateway (purpose `drafting`, template `product-copy-draft`) on the product's own facts (title,
+        subtitle, brand name, category name, tags, `attributes`, variant options), the store's brand voice
+        (`store.settings.content.brand_voice`, a neutral default when unset) and the locale. No customer data is
+        read or sent; the gateway's denylist refuses it at type level and at runtime. The draft is returned and NOT
+        written to the product; one `ai_call_audit` row per call (no content). POST because every call costs
+        tokens and is audited: it is neither safe nor idempotent. The token budget and the per-minute limit are
+        per store, shared by every AI purpose and every staff member of the store.
+      x-permission: { relation: store_staff, object: 'store:{storeId}' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [locale, fields]
+              properties:
+                locale:
+                  {
+                    type: string,
+                    minLength: 2,
+                    maxLength: 35,
+                    description: "BCP 47, one of the store's enabled locales (400 otherwise)",
+                  }
+                fields:
+                  type: array
+                  minItems: 1
+                  uniqueItems: true
+                  items: { type: string, enum: [title, description, bullets, seo] }
+      responses:
+        '200':
+          description: The draft. Only the requested fields are present in `draft`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProductCopyDraft' }
+              example:
+                product_id: 50000000-0000-4000-8000-000000000001
+                locale: nl-NL
+                fields: [description, bullets]
+                draft:
+                  description: 'Een theedoek van zuiver linnen …'
+                  bullets: ['100% linnen', '50 x 70 cm']
+                brand_voice_source: settings
+                model: claude-sonnet-5-5
+                template: { id: product-copy-draft, version: 2 }
+                created_at: '2026-10-31T09:00:00Z'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422':
+          description: The model refused (`ai_refused`, `details.category`) — reword the product facts and try again
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '429':
+          description: >-
+            `ai_rate_limited` (`details: { limit_per_minute }`, `Retry-After` seconds) or `ai_budget_exceeded`
+            (`details: { used_tokens, limit_tokens, resets_at }` — the store's monthly token budget, UTC month)
+          headers:
+            Retry-After:
+              description: 'Seconds to wait; sent with `ai_rate_limited` only.'
+              schema: { type: integer, minimum: 1 }
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '502':
+          description: >-
+            `ai_unavailable` (the provider call failed; `details.error_class`, never a message) or `ai_invalid_draft`
+            (the model's answer did not have the requested fields)
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '503':
+          description: >-
+            `ai_disabled` — AI is switched off (`AI_ENABLED` is not `1`); or `unavailable` — the limiter or the audit
+            could not be reached, so nothing was sent (no unaudited output)
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
   /admin/stores/{storeId}/products/{productId}/publish:
     parameters:
       - { $ref: '#/components/parameters/StoreId' }
@@ -5113,7 +5194,7 @@ components:
         code:
           {
             type: string,
-            description: 'validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, unavailable, expired, internal',
+            description: 'validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, unavailable, expired, internal, ai_disabled, ai_budget_exceeded, ai_rate_limited, ai_refused, ai_unavailable, ai_invalid_draft',
           }
         message: { type: string }
         details: { type: object, additionalProperties: true }
@@ -5453,6 +5534,46 @@ components:
               alt: { type: [string, 'null'] }
               position: { type: integer }
               variant_id: { type: [string, 'null'], format: uuid }
+    ProductCopyDraft:
+      type: object
+      additionalProperties: false
+      required: [product_id, locale, fields, draft, brand_voice_source, model, template, created_at]
+      properties:
+        product_id: { type: string, format: uuid }
+        locale: { type: string }
+        fields:
+          {
+            type: array,
+            minItems: 1,
+            uniqueItems: true,
+            items: { type: string, enum: [title, description, bullets, seo] },
+          }
+        draft:
+          type: object
+          additionalProperties: false
+          description: Only the requested fields. A DRAFT — it is not on the product until a human saves it.
+          properties:
+            title: { type: string, maxLength: 200 }
+            description: { type: string, maxLength: 5000 }
+            bullets: { type: array, maxItems: 5, items: { type: string, maxLength: 200 } }
+            seo:
+              type: object
+              additionalProperties: false
+              required: [title, description]
+              properties:
+                title: { type: string, maxLength: 70 }
+                description: { type: string, maxLength: 160 }
+        brand_voice_source:
+          { type: string, enum: [settings, default], description: where the brand voice came from }
+        model: { type: string, description: the model that answered (registry id) }
+        template:
+          {
+            type: object,
+            additionalProperties: false,
+            required: [id, version],
+            properties: { id: { type: string }, version: { type: integer } },
+          }
+        created_at: { type: string, format: date-time }
     Product:
       type: object
       required:
@@ -7227,22 +7348,26 @@ components:
           properties:
             store_ids:
               type: array
+              minItems: 1
               maxItems: 50
               uniqueItems: true
               description: Narrows the scope; an id outside the caller's scope is a 403.
               items: { type: string, format: uuid }
             currencies:
               type: array
+              minItems: 1
               maxItems: 10
               uniqueItems: true
               items: { type: string, pattern: '^[A-Z]{3}$' }
             product_ids:
               type: array
+              minItems: 1
               maxItems: 100
               uniqueItems: true
               items: { type: string, format: uuid }
             refund_reasons:
               type: array
+              minItems: 1
               uniqueItems: true
               items: { type: string, enum: [return, cancellation, goodwill, chargeback] }
         order_by:

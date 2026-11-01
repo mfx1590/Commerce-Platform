@@ -340,6 +340,29 @@ export interface paths {
         patch: operations["updateProduct"];
         trace?: never;
     };
+    "/admin/stores/{storeId}/products/{productId}/copy-drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                productId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * An AI draft of the product's copy in one locale — never saved; a human edits it and saves with updateProduct
+         * @description Runs the AI gateway (purpose `drafting`, template `product-copy-draft`) on the product's own facts (title, subtitle, brand name, category name, tags, `attributes`, variant options), the store's brand voice (`store.settings.content.brand_voice`, a neutral default when unset) and the locale. No customer data is read or sent; the gateway's denylist refuses it at type level and at runtime. The draft is returned and NOT written to the product; one `ai_call_audit` row per call (no content). POST because every call costs tokens and is audited: it is neither safe nor idempotent. The token budget and the per-minute limit are per store, shared by every AI purpose and every staff member of the store.
+         */
+        post: operations["draftProductCopy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/stores/{storeId}/products/{productId}/publish": {
         parameters: {
             query?: never;
@@ -1956,7 +1979,7 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         Error: {
-            /** @description validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, unavailable, expired, internal */
+            /** @description validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, unavailable, expired, internal, ai_disabled, ai_budget_exceeded, ai_rate_limited, ai_refused, ai_unavailable, ai_invalid_draft */
             code: string;
             message: string;
             details?: {
@@ -2225,6 +2248,35 @@ export interface components {
                 /** Format: uuid */
                 variant_id?: string | null;
             }[];
+        };
+        ProductCopyDraft: {
+            /** Format: uuid */
+            product_id: string;
+            locale: string;
+            fields: ("title" | "description" | "bullets" | "seo")[];
+            /** @description Only the requested fields. A DRAFT — it is not on the product until a human saves it. */
+            draft: {
+                title?: string;
+                description?: string;
+                bullets?: string[];
+                seo?: {
+                    title: string;
+                    description: string;
+                };
+            };
+            /**
+             * @description where the brand voice came from
+             * @enum {string}
+             */
+            brand_voice_source: "settings" | "default";
+            /** @description the model that answered (registry id) */
+            model: string;
+            template: {
+                id: string;
+                version: number;
+            };
+            /** Format: date-time */
+            created_at: string;
         };
         Product: {
             /** Format: uuid */
@@ -4931,6 +4983,103 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    draftProductCopy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                productId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description BCP 47, one of the store's enabled locales (400 otherwise) */
+                    locale: string;
+                    fields: ("title" | "description" | "bullets" | "seo")[];
+                };
+            };
+        };
+        responses: {
+            /** @description The draft. Only the requested fields are present in `draft`. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "product_id": "50000000-0000-4000-8000-000000000001",
+                     *       "locale": "nl-NL",
+                     *       "fields": [
+                     *         "description",
+                     *         "bullets"
+                     *       ],
+                     *       "draft": {
+                     *         "description": "Een theedoek van zuiver linnen …",
+                     *         "bullets": [
+                     *           "100% linnen",
+                     *           "50 x 70 cm"
+                     *         ]
+                     *       },
+                     *       "brand_voice_source": "settings",
+                     *       "model": "claude-sonnet-5-5",
+                     *       "template": {
+                     *         "id": "product-copy-draft",
+                     *         "version": 2
+                     *       },
+                     *       "created_at": "2026-10-31T09:00:00Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ProductCopyDraft"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The model refused (`ai_refused`, `details.category`) — reword the product facts and try again */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `ai_rate_limited` (`details: { limit_per_minute }`, `Retry-After` seconds) or `ai_budget_exceeded` (`details: { used_tokens, limit_tokens, resets_at }` — the store's monthly token budget, UTC month) */
+            429: {
+                headers: {
+                    /** @description Seconds to wait; sent with `ai_rate_limited` only. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `ai_unavailable` (the provider call failed; `details.error_class`, never a message) or `ai_invalid_draft` (the model's answer did not have the requested fields) */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `ai_disabled` — AI is switched off (`AI_ENABLED` is not `1`); or `unavailable` — the limiter or the audit could not be reached, so nothing was sent (no unaudited output) */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     publishProduct: {

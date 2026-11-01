@@ -15,6 +15,12 @@ const STATUS: Record<ErrorCode, number> = {
   unavailable: 503,
   payment_failed: 402,
   internal: 500,
+  ai_disabled: 503,
+  ai_budget_exceeded: 429,
+  ai_rate_limited: 429,
+  ai_refused: 422,
+  ai_unavailable: 502,
+  ai_invalid_draft: 502,
 };
 
 /**
