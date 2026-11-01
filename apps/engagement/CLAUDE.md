@@ -157,6 +157,16 @@ package yet.
   would give a false sense of safety and could differ from it. Prompt injection is answered by the template
   (each value in its own tag, tag contents are data) and structurally: **this service has no outbound channel
   to a customer**, so a draft can only be edited and sent by an agent.
+- **The gateway is resolved BEFORE the support context is read** (#674 review): it used to be an argument
+  to `buildReplyDraft`, so a missing API key read the customer's whole order history and then answered 500
+  with no audit row. Nothing about a customer is touched until the thing that would send it is known to
+  exist, and the factory's error goes through the same mapping as the call's.
+- **`ai_drafts` means READY, not merely allowed** (#674 review): the store's switch AND `AI_ENABLED=1` AND a
+  key present AND the template published. A flag that is true while every draft answers 503 is worse than no
+  flag, because a dashboard shows a button that cannot work.
+- **`locale` is validated to a BCP-47 SHAPE of at most 35 characters** (#674 review), else 400. It reaches
+  the model as a tag value and `Intl` as a currency locale: `xx-YY` that nobody speaks is the agent's
+  business, 400 characters of prose is ours.
 - **`ENGAGEMENT_SUPPORT_AI_DRAFTS` is ON by default** (owner 2026-11-01), per store through
   `..._<STORE_CODE>`, on the same env contract as the consent mode: one normalisation both ways, an empty
   value refused, a key naming no store (or two) refused once the stores are known. **While a store is OFF the

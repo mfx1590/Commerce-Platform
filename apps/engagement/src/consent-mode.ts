@@ -79,18 +79,21 @@ export function readPerStoreOverrides<T>(
   prefix: string,
   parse: (raw: string, where: string) => T,
 ): Map<string, T> {
+  // `ConfigRefusedError`, not `ConsentModeConfigError`: this loop serves any per-store setting now (#610's
+  // AI switch among them), and a support setting raising a "consent mode" error reads as a mix-up at 3am
+  // (#674 nit). The behaviour is identical — exit 2, message printed — because the one is the other's base.
   const overrides = new Map<string, T>();
   const setBy = new Map<string, string>();
   for (const [key, value] of Object.entries(env)) {
     if (!key.startsWith(prefix)) continue;
     const suffix = key.slice(prefix.length);
     if (!suffix) {
-      throw new ConsentModeConfigError(
+      throw new ConfigRefusedError(
         `${key} names no store (it is the prefix with nothing after it): use ${prefix}<STORE_CODE>`,
       );
     }
     if (value === undefined || value.trim() === '') {
-      throw new ConsentModeConfigError(
+      throw new ConfigRefusedError(
         `${key} is set but empty: remove the variable to use the global default`,
       );
     }
@@ -98,7 +101,7 @@ export function readPerStoreOverrides<T>(
     const parsed = parse(value.trim(), key);
     const first = setBy.get(storeKey);
     if (first !== undefined && overrides.get(storeKey) !== parsed) {
-      throw new ConsentModeConfigError(
+      throw new ConfigRefusedError(
         `${first} and ${key} both set ${prefix}<STORE_CODE> for store "${storeKey}" and disagree`,
       );
     }
@@ -131,7 +134,7 @@ export function assertPerStoreOverridesKnown(
     const detail = ambiguous
       .map(([key, codes]) => `${prefix}${key} matches ${[...codes].sort().join(' and ')}`)
       .join('; ');
-    throw new ConsentModeConfigError(
+    throw new ConfigRefusedError(
       `a per-store setting cannot say which store it means: ${detail}. ` +
         `Rename one of the store codes`,
     );
@@ -141,7 +144,7 @@ export function assertPerStoreOverridesKnown(
   if (unknown.length === 0) return;
   const named = unknown.map((key) => `${prefix}${key}`).join(', ');
   const codes = [...storeCodes].sort().join(', ') || '(this organization has no stores)';
-  throw new ConsentModeConfigError(
+  throw new ConfigRefusedError(
     `${named}: no such store in this organization, so the override would silently do nothing ` +
       `(known store codes: ${codes})`,
   );

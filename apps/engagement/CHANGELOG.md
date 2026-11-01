@@ -38,7 +38,16 @@ decision 2026-11-01: "we need everything at start; we can limit later").
   and a published template is frozen). The gateway refuses an unpublished key before rendering or sending,
   and the route answers 503 `unavailable`. One `as never` in `main.ts` is the whole cost, and it comes out
   when the template lands.
-- Tests: **535 passing / 9 live skipped** offline (was 491/9), all on a recording gateway port — no test
+- **From the #674 review:** the gateway is resolved BEFORE `buildContext` and inside the mapped path — it
+  was an argument to `buildReplyDraft`, so a missing API key read the customer's whole order history and then
+  answered 500 with no audit row, instead of the documented 503 with nothing read. `ai_drafts` now means
+  READY (the switch AND `AI_ENABLED=1` AND a key present AND the template published), because a flag that is
+  true while every draft answers 503 shows a dashboard a button that cannot work. `locale` is validated to a
+  BCP-47 shape of at most 35 characters, else 400 — it reaches the model as a tag value and `Intl` as a
+  currency locale. And the generic per-store refusals now raise `ConfigRefusedError` rather than
+  `ConsentModeConfigError`: identical behaviour (exit 2, message printed), but a support setting no longer
+  reports a "consent mode" error at 3am.
+- Tests: **540 passing / 9 live skipped** offline (was 491/9), all on a recording gateway port — no test
   constructs the real gateway, reaches a network, or spends a budget.
 
 ## 0.8.0 — 2026-10-30 (#657, the Fable re-review of #563/#564)

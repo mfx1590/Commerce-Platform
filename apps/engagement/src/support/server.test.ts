@@ -252,7 +252,16 @@ function build(
  * `gatewayCalls` proves whether the gateway was constructed at all — which is the whole point of the OFF
  * test: a store that is off must not have its support data read, let alone sent.
  */
-function draftOptions(opts: { enabled?: boolean; fail?: Error; answer?: string } = {}) {
+function draftOptions(
+  opts: {
+    enabled?: boolean;
+    ready?: boolean;
+    fail?: Error;
+    /** Thrown by the FACTORY, which is how a missing API key behaves (#674 review). */
+    factoryFails?: Error;
+    answer?: string;
+  } = {},
+) {
   const gatewayCalls: { storeId: string; actorId: string }[] = [];
   const completed: { key: string; variables: DraftVariables }[] = [];
   return {
@@ -260,8 +269,10 @@ function draftOptions(opts: { enabled?: boolean; fail?: Error; answer?: string }
     completed,
     draft: {
       enabledFor: () => opts.enabled !== false,
+      ready: () => opts.ready !== false,
       gatewayFor: (storeId: string, actorId: string) => {
         gatewayCalls.push({ storeId, actorId });
+        if (opts.factoryFails) throw opts.factoryFails;
         return {
           model: 'claude-sonnet-5-5',
           async complete(key: string, variables: DraftVariables) {
@@ -705,6 +716,43 @@ describe('POST /support/customers/:customerId/reply-draft (#610)', () => {
     expect(JSON.stringify(r.body)).not.toContain('bucket full');
   });
 
+  it('a missing API key is 503 BEFORE any customer data is read (#674 review)', async () => {
+    // The finding: the gateway used to be resolved as an argument, so a missing key read the whole order
+    // history and then answered 500 with no audit row. Nothing about a customer is touched until the thing
+    // that would send it is known to exist.
+    const d = draftOptions({
+      factoryFails: Object.assign(new Error('AI_ANTHROPIC_API_KEY is not set'), {
+        name: 'AiConfigError',
+      }),
+    });
+    await new Promise<void>((done) => server.close(() => done()));
+    server = build(fakeReader(), d.draft);
+    base = await listen(server);
+
+    const r = await ask({ question: 'Where is my parcel?' });
+    expect([r.status, r.body.code]).toEqual([503, 'unavailable']);
+    // The reader's own log: not one call about this customer.
+    expect(calls).toEqual([]);
+    expect(d.completed).toEqual([]);
+    expect(JSON.stringify(r.body)).not.toContain('AI_ANTHROPIC_API_KEY');
+  });
+
+  it('validates the locale to a BCP-47 shape (#674 review)', async () => {
+    const d = draftOptions();
+    await new Promise<void>((done) => server.close(() => done()));
+    server = build(fakeReader(), d.draft);
+    base = await listen(server);
+
+    for (const locale of ['english please', 'e', 'x'.repeat(36), 'en_GB', '../../etc', 'en-GB;']) {
+      const r = await ask({ question: 'Where is my parcel?', locale });
+      expect([locale, r.status, r.body.code]).toEqual([locale, 400, 'validation_error']);
+    }
+    // And the shapes a real agent sends are accepted.
+    for (const locale of ['en', 'en-GB', 'nl-NL', 'zh-Hant-TW']) {
+      expect((await ask({ question: 'Where is my parcel?', locale })).status).toBe(200);
+    }
+  });
+
   it('answers 503 ai_disabled when AI is switched off at the gateway', async () => {
     const d = draftOptions({
       fail: Object.assign(new Error('AI_ENABLED is not 1'), { name: 'AiDisabledError' }),
@@ -729,6 +777,20 @@ describe('the context answer carries the ai_drafts capability (#610)', () => {
     });
     expect(r.status).toBe(200);
     expect(r.body.ai_drafts).toBe(true);
+  });
+
+  it('is FALSE when drafting could not work, even with the store switched on (#674 review)', async () => {
+    // `AI_ENABLED` unset, no key, or an unpublished template: a flag that is true while every draft answers
+    // 503 is worse than no flag, because a dashboard shows a button that cannot work.
+    const d = draftOptions({ ready: false });
+    await new Promise<void>((done) => server.close(() => done()));
+    server = build(fakeReader(), d.draft);
+    base = await listen(server);
+    const r = await req(`/support/customers/${CUSTOMER}/context?store=brand-a`, {
+      headers: { authorization: AGENT_TOKEN },
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.ai_drafts).toBe(false);
   });
 
   it('is false while the store is off, and false when the feature is not mounted', async () => {

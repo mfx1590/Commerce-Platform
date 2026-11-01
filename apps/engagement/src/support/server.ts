@@ -23,7 +23,7 @@ import {
 import type { ScopedClient } from '@platform/db';
 import type { AgentAuth } from './auth.js';
 import { buildContext } from './context.js';
-import { buildReplyDraft, type DraftGateway } from './reply-draft.js';
+import { buildReplyDraft, draftErrorFor, type DraftGateway } from './reply-draft.js';
 import type { ChatwootReceiver } from './chatwoot.js';
 import type { SupportReader } from './admin-api.js';
 import { SupportError } from './types.js';
@@ -62,6 +62,13 @@ export interface SupportServerOptions {
   draft?: {
     /** `config.support.aiDraftsFor` — ON by default per store (owner 2026-11-01). */
     enabledFor(storeCode: string): boolean;
+    /**
+     * Whether drafting can actually WORK in this process (#674 review): `AI_ENABLED=1`, an API key present,
+     * and the template published. The per-store switch says "this store may"; this says "and it would". The
+     * capability flag on the context answer is the AND of the two, so a dashboard does not offer a button
+     * that is certain to answer 503.
+     */
+    ready(): boolean;
     /**
      * One gateway per request, because the budget, the rate limit and the audit row are per STORE and the
      * audit's actor is the agent who asked.
@@ -238,8 +245,11 @@ export function createSupportServer(opts: SupportServerOptions): Server {
             staff_user_id: principal.staffUserId,
             orders: built.orders.length,
           });
-          // The capability, so a dashboard hides the button instead of discovering a 404 (#610).
-          send(res, 200, { ...built, ai_drafts: opts.draft?.enabledFor(store.code) === true });
+          // The capability: the store's switch AND whether drafting could work at all (#674 review) — a
+          // flag that is true while every draft would answer 503 is worse than no flag.
+          const canDraft =
+            opts.draft !== undefined && opts.draft.enabledFor(store.code) && opts.draft.ready();
+          send(res, 200, { ...built, ai_drafts: canDraft });
         } catch (err) {
           fail(res, err, opts.log, '/support/customers/:customerId/context');
         }
@@ -267,6 +277,18 @@ export function createSupportServer(opts: SupportServerOptions): Server {
           }
 
           const customerId = requireUuid(decodeURIComponent(draftRoute[1] as string), 'customer');
+
+          // THE GATEWAY FIRST, inside the mapped path (#674 review). It used to be resolved as an argument
+          // to `buildReplyDraft`, which meant a missing API key read the customer's whole order history and
+          // THEN answered 500 with no audit row. Nothing about a customer is touched until the thing that
+          // would send it is known to exist.
+          let gateway: DraftGateway;
+          try {
+            gateway = opts.draft.gatewayFor(store.id, principal.staffUserId);
+          } catch (err) {
+            throw draftErrorFor(err);
+          }
+
           const raw = await readBody(req, maxBody);
           let body: { question?: unknown; orderId?: unknown; locale?: unknown };
           try {
@@ -279,10 +301,24 @@ export function createSupportServer(opts: SupportServerOptions): Server {
           }
           const orderId =
             typeof body.orderId === 'string' ? requireUuid(body.orderId, 'order') : undefined;
-          const locale =
-            typeof body.locale === 'string' && body.locale.trim()
-              ? body.locale.trim()
-              : opts.draft.defaultLocale;
+          // A BCP-47 SHAPE, and short (#674 review). It reaches the model as a tag value and `Intl` as a
+          // currency locale, so a long or odd string is either a prompt nobody meant to write or an `Intl`
+          // throw. The shape is checked, not the registry: `xx-YY` that nobody speaks is the agent's
+          // business, 400 characters of prose is ours.
+          const locale = ((): string => {
+            if (typeof body.locale !== 'string' || !body.locale.trim()) {
+              return opts.draft!.defaultLocale;
+            }
+            const value = body.locale.trim();
+            if (value.length > 35 || !/^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$/.test(value)) {
+              throw new SupportError(
+                400,
+                'validation_error',
+                '`locale` must be a BCP-47 language tag of at most 35 characters',
+              );
+            }
+            return value;
+          })();
 
           const context = await buildContext({
             reader: opts.reader,
@@ -294,7 +330,7 @@ export function createSupportServer(opts: SupportServerOptions): Server {
           });
 
           const draft = await buildReplyDraft({
-            gateway: opts.draft.gatewayFor(store.id, principal.staffUserId),
+            gateway,
             context,
             question: body.question,
             orderId,

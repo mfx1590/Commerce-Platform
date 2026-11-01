@@ -200,6 +200,36 @@ default from OFF: "we need everything at start; we can limit later"), the per-st
 - Errors map to `ERROR_CODES` **by class NAME**, because they cross a package boundary where `instanceof`
   fails silently between two copies of a package.
 
+**THE #671 MONEY MISMATCH — caught by reading the other side's PR, not by CI (2026-11-01).** Window 14's
+template v1 declared `totalMinor` / `currency` / `refundedMinor` (the model converts); my projection sends
+`total` / `refunded` pre-formatted with `Intl`. The swap would have broken on the day both PRs merged, and
+**no test or typecheck could have caught it, because the `as never` that let me compile against an
+unpublished key is exactly what hid the gap**. Their own PR note had reached my conclusion and written it
+off as "would need a v2" — but v1 was not published, so it cost a few lines instead. Manager took my
+recommendation: v1 now declares `total` and `refunded` as pre-formatted strings and the prompt copies the
+amounts exactly; my `Intl` projection stays.
+**THE LESSON:** when my code compiles only because of a cast across a boundary somebody else owns, the cast
+is a blind spot, not a convenience — read their side before the swap. And formatting money belongs where the
+currency exponent table is (`Intl`), never in a prompt: JPY is zero-decimal, KWD is three, and "€4,976.00"
+instead of "€49.76" is the kind of error an agent may not catch before sending.
+
+**#674's review was FINDINGS and the medium one was mine twice over:** `gatewayFor(...)` was an ARGUMENT to
+`buildReplyDraft`, so it ran after `buildContext` and outside the error mapping — a missing API key therefore
+read the customer's whole order history and answered 500 with no audit row, while the README promised 503
+with nothing read. Fixed: resolve the gateway first, inside the mapped path, with a test that asserts the
+reader's call log is EMPTY. **The lesson: "checked before X" is only true if it is SEQUENCED before X — an
+argument evaluates where it is written, not where the function says it belongs.** Also from that review:
+`ai_drafts` now means READY (switch AND `AI_ENABLED=1` AND key AND template), `locale` is validated to a
+BCP-47 shape ≤ 35 chars, and the generic per-store refusals raise `ConfigRefusedError` instead of
+`ConsentModeConfigError` (a support setting should not report a consent-mode error). Item 6 (engagement
+codes outside `ERROR_CODES`) is filed as **#678** with options and a recommendation.
+
+**THE SWAP, when #671 merges** (two edits, then typecheck is the proof):
+1. `reply-draft.ts`: narrow `DraftGateway.complete`'s first parameter from `string` to `typeof TEMPLATE_KEY`;
+2. `main.ts`: delete `as never` and `as unknown as never` in `buildDraftGatewayFactory`.
+Then `tsc` proves the projection's keys equal the template's declared variables — which is the check that
+was missing above.
+
 **WHAT IS NOT DONE, and why it is not my call:** the feature cannot produce a draft until
 `support-reply-draft@1` exists — **REQUEST #667** to window 14, who own `packages/ai` (a published template
 is frozen). The gateway refuses an unpublished key before rendering or sending, so the route answers 503

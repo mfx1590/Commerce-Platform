@@ -33,7 +33,9 @@ import {
   createAnthropicTransport,
   createPgAuditSink,
   createRedisLimiter,
+  TEMPLATES,
 } from '@platform/ai';
+import { TEMPLATE_KEY } from './support/draft-template.js';
 import { createAgentAuth, type PermissionChecker } from './support/auth.js';
 import type { DraftGateway } from './support/reply-draft.js';
 import { createSupportReader } from './support/admin-api.js';
@@ -490,6 +492,10 @@ async function main(): Promise<void> {
         // reads any support data for a store that is off.
         draft: {
           enabledFor: config.support.aiDraftsFor,
+          // Readiness (#674 review): the switch says a store MAY draft; this says the process COULD. The
+          // template half is checked here because this is where the registry is in scope — and until
+          // REQUEST #667 lands it is what makes `ai_drafts` honestly false rather than optimistically true.
+          ready: () => config.support.aiRuntimeReady && TEMPLATE_KEY in TEMPLATES,
           gatewayFor: buildDraftGatewayFactory(config, pool),
           brandVoice: config.support.brandVoice,
           defaultLocale: config.support.defaultLocale,

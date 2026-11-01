@@ -1054,6 +1054,7 @@ describe('resolveConfig — the support API (#556)', () => {
       'aiDrafts',
       'aiDraftsFor',
       'aiDraftsOverrides',
+      'aiRuntimeReady',
       'brandVoice',
       'defaultLocale',
       'devTokens',
@@ -1196,6 +1197,39 @@ describe('AI reply drafts are ON by default, per store (#610)', () => {
       argv: [],
     });
     expect([c.support.brandVoice, c.support.defaultLocale]).toEqual(['playful and short', 'nl-NL']);
+  });
+});
+
+describe('aiRuntimeReady: could the runtime draft at all (#674 review)', () => {
+  it('is false without AI_ENABLED, false without a key, true with both', () => {
+    const KEY = 'ai-key-words-only-not-a-real-key';
+    expect(resolveConfig({ env: base, argv: [] }).support.aiRuntimeReady).toBe(false);
+    expect(
+      resolveConfig({ env: { ...base, AI_ENABLED: '1' }, argv: [] }).support.aiRuntimeReady,
+    ).toBe(false);
+    expect(
+      resolveConfig({ env: { ...base, AI_ANTHROPIC_API_KEY: KEY }, argv: [] }).support
+        .aiRuntimeReady,
+    ).toBe(false);
+    expect(
+      resolveConfig({ env: { ...base, AI_ENABLED: '1', AI_ANTHROPIC_API_KEY: KEY }, argv: [] })
+        .support.aiRuntimeReady,
+    ).toBe(true);
+    // Exactly `1`, like the gateway's own kill switch — `true` is not it.
+    expect(
+      resolveConfig({ env: { ...base, AI_ENABLED: 'true', AI_ANTHROPIC_API_KEY: KEY }, argv: [] })
+        .support.aiRuntimeReady,
+    ).toBe(false);
+  });
+
+  it('never carries the key itself into the config object', () => {
+    const KEY = 'ai-key-words-only-not-a-real-key';
+    const c = resolveConfig({
+      env: { ...base, AI_ENABLED: '1', AI_ANTHROPIC_API_KEY: KEY },
+      argv: [],
+    });
+    // Presence, not the value: the config is logged in places a credential must never reach.
+    expect(JSON.stringify(c)).not.toContain(KEY);
   });
 });
 

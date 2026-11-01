@@ -76,6 +76,12 @@ export interface SupportConfig {
    */
   aiDrafts: boolean;
   aiDraftsFor(storeCode: string): boolean;
+  /**
+   * Whether the AI RUNTIME could answer at all: `AI_ENABLED` is exactly `1` and an API key is present
+   * (#674 review). Presence only — the value is never read into this object, let alone logged. The template
+   * half of readiness is checked in `main.ts`, which is where `@platform/ai`'s registry is in scope.
+   */
+  aiRuntimeReady: boolean;
   /** The normalised per-store keys, for the post-`warm()` check against the real store list. */
   aiDraftsOverrides: ReadonlyMap<string, boolean>;
   /** The brand voice the drafts are written in. Tone only; it never carries a claim. */
@@ -365,11 +371,16 @@ function resolveSupport(
     ? flag(env[AI_DRAFTS_ENV]!.trim(), AI_DRAFTS_ENV)
     : true;
   const aiDraftsOverrides = readPerStoreOverrides(env, AI_DRAFTS_ENV_PREFIX, flag);
+  // `AI_ENABLED` is the gateway's own kill switch and the key is its credential; both live in the
+  // environment, which this file is the only place to read. Presence, never the value.
+  const aiRuntimeReady =
+    env.AI_ENABLED?.trim() === '1' && Boolean(env.AI_ANTHROPIC_API_KEY?.trim());
 
   return {
     enabled,
     aiDrafts,
     aiDraftsOverrides,
+    aiRuntimeReady,
     aiDraftsFor: (storeCode: string) => aiDraftsOverrides.get(storeEnvKey(storeCode)) ?? aiDrafts,
     brandVoice: env.ENGAGEMENT_SUPPORT_BRAND_VOICE?.trim() || 'warm, brief and factual',
     defaultLocale: env.ENGAGEMENT_SUPPORT_DEFAULT_LOCALE?.trim() || 'en-GB',
