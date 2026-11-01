@@ -1,9 +1,9 @@
 // BI Q&A's two operations (#606, contract #668), both `viewer` on `store:*` like queryMetrics:
 //   POST /admin/metrics/ask                              askMetrics          → ask.ts
 //   POST /admin/metrics/ask/{conversationId}/feedback    askMetricsFeedback  → feedback.ts (the asker only, else 404)
-// Fail closed twice: an operation the contract does not carry yet is a 503 before anything runs (operationGuard), and
-// until REQUEST #669 (the gateway's tool loop) and the `ai_qa_feedback` table land, production answers 503 too —
-// tests inject the scripted gateway and a memory feedback store.
+// Fail closed: an operation the contract does not carry is a 503 before anything runs (operationGuard), and until
+// REQUEST #669 (the gateway's tool loop) lands, production's askMetrics answers 503 too — tests inject the scripted
+// gateway. Feedback is stored in `ai_qa_feedback` (0206) through the caller's own tenant client.
 import { Router } from 'express';
 import {
   can,
@@ -19,7 +19,7 @@ import type { MetricsReader } from '../metrics/execute';
 import { sharedMetricsReader } from '../metrics/reader';
 import { metricsScope, operationGuard, type MetricsSpec } from '../metrics/routes';
 import { askMetrics } from './ask';
-import type { FeedbackStore, Rating } from './feedback';
+import { createPgFeedbackStore, type FeedbackStore, type Rating } from './feedback';
 import type { GatewayFactory } from './gateway';
 
 export const ASK_PATH = '/admin/metrics/ask';
@@ -30,8 +30,8 @@ export interface AskRouterOptions {
   spec?: MetricsSpec;
   /** the AI gateway per call; production has none until #669 lands (503) */
   gatewayFor?: GatewayFactory;
-  /** where ratings go; production has none until `ai_qa_feedback` lands (503) */
-  feedback?: FeedbackStore;
+  /** where a caller's ratings go; default: `ai_qa_feedback` through their tenant client (tests: a memory store) */
+  feedbackFor?: (p: StaffPrincipal) => FeedbackStore;
 }
 
 type StaffPrincipal = ReturnType<typeof requirePrincipal>;
@@ -51,6 +51,12 @@ async function biQaSwitches(
   );
   return new Map(r.rows.filter((x) => x.bi_qa !== null).map((x) => [x.id, x.bi_qa!]));
 }
+
+/** `ai_qa_feedback` under the caller's own scope (store_nullable RLS: an HQ conversation only for HQ principals). */
+const defaultFeedback = (p: StaffPrincipal): FeedbackStore =>
+  createPgFeedbackStore(
+    hasOrganizationAccess(p) ? organizationClientFor(p) : visibleStoresClientFor(p),
+  );
 
 const notYet = (what: string, issue: string) =>
   new AppError('unavailable', `BI Q&A ${what} is not available yet (${issue})`);
@@ -107,16 +113,16 @@ export function askAdminRouter(opts: AskRouterOptions = {}): Router {
       const rating = (req.body as { rating?: unknown } | undefined)?.rating;
       if (rating !== 'up' && rating !== 'down')
         throw new AppError('validation_error', 'rating must be up or down', { field: 'rating' });
-      if (!opts.feedback) throw notYet('feedback', 'the ai_qa_feedback table, #606');
+      const feedback = (opts.feedbackFor ?? defaultFeedback)(p);
       const key = {
         organizationId: p.organizationId,
         conversationId: conversationId.toLowerCase(),
         actorId: p.user.id,
       };
       // not the asker's (or no such conversation): 404, so ids are never confirmed
-      if (!(await opts.feedback.owns(key)))
+      if (!(await feedback.owns(key)))
         throw new AppError('not_found', 'no such conversation', { conversationId });
-      await opts.feedback.record({ ...key, rating: rating satisfies Rating });
+      await feedback.record({ ...key, rating: rating satisfies Rating });
       res.status(204).end();
     }),
   );

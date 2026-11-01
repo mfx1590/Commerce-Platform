@@ -149,10 +149,10 @@ describe('BI Q&A handlers (#606)', () => {
     new Request('http://x/bi/ask', { method: 'POST', body: JSON.stringify(body) });
 
   it('HQ asks over every store; the store view narrows to its store; the answer passes through as it came', async () => {
-    api.askMetrics.mockResolvedValue({ status: 200, body: '{"answer":"ok"}' });
+    api.askMetrics.mockResolvedValue({ ok: true, status: 200, data: { answer: 'ok' } });
     const hq = await hqAsk(post({ question: '  bookings?  ', from: '2026-10-01', to: 'nonsense' }));
     expect(hq.status).toBe(200);
-    expect(await hq.text()).toBe('{"answer":"ok"}');
+    expect(await hq.json()).toEqual({ answer: 'ok' });
     expect(api.askMetrics).toHaveBeenLastCalledWith({ question: 'bookings?', from: '2026-10-01' });
     await storeAsk(post({ question: 'bookings?' }), { params: Promise.resolve({ storeId: A }) });
     expect(api.askMetrics).toHaveBeenLastCalledWith({ question: 'bookings?', store_ids: [A] });
@@ -168,14 +168,18 @@ describe('BI Q&A handlers (#606)', () => {
 
   it('the API refusal keeps its status and body (403 bi_qa_off, 429, 503)', async () => {
     for (const status of [403, 429, 503]) {
-      api.askMetrics.mockResolvedValueOnce({ status, body: '{"code":"x"}' });
+      api.askMetrics.mockResolvedValueOnce({
+        ok: false,
+        status,
+        error: { code: 'x', message: 'm' },
+      });
       const r = await hqAsk(post({ question: 'q' }));
       expect(r.status).toBe(status);
     }
   });
 
   it('feedback: only up/down reach the server; a 204 stays a 204', async () => {
-    api.askMetricsFeedback.mockResolvedValue({ status: 204, body: '' });
+    api.askMetricsFeedback.mockResolvedValue({ ok: true, status: 204, data: null });
     const ctx = { params: Promise.resolve({ conversationId: 'c-1' }) };
     const ok = await feedbackRoute(
       new Request('http://x', { method: 'POST', body: JSON.stringify({ rating: 'down' }) }),

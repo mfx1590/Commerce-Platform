@@ -6,6 +6,7 @@
  */
 import 'server-only';
 
+import type { ApiResult } from '@/lib/api/admin-client';
 import { askMetrics, askMetricsFeedback, queryMetrics, queryMetricsCsv } from '../_api';
 import {
   forStore,
@@ -88,14 +89,13 @@ export async function exportResponse(url: URL, storeId?: string): Promise<Respon
 
 // ---- BI Q&A (#606) ------------------------------------------------------------------------------------------------
 
-const passthrough = (r: { status: number; body: string }) =>
-  new Response(r.status === 204 ? null : r.body, {
-    status: r.status,
-    headers:
-      r.status === 204
-        ? { 'cache-control': 'no-store' }
-        : { 'content-type': 'application/json', 'cache-control': 'no-store' },
-  });
+/** The API's answer to the browser: the data, a bare 204, or the contract's error with its status. */
+const forward = (r: ApiResult<unknown>) =>
+  r.ok
+    ? r.status === 204
+      ? new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } })
+      : json(r.status, r.data)
+    : json(r.status || 503, r.error);
 
 const badRequest = (message: string, field: string) =>
   json(400, { code: 'validation_error', message, details: { field } });
@@ -121,7 +121,7 @@ export async function askResponse(request: Request, storeId?: string): Promise<R
     typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined;
   const from = day(b?.from);
   const to = day(b?.to);
-  return passthrough(
+  return forward(
     await askMetrics({
       question,
       ...(storeId ? { store_ids: [storeId] } : {}),
@@ -139,7 +139,7 @@ export async function askFeedbackResponse(
   const rating = (await bodyOf(request))?.rating;
   if (rating !== 'up' && rating !== 'down')
     return badRequest('rating must be up or down', 'rating');
-  return passthrough(await askMetricsFeedback(conversationId, rating));
+  return forward(await askMetricsFeedback(conversationId, rating));
 }
 
 /** POST <base>/query {MetricQuery}: an answer's query, edited by the user, run as is (no AI) — scoped by the server. */

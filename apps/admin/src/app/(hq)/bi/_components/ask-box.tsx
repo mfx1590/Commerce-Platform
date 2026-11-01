@@ -9,24 +9,13 @@
 import { useState } from 'react';
 import { formatMoney } from '@/lib/forms/money';
 import { daysOf, SERIES_COLORS } from '../_lib/report';
-import { storeSeries, type MetricId, type MetricQuery, type MetricResult } from '../_lib/metrics';
+import {
+  storeSeries,
+  type MetricAnswer,
+  type MetricQuery,
+  type MetricResult,
+} from '../_lib/metrics';
 import { SeriesChart } from './series-chart';
-
-/** The contract's MetricAnswer (#668), until the generated types carry it. */
-export interface MetricAnswer {
-  conversation_id: string;
-  answer: string;
-  queries: {
-    query: MetricQuery;
-    result?: MetricResult;
-    error?: { code: string; message: string };
-  }[];
-  chart: { query_index: number; metric: MetricId } | null;
-  excluded_store_ids: string[];
-  model: string;
-  template: { id: string; version: number };
-  created_at: string;
-}
 
 interface ApiError {
   code?: string;

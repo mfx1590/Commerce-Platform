@@ -4,7 +4,8 @@
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { askErrorText, AskBox, type MetricAnswer } from '@/app/(hq)/bi/_components/ask-box';
+import { askErrorText, AskBox } from '@/app/(hq)/bi/_components/ask-box';
+import type { MetricAnswer } from '@/app/(hq)/bi/_lib/metrics';
 
 const A = '00000000-0000-4000-8000-000000000031';
 const CONV = '00000000-0000-4000-8000-00000000c606';

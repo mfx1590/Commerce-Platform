@@ -71,6 +71,12 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   checker proven non-vacuous), 3de74d4f admin (Ask box, editable queries, thumbs, route handlers). Core reporting/ask
   62 pass (+1 live skipped); admin 936. WAITING: the machine for the live golden run (asked); #668 / #669 / the db
   landing; then swap GatewayLike → createAiGateway, drop the ai_tool_limit cast, wire the pg FeedbackStore, PR.
+  ON #673 (manager: #668 + db 0206 = ai_call_audit org scope/conversation/step/tool_names + ai_qa_feedback, store_nullable
+  RLS, append-only): merged into data/phase5-606; the ai_tool_limit cast dropped; admin calls typed (adminCall); the
+  Postgres FeedbackStore through the CALLER's tenant client (RLS: an HQ conversation is invisible to a store principal,
+  even one named as its actor → 404, tested). Core ask 65 pass. FINDING: askMetrics 200 has no example → Prism makes
+  "string" currencies, breaks its own pattern, validating mock = 500; the example is drafted and proven (14/14 with it)
+  — asked of the manager for #673; the Prism test is it.skip until then.
   Gotchas: the compiled rows' store column is `out_store` (not out_store_id); the contracts tests pin the version
   and the op count, and require `'403': { $ref: Forbidden }` on every admin op.
 - #648 DONE: PR #652 MERGED (3d586fe). FOLLOW-UPS (manager ten, 2026-10-30): branch data/phase5-ch-followups, code commit

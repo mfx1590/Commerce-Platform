@@ -8,8 +8,14 @@
 
 import 'server-only';
 
+import type { operations } from '@platform/contracts/admin';
 import { adminCall } from '@/lib/api/admin';
 import { buildPath, type AdminResponse, type ApiResult } from '@/lib/api/admin-client';
+
+/** An operation's JSON request body, from the generated contract. */
+type AdminRequestBody<K extends keyof operations> = NonNullable<
+  operations[K]['requestBody']
+>['content']['application/json'];
 import { getSession } from '@/lib/auth/current-session';
 import { env } from '@/lib/env';
 import type { MetricQuery } from './_lib/metrics';
@@ -41,54 +47,26 @@ export type MetricsCsv =
  * The JSON transport parses bodies, so this one reads text. An error stays the contract's JSON error, passed
  * through as it came.
  */
-/** A JSON answer passed through as it came: status and body untouched (the route handlers forward it). */
-export interface Passthrough {
-  status: number;
-  body: string;
-}
-
-async function postJson(path: string, body: unknown): Promise<Passthrough> {
-  const session = await getSession();
-  const headers: Record<string, string> = {
-    accept: 'application/json',
-    'content-type': 'application/json',
-  };
-  if (session?.accessToken) headers['authorization'] = `Bearer ${session.accessToken}`;
-  try {
-    const res = await fetch(`${env.adminApiUrl}${path}`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      cache: 'no-store',
-    });
-    return { status: res.status, body: res.status === 204 ? '' : await res.text() };
-  } catch {
-    return {
-      status: 503,
-      body: JSON.stringify({ code: 'unavailable', message: 'The Admin API did not answer' }),
-    };
-  }
-}
-
 /**
- * `askMetrics` (#606, CONTRACT CHANGE #668): BI Q&A. A raw call until the contract's generated types carry the
- * operation; the server decides everything (scope, the per-store switch, the AI budget), this only forwards.
+ * `askMetrics` (#606, Admin API 0.4.27): BI Q&A. The server decides everything (scope, the per-store switch, the AI
+ * budget); this forwards the caller's question with their token.
  */
-export function askMetrics(body: {
-  question: string;
-  store_ids?: string[];
-  from?: string;
-  to?: string;
-}): Promise<Passthrough> {
-  return postJson('/admin/metrics/ask', body);
+export async function askMetrics(
+  body: AdminRequestBody<'askMetrics'>,
+): Promise<ApiResult<AdminResponse<'askMetrics'>>> {
+  return adminCall<'askMetrics'>({ path: '/admin/metrics/ask', method: 'POST', body });
 }
 
-/** `askMetricsFeedback` (#668): thumbs up/down, the asker only. */
-export function askMetricsFeedback(
+/** `askMetricsFeedback` (Admin API 0.4.27): thumbs up/down, the asker only (204; 404 for anyone else). */
+export async function askMetricsFeedback(
   conversationId: string,
   rating: 'up' | 'down',
-): Promise<Passthrough> {
-  return postJson(`/admin/metrics/ask/${encodeURIComponent(conversationId)}/feedback`, { rating });
+): Promise<ApiResult<AdminResponse<'askMetricsFeedback'>>> {
+  return adminCall<'askMetricsFeedback'>({
+    path: buildPath('/admin/metrics/ask/{conversationId}/feedback', { conversationId }),
+    method: 'POST',
+    body: { rating },
+  });
 }
 
 export async function queryMetricsCsv(body: MetricQuery): Promise<MetricsCsv> {

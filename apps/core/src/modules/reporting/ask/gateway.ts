@@ -92,13 +92,12 @@ export function aiErrorToAppError(err: unknown): AppError | undefined {
         category: details.category ?? null,
       });
     case 'AiToolLoopError':
-      // `ai_tool_limit` joins ERROR_CODES and the core's status map with CONTRACT CHANGE #668; until it lands the
-      // code is passed as is with its contract status (422). Drop the cast and the status then.
       return new AppError(
-        'ai_tool_limit' as never,
+        'ai_tool_limit',
         'The question needed more queries than allowed; narrow it',
-        { max_tool_calls: details.max_tool_calls ?? null },
-        422,
+        {
+          max_tool_calls: details.max_tool_calls ?? null,
+        },
       );
     case 'AiTransportError':
       return new AppError('ai_unavailable', 'The AI provider did not answer', {

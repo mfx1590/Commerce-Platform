@@ -38,6 +38,7 @@ let app: express.Express;
 let script: ScriptStep[] = [];
 let gateways = scriptedGateways([]);
 let feedback: MemoryFeedbackStore;
+let adminA: string;
 const seen: { scope: unknown }[] = [];
 const reader: MetricsReader = {
   async query({ query, query_params }) {
@@ -90,6 +91,12 @@ beforeAll(async () => {
      VALUES ($1, $2, 'store_admin', 'store', $3)`,
     [ORG, user.rows[0]!.id, A],
   );
+  feedback = createMemoryFeedbackStore((k) =>
+    gateways.runs.some(
+      (r) => r.conversationId === k.conversationId && r.scope.actorId === k.actorId,
+    ),
+  );
+  adminA = user.rows[0]!.id;
   app = express();
   mountCoreMiddleware(app, new DevTokenVerifier(), {
     moduleRouters: [
@@ -101,11 +108,7 @@ beforeAll(async () => {
           gateways = scriptedGateways(script);
           return gateways(scope);
         },
-        feedback: (feedback = createMemoryFeedbackStore((k) =>
-          gateways.runs.some(
-            (r) => r.conversationId === k.conversationId && r.scope.actorId === k.actorId,
-          ),
-        )),
+        feedbackFor: () => feedback,
       }),
       ...moduleAdminRouters(),
     ],
@@ -237,5 +240,78 @@ describe('fail closed', () => {
       .send({ question: 'x' });
     expect([b.status, b.body.code]).toEqual([503, 'unavailable']);
     expect(seen).toEqual([]);
+  });
+});
+
+describe('askMetricsFeedback on ai_qa_feedback (0206, the production store)', () => {
+  let pg: express.Express;
+  const audit = async (conversation: string, storeId: string | null, actorId: string) => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    await hq.query(
+      `INSERT INTO ai_call_audit (organization_id, store_id, actor_id, purpose, template_id, template_version,
+         input_sha256, model, outcome, conversation_id, step, tool_names)
+       VALUES ($1, $2, $3, 'analysis', 'bi-qa-answer', 1, repeat('a', 64), 'claude-sonnet-5-5', 'ok', $4, 0,
+         '{query_metrics}')`,
+      [ORG, storeId, actorId, conversation],
+    );
+  };
+  const ratings = async (conversation: string) =>
+    (
+      await createOrganizationClient(db.app, { organizationId: ORG }).query<{
+        store_id: string | null;
+        rating: string;
+      }>(
+        'SELECT store_id, rating FROM ai_qa_feedback WHERE conversation_id = $1 ORDER BY created_at',
+        [conversation],
+      )
+    ).rows;
+  const ratePg = (id: string, rating: string, subject: string) =>
+    request(pg)
+      .post(`/admin/metrics/ask/${id}/feedback`)
+      .set('Authorization', `Bearer dev:${subject}`)
+      .send({ rating });
+
+  beforeAll(() => {
+    pg = express();
+    // no feedbackFor: the Postgres store, through each caller's own tenant client
+    mountCoreMiddleware(pg, new DevTokenVerifier(), {
+      moduleRouters: [askAdminRouter({ reader, spec: specWith(OPS) })],
+    });
+    pg.use(coreErrorHandler);
+  });
+
+  it('a store question: its asker rates it, stored with the store; the newest row counts', async () => {
+    const id = '00000000-0000-4000-8000-0000000fa001';
+    await audit(id, A, adminA);
+    expect((await ratePg(id, 'up', 'ask-admin-a')).status).toBe(204);
+    expect((await ratePg(id, 'down', 'ask-admin-a')).status).toBe(204);
+    expect(await ratings(id)).toEqual([
+      { store_id: A, rating: 'up' },
+      { store_id: A, rating: 'down' },
+    ]);
+  });
+
+  it('an organization (HQ) question: stored with store_id NULL; a store admin cannot reach one, even as its actor', async () => {
+    const analyst = (
+      await createOrganizationClient(db.app, { organizationId: ORG }).query<{ id: string }>(
+        "SELECT id FROM staff_user WHERE keycloak_subject = 'seed-analyst'",
+      )
+    ).rows[0]!.id;
+    const hqId = '00000000-0000-4000-8000-0000000fa002';
+    await audit(hqId, null, analyst);
+    expect((await ratePg(hqId, 'up', 'seed-analyst')).status).toBe(204);
+    expect(await ratings(hqId)).toEqual([{ store_id: null, rating: 'up' }]);
+    // RLS: an organization row is invisible to a store-scoped principal, so even a row naming them is a 404
+    const odd = '00000000-0000-4000-8000-0000000fa003';
+    await audit(odd, null, adminA);
+    expect((await ratePg(odd, 'up', 'ask-admin-a')).status).toBe(404);
+    expect(await ratings(odd)).toEqual([]);
+  });
+
+  it('another principal’s conversation is a 404 and nothing is stored', async () => {
+    const id = '00000000-0000-4000-8000-0000000fa004';
+    await audit(id, A, adminA);
+    expect((await ratePg(id, 'up', 'seed-analyst')).status).toBe(404);
+    expect(await ratings(id)).toEqual([]);
   });
 });
