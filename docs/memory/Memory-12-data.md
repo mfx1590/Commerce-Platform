@@ -76,7 +76,8 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   Postgres FeedbackStore through the CALLER's tenant client (RLS: an HQ conversation is invisible to a store principal,
   even one named as its actor → 404, tested). Core ask 65 pass. FINDING: askMetrics 200 has no example → Prism makes
   "string" currencies, breaks its own pattern, validating mock = 500; the example is drafted and proven (14/14 with it)
-  — asked of the manager for #673; the Prism test is it.skip until then.
+  — landed in #673 as 23f9c077; merged, the Prism test un-skipped (BI contract 14/14). PR #677 "Refs #606" open;
+  live golden 30/30 on the generated month (a classify-arity bug in the live setup found and fixed first).
   Gotchas: the compiled rows' store column is `out_store` (not out_store_id); the contracts tests pin the version
   and the op count, and require `'403': { $ref: Forbidden }` on every admin op.
 - #648 DONE: PR #652 MERGED (3d586fe). FOLLOW-UPS (manager ten, 2026-10-30): branch data/phase5-ch-followups, code commit
