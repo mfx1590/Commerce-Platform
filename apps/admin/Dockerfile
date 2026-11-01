@@ -49,6 +49,7 @@ COPY apps/storefront-starter/package.json apps/storefront-starter/
 COPY apps/storefronts/brand-a/package.json apps/storefronts/brand-a/
 COPY apps/storefronts/brand-b/package.json apps/storefronts/brand-b/
 COPY apps/storefronts/brand-c/package.json apps/storefronts/brand-c/
+COPY packages/ai/package.json packages/ai/
 COPY packages/auth-sdk/package.json packages/auth-sdk/
 COPY packages/contracts/package.json packages/contracts/
 COPY packages/db/package.json packages/db/

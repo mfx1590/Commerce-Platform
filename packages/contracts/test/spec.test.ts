@@ -1562,6 +1562,7 @@ describe('product copy drafts (contracts 0.4.31, Admin API 0.4.26, #664 / #608)'
       expect(b).toContain(`\`${c}\``);
       expect(ERROR_CODES).toContain(c);
     }
+    expect(b).toMatch(/'429':[\s\S]*?headers:\n\s+Retry-After:\n[\s\S]*?schema: \{ type: integer/);
   });
 
   it('ProductCopyDraft is closed, with the draft limited to the requested fields and the template id + version', () => {
@@ -1574,6 +1575,11 @@ describe('product copy drafts (contracts 0.4.31, Admin API 0.4.26, #664 / #608)'
       /template:\s*\{\s*type: object,\s*additionalProperties: false,\s*required: \[id, version\]/,
     );
     expect(s).toMatch(/bullets: \{ type: array, maxItems: 5/);
+    expect(s).toMatch(/ProductCopyDraft:\n\s+type: object\n\s+additionalProperties: false\n/);
+    expect(s).toMatch(/draft:\n\s+type: object\n\s+additionalProperties: false\n/);
+    expect(s).toMatch(/title: \{ type: string, maxLength: 200 \}/);
+    expect(s).toMatch(/description: \{ type: string, maxLength: 5000 \}/);
+    expect(s).toMatch(/fields:\s*\{\s*type: array,\s*minItems: 1,\s*uniqueItems: true/);
     expect(s).toMatch(/title: \{ type: string, maxLength: 70 \}/);
     expect(s).toMatch(/description: \{ type: string, maxLength: 160 \}/);
   });
