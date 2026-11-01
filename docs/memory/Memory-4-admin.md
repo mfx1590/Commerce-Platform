@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-10-20 · Contracts: contracts-v0.4.26 on integration/tax-rates (Admin API 0.4.23) · Branch: `admin/tax-cut` (from c420d97) · Manager: "Manager session seven" (local_484d7727…; report there) · Status: #523 MERGED 3a3e6fc; #520 admin commit cut, live run next
+Last updated: 2026-11-01 · Contracts: Admin API 0.4.26 on main · Branch: `admin/phase5-608` · Manager: "Manager session ten" (local_3c029c3c…; report there) · Status: #608 — built, Q1–Q3 answered; mock e2e on the manager's handover, then PR
 
 ## Identity (does not change)
 Owned paths (write):
@@ -557,6 +557,29 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#608 — AI product copy drafts, the admin editor (P5.9), 2026-11-01.** Manager is now **"Manager
+  session ten"** (local_3c029c3c-f2f4-4f0a-882d-a79c0d74d28f); report there. Branch admin/phase5-608
+  from origin/main 423a50d3 (Admin API 0.4.26: draftProductCopy store_staff, ProductCopyDraft; 422
+  ai_refused, 429 ai_rate_limited (Retry-After) / ai_budget_exceeded (resets_at), 502 ai_unavailable /
+  ai_invalid_draft, 503 ai_disabled / unavailable). Contract CC #664 (closed). Window 1 builds the core
+  endpoint; build against Prism. PLAN sent; OPEN Q1 (Product has ONE title/description/seo — save only
+  for the default locale?) and Q2 (bullets have no field — join into description as a "- " list?).
+  First push with an explicit upstream (`git push -u origin admin/phase5-608`).
+  BUILT as WIP (recommended Q1a/Q2a meanwhile; unpushed): api client `retryAfterSeconds` +
+  `parseRetryAfter`; wrapper; guard rows draftProductCopy + updateProduct (store_staff, pinned);
+  actions draftProductCopyAction / saveProductCopyAction (partial body); `src/lib/copy-drafts`
+  (words, save mapping, line diff); product page "Draft copy with AI" card (copy-draft-panel.tsx).
+  Tests: unit 35, component 15, Prism 6; README/CHANGELOG. Q3 sent: Prism's draft example is nl-NL
+  while the store example default is en-GB, so under Q1a a Prism e2e cannot save — (a) a second
+  named en-GB example, (b) save step only on the core, (c) Q1b. e2e waits for the answer.
+  ANSWERS (manager 2026-11-01): Q1(a) save for default_locale only, the other-locale line links
+  **#670** (per-locale copy); Q2(a) bullets into description as "- " list, seo merged; Q3(a) the
+  manager changes draftProductCopy's single example to en-GB (lands with integration/phase5-606-contract,
+  Admin API 0.4.27) — merge main when it lands; until then run the e2e on a LOCAL UNCOMMITTED yaml
+  copy (example locale en-GB) and `git checkout` the yaml after. Added: #670 link, Copy per field,
+  e2e/copy-draft.spec.ts (mock only). Gate: unit 971/971, contract OK (settings :4217 EADDRINUSE once,
+  transient). Asked for the machine for the mock e2e. Then: squash, `git push -u origin
+  admin/phase5-608`, PR "Closes #608"? — NO: #608 is window 1's + mine; use "Refs #608" unless told.
 - **#518 — Integration 3 G1 (tracking #517), 2026-10-20.** Manager is now **"Manager session
   seven"** (local_484d7727-b945-48ba-bb27-0366bd2bbdcc); report there. Merged main 78db5ce (Admin
   API 0.4.22, contracts-v0.4.25), install + build; `fga:seed` run (reused store 01M4ZT6H…, new
