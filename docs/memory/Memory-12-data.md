@@ -52,6 +52,16 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- #606 BI Q&A (manager ten, 2026-11-01; owner: ON from the start, per-store switch default ON; DPA confirmation is a
+  launch-checklist line). Branch data/phase5-606 (local, cut --no-track from origin/main 3f7394b; first push needs an
+  explicit upstream). PLAN SENT, NO CODE until the manager answers. Facts found: packages/ai = text completion only
+  (AiRequest {model, system, user, maxTokens, effort, fallbacks}; purposes drafting/classification; audit + budget are
+  per STORE); the core does not import @platform/ai yet (#608 / #664 by window 1 will); #664's AI error codes
+  (ai_disabled 503, ai_budget_exceeded / ai_rate_limited 429, ai_refused 422, ai_unavailable 502) are NOT in the
+  contract yet — my CONTRACT CHANGE reuses them, so it lands after #664. store.settings is free-form
+  (additionalProperties) → the switch is `settings.ai.bi_qa` (absent = on), documented, no schema change.
+  Plan = REQUEST (window 14: tool-use loop in the gateway), CONTRACT CHANGE (askMetrics + askFeedback), a db REQUEST
+  (feedback table; org-level audit rows), then the build in reporting/ask + admin (hq)/bi and (store)/bi.
 - #648 DONE: PR #652 MERGED (3d586fe). FOLLOW-UPS (manager ten, 2026-10-30): branch data/phase5-ch-followups, code commit
   46b8bc0; head = this memory commit; ONE PR "Refs #648" (#648 is closed), Opus review. (1) README handover = pull
   (or recreate), then ch:migrate AT ONCE — CORRECTION: the Docker Desktop file share PROPAGATES a deletion into the
