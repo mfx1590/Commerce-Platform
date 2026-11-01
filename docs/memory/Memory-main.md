@@ -72,6 +72,16 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
         - Window 4 (`local_7caabd48-…`) is activated only after the contract lands.
         - No AI key was copied to wt-core: its tests use the fake, and the key goes in only if window 1 asks for a live call.
         - The check-in loop runs again (7,37).
+      - **MERGED 10-31/11-01:**
+        - #665: template product-copy-draft v2, and the gateway escapes `& < >` in values. Opus FINDINGS fixed.
+        - #666 (423a50d3): Admin API 0.4.26 / contracts 0.4.31, `draftProductCopy`, the six ai_* codes, MetricQuery filters minItems 1 (window 12's empty-filter test adapted), every Dockerfile copies packages/ai's manifest (the core image failed without it). Fable FINDINGS fixed.
+      - **OWNER 11-01:** #606 and #610 are built now and ON by default; per-store switches stay. The launch-checklist line (3f7394b2): confirm Anthropic's data-processing terms before REAL data.
+      - **Active:**
+        - window 1: #608 core PR (Fable).
+        - window 4 (`local_7caabd48-…`): #608 admin editor (Opus).
+        - window 12 (`local_90c118d5-…`): #606, plan approved. HQ = org scope; the db change is the manager's: `ai_call_audit.store_id` nullable plus an org RLS policy, and `ai_qa_feedback`. Window 12 files a REQUEST (gateway tool use + org mode) and a CONTRACT CHANGE (askMetrics, `ai_tool_limit` 422).
+        - window 16 (`local_f0321a20-…`, Sonnet): #610, plan approved. Env switch; 404 when off plus an `ai_drafts` capability flag; ordersCount dropped; shared ai_* codes; a REQUEST for support-reply-draft@1. Fable review.
+        - window 14: receives both packages/ai REQUESTs.
     - Window 14's model is unconfirmed: ask the owner before #605.
   - **MERGED 10-29:** #621 (#607 recommendations, 518cc4c, tagged **contracts-v0.4.29**; the shared dev DB migrated with 0204 after the backup `platform-before-0204-20261029.dump`), #631 (#623 ClickHouse erasure, 0d31c6d), #636 (#603 CONTRACT, 77ed790, tagged **contracts-v0.4.30**: Admin API 0.4.25 listMetrics/queryMetrics, live metrics, CSV via Accept, `unavailable`, the core error map, and the `(store)/[storeId]/bi/**` ownership row → window 12). Earlier: #630, #626, #628 (10-27). Wave 1 and the wave-2 contracts are DONE.
   - **OPEN / IN FLIGHT:**
