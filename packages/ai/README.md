@@ -75,7 +75,10 @@ answer. There is no structured-output (JSON schema) option in the transport yet.
 return facts, one labelled line each; amounts in minor units) and `<question>`. The customer's question is answered,
 never obeyed; the draft names only facts from `<order>`, says what is not known instead of guessing, and commits the
 company to nothing the facts do not already show. The caller passes a projection without names, e-mail, address,
-phone, tracking number or uuid; the denylist and redaction are the second guard.
+phone, tracking number or uuid; the denylist and redaction are the second guard (see "Redaction" below for what is
+masked in the free-text question and what is not). Money is converted by the ISO 4217 exponent (100 for EUR, 1 for
+JPY, 1000 for BHD), never an assumed 2; the redaction placeholders are explained to the model, which never repeats
+or asks for them.
 
 ## Order of a call
 
@@ -94,6 +97,28 @@ Every outcome, including each refusal before the call, writes exactly one audit 
 rendering (unknown template, denied field) has no input, so its `input_sha256` is `NO_INPUT_SHA256` = SHA-256 of the
 empty string (the column is NOT NULL, 64 hex); an ill-shaped template key is audited as `unknown`. A failed audit write withholds
 the draft (`AiAuditError`).
+
+## Redaction: exactly what is masked
+
+`redact()` runs over every rendered string (and, in a tool-use run, every tool result) before it is sent. It replaces a
+match with a placeholder and counts it; the counts go into the audit row, the text never does. It is the second guard:
+the first is the denylist, which keeps customer fields out of the variables altogether.
+
+| Placeholder  | Masked                                                                                                                                 |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `[email]`    | an e-mail address (`name@domain.tld`)                                                                                                  |
+| `[card]`     | 13–19 digits, grouped by spaces or hyphens or not, that pass the Luhn check                                                            |
+| `[iban]`     | an IBAN that passes mod-97, grouped or not                                                                                             |
+| `[address]`  | a street with a number (NL, DE, UK, US, FR shapes), an NL postcode followed by a place, a full UK postcode, a US `City, ST 12345` line |
+| `[tracking]` | UPS `1Z` + 16; DHL Express exactly 10 digits, DHL parcel `JJD` + digits; PostNL `3S` + four letters + digits                           |
+| `[phone]`    | at least 9 digits shaped like a phone: starting with `+`, `00`, `0` or `(`, or with separators                                         |
+
+**Not masked:** names; an e-mail address spelled out in words ("anna at example dot org"); other carriers' tracking
+numbers (GLS, DPD, …); an address in a shape not listed; free-text identity details. A caller must not put these in a
+variable; for free text it cannot control (a customer's question) they may reach the model, which is a recorded
+residual. The patterns lean towards masking: a bare 10-digit number (an ISBN-10, a US phone number without a
+separator) becomes `[tracking]`, and a 12/13-digit code that starts with `0` is taken for a phone number.
+GTIN-13s, UPC-12s that do not start with `0`, 13-digit order numbers and short numbers stay.
 
 ## Models and prices
 
