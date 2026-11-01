@@ -72,31 +72,36 @@ export async function metricsScope(p: StaffPrincipal): Promise<{ id: string; cod
 const forbidden = (message: string, details: Record<string, unknown>) =>
   new AppError('forbidden', message, details);
 
+/**
+ * The x-permission guard of an operation, resolved from the spec per request (cached once found). An operation the
+ * spec does not have FAILS CLOSED: a 503 `unavailable` before anything runs, never an unguarded route. Shared with
+ * BI Q&A's routes (../ask/routes.ts).
+ */
+export function operationGuard(spec: MetricsSpec): (op: string) => RequestHandler {
+  const guards = new Map<string, RequestHandler>();
+  return (op) => (req, res, next) => {
+    let g = guards.get(op);
+    if (!g) {
+      let perm: PermissionSpec;
+      try {
+        perm = spec.permission(op);
+      } catch {
+        next(new AppError('unavailable', `${op} is not in the contract`, { operation: op }));
+        return;
+      }
+      g = requirePermission(perm.relation as never, (r: Request) =>
+        resolveObject(perm.object, r.params),
+      );
+      guards.set(op, g);
+    }
+    g(req, res, next);
+  };
+}
+
 export function metricsAdminRouter(opts: MetricsRouterOptions = {}): Router {
   const spec: MetricsSpec = opts.spec ?? loadSpec('admin-api.yaml');
   const reader = (): MetricsReader => opts.reader ?? sharedMetricsReader();
-  // x-permission is resolved per request (cached once found), and an operation the spec does not have FAILS CLOSED:
-  // a 503 `unavailable` before anything runs, never an unguarded route.
-  const guards = new Map<Operation, RequestHandler>();
-  const guard =
-    (op: Operation): RequestHandler =>
-    (req, res, next) => {
-      let g = guards.get(op);
-      if (!g) {
-        let perm: PermissionSpec;
-        try {
-          perm = spec.permission(op);
-        } catch {
-          next(new AppError('unavailable', `${op} is not in the contract`, { operation: op }));
-          return;
-        }
-        g = requirePermission(perm.relation as never, (r: Request) =>
-          resolveObject(perm.object, r.params),
-        );
-        guards.set(op, g);
-      }
-      g(req, res, next);
-    };
+  const guard: (op: Operation) => RequestHandler = operationGuard(spec);
   const r = Router();
 
   r.get(
