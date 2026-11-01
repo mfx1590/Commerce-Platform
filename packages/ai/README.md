@@ -31,7 +31,7 @@ import {
 const ai = createAiGateway({
   organizationId,
   storeId,
-  purpose: 'drafting', // or 'classification'
+  purpose: 'drafting', // or 'classification', 'analysis'
   actorId,
   transport: createAnthropicTransport(), // reads AI_ANTHROPIC_API_KEY only
   limiter: createRedisLimiter(), // REDIS_URL
@@ -51,15 +51,61 @@ const draft = await ai.complete('product-copy-draft@1', {
 The variables are typed per template; passing a denylisted field (`email`, `phone`, `postalCode`, …) is a compile
 error and, if it gets through `as` casts, a `DeniedFieldError` at runtime.
 
+### Store or organization scope (#669)
+
+`storeId` is a store's id, or `null` for an organization-scope call (an HQ question over several stores). A null
+store uses the organization's OWN monthly budget (`AI_ORG_MONTHLY_TOKEN_BUDGET`, default: the store budget) and its own
+minute (the same `AI_RATE_LIMIT_PER_MINUTE` number, keyed by organization); it never charges a store, and a store call
+never charges the organization. Its audit rows have `store_id` NULL and are written in organization scope. The
+limiter takes a `LimitScope` (`{ kind: 'store' | 'organization', id }`); store keys in Redis are unchanged
+(`ai:budget:<storeId>:<yyyymm>`), organization keys are `ai:budget:org:<organizationId>:<yyyymm>`.
+
+### Tool use: `runTools` (#669, for #606)
+
+```ts
+const run = await ai.runTools(
+  'bi-qa-answer@1',
+  { question, today, window, stores, currencyNote },
+  {
+    tools: [{ name: 'query_metrics', description, inputSchema }], // inputSchema: a JSON Schema with type 'object'
+    handle: async (call) => ({ content: JSON.stringify(await runMetricQuery(call.input)) }), // the caller validates input
+    maxToolCalls: 5, // default 5, at most 8
+    maxTokensTotal: 20_000, // optional ceiling on input + output across the steps of this run
+  },
+);
+// run.text, run.toolCalls, run.steps, run.stopReason, run.usage, run.costMicroUsd, run.conversationId, run.auditIds
+```
+
+- Steps 1–3 below run once; steps 4–8 run for EVERY model step (the kill switch, the run's ceiling, the scope's budget
+  and minute, the call, the audit). A run of N steps uses N calls of the minute.
+- While the answer has tool calls, each is run in order: a name the caller did not offer gets an `is_error` result
+  ("unknown tool") and `handle` is never called for it; every result is parsed as JSON (plain text has no keys),
+  checked against the denylist (`DeniedFieldError`, nothing sent) and redacted before it goes back to the model.
+  The tool INPUT is the model's: it is not redacted, but it is part of the next step's hash.
+- A step whose calls would take the run past `maxToolCalls` is not run: `AiToolLoopError` (`details.max_tool_calls`),
+  outcome `tool_loop_cap`, no partial answer. A step cut off at `max_tokens` ends the run with that stop reason and
+  runs none of its tools. A refusal is `AiRefusedError`; a throwing `handle` ends the run (audited `error`, the class
+  only) and its error is rethrown.
+- The assistant turn goes back to the model exactly as the transport returned it (thinking blocks and their
+  signatures included); the gateway never reads, logs or audits it.
+- ONE audit row per model step, written after that step's tools were handled, with `conversation_id` (the run's),
+  `step` (0-based) and `tool_names` (the names that step asked for; a name not offered is recorded as `unknown`).
+  A run refused before its first call writes one row with `step = 0`. `input_sha256` hashes what that step sent: the
+  system and user text, then the turns as text, tool calls (name, input) and the redacted results (never the
+  transport's own blocks). `complete()` rows have `conversation_id` and `step` NULL.
+- Tests script the model with `createFakeTransport({ script: [{ toolUse: [{ name, input }] }, { text }] })`; a step can be
+  a function of the request, or an Error. The fake records every request (system, user, turns, tools).
+
 ## Templates
 
 A published template is never edited: a changed prompt is a new `v<N+1>.json`, and callers move to it by key.
 
-| Key                          | Purpose        | maxTokens | Variables                                                                        | Answer                                                                                                                                                                                                                                                                                   |
-| ---------------------------- | -------------- | --------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `product-copy-draft@1`       | drafting       | 1200      | `brandVoice`, `locale`, `audience`, `productTitle`, `attributes`                 | plain text: two short paragraphs, then up to five bullets                                                                                                                                                                                                                                |
-| `product-copy-draft@2`       | drafting       | 2000      | as v1, plus `fields` (comma-separated: `title`, `description`, `bullets`, `seo`) | ONE strict-JSON object with every requested key and no others: `title` ≤ 200, `description` ≤ 5000 (paragraph breaks as `\n\n` in the string), `bullets` ≤ 5 × ≤ 200 (may be `[]`), `seo: { title ≤ 70, description ≤ 160 }` — the `ProductCopyDraft` shape of `draftProductCopy` (#608) |
-| `product-category-suggest@1` | classification | 64        | `productTitle`, `attributes`, `categories`                                       | one category handle from the list, or `none`                                                                                                                                                                                                                                             |
+| Key                          | Purpose        | maxTokens     | Variables                                                                        | Answer                                                                                                                                                                                                                                                                                   |
+| ---------------------------- | -------------- | ------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `product-copy-draft@1`       | drafting       | 1200          | `brandVoice`, `locale`, `audience`, `productTitle`, `attributes`                 | plain text: two short paragraphs, then up to five bullets                                                                                                                                                                                                                                |
+| `product-copy-draft@2`       | drafting       | 2000          | as v1, plus `fields` (comma-separated: `title`, `description`, `bullets`, `seo`) | ONE strict-JSON object with every requested key and no others: `title` ≤ 200, `description` ≤ 5000 (paragraph breaks as `\n\n` in the string), `bullets` ≤ 5 × ≤ 200 (may be `[]`), `seo: { title ≤ 70, description ≤ 160 }` — the `ProductCopyDraft` shape of `draftProductCopy` (#608) |
+| `product-category-suggest@1` | classification | 64            | `productTitle`, `attributes`, `categories`                                       | one category handle from the list, or `none`                                                                                                                                                                                                                                             |
+| `bi-qa-answer@1`             | analysis       | 1200 per step | `question` (untrusted), `today`, `window`, `stores`, `currencyNote`              | for `runTools` with `query_metrics` (#606): only from tool results, every figure cited `[qN]` in call order, per currency (never summed across), at most 5 calls; off-topic or an unlisted store is said without calling the tool                                                        |
 
 Every drafting template uses only the given facts. In `product-copy-draft@2` each value sits in its own tag
 (`<locale>`, `<brand_voice>`, `<audience>`, `<product_title>`, `<facts>`), the requested keys stay outside the tags,
@@ -78,7 +124,9 @@ answer. There is no structured-output (JSON schema) option in the transport yet.
    escaped), so no value can open or close a tag such as `<facts>`; redact the system and user text; hash the
    escaped, redacted input (SHA-256), which is exactly what is sent.
 4. Kill switch: `AI_ENABLED` must be exactly `1` (`AiDisabledError`).
-5. Reserve the input estimate plus `maxTokens` against the store's month and minute (`AiBudgetExceededError`, `AiRateLimitedError`).
+5. Reserve the input estimate plus `maxTokens` against the month and minute of the store, or of the organization for
+   `storeId: null` (`AiBudgetExceededError` with `details: { scope, used_tokens, limit_tokens, resets_at }`,
+   `AiRateLimitedError` with `scope`). In a tool-use run the run's `maxTokensTotal` is checked first (`scope: 'run'`).
 6. Call the model. Server-side refusal fallbacks are off in Phase 5: a refusal is `AiRefusedError` for the human to reword.
 7. Settle the reservation to the real usage (a failed call refunds it all).
 8. Price by the model that answered; write the audit row; a refusal throws `AiRefusedError` with its category.
@@ -94,27 +142,29 @@ the draft (`AiAuditError`).
 | -------------- | ------------------- | ------------------------- | --------- |
 | drafting       | `claude-sonnet-5-5` | `AI_MODEL_DRAFTING`       | off       |
 | classification | `claude-haiku-5-5`  | `AI_MODEL_CLASSIFICATION` | off       |
+| analysis       | `claude-sonnet-5-5` | `AI_MODEL_ANALYSIS`       | off       |
 
 An override must be a priced model (`PRICES`), else `AiConfigError`. Cost is integer micro-USD, rounded up.
 
 ## Environment
 
-| Variable                   | Default                  | Meaning                                   |
-| -------------------------- | ------------------------ | ----------------------------------------- |
-| `AI_ENABLED`               | off                      | exactly `1` to allow calls                |
-| `AI_ANTHROPIC_API_KEY`     | —                        | the key; never `ANTHROPIC_API_KEY`        |
-| `AI_MONTHLY_TOKEN_BUDGET`  | `200000`                 | tokens per store per calendar month (UTC) |
-| `AI_RATE_LIMIT_PER_MINUTE` | `10`                     | calls per store per minute                |
-| `REDIS_URL`                | `redis://127.0.0.1:6381` | the Redis limiter                         |
+| Variable                      | Default                   | Meaning                                                         |
+| ----------------------------- | ------------------------- | --------------------------------------------------------------- |
+| `AI_ENABLED`                  | off                       | exactly `1` to allow calls                                      |
+| `AI_ANTHROPIC_API_KEY`        | —                         | the key; never `ANTHROPIC_API_KEY`                              |
+| `AI_MONTHLY_TOKEN_BUDGET`     | `200000`                  | tokens per store per calendar month (UTC)                       |
+| `AI_ORG_MONTHLY_TOKEN_BUDGET` | `AI_MONTHLY_TOKEN_BUDGET` | tokens per organization per month, for `storeId: null` calls    |
+| `AI_RATE_LIMIT_PER_MINUTE`    | `10`                      | calls (model steps) per store, and per organization, per minute |
+| `REDIS_URL`                   | `redis://127.0.0.1:6381`  | the Redis limiter                                               |
 
 ## Public API
 
-- `createAiGateway(opts)` → `{ storeId, purpose, model, complete(templateKey, variables) }`; `estimateInputTokens`
+- `createAiGateway(opts)` → `{ storeId, purpose, model, complete(templateKey, variables), runTools(templateKey, variables, opts) }`; `estimateInputTokens`, `nextUtcMonth`, `DEFAULT_MAX_TOOL_CALLS`, `MAX_TOOL_CALLS_CAP`; types `AiToolRun`, `AiToolRunOptions`, `AiToolResult`
 - Models: `PURPOSES`, `DEFAULT_MODELS`, `PRICES`, `FALLBACKS`, `modelFor`, `costMicroUsd`, `isPurpose`
 - Templates: `TEMPLATES`, `getTemplate`, `renderTemplate`; types `TemplateKey`, `TemplateVariables<K>`
 - Guards: `DENIED_FIELDS`, `findDeniedFields`, type `NoDeniedFields`; `redact`
-- Limits: `createMemoryLimiter`, `createRedisLimiter`, `limitsFromEnv`, `DEFAULT_LIMITS`; types `Limits`, `UsageLimiter`
+- Limits: `createMemoryLimiter`, `createRedisLimiter`, `limitsFromEnv`, `orgLimitsFromEnv`, `scopeKey`, `DEFAULT_LIMITS`; types `Limits`, `LimitScope`, `UsageLimiter`
 - Audit: `OUTCOMES`, `createPgAuditSink(appPool)`, `createMemoryAuditSink`, `NO_INPUT_SHA256` (the hash of a call refused before rendering); types `AuditRecord`, `AuditSink`
-- Transport: `createAnthropicTransport`, `createFakeTransport`, `FALLBACK_BETA`, `ANTHROPIC_API_URL` (the fixed host; `ANTHROPIC_BASE_URL` is never read); types `AiTransport`, `AiRequest`, `AiResponse`
-- Errors: `AiError`, `AiConfigError`, `AiDisabledError`, `AiBudgetExceededError`, `AiRateLimitedError`,
+- Transport: `createAnthropicTransport`, `createFakeTransport`, `FALLBACK_BETA`, `ANTHROPIC_API_URL` (the fixed host; `ANTHROPIC_BASE_URL` is never read); types `AiTransport`, `AiRequest`, `AiResponse`, `AiTool`, `AiToolCall`, `AiToolResultBlock`, `AiTurn`, `AiAssistantContent`, `JsonSchemaObject`, `FakeStep`, `FakeScriptStep`, `FakeTransportOptions`
+- Errors: `AiError`, `AiConfigError`, `AiDisabledError`, `AiBudgetExceededError` (type `BudgetScope`), `AiRateLimitedError`, `AiToolLoopError`,
   `DeniedFieldError`, `TemplateError`, `AiRefusedError`, `AiTransportError`, `AiAuditError`, `AiLimiterError` (the limiter could not reserve; audited as `error`, nothing sent)

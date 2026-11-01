@@ -1,12 +1,17 @@
 // Public API of @platform/ai — the guarded Claude gateway (D8, #605). Nothing outside this package imports src/*.
 export {
   createAiGateway,
+  DEFAULT_MAX_TOOL_CALLS,
   estimateInputTokens,
+  MAX_TOOL_CALLS_CAP,
   NO_INPUT_SHA256,
   nextUtcMonth,
   type AiDraft,
   type AiGateway,
   type AiGatewayOptions,
+  type AiToolResult,
+  type AiToolRun,
+  type AiToolRunOptions,
 } from './gateway.js';
 export {
   costMicroUsd,
