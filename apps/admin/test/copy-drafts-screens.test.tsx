@@ -118,17 +118,30 @@ describe('every refusal is said and the editor keeps working', () => {
     expect(actions.saveProductCopyAction).not.toHaveBeenCalled();
   });
 
-  it('ai_rate_limited counts Retry-After down on the button, then it works again', async () => {
-    // Real timers: the countdown is wall-clock, so assert "disabled with a countdown", then wait
-    // (bounded) for it to work again — no exact-second label under a loaded runner.
+  // Two tests, so neither races the wall clock on a loaded runner: a long Retry-After pins the
+  // countdown state, a 1 s one proves the button works again.
+  it('ai_rate_limited disables the button with a Retry-After countdown', async () => {
     actions.draftProductCopyAction.mockResolvedValueOnce(
-      errorOf(429, 'ai_rate_limited', { limit_per_minute: 10 }, 2),
+      errorOf(429, 'ai_rate_limited', { limit_per_minute: 10 }, 60),
     );
     const user = userEvent.setup();
     renderPanel();
     await user.click(screen.getByRole('button', { name: 'Draft with AI' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Wait 2 s and try again.');
-    expect(screen.getByRole('button', { name: /^Draft with AI \(wait [12] s\)$/ })).toBeDisabled();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Wait 60 s and try again.');
+    // The alert can render a moment before the draft transition ends ("Drafting…"): wait for it.
+    expect(
+      await screen.findByRole('button', { name: /^Draft with AI \(wait \d+ s\)$/ }),
+    ).toBeDisabled();
+  });
+
+  it('ai_rate_limited: the button works again once Retry-After has passed', async () => {
+    actions.draftProductCopyAction.mockResolvedValueOnce(
+      errorOf(429, 'ai_rate_limited', { limit_per_minute: 10 }, 1),
+    );
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(screen.getByRole('button', { name: 'Draft with AI' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Wait 1 s and try again.');
     await waitFor(
       () => expect(screen.getByRole('button', { name: 'Draft with AI' })).toBeEnabled(),
       { timeout: 5000 },
