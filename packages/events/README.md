@@ -47,14 +47,24 @@ scripts/generate.mjs          -> src/generated/{schemas,types}.ts
 **Production: build a new outbox index `CONCURRENTLY` first.** The packages/db runner applies each migration in a
 transaction, where `CREATE INDEX CONCURRENTLY` is not allowed, so 0101 is a plain `CREATE INDEX`. That holds a SHARE
 lock on `outbox` for the whole build, and every producer's INSERT (every state change in the core) waits behind it.
-On a database whose outbox is already large, run this by hand before `pnpm db:migrate`:
+On a database whose outbox is already large, run this by hand before `pnpm db:migrate`, as the table owner (the
+`DATABASE_URL` role; `platform_app` cannot create indexes on `outbox`) and in autocommit mode, not inside `BEGIN`:
 
 ```sql
 CREATE INDEX CONCURRENTLY IF NOT EXISTS outbox_topic_seq_idx ON outbox (topic, seq);
 -- a failed CONCURRENTLY build leaves an INVALID index: DROP INDEX CONCURRENTLY outbox_topic_seq_idx; and run it again
 ```
 
-The migration says `IF NOT EXISTS`, so it is then a no-op that only records itself in `schema_migrations`.
+The migration says `IF NOT EXISTS`, so it is then a no-op that only records itself in `schema_migrations`. **Check
+the build succeeded before migrating:** `IF NOT EXISTS` also skips an INVALID index, which would leave both scans
+on full table scans for good.
+
+```sql
+SELECT indisvalid FROM pg_index WHERE indexrelid = 'outbox_topic_seq_idx'::regclass; -- must be true
+```
+
+Cost: one narrow btree entry per outbox INSERT, plus one per relay publish (the `published_at` update cannot be
+HOT because `outbox_unpublished_idx` filters on it). Small next to the transaction it rides in.
 
 ## Producing an event (apps/core)
 
