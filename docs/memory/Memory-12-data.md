@@ -52,6 +52,19 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- #7 FIX (2026-11-02, branch data/phase5-606-products from main abfbc02d): golden/catalogue.ts catalogueFor
+  publishes 8 products per store (variants by line order, weights 9:7:5:4:2:1:1:1) in the LIVE golden setup; a
+  live test pins #7 to 5 distinct products, units falling; catalogue.test (4). Real run logs each case's queries;
+  AI_REAL_MODEL_CASES=7 targets cases. Targeted real run (#7 only): the model asked units × product, total,
+  order_by units desc, limit 5 → 5 rows, answered p1 168 / p2 128 / p3 86 / p4 84 / p5 38 [q1]; 2 calls, 6,724
+  tokens, $0.016. Marked FAIL only by the checker reading the list numbering / p1… labels as figures → figuresOf
+  now skips `p\d+` labels and a line-leading "1." (tested on that exact answer). Reporting 242 pass. Machine freed.
+  (#685 merged as #687, d0bd4fb2; its notes are the #685 entry below.)
+  PR #688 Opus FINDINGS fixed: stripEnumeration runs first on the raw text and drops only a REAL run 1, 2, 3 …
+  (≥2 items, content on the line) — "Total orders:\n17." and "[q1] 12. orders" stay counts; figuresOf strips only
+  the labels the results gave (itemLabels, rebuilt as tool.ts assigns p1… per result), labelProblems reports an
+  invented pN and a "pN: X" that is not pN's figure (swapped ranking); selectCases throws on a blank/typo/unknown
+  id and the run fails on zero cases. real-model.test 76, reporting 264; no re-run.
 - THIRD REAL-MODEL RUN (2026-11-02, main abfbc02d, @3 + tool descriptions + tightened checker; machine freed):
   29/30; 54 calls, 184,141 tokens, $0.44. Only #30 ("7 days" restating the question, harmless). #17 now labels
   its count difference and the checker verifies it. #7 STILL no top 5 — cause is OUR FIXTURE: generateMonth
