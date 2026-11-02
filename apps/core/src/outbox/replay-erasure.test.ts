@@ -1,6 +1,8 @@
 // The erasure-aware replay (#629). The outbox keeps every payload, so a replay must not hand an erased customer's ids
 // back to the bus: per store, every row that names an erased customer is skipped, order.placed included (until
-// order.placed@2, #696, lets the replay send it without the ids), and customer.erased itself is sent whole.
+// order.placed@2, #696, lets the replay send it without the ids), customer.erased keeps its payload, and on every
+// topic an envelope actor that is an erased customer of the store loses its id (#700 review: a signed-in checkout
+// stamps the customer as the actor of payment.authorized, order.confirmed, …).
 import { createOrganizationClient } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import {
@@ -13,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createStore } from '../modules/registry';
 import { buildEvent, withEvents } from './index';
 import { runRelayLoop } from './relay';
-import { ERASURE_RULES, namesErased, replayOutbox } from './replay';
+import { actorErased, ERASURE_RULES, namesErased, replayOutbox } from './replay';
 
 const ORG = '32000000-0000-4000-8000-000000000002';
 const LE = '32000000-0000-4000-8000-000000000012';
@@ -31,6 +33,8 @@ let hq: ReturnType<typeof createOrganizationClient>;
 let storeA = '';
 let storeB = '';
 
+const customerActor = (id: string | null) => ({ type: 'customer' as const, id });
+
 const orderPlaced = (storeId: string, customerId: string | null, emailHash: string) => {
   const orderId = uuid();
   return buildEvent({
@@ -39,6 +43,7 @@ const orderPlaced = (storeId: string, customerId: string | null, emailHash: stri
     aggregateType: 'order',
     aggregateId: orderId,
     topic: 'order.placed',
+    actor: customerActor(customerId),
     payload: {
       order_id: orderId,
       display_id: 1,
@@ -80,6 +85,29 @@ const orderPlaced = (storeId: string, customerId: string | null, emailHash: stri
       billing_country: 'NL',
       promotion_codes: [],
       placed_at: new Date().toISOString(),
+    },
+  });
+};
+
+/** A topic outside ERASURE_RULES whose envelope actor is the signed-in customer (store-routes.ts completeCart). */
+const paymentAuthorized = (storeId: string, actorId: string) => {
+  const paymentId = uuid();
+  return buildEvent({
+    organizationId: ORG,
+    storeId,
+    aggregateType: 'payment',
+    aggregateId: paymentId,
+    topic: 'payment.authorized',
+    actor: customerActor(actorId),
+    payload: {
+      payment_id: paymentId,
+      order_id: uuid(),
+      legal_entity_id: LE,
+      provider: 'manual',
+      provider_payment_id: null,
+      amount_minor: 1999,
+      currency: 'EUR',
+      authorized_at: new Date().toISOString(),
     },
   });
 };
@@ -169,12 +197,15 @@ beforeAll(async () => {
     await orderPlaced(storeB, null, HX), // the same person in another store, not erased there
     await cartAbandoned(storeA, X, HX), // skipped
     await cartAbandoned(storeA, Y, HY),
+    await paymentAuthorized(storeA, X), // sent, the actor id nulled
+    await paymentAuthorized(storeA, Y), // sent as it is
     await buildEvent({
       organizationId: ORG,
       storeId: storeA,
       aggregateType: 'customer',
       aggregateId: X,
       topic: 'customer.erased',
+      actor: customerActor(X), // eraseMe: the customer erased themself
       payload: {
         customer_id: X,
         identity_id: null,
@@ -192,14 +223,27 @@ afterAll(async () => {
 });
 
 describe('ERASURE_RULES', () => {
-  it('covers every schema that names a customer (customer_id, *_customer_id or email_hash), except customer.erased', () => {
+  it('covers every schema that names a customer anywhere in it (customer_id, *_customer_id, email_hash, identity_id, requested_by), except customer.erased', () => {
+    // recursive: nested properties, array items and oneOf/anyOf/allOf branches count too (#700 review)
+    const propertyNames = (s: unknown, out = new Set<string>()): Set<string> => {
+      if (Array.isArray(s)) for (const x of s) propertyNames(x, out);
+      else if (s && typeof s === 'object') {
+        const o = s as Record<string, unknown>;
+        for (const [k, v] of Object.entries((o.properties as object) ?? {})) {
+          out.add(k);
+          propertyNames(v, out);
+        }
+        for (const k of ['items', 'prefixItems', 'oneOf', 'anyOf', 'allOf'])
+          propertyNames(o[k], out);
+      }
+      return out;
+    };
+    const NAMES_CUSTOMER = /(^|_)customer_id$|^email_hash$|^identity_id$|^requested_by$/;
     const naming = Object.entries(EVENT_SCHEMAS)
-      .filter(([, s]) =>
-        Object.keys((s as { properties?: object }).properties ?? {}).some((k) =>
-          /(^|_)customer_id$|^email_hash$/.test(k),
-        ),
-      )
+      .filter(([, s]) => [...propertyNames(s)].some((k) => NAMES_CUSTOMER.test(k)))
       .map(([key]) => key.split('@')[0]!);
+    // the walker reaches nested names (order.placed's line items) and branches (cart.abandoned's nullable hash)
+    expect(propertyNames(EVENT_SCHEMAS['order.placed@1'])).toContain('order_line_item_id');
     const topics = [...new Set(naming)].filter((t) => t !== 'customer.erased').sort();
     expect(Object.keys(ERASURE_RULES).sort()).toEqual(topics);
     for (const t of Object.keys(ERASURE_RULES)) expect(EVENT_TOPICS).toContain(t);
@@ -223,6 +267,11 @@ describe('ERASURE_RULES', () => {
     ).toBe(true);
     expect(namesErased('customer.erased', 's1', { customer_id: X }, erased)).toBe(false);
     expect(namesErased('payment.captured', 's1', { customer_id: X }, erased)).toBe(false);
+    // the envelope actor: a customer erased in that store, never a staff id that happens to match
+    expect(actorErased('s1', customerActor(X), erased)).toBe(true);
+    expect(actorErased('s2', customerActor(X), erased)).toBe(false);
+    expect(actorErased('s1', { type: 'staff', id: X }, erased)).toBe(false);
+    expect(actorErased('s1', customerActor(null), erased)).toBe(false);
   });
 });
 
@@ -250,6 +299,9 @@ describe('replayOutbox with an erased customer (database, recording publisher)',
     expect(wire.filter((v) => v.includes(X))).toEqual([]);
     expect(wire.filter((v) => v.includes(HX) && v.includes(storeA))).toEqual([]);
 
+    // the skipped rows were the erased customer's; the actor of Y's order is Y
+    expect(summary.erased_actors).toBe(0);
+
     // a store without erased customers replays as before
     expect(
       await replayOutbox(hq, recorder().publisher, {
@@ -261,7 +313,29 @@ describe('replayOutbox with an erased customer (database, recording publisher)',
     ).toMatchObject({ published: 1, erased_customers: 0, erased_skipped: { 'order.placed': 0 } });
   });
 
-  it('skips the erased customer’s cart.abandoned, sends customer.erased whole, and the dry run counts the erased', async () => {
+  it('nulls the actor id of an erased customer on a topic outside the rules, and leaves the payload and other actors', async () => {
+    const r = recorder();
+    expect(
+      await replayOutbox(hq, r.publisher, {
+        organizationId: ORG,
+        topic: 'payment.authorized',
+        log: quiet,
+      }),
+    ).toMatchObject({
+      rows: 2,
+      published: 2,
+      erased_customers: 1,
+      erased_actors: 1,
+      erased_skipped: {},
+    });
+    expect(r.envelopes().map((e) => e.actor)).toEqual([customerActor(null), customerActor(Y)]);
+    const wire = r.sent.flatMap((s) => s.messages.map((m) => m.value));
+    expect(wire).toHaveLength(2);
+    expect(wire.filter((v) => v.includes(X))).toEqual([]);
+    expect(wire.filter((v) => v.includes(Y))).toHaveLength(1);
+  });
+
+  it('skips the erased customer’s cart.abandoned, sends customer.erased with its payload, and the dry run counts the erased', async () => {
     const carts = recorder();
     expect(
       await replayOutbox(hq, carts.publisher, {
@@ -280,8 +354,17 @@ describe('replayOutbox with an erased customer (database, recording publisher)',
       topic: 'customer.erased',
       log: quiet,
     });
-    expect(whole).toMatchObject({ published: 1, erased_customers: 0, erased_skipped: {} });
-    expect(erasures.envelopes()[0]!.payload).toMatchObject({ customer_id: X, email_hash: HX });
+    expect(whole).toMatchObject({
+      published: 1,
+      erased_customers: 1,
+      erased_actors: 1,
+      erased_skipped: {},
+    });
+    // the instruction keeps its ids (every consumer needs them); the actor is no longer the customer's id
+    expect(erasures.envelopes()[0]).toMatchObject({
+      actor: customerActor(null),
+      payload: { customer_id: X, email_hash: HX },
+    });
 
     expect(
       await replayOutbox(hq, carts.publisher, {

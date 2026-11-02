@@ -183,7 +183,7 @@ a failed send names its resume point: `… (last_seq 12345; resume with --after-
 
 The outbox keeps every payload, so without a guard a replay would hand an erased customer's `customer_id` and
 `email_hash` back to the bus, after the bus itself let them go (every topic carrying them is in the 30-day class
-since #694, infra/redpanda/README.md). Before it sends, a replay of a topic in `ERASURE_RULES` reads the erased customers
+since #694, infra/redpanda/README.md). Before it sends, every replay, whatever the topic, reads the erased customers
 from the outbox's own `customer.erased` rows (published or not; v1 has no `email_hash`, v2 has) and matches PER
 STORE, by customer id or e-mail hash, so an erased customer's guest orders in that store match too, and the same
 person in another store does not:
@@ -191,13 +191,27 @@ person in another store does not:
 - **Skipped:** every row that names an erased customer in `order.placed`, `customer.created`, `customer.updated`,
   `customer.export_requested`, `customer.export_ready`, `cart.abandoned`, `review.published` and
   `referral.converted` (either party). Nothing is sent for the row.
-- **Sent whole:** `customer.erased` itself, the instruction every consumer acts on.
+- **Actor id nulled, on every topic:** a signed-in checkout stamps the customer as the envelope `actor` of
+  `payment.authorized`, `order.confirmed` and others (`store-routes.ts` `completeCart`), and the relay rebuilds the
+  actor from the outbox headers. When `actor.type` is `customer` and the id is an erased customer of that store, the
+  row is sent with `actor: { type: 'customer', id: null }` (envelope v1 allows a null id) and is otherwise unchanged
+  (review of #700).
+- **Payload kept:** `customer.erased` itself, the instruction every consumer acts on. Its actor id is nulled like
+  any other when the customer erased themself.
 
-The summary adds `erased_customers` (`customer.erased` rows in scope; also on `--dry-run`) and `erased_skipped` per
-event type (`{ "order.placed": 2 }`; `{}` for a topic that names no customer). `replay-erasure.test.ts` checks that
-every schema naming a customer has a rule, so a new one fails the build until it gets one. A customer erased while a
-replay runs is not in that replay's set: their `customer.erased` row is relayed after the replay started, and
-consumers delete what the replay sent.
+The summary adds `erased_customers` (`customer.erased` rows in scope; also on `--dry-run`), `erased_skipped` per
+event type (`{ "order.placed": 2 }`; `{}` for a topic outside `ERASURE_RULES`) and `erased_actors`.
+`replay-erasure.test.ts` walks every schema recursively (properties, array items, `oneOf`/`anyOf`/`allOf`) for
+`customer_id`, `*_customer_id`, `email_hash`, `identity_id` and `requested_by`, and fails when such a topic has no
+rule. A customer erased while a replay runs is not in that replay's set: their `customer.erased` row is relayed
+after the replay started, and consumers delete what the replay sent. Each replay reads the erased set with one
+query on `topic = 'customer.erased'`, a sequential scan until the `(topic, seq)` index lands (CONTRACT CHANGE #702;
+the same index serves the replay's own per-topic scans).
+
+**Not covered here: DLQ replays (#703).** `replayFromDlq` (packages/events) re-runs a consumer's handler on the
+ORIGINAL dead-lettered message fetched from the bus, unchanged. A message that failed before an erasure is then
+handled after it, and can rebuild what the consumer deleted. Until #703 adds a skip hook, a consumer that keeps
+per-customer state checks its own erasure record before a DLQ replay writes.
 
 **What skipping `order.placed` costs (manager decision 2026-11-02).** A ledger REBUILT FROM SCRATCH by a replay
 misses the revenue lines of an erased customer's orders, and that order's later `shipment.*` / `refund.*` events
