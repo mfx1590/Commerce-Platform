@@ -87,9 +87,11 @@ export type CopyDraftGatewayFactory = (ctx: {
 // One limiter (Redis) per process, created on first use; the transport is resolved only when a call goes out, so
 // `AI_ENABLED` off is `ai_disabled` (the gateway refuses before the transport) even without a key configured.
 let redisLimiter: UsageLimiter | null = null;
+// created on the first call that goes out, then reused: the key is read once; rotating it means a restart
+let anthropic: AiTransport | null = null;
 const lazyTransport: AiTransport = {
   kind: 'anthropic',
-  complete: (req) => createAnthropicTransport().complete(req),
+  complete: (req) => (anthropic ??= createAnthropicTransport()).complete(req),
 } as AiTransport;
 
 const defaultFactory: CopyDraftGatewayFactory = (ctx) =>
@@ -280,6 +282,8 @@ export function toAppError(err: unknown, now: Date = new Date()): unknown {
     err instanceof TemplateError ||
     err instanceof DeniedFieldError
   ) {
+    // our bug, not the user's: log the class only — a gateway message can name a field or a template (#679 review)
+    console.error(`[catalog] AI copy draft misconfigured: ${err.constructor.name}`);
     return new AppError('internal', 'AI drafting is misconfigured');
   }
   return err;
@@ -311,13 +315,15 @@ export async function draftProductCopy(
   const facts = await client.transaction((tx) =>
     productFacts(tx, storeId, input.productId, input.locale),
   );
-  const ai = factory({
-    organizationId: client.context.organizationId,
-    storeId,
-    actorId: input.actorId,
-  });
   let answer: Awaited<ReturnType<AiGateway['complete']>>;
   try {
+    // built inside the mapping: an error constructing the limiter, the audit sink or the gateway itself is the
+    // documented 503 / 500, not an unmapped one (#672 review)
+    const ai = factory({
+      organizationId: client.context.organizationId,
+      storeId,
+      actorId: input.actorId,
+    });
     answer = await ai.complete(COPY_TEMPLATE.key, {
       fields: fields.join(', '),
       brandVoice: facts.brandVoice,

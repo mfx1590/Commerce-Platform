@@ -90,6 +90,10 @@ and fall back to `en` when that throws or is empty. The gateway escapes it like 
 - While the answer has tool calls, each is run in order: a name the caller did not offer gets an `is_error` result
   ("unknown tool") and `handle` is never called for it; every result is parsed as JSON (plain text has no keys),
   checked against the denylist (`DeniedFieldError`, nothing sent) and redacted before it goes back to the model.
+  A JSON result has only its strings redacted (values and keys, `\u` escapes decoded first) plus Luhn-valid
+  13–19 digit integers (`"[card]"`); other numbers, booleans, null and the layout stay byte for byte, so
+  `"bookings_minor":1234567890` stays a number and the result stays valid JSON (#680; see "Redaction" below).
+  A plain-text result is redacted as a whole, as before.
   The tool INPUT is the model's: it is not redacted, but it is part of the next step's hash.
 - Calls to an unknown tool count toward `maxToolCalls` like any other. A step whose calls would take the run past
   `maxToolCalls` is not run: `AiToolLoopError` (`details.max_tool_calls`),
@@ -179,6 +183,20 @@ variable; for free text it cannot control (a customer's question) they may reach
 residual. The patterns lean towards masking: a bare 10-digit number (an ISBN-10, a US phone number without a
 separator) becomes `[tracking]`, and a 12/13-digit code that starts with `0` is taken for a phone number.
 GTIN-13s, UPC-12s that do not start with `0`, 13-digit order numbers and short numbers stay.
+
+**Left as they are:** RFC 4122 uuids (`8-4-4-4-12` hex, any case, version 1–8 and variant 8/9/a/b, plus the nil
+uuid; #680), bounded by any character that is not a letter or digit, so `ord_<uuid>` counts too. They are ids, not
+personal data, and their digit groups would otherwise read as phone, card or tracking numbers
+(`00000000-0000-4000-8000-000000000031` once became `[phone]-[phone]`). E-mail is masked first, over the whole
+text, so a uuid used as the local part of an address does not shield it; every other pattern runs on the text between
+uuids, so a phone or card number right next to a uuid is still masked. Residual: a phone number written with a uuid
+in its middle is no longer masked.
+
+**JSON tool results** (`runTools`): only strings (values and keys) go through the patterns above. A number is left
+as written, with one exception: an integer of 13–19 digits that passes the Luhn check becomes the string `"[card]"`.
+So a 10-digit tracking number held as a JSON NUMBER is NOT masked (manager decision on #681: numeric BI figures
+such as `"bookings_minor":1234567890` are worth more, and tracking numbers are strings in practice); the same
+number inside a string, or in a plain-text result, is masked as `[tracking]`.
 
 ## Models and prices
 
