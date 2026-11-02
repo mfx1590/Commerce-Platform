@@ -368,7 +368,11 @@ export const getOrderRouteWith = (override?: CustomerTokenVerifier): RequestHand
 
 export const getOrderRoute: RequestHandler = getOrderRouteWith();
 
-/** The Store API paths the core answers itself (README "What is real"; the fallback proxy covers the rest). */
+/**
+ * The Store API paths the core answers itself (README "What is real"; the fallback proxy covers the rest). Paths of
+ * other modules' Store API routers (`moduleStoreRouters()` in module-routers.ts, e.g. window 9's
+ * `GET /store/recommendations`) are not listed here: they are mounted and listed separately, in that file (#624).
+ */
 export const REAL_STORE_PATHS = [
   'GET /store',
   'GET /store/categories',

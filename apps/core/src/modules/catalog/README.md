@@ -81,6 +81,27 @@ gateway's `ai_call_audit` row (no content). No outbox event: no business state c
   with a memory limiter and audit sink; no test touches the network. The product is read in one short transaction;
   the model call runs outside any transaction.
 
+## The catalogue re-publish (`republish.ts`, #634)
+
+`pnpm --filter @platform/core catalog:republish [--store <code>]… [--force] [--dry-run] [--batch <n>]`
+(`republishCatalogue(client, opts)`, organization scope). A catalogue that predates the bus — the dev stack's seeded
+products were inserted by the db seed and never published — is announced as `product.published` v1 with each
+product's CURRENT state (the same builder as `publishProduct`, `productPublishedEvent`) through `withEvents`, in
+transactions of `--batch` products (default 200); the relay delivers it. No row changes, no audit row.
+
+- **Idempotent by default:** a published product that already has a `product.published` outbox row is skipped, so a
+  second run writes nothing; draft and archived products are never announced. `--dry-run` counts only.
+- **`--force`** re-announces every published product in scope. Every consumer treats that idempotently: ClickHouse
+  `dim_variant` keeps the latest event per (store, variant) (`argMax(product_id, occurred_at)`); window 9's search
+  sync re-reads the touched products from the database and upserts them (a re-index, the only cost);
+  recommendations read through `dim_variant`.
+- **Run `--force` per store (`--store <code>`) and off-peak:** every re-announced product is a search re-index and a
+  relay delivery. A published product without `published_at` cannot be a valid event: it is left out and reported
+  (`missing_published_at`), never an abort. The skip check uses the outbox's aggregate index and is repeated inside each
+  batch's transaction, so a product published while the command runs is not announced twice.
+- A deliberate command, never automatic. On a shared database it is a shared-data write: the manager runs it (backup
+  first).
+
 ## Events
 
 `product.updated` v1 (create, update, variant create/update — `changed_fields`, `variants[]`), `product.published`

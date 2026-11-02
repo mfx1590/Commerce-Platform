@@ -17,6 +17,9 @@ export {
   updateVariant,
 } from './service';
 export { getStoreProduct, listStoreCategories, listStoreProducts } from './read-model';
+// the catalogue re-publish (#634): a catalogue that predates the bus, announced as product.published
+export { REPUBLISH_BATCH, republishCatalogue } from './republish';
+export type { RepublishOptions, RepublishResult, RepublishStoreResult } from './republish';
 // AI copy drafts (#608): a draft, never written to the product
 export {
   COPY_FIELDS,
