@@ -38,7 +38,11 @@ type StaffPrincipal = ReturnType<typeof requirePrincipal>;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** `settings.ai.bi_qa` of these stores, read through the caller's own tenant client; absent = ON. */
+/**
+ * `settings.ai.bi_qa` of these stores, read through the caller's own tenant client. Only a JSON `false` switches a store
+ * off: absent, `true`, or any value that is not a JSON boolean (a string "no", a number, `ai` not an object) counts as
+ * ON — the owner's default (2026-11-01) — and never fails the question (a `::boolean` cast of a string would).
+ */
 async function biQaSwitches(
   p: StaffPrincipal,
   ids: readonly string[],
@@ -46,7 +50,10 @@ async function biQaSwitches(
   if (ids.length === 0) return new Map();
   const client = hasOrganizationAccess(p) ? organizationClientFor(p) : visibleStoresClientFor(p);
   const r = await client.query<{ id: string; bi_qa: boolean | null }>(
-    `SELECT id, (settings -> 'ai' -> 'bi_qa')::boolean AS bi_qa FROM store WHERE id = ANY($1::uuid[])`,
+    `SELECT id,
+            CASE WHEN jsonb_typeof(settings -> 'ai' -> 'bi_qa') = 'boolean'
+                 THEN (settings -> 'ai' -> 'bi_qa')::boolean END AS bi_qa
+       FROM store WHERE id = ANY($1::uuid[])`,
     [ids],
   );
   return new Map(r.rows.filter((x) => x.bi_qa !== null).map((x) => [x.id, x.bi_qa!]));
@@ -86,6 +93,7 @@ export function askAdminRouter(opts: AskRouterOptions = {}): Router {
             actorId: p.user.id,
             stores,
             finance: await can(p, 'finance', 'organization:hq'),
+            organizationScope: hasOrganizationAccess(p),
           },
           req.body as { question: string; store_ids?: string[]; from?: string; to?: string },
         );

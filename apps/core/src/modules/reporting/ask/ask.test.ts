@@ -47,11 +47,16 @@ function recordingReader() {
   return { reader, seen };
 }
 
-const caller = (stores: AskCaller['stores'], finance = false): AskCaller => ({
+const caller = (
+  stores: AskCaller['stores'],
+  finance = false,
+  organizationScope = stores.length > 1,
+): AskCaller => ({
   organizationId: ORG,
   actorId: ACTOR,
   stores,
   finance,
+  organizationScope,
 });
 
 const q = (extra: Record<string, unknown> = {}) => ({
@@ -192,9 +197,9 @@ describe('the per-store switch and the budget scope', () => {
     expect(r.excluded_store_ids).toEqual([A.id]);
   });
 
-  it('one store is charged to that store; the actor and the organization go to the gateway', async () => {
+  it('a store principal with two stores names one and is charged to it; actor and organization go along', async () => {
     const { deps, runs } = setup([answer('Nothing to look up.')]);
-    await askMetrics(deps, caller([A, B]), { question: 'x', store_ids: [A.id] });
+    await askMetrics(deps, caller([A, B], false, false), { question: 'x', store_ids: [A.id] });
     expect(runs[0]!.scope).toEqual({ organizationId: ORG, storeId: A.id, actorId: ACTOR });
     expect(runs[0]!.key).toBe('bi-qa-answer@1');
     expect(runs[0]!.toolNames).toEqual(['query_metrics']);
@@ -203,6 +208,32 @@ describe('the per-store switch and the budget scope', () => {
       stores: 'brand-a',
       today: '2026-10-20',
     });
+  });
+});
+
+describe('the budget scope follows the principal, never the store count (#677 review)', () => {
+  it('a store principal with several stores must name exactly one: 400 store_required, no model call', async () => {
+    const { deps, runs, seen } = setup([answer()]);
+    for (const input of [{ question: 'x' }, { question: 'x', store_ids: [A.id, B.id] }])
+      await expect(askMetrics(deps, caller([A, B], false, false), input)).rejects.toMatchObject({
+        code: 'validation_error',
+        status: 400,
+        details: { field: 'store_ids', reason: 'store_required' },
+      });
+    expect(runs).toEqual([]);
+    expect(seen).toEqual([]);
+  });
+
+  it('a single-store principal needs no store_ids and is charged to that store', async () => {
+    const { deps, runs } = setup([answer()]);
+    await askMetrics(deps, caller([A], false, false), { question: 'x' });
+    expect(runs[0]!.scope.storeId).toBe(A.id);
+  });
+
+  it('an organization principal naming ONE store is still the organization: budget and audit', async () => {
+    const { deps, runs } = setup([answer()]);
+    await askMetrics(deps, caller([A, B], false, true), { question: 'x', store_ids: [A.id] });
+    expect(runs[0]!.scope.storeId).toBeNull();
   });
 });
 

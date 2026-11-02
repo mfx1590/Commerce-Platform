@@ -3,7 +3,9 @@
 //   * `store_ids` outside the caller's scope → 403, nothing sent (the same rule as queryMetrics);
 //   * stores with `settings.ai.bi_qa = false` are left out (absent = ON, owner decision 2026-11-01) and listed in
 //     `excluded_store_ids` — only stores the caller may see are ever listed; none left → 403 `bi_qa_off`;
-//   * one store → that store's AI budget and audit; several (HQ) → the organization's (`storeId: null`, decision (a)).
+//   * an organization-level principal → the organization's AI budget and audit (`storeId: null`, decision (a)); anyone
+//     else names exactly one store (`store_required` otherwise) and is charged to it — decided by the PRINCIPAL, never
+//     by how many stores happen to be in scope (#677 review; the rule in #673).
 // The tool then re-checks every call (tool.ts), so even a model that ignores its schema cannot leave the scope.
 import { AppError } from '../../../lib/errors';
 import { LIMITS } from '../metrics/catalogue';
@@ -33,6 +35,8 @@ export interface AskCaller {
   stores: readonly { id: string; code: string }[];
   /** `finance` on organization:hq */
   finance: boolean;
+  /** an organization-level principal (hasOrganizationAccess): the only one who asks over several stores */
+  organizationScope: boolean;
 }
 
 export interface AskDeps {
@@ -104,6 +108,13 @@ export async function askMetrics(
         object: `store:${id}`,
       });
   const asked = input.store_ids ? input.store_ids.map((id) => byId.get(id)!) : [...caller.stores];
+  // a store principal with several stores names ONE (the store view always sends its own): no store question is ever
+  // charged to, or audited as, the organization
+  if (!caller.organizationScope && asked.length !== 1)
+    throw new AppError('validation_error', 'name exactly one store in store_ids', {
+      field: 'store_ids',
+      reason: 'store_required',
+    });
 
   // the per-store switch (absent = ON); only stores the caller may see can be excluded, so none other is named
   const switches = await deps.biQaSwitches(asked.map((s) => s.id));
@@ -116,7 +127,7 @@ export async function askMetrics(
 
   const gateway = deps.gatewayFor({
     organizationId: caller.organizationId,
-    storeId: on.length === 1 ? on[0]!.id : null,
+    storeId: caller.organizationScope ? null : on[0]!.id,
     actorId: caller.actorId,
   });
   const executed: ExecutedQuery[] = [];

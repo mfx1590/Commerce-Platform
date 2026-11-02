@@ -15,8 +15,10 @@ export interface GoldenStores {
 
 export function callerFor(p: Principal, s: GoldenStores): AskCaller {
   const base = { organizationId: '00000000-0000-4000-8000-000000000001', actorId: `actor-${p}` };
-  if (p === 'storeAdminA') return { ...base, stores: [s.A], finance: false };
-  return { ...base, stores: [s.A, s.B], finance: p === 'finance' };
+  if (p === 'storeAdminA')
+    return { ...base, stores: [s.A], finance: false, organizationScope: false };
+  // analyst and finance are organization-level relations: HQ principals
+  return { ...base, stores: [s.A, s.B], finance: p === 'finance', organizationScope: true };
 }
 
 /** The figures a result can back: money as major units with 2 decimals, counts and basis points as integers. */
@@ -114,7 +116,7 @@ export async function runGoldenCase(
     for (const r of x.result!.rows)
       if (r.store_id !== null && !allowed.has(r.store_id))
         problems.push(`a row of store ${r.store_id}`);
-  // citations resolve, and every figure in the answer is backed by the result it cites
+  // every citation resolves, and a cited figure is in the result it cites
   for (const m of answer.answer.matchAll(/(-?\d+(?:\.\d+)?) \[q(\d+)\]/g)) {
     const x = answer.queries[Number(m[2]) - 1];
     if (!x?.result) {
@@ -124,5 +126,14 @@ export async function runGoldenCase(
     if (!backedValues(x.result, x.query.metrics).has(m[1]!))
       problems.push(`${m[1]} [q${m[2]}] is not in that result`);
   }
-  return { problems, answer };
+  for (const m of answer.answer.matchAll(/\[q(\d+)\]/g))
+    if (!answer.queries[Number(m[1]) - 1]?.result) problems.push(`[q${m[1]}] cites no result`);
+  // EVERY numeric token (citations aside) is backed by some result the run returned: no figure from nowhere,
+  // cited or not (#677 review)
+  const anyResult = new Set(
+    answer.queries.flatMap((x) => (x.result ? [...backedValues(x.result, x.query.metrics)] : [])),
+  );
+  for (const m of answer.answer.replace(/\[q\d+\]/g, ' ').matchAll(/-?\d+(?:\.\d+)?/g))
+    if (!anyResult.has(m[0])) problems.push(`${m[0]} is in no result`);
+  return { problems: [...new Set(problems)], answer };
 }

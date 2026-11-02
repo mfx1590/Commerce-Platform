@@ -78,6 +78,11 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   "string" currencies, breaks its own pattern, validating mock = 500; the example is drafted and proven (14/14 with it)
   — landed in #673 as 23f9c077; merged, the Prism test un-skipped (BI contract 14/14). PR #677 "Refs #606" open;
   live golden 30/30 on the generated month (a classify-arity bug in the live setup found and fixed first).
+  #677 REVIEW (Fable, FINDINGS; tenancy holds; manager 2026-11-02) fixed locally: (1) budget/audit scope by PRINCIPAL
+  (AskCaller.organizationScope = hasOrganizationAccess): HQ → storeId null even for one store; a store principal with
+  several stores names exactly one, else 400 validation_error reason store_required (before anything is read/sent);
+  (2) biQaSwitches: CASE WHEN jsonb_typeof = boolean — a non-boolean counts as ON; (3) the golden check covers EVERY
+  numeric token + a stray-figure vacuity case; (4) stale README lines. ask 71 pass. Push AFTER #673 merges (merge main).
   Gotchas: the compiled rows' store column is `out_store` (not out_store_id); the contracts tests pin the version
   and the op count, and require `'403': { $ref: Forbidden }` on every admin op.
 - #648 DONE: PR #652 MERGED (3d586fe). FOLLOW-UPS (manager ten, 2026-10-30): branch data/phase5-ch-followups, code commit

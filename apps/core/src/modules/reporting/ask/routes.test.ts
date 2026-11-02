@@ -183,6 +183,42 @@ describe('askMetrics', () => {
     }
   });
 
+  it('a bi_qa that is not a JSON boolean counts as ON (the owner default) and never fails the question', async () => {
+    const hq = createOrganizationClient(db.app, { organizationId: ORG });
+    await hq.query(
+      `UPDATE store SET settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{ai}', '{"bi_qa": "no"}') WHERE id = $1`,
+      [C],
+    );
+    await hq.query(
+      `UPDATE store SET settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{ai}', '"not-an-object"') WHERE id = $1`,
+      [B],
+    );
+    try {
+      const r = await ask({ question: 'bookings by store?' }, 'seed-analyst');
+      expect(r.status).toBe(200);
+      expect(r.body.excluded_store_ids).toEqual([]);
+      for (const s of seen) expect((s.scope as string[]).sort()).toEqual([A, B, C].sort());
+    } finally {
+      await hq.query(`UPDATE store SET settings = settings - 'ai' WHERE id = ANY($1::uuid[])`, [
+        [B, C],
+      ]);
+    }
+  });
+
+  it('a store admin of two stores must name one (400 store_required); naming A is charged to store A', async () => {
+    const none = await ask({ question: 'bookings?' }, 'seed-store-admin');
+    expect(none.status).toBe(400);
+    expect(none.body).toMatchObject({
+      code: 'validation_error',
+      details: { field: 'store_ids', reason: 'store_required' },
+    });
+    expect(seen).toEqual([]);
+    const named = await ask({ question: 'bookings?', store_ids: [A] }, 'seed-store-admin');
+    expect(named.status).toBe(200);
+    expect(gateways.runs[0]!.scope.storeId).toBe(A);
+    for (const s of seen) expect(s.scope).toEqual([A]);
+  });
+
   it('the gateway’s rate limit is a 429 with Retry-After', async () => {
     script = [{ fail: 'AiRateLimitedError', details: { limit_per_minute: 10 } }];
     const r = await ask({ question: 'x' }, 'ask-admin-a');
@@ -301,11 +337,25 @@ describe('askMetricsFeedback on ai_qa_feedback (0206, the production store)', ()
     await audit(hqId, null, analyst);
     expect((await ratePg(hqId, 'up', 'seed-analyst')).status).toBe(204);
     expect(await ratings(hqId)).toEqual([{ store_id: null, rating: 'up' }]);
-    // RLS: an organization row is invisible to a store-scoped principal, so even a row naming them is a 404
+    // defence in depth: a store principal can no longer produce an organization row (#677: scope by principal), and
+    // RLS hides one anyway — even a row naming them is a 404 to a store-scoped principal
     const odd = '00000000-0000-4000-8000-0000000fa003';
     await audit(odd, null, adminA);
     expect((await ratePg(odd, 'up', 'ask-admin-a')).status).toBe(404);
     expect(await ratings(odd)).toEqual([]);
+  });
+
+  it('a multi-store store admin rates their own answer: it is charged to the store they named (#677 review)', async () => {
+    // the seeded store-admin holds brand A and brand B; their question names A, so its audit rows carry store A
+    const storeAdmin = (
+      await createOrganizationClient(db.app, { organizationId: ORG }).query<{ id: string }>(
+        "SELECT id FROM staff_user WHERE keycloak_subject = 'seed-store-admin'",
+      )
+    ).rows[0]!.id;
+    const id = '00000000-0000-4000-8000-0000000fa005';
+    await audit(id, A, storeAdmin);
+    expect((await ratePg(id, 'up', 'seed-store-admin')).status).toBe(204);
+    expect(await ratings(id)).toEqual([{ store_id: A, rating: 'up' }]);
   });
 
   it('another principal’s conversation is a 404 and nothing is stored', async () => {

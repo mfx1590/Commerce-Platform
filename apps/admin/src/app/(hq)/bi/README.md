@@ -85,4 +85,5 @@ follows the store (fixed order by code), never its rank; a ninth store gets no n
 - It shows the answer, a chart when the server names one (`chart`), and every query behind the answer as **editable JSON**. "Run" sends the edited query to `<base>/query`, which is `queryMetrics` with no AI, narrowed and scoped like the dashboard.
 - Thumbs up/down go to `<base>/ask/<conversationId>/feedback` (the asker only).
 - Each refusal is one sentence (`askErrorText`): switched off for the store, outside your stores, too many questions, too many look-ups, reworded, not available. Never a partial answer.
-- The calls are raw (`askMetrics`, `askMetricsFeedback` in `_api.ts`) until the contract's generated types carry #668.
+- The calls are typed from the generated contract (Admin API 0.4.27: `askMetrics`, `askMetricsFeedback` in `_api.ts`; `MetricAnswer` in `_lib/metrics.ts`).
+- A store principal with several stores asks from their store view (which always sends its store); asking HQ-wide is for organization-level principals (the server answers 400 `store_required` otherwise).

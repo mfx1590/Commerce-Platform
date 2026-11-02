@@ -90,20 +90,20 @@ Tests:
 
 A question in words, answered with AI tool use over the metrics API. **No SQL is generated or accepted anywhere.**
 `POST /admin/metrics/ask` and `POST /admin/metrics/ask/{conversationId}/feedback` (CONTRACT CHANGE #668), both
-`viewer` on `store:*`. They answer 503 until three things land: the contract (#668), the AI gateway's tool loop
-(REQUEST #669, window 14) and the `ai_qa_feedback` table (packages/db, the manager).
+`viewer` on `store:*` (Admin API 0.4.27). `askMetrics` answers 503 until the AI gateway's tool loop lands (REQUEST
+#669, window 14); feedback is live on `ai_qa_feedback` (packages/db 0206).
 
 - **Before the model sees anything** (`ask.ts`):
   - a `store_ids` entry outside the caller's scope → 403;
-  - stores with `store.settings.ai.bi_qa = false` are left out and listed in `excluded_store_ids`. Absent means ON (owner decision 2026-11-01), and only stores the caller may see are ever listed. If none are left → 403 `bi_qa_off`.
-  - One store is charged and audited to that store; several (an HQ question) to the organization (`storeId: null`).
+  - stores with `store.settings.ai.bi_qa = false` are left out and listed in `excluded_store_ids`, and only stores the caller may see are ever listed. Only a JSON `false` switches a store off: absent, `true`, or anything that is not a JSON boolean counts as ON (the owner default, 2026-11-01) and never fails the question. If none are left → 403 `bi_qa_off`.
+  - The budget and audit scope follow the **principal**, never the store count (#677 review): an organization-level principal is charged and audited to the organization (`storeId: null`), even when they name one store. Anyone else asks about exactly ONE store — a store principal with several stores must name it in `store_ids` (400 `validation_error`, `details.reason: store_required`, before anything is sent); the store view always sends its own.
 - **One tool, `query_metrics`** (`tool.ts`): a `MetricQuery` schema narrowed to the caller's metrics and stores.
   - Every call goes through the SAME `parseMetricQuery` → `scopeForQuery` (`metrics/scope.ts`, shared with `queryMetrics`) → `executeMetricQuery`.
   - A call outside the scope, or not a valid query, becomes a tool error: the analytics store is never read, and the model sees the refusal.
   - Each result carries a `ref` (`q1`, `q2` …) that the answer cites. At most 200 rows go back to the model; the caller gets the full, capped result.
 - **The answer** (`MetricAnswer`): the text, every query that parsed (its result or its error), a chart hint (the first day-grain query), `excluded_store_ids`, the model and the template.
-- **Gateway errors** map to the contract (`gateway.ts`): `ai_disabled` 503, `ai_budget_exceeded` / `ai_rate_limited` 429 (+ `Retry-After`), `ai_refused` / `ai_tool_limit` 422, `ai_unavailable` 502, `unavailable` 503. `ai_tool_limit` is passed with an explicit 422 until #668 adds it to `ERROR_CODES`.
-- **Feedback** (`feedback.ts`): up or down from the asker only (a 404 for anyone else, so ids are not confirmed). No free text; append-only, and the newest rating counts.
+- **Gateway errors** map to the contract (`gateway.ts`): `ai_disabled` 503, `ai_budget_exceeded` / `ai_rate_limited` 429 (+ `Retry-After`), `ai_refused` / `ai_tool_limit` 422, `ai_unavailable` 502, `unavailable` 503.
+- **Feedback** (`feedback.ts`): up or down from the asker only (a 404 for anyone else, so ids are not confirmed). No free text; append-only, and the newest rating counts. Stored in `ai_qa_feedback` through the CALLER's tenant client, so `store_nullable` RLS scopes it: an organization conversation (store NULL) is invisible to a store principal.
 - **The gateway** is a `GatewayLike` interface: exactly `runTools` as #669 asks. `testing/fake-gateway.ts` plays recorded tool calls with #669's rules (the loop cap, unknown tools, gateway errors). When #669 lands, `createAiGateway` replaces it at the factory.
 
 Tests:

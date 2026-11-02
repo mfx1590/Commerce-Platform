@@ -40,12 +40,26 @@ describe('golden set on the fake reader (CI)', () => {
     },
   };
 
-  it('the checks are not vacuous: a figure no result holds, or a citation of nothing, is caught', async () => {
+  it('the checks are not vacuous: a made-up figure, a citation of nothing, an uncited stray figure', async () => {
     const one = GOLDEN.find((c) => c.id === 1)!;
     const made = await runGoldenCase(one, env, stores, reader, 'bookings_minor EUR 999999.99 [q1]');
-    expect(made.problems).toEqual(['999999.99 [q1] is not in that result']);
+    expect(made.problems).toEqual([
+      '999999.99 [q1] is not in that result',
+      '999999.99 is in no result',
+    ]);
     const dangling = await runGoldenCase(one, env, stores, reader, 'bookings_minor EUR 1.00 [q7]');
-    expect(dangling.problems).toEqual(['[q7] cites no result']);
+    expect(dangling.problems).toEqual(['[q7] cites no result', '1.00 is in no result']);
+    // a correct answer passes; the same answer plus one uncited figure from nowhere does not (#677 review)
+    const good = await runGoldenCase(one, env, stores, reader);
+    expect(good.problems).toEqual([]);
+    const stray = await runGoldenCase(
+      one,
+      env,
+      stores,
+      reader,
+      `${good.answer!.answer}; and 42.42 besides`,
+    );
+    expect(stray.problems).toEqual(['42.42 is in no result']);
   });
 
   it.each(GOLDEN.map((c) => [c.id, c.question, c] as const))('#%i %s', async (_id, _q, c) => {
