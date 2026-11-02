@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-11-01 · Contracts: Admin API 0.4.26 on main · Branch: `admin/phase5-608` · Manager: "Manager session ten" (local_3c029c3c…; report there) · Status: #608 — PR #675 review fixes done locally; waiting for #673, then e2e + push
+Last updated: 2026-11-01 · Contracts: Admin API 0.4.26 on main · Branch: `admin/phase5-608` · Manager: "Manager session ten" (local_3c029c3c…; report there) · Status: #608 — PR #675 review fixes pushed; mock e2e green; waiting for checks / the manager
 
 ## Identity (does not change)
 Owned paths (write):
@@ -592,6 +592,11 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   saved status; e2e by product id …0201, server-action POSTs recorded (1 before Save, the 2nd carries
   the edit). Limit told: reload proof impossible on stateless Prism. Unit 980/980. Next: #673 on main →
   merge main (en-GB example) → ask the machine → mock e2e copy-draft + store-admin → push → report.
+  Done 2026-11-02: #673 MERGED 10028658 (Admin API 0.4.27, en-GB example) merged in; unit 981/981
+  (--maxWorkers=4; default workers time out under ~40 % background CPU); countdown tests split (60 s
+  pins the label, 1 s proves re-enable) and the label is awaited (the alert can render while the
+  transition still says "Drafting…"). Mock e2e on the committed yaml: copy-draft + store-admin 19/19.
+  Machine freed; ONE head pushed (this record); report to the manager.
 - **#518 — Integration 3 G1 (tracking #517), 2026-10-20.** Manager is now **"Manager session
   seven"** (local_484d7727-b945-48ba-bb27-0366bd2bbdcc); report there. Merged main 78db5ce (Admin
   API 0.4.22, contracts-v0.4.25), install + build; `fga:seed` run (reused store 01M4ZT6H…, new
