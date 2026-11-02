@@ -219,7 +219,15 @@ block**; manager ten's order is **ONE push, after #697 (CONTRACT CHANGE #690, co
    enabled" (#646 removed it and the table still advertised it).
 
 **STILL TO DO when the manager says #697 has merged — in ONE push:** merge main, **delete
-`PENDING_ERROR_CODES` and its two tests** (`types.ts`, `reply-draft.test.ts`), re-run the gates, push.
+`PENDING_ERROR_CODES` and its two tests**, re-run the gates, push. The delete is WRITTEN and ready, not run:
+`<scratchpad>/patch_690_delete.py`, covering all six sites — `types.ts` (list + type), `reply-draft.test.ts`
+(import, the two tests, the comment; it leaves a test asserting the two codes are now IN `ERROR_CODES`),
+`CLAUDE.md`, `README.md`, a new CHANGELOG 0.9.2 entry (its date still says `DATE`) and the version bump. Six
+sites because a list is not deleted until every mention of it is, which is #657's lesson.
+
+**Manager's answers (2026-11-02):** the 413 limit stays recorded in the README, **no issue** — "the webhook
+bodies are small, and the cap is a guard, not a flow". The live-suite slip: noted, no harm, the memory note
+is the fix. #697 is in the merge queue behind #693 and #692; he will say when it lands.
 
 **New finding for the PR, from writing item 3:** `payload_too_large` **cannot reach a client today.**
 `readBody` destroys the request socket the moment the cap is passed, so the 413 is written to a connection
