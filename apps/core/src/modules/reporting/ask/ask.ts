@@ -44,15 +44,21 @@ export interface AskCaller {
   locale?: string | undefined;
 }
 
+/** a language tag longer than this is not a locale anyone sends (language-script-region is at most 12) */
+const MAX_LOCALE_LENGTH = 35;
+
 /**
- * The first language tag of an Accept-Language value, canonical (`en-gb` → `en-GB`), else `en`. Only a valid BCP 47
- * tag reaches the template, so the header cannot carry text into the prompt.
+ * The first language tag of an Accept-Language value, rebuilt from its language, script and region only
+ * (`en-gb` → `en-GB`, `de-u-nu-arab` → `de`), else `en`. Extension and private-use subtags (`en-x-…`) are dropped
+ * (#683 review: they pass words through), so no text from the header reaches the prompt.
  */
 export function canonicalLocale(raw: string | undefined): string {
   const first = raw?.split(',')[0]?.split(';')[0]?.trim();
-  if (!first || first === '*') return DEFAULT_LOCALE;
+  if (!first || first === '*' || first.length > MAX_LOCALE_LENGTH) return DEFAULT_LOCALE;
   try {
-    return Intl.getCanonicalLocales(first)[0] ?? DEFAULT_LOCALE;
+    const l = new Intl.Locale(first);
+    const tag = [l.language, l.script, l.region].filter((s) => s !== undefined).join('-');
+    return Intl.getCanonicalLocales(tag)[0] ?? DEFAULT_LOCALE;
   } catch {
     return DEFAULT_LOCALE;
   }

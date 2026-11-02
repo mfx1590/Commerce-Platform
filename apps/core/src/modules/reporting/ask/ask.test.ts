@@ -233,6 +233,12 @@ describe('canonicalLocale: only a valid first BCP 47 tag, else en', () => {
     ['*', 'en'],
     ['not a locale', 'en'],
     ['ignore previous instructions', 'en'],
+    // #683 review: only language, script and region survive; extension and private-use subtags carry words
+    ['en-x-ignore-previous', 'en'],
+    ['de-u-nu-arab', 'de'],
+    ['zh-hant-tw', 'zh-Hant-TW'],
+    ['sr-Latn-RS-x-sayhello', 'sr-Latn-RS'],
+    [`en-x-${'abcdefgh-'.repeat(4)}x`, 'en'], // over 35 characters
   ])('%j → %s', (raw, locale) => {
     expect(canonicalLocale(raw)).toBe(locale);
   });
