@@ -1,5 +1,15 @@
 # @platform/engagement
 
+## 0.9.4 — 2026-11-03 (docs: the bus keeps 30 days, so a drain measures 30 days)
+
+- **README, the `--drain` section:** "reads its topics from the beginning" is true of the consumer and
+  misleading about the bus. Every topic this service reads is in the 30-day retention class — `order.*` and
+  `customer.*` since #699, `payment.*`, `refund.*`, `shipment.*` and `return.*` with #707 (landing as #712);
+  only `stock.*` / `stock_item.*` are kept forever and this service consumes neither. A fresh group therefore
+  sees the last 30 days, and older history reaches it only through the core's `outbox:replay`, which
+  republishes from the `outbox` table rather than the bus. Said plainly so a short drain count reads as the
+  retention window rather than as a consumer that missed something.
+
 ## 0.9.3 — 2026-11-02 (#696 gate: `order.placed@2`, a nullable `email_hash`)
 
 This service's half of the gate on CONTRACT CHANGE #696. **No production code changed, and that is the

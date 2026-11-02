@@ -29,6 +29,21 @@ re-reads history without moving the live group's offsets:
 ENGAGEMENT_CDP_GROUP_ID=engagement.cdp.int4 pnpm --filter @platform/engagement drain
 ```
 
+**"From the beginning" means "from the oldest message the bus still has", and that is 30 days** (#699 and
+#707, landing as #712). Every topic this service reads is in the 30-day retention class: `order.*` and
+`customer.*` since #699, and `payment.*`, `refund.*`, `shipment.*` and `return.*` with #707 — only the
+inventory ledger (`stock.*`, `stock_item.*`) is kept forever, and this service consumes neither. So a fresh
+group with `fromBeginning` sees the last 30 days, not all history, and a drain's report is a measurement of
+that window. Anything older reaches a new group **only through the core's replay**, which republishes from the
+`outbox` table rather than the bus:
+
+```
+pnpm --filter @platform/core outbox:replay
+```
+
+That is the difference worth keeping straight before reading a drain report as a total: a count that looks
+short is the retention, not a consumer that missed something.
+
 Both modes build their consumers through the same `buildConsumers`, so a group override moves the consumer
 AND its DLQ watch together (#599) — and `resolveConfig` refuses to start at all if an explicit
 `ENGAGEMENT_DLQ_GROUPS` omits a group this process runs, exiting **2** with a message naming it. More

@@ -287,7 +287,11 @@ package yet.
   group id must match `consumer_processed.group_id`'s CHECK, validated at the boot. **`--drain` REFUSES a
   live default** for any module that would run (#646): a drain re-reads from the beginning and commits under
   whatever group it joins, so by omission it rebalanced the running consumer, moved its offsets and reported
-  the live DLQ as its own.
+  the live DLQ as its own. **"History" is 30 DAYS**: every topic this service reads is in the
+  30-day retention class (`order.*`, `customer.*` since #699; `payment.*`, `refund.*`, `shipment.*`,
+  `return.*` with #707/#712 — only `stock.*` and `stock_item.*` are forever, and neither is ours), so older
+  events reach a new group only through the core's `outbox:replay`, which republishes from the `outbox` table
+  rather than the bus. A drain report measures that window, not all time.
 - **Exit codes: 2 = the configuration was refused, 3 = the drain ran but its result is not clean** (dead
   letters, a DLQ that could not be read, or `max_run`), 1 = the process failed (#646). A gate reads the code;
   the drain report also carries `clean`.
