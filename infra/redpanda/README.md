@@ -92,13 +92,23 @@ follows a delete can be refused for a moment: `ensureTopics` retries the refused
 producer with `acks=all` then needs two replicas to acknowledge, so one broker can be lost without losing an
 acknowledged event.
 
-**Retention, two classes (ADR 0003 item 3).** `forever` (`retention.ms=-1`) for everything accounting and
-inventory derive from: `order.*`, `payment.*`, `refund.*`, `shipment.*`, `return.*`, `stock.*`,
-`stock_item.*`. `days_30` (`retention.ms=2592000000`) for the rest: `store.*`, `product.*`, `customer.*`,
-`fulfillment.*`, `campaign.*`, `feed.*`, `attribution.*`, `referral.*`, `review.*`, `cart.*`. The bus is not
-the archive: the outbox table is the source of truth and the replay CLI (#534) republishes from it, so a
-30-day topic is a delivery window, not a history. `customer.erased` sits in the 30-day class on purpose: a
-consumer that was down for a month re-syncs from the outbox replay, which carries it.
+**Retention, two classes (ADR 0003 item 3, #629).** `forever` (`retention.ms=-1`) for what accounting and
+inventory derive from and that carries no customer id: `payment.*`, `refund.*`, `shipment.*`, `return.*`,
+`stock.*`, `stock_item.*`. `days_30` (`retention.ms=2592000000`, `segment.ms=86400000`) for the rest:
+`order.*`, `store.*`, `product.*`, `customer.*`, `fulfillment.*`, `campaign.*`, `feed.*`, `attribution.*`,
+`referral.*`, `review.*`, `cart.*`. The bus is not the archive: the outbox table is the source of truth and the
+replay CLI (#534) republishes from it, so a 30-day topic is a delivery window, not a history. `customer.erased`
+sits in the 30-day class on purpose: a consumer that was down for a month re-syncs from the outbox replay, which
+carries it.
+
+**Erasure bounds the bus (#629).** Every topic that carries `customer_id` or `email_hash` (`order.placed`,
+`customer.*`, `cart.abandoned`, `referral.converted`, `review.published`) is in the 30-day class, so an erased
+customer's ids leave the bus within 31 days. Redpanda deletes whole closed segments only and rolls a segment
+every 14 days by default (`segment.ms=1209600000`, which made the bound 44 days), so the 30-day class rolls
+daily. `order.*` was `forever` until #629; the ledger rebuilds from the outbox replay like every other consumer.
+Compaction cannot do this job:
+the message key is the store, not the customer. The DLQs stay forever but carry no payload (ids, offsets, the
+error class), so they hold no customer id.
 
 **Cleanup policy `delete`** on every event topic (never `compact`: compaction would drop earlier events of
 the same key, and our key is the store).
