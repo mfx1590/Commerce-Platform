@@ -78,6 +78,7 @@ describe('templates', () => {
     expect(Object.keys(TEMPLATES).sort()).toEqual([
       'bi-qa-answer@1',
       'bi-qa-answer@2',
+      'bi-qa-answer@3',
       'product-category-suggest@1',
       'product-copy-draft@1',
       'product-copy-draft@2',
