@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Template `bi-qa-answer@2` (from window 12's real-model run of 30 questions; `bi-qa-answer@1` is unchanged): a new `locale` variable (the admin's locale); the answer is in the language of the question, not of the result values, and in the locale's language only when the question's cannot be told. No figure is computed unless no query can return it; then ONE difference, sum or average of same-currency figures, labelled "derived" with its inputs and refs, worked on the minor units. Top/most/least questions ask for the item dimension with `order_by` and a `limit`, never one combined row. Tests: shape, the three rules, every v1 rule kept, the exact rendered prompt with an injected fake `<locale>`, v1 untouched, one runTools run (audit version 2), and `locale` required at compile time.
 - Tool use for BI Q&A (REQUEST #669, for #606 / window 12):
   - Purpose `analysis` (`claude-sonnet-5-5`, `AI_MODEL_ANALYSIS`, fallbacks off).
   - Organization scope: `storeId: null` uses the organization's own monthly budget (`AI_ORG_MONTHLY_TOKEN_BUDGET`) and minute, keyed `org:<id>`; store keys are unchanged. The limiter API takes a `LimitScope`. `AiBudgetExceededError` names its scope (`store`, `organization`, `run`) with contract `details`; `AiRateLimitedError` names its scope.
