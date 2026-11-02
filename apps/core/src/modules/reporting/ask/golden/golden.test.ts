@@ -6,6 +6,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { METRIC_IDS } from '../../metrics/catalogue';
 import type { MetricsReader } from '../../metrics/execute';
 import { GOLDEN, type GoldenEnv } from './cases';
+import type { GatewayFactory } from '../gateway';
+import { runRealCase, type RealOutcome } from './real-model';
 import { runGoldenCase, type GoldenStores } from './run';
 
 it('the golden set has 30 questions with distinct ids', () => {
@@ -165,4 +167,55 @@ describe.runIf(skip === null)('golden set on the generated month (ClickHouse)', 
     }
     expect(failures).toEqual([]);
   });
+
+  // The REAL model, once, on the generated month (dev data only): opt-in AI_REAL_MODEL=1, with the machine and the
+  // AI_ANTHROPIC_API_KEY line in .env (never printed). Limits generous for the one run; cost from the audit records.
+  it.runIf(process.env.AI_REAL_MODEL === '1')(
+    'the real model: the same 30 questions, the scope and every figure held to the results',
+    async () => {
+      const ai = await import('@platform/ai');
+      const anthropic = ai.createAnthropicTransport({ env: process.env });
+      let calls = 0;
+      const transport: typeof anthropic = {
+        kind: anthropic.kind,
+        complete: (req) => {
+          calls += 1;
+          return anthropic.complete(req);
+        },
+      } as typeof anthropic;
+      const audit = ai.createMemoryAuditSink();
+      const limiter = ai.createMemoryLimiter();
+      const limits = { monthlyTokens: 5_000_000, perMinute: 1_000 };
+      const gatewayFor: GatewayFactory = (scope) =>
+        ai.createAiGateway({
+          ...scope,
+          purpose: 'analysis',
+          transport,
+          limiter,
+          audit,
+          env: { AI_ENABLED: '1' },
+          limits,
+          orgLimits: limits,
+        });
+      const outcomes: RealOutcome[] = [];
+      for (const c of GOLDEN) {
+        const before = calls;
+        outcomes.push(await runRealCase(c, env, stores, reader, gatewayFor, () => calls - before));
+      }
+      const tokens = audit.records.reduce((n, r) => n + r.inputTokens + r.outputTokens, 0);
+      const costMicroUsd = audit.records.reduce((n, r) => n + r.costMicroUsd, 0);
+      const passed = outcomes.filter((o) => o.problems.length === 0).length;
+      for (const o of outcomes)
+        console.info(
+          `[bi-qa real] #${o.id} ${o.problems.length === 0 ? 'PASS' : 'FAIL'} ran=${o.ran} refused=${o.refused}` +
+            `${o.error ? ` error=${o.error}` : ''}${o.problems.length ? ` problems=${JSON.stringify(o.problems)}` : ''}` +
+            ` answer=${JSON.stringify((o.answer ?? '').slice(0, 240))}`,
+        );
+      console.info(
+        `[bi-qa real] SUMMARY ${JSON.stringify({ passed, of: outcomes.length, model_calls: calls, audit_rows: audit.records.length, tokens, cost_usd: costMicroUsd / 1e6, outcomes_by_kind: audit.records.reduce<Record<string, number>>((m, r) => ({ ...m, [r.outcome]: (m[r.outcome] ?? 0) + 1 }), {}) })}`,
+      );
+      expect(outcomes.filter((o) => o.problems.length > 0)).toEqual([]);
+    },
+    1_200_000,
+  );
 });

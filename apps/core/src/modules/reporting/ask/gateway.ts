@@ -106,6 +106,12 @@ export function aiErrorToAppError(err: unknown): AppError | undefined {
     case 'AiLimiterError':
     case 'AiAuditError':
       return new AppError('unavailable', 'AI is unavailable right now');
+    // a configuration or template fault, or a denied field reaching the gateway: ours to fix, never the caller's —
+    // a plain 500 with no detail (as catalog/copy-draft.ts does), so the raw error and its message are not dumped
+    case 'AiConfigError':
+    case 'TemplateError':
+    case 'DeniedFieldError':
+      return new AppError('internal', 'BI Q&A is misconfigured');
     default:
       return undefined;
   }

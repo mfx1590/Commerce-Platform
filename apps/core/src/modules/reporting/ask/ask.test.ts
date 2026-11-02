@@ -205,7 +205,7 @@ describe('the per-store switch and the budget scope', () => {
     expect(runs[0]!.toolNames).toEqual(['query_metrics']);
     expect(runs[0]!.variables).toMatchObject({
       question: 'x',
-      stores: 'brand-a',
+      stores: `brand-a ${A.id}`,
       today: '2026-10-20',
     });
   });
@@ -289,10 +289,15 @@ describe('gateway errors map to the contract (#668)', () => {
     ['AiRefusedError', 'ai_refused', 422],
     ['AiTransportError', 'ai_unavailable', 502],
     ['AiAuditError', 'unavailable', 503],
+    // ours to fix, never the caller's: a plain 500 that does not carry the raw error (#680 review)
+    ['AiConfigError', 'internal', 500],
+    ['TemplateError', 'internal', 500],
+    ['DeniedFieldError', 'internal', 500],
   ])('%s → %s (%i)', async (name, code, status) => {
     const { deps } = setup([{ fail: name, details: { category: 'x', limit_per_minute: 10 } }]);
     const err = await askMetrics(deps, caller([A]), { question: 'x' }).catch((e: unknown) => e);
     expect(err).toMatchObject({ code, status });
+    if (code === 'internal') expect(err).toMatchObject({ message: 'BI Q&A is misconfigured' });
   });
 
   it(`more than ${MAX_TOOL_CALLS} tool calls is ai_tool_limit (422) with no partial answer`, async () => {

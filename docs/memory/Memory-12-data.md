@@ -52,6 +52,27 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- #680 REVIEW FINDINGS (2026-11-02, manager ten; Fable review = findings, no block). Done locally on
+  data/phase5-606-gateway: product_id dropped from rows sent to the model (p1, p2 … labels; caller keeps ids; README);
+  AiConfigError / TemplateError / DeniedFieldError → AppError internal "BI Q&A is misconfigured"; Anthropic transport
+  cached after first creation (ai.ts); routes.test disabled-audit assertion compares counts before/after. Reporting
+  ask tests 90 pass. WAITING: #681 (window 14 uuid guard in redact()) still OPEN → then merge main, add the
+  no-"[phone]" + step-0 redactions=0 tests, push, report head. Real-model run was ALREADY done before #681 (#7 no
+  top-5 may be the mangled product ids). MANAGER (2026-11-02): items 2–5 ACCEPTED (p1/p2 labels good; the metrics
+  rows carry no title/handle, checked). SEQUENCE: (1) DONE 2026-11-02: #681 merged (3734b3ab) → main merged
+  (8fbc94b0), item-1 test (stores line code+id whole, no "[phone]", step 0 redactions 0), README/test notes on the
+  fixed redaction; lint+typecheck green (root, 11.5 min), reporting 175 pass; pushed to #680.
+  (2) #682 (bi-qa-answer@2, window 14) merges → small follow-up PR: BI_QA_TEMPLATE → @2, pass `locale` (validated
+  with Intl.getCanonicalLocales, fallback en); golden checker parses `(derived: a [qi] op b [qj])` and recomputes
+  (one diff/sum of two same-currency figures or two counts, or one ratio; half-up to 2 decimals). (3) ask for the
+  machine → ONE real-model re-run (~$0.35) only when #681, #680 AND #682 are all on main.
+- #606 CLOSING PR (2026-11-02, manager ten): #677 MERGED. Branch data/phase5-606-gateway from origin/main 2c4cb0a1:
+  production gatewayFor = createAiGateway (ask/ai.ts: analysis, lazy Anthropic transport, Redis limiter, pg audit), as
+  catalog/copy-draft.ts does; stores variable = code + id per line (the template). gateway.test.ts + the golden set
+  now run on the REAL gateway over packages/ai's fake transport. FINDING (window 14's packages/ai): redact()'s phone
+  pattern eats digit runs INSIDE uuids (seed ids → "[phone]-[phone]"; a random id "5a1b2c3d-1111-…" partly) → my
+  side: rows sent to the model name stores by CODE (ids stay in the schema enum + the caller's result); reported.
+  Core reporting 162 pass. Real-model run: opt-in, ask the manager to copy the AI key line (never print it).
 - #606 BI Q&A (manager ten, 2026-11-01; owner: ON from the start, per-store switch default ON; DPA confirmation is a
   launch-checklist line). Branch data/phase5-606 (local, cut --no-track from origin/main 3f7394b; first push needs an
   explicit upstream). PLAN SENT, NO CODE until the manager answers. Facts found: packages/ai = text completion only

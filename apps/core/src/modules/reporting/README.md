@@ -90,8 +90,9 @@ Tests:
 
 A question in words, answered with AI tool use over the metrics API. **No SQL is generated or accepted anywhere.**
 `POST /admin/metrics/ask` and `POST /admin/metrics/ask/{conversationId}/feedback` (CONTRACT CHANGE #668), both
-`viewer` on `store:*` (Admin API 0.4.27). `askMetrics` answers 503 until the AI gateway's tool loop lands (REQUEST
-#669, window 14); feedback is live on `ai_qa_feedback` (packages/db 0206).
+`viewer` on `store:*` (Admin API 0.4.27). `askMetrics` runs on packages/ai's gateway (`ask/ai.ts`: purpose `analysis`,
+the Redis limiter, `ai_call_audit`, the Anthropic transport resolved only when a call goes out, so `AI_ENABLED` off is
+`ai_disabled` even without a key); feedback is live on `ai_qa_feedback` (packages/db 0206).
 
 - **Before the model sees anything** (`ask.ts`):
   - a `store_ids` entry outside the caller's scope → 403;
@@ -100,11 +101,11 @@ A question in words, answered with AI tool use over the metrics API. **No SQL is
 - **One tool, `query_metrics`** (`tool.ts`): a `MetricQuery` schema narrowed to the caller's metrics and stores.
   - Every call goes through the SAME `parseMetricQuery` → `scopeForQuery` (`metrics/scope.ts`, shared with `queryMetrics`) → `executeMetricQuery`.
   - A call outside the scope, or not a valid query, becomes a tool error: the analytics store is never read, and the model sees the refusal.
-  - Each result carries a `ref` (`q1`, `q2` …) that the answer cites. At most 200 rows go back to the model; the caller gets the full, capped result.
+  - Each result carries a `ref` (`q1`, `q2` …) that the answer cites. At most 200 rows go back to the model, each naming its store by CODE (`store: "brand-a"`) and its product by a label stable within that result (`product: "p1"`, in row order; no `product_id` — the model ranks and compares, it has no use for the id) — readable, and safe from redaction: packages/ai redacts what is sent, and before #681 its phone pattern ate digit runs inside a uuid (since #681 a uuid passes whole, tested on the stores line); the real ids are in the tool schema's enum (not redacted) and in the caller's full, capped result.
 - **The answer** (`MetricAnswer`): the text, every query that parsed (its result or its error), a chart hint (the first day-grain query), `excluded_store_ids`, the model and the template.
 - **Gateway errors** map to the contract (`gateway.ts`): `ai_disabled` 503, `ai_budget_exceeded` / `ai_rate_limited` 429 (+ `Retry-After`), `ai_refused` / `ai_tool_limit` 422, `ai_unavailable` 502, `unavailable` 503.
 - **Feedback** (`feedback.ts`): up or down from the asker only (a 404 for anyone else, so ids are not confirmed). No free text; append-only, and the newest rating counts. Stored in `ai_qa_feedback` through the CALLER's tenant client, so `store_nullable` RLS scopes it: an organization conversation (store NULL) is invisible to a store principal.
-- **The gateway** is a `GatewayLike` interface: exactly `runTools` as #669 asks. `testing/fake-gateway.ts` plays recorded tool calls with #669's rules (the loop cap, unknown tools, gateway errors). When #669 lands, `createAiGateway` replaces it at the factory.
+- **The gateway** is `GatewayLike` (`runTools` as #669 landed it); production is `createAiGateway` (`ask/ai.ts`). `gateway.test.ts` and the golden set run askMetrics on the REAL gateway over packages/ai's scripted fake transport (what is sent, the audit per step, store vs organization scope, the kill switch, the loop cap, redaction). `testing/fake-gateway.ts` plays recorded tool calls with #669's rules (the loop cap, unknown tools, gateway errors). The unit and route tests use it; the gateway tests and the golden set use the real one.
 
 Tests:
 
