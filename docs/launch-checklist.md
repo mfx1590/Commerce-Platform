@@ -15,6 +15,8 @@ issue; tick it only with a link to the evidence.
 - [ ] **AI features are ON by default (owner decision 2026-11-01).** BI Q&A (#606) and support drafts (#610) are
       built and switched on per store from the start. Before REAL customer or store data reaches Anthropic, confirm
       that Anthropic's data-processing terms cover it, then tick this line. A store can be switched off with its setting.
+      Residual (#671 review): redaction masks e-mail, phone, card, IBAN, address and carrier tracking numbers, but NOT
+      personal names. A customer's name typed into a support question reaches the model. Name it in that check.
 - [ ] Brand names; brands B/C invoice OK.
 - [ ] Anthropic API key with a monthly spend cap (in place for dev since 2026-10-27; the gift credit expires
       2026-11-10).

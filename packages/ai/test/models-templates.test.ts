@@ -80,6 +80,7 @@ describe('templates', () => {
       'product-category-suggest@1',
       'product-copy-draft@1',
       'product-copy-draft@2',
+      'support-reply-draft@1',
     ]);
     const copy = getTemplate('product-copy-draft@1');
     expect(copy).toMatchObject({

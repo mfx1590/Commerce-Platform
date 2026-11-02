@@ -82,6 +82,16 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
         - window 12 (`local_90c118d5-…`): #606, plan approved. HQ = org scope; the db change is the manager's: `ai_call_audit.store_id` nullable plus an org RLS policy, and `ai_qa_feedback`. Window 12 files a REQUEST (gateway tool use + org mode) and a CONTRACT CHANGE (askMetrics, `ai_tool_limit` 422).
         - window 16 (`local_f0321a20-…`, Sonnet): #610, plan approved. Env switch; 404 when off plus an `ai_drafts` capability flag; ordersCount dropped; shared ai_* codes; a REQUEST for support-reply-draft@1. Fable review.
         - window 14: receives both packages/ai REQUESTs.
+      - **11-01/02 PRs:**
+        - #671 MERGED (c5b5ab14): support-reply-draft@1 takes pre-formatted `total`/`refunded` (window 16's Intl projection); tracking-number redaction. Names are NOT redacted (launch-checklist residual, 4fc189ea).
+        - #673 (manager, integration/phase5-606-contract): db 0206 (ai_call_audit `store_nullable` + conversation_id/step/tool_names; ai_qa_feedback) + #668 askMetrics (Admin API 0.4.27, contracts 0.4.32). Fable APPROVE; fixes in 36abe556. **Org scope is decided by the PRINCIPAL; a non-HQ multi-store caller must name one store (400 store_required).** In the queue.
+        - #672 (window 1, core draftProductCopy): Fable APPROVE; low follow-ups. Queues after #673.
+        - #676 (window 14, runTools / org scope / bi-qa-answer@1): Fable FINDINGS (cite by `ref`, tools in the estimate, results are data). After #673.
+        - #675 (window 4, admin editor): Opus FINDINGS (medium: the stale Details form overwrites the AI save).
+        - #677 (window 12, BI Q&A apps): Fable FINDINGS (org scope by principal). Live golden run 30/30 on real ClickHouse. After #676.
+        - #674 (window 16, support drafts): Fable FINDINGS fixed at 0f2df9a6; the `as never` swap is now unblocked by #671.
+        - #670: per-locale product copy (later). #678: engagement codes outside ERROR_CODES.
+      - **TODO:** back up and migrate the shared dev DB to 0206 after #673 merges.
     - Window 14's model is unconfirmed: ask the owner before #605.
   - **MERGED 10-29:** #621 (#607 recommendations, 518cc4c, tagged **contracts-v0.4.29**; the shared dev DB migrated with 0204 after the backup `platform-before-0204-20261029.dump`), #631 (#623 ClickHouse erasure, 0d31c6d), #636 (#603 CONTRACT, 77ed790, tagged **contracts-v0.4.30**: Admin API 0.4.25 listMetrics/queryMetrics, live metrics, CSV via Accept, `unavailable`, the core error map, and the `(store)/[storeId]/bi/**` ownership row → window 12). Earlier: #630, #626, #628 (10-27). Wave 1 and the wave-2 contracts are DONE.
   - **OPEN / IN FLIGHT:**

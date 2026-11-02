@@ -517,3 +517,4 @@
 - Spec tests: the Admin version pins move to 0.4.27, the operation counts to 140, and a new block pins the two paths,
   `x-permission`, the closed bodies, `question` 1..500, the feedback without free text, the statuses and
   `MetricAnswer`. Store API (0.5.9), Accounting API and events are unchanged.
+- Review (#673): organization scope for askMetrics is decided by the principal (an org-level relation); a store-level caller with several stores names exactly one (400 `store_required`). Feedback ownership comes from the conversation's step-0 audit row. `queries` lists every call that parsed, and `[qN]` indexes into it.

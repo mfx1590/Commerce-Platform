@@ -35,7 +35,8 @@ ALTER TABLE ai_call_audit ADD CONSTRAINT ai_call_audit_outcome_check
     'ok', 'refused', 'max_tokens', 'error',
     'disabled', 'over_budget', 'rate_limited', 'denied_field', 'tool_loop_cap'));
 
-CREATE INDEX ai_call_audit_org_conversation_idx ON ai_call_audit (organization_id, conversation_id);
+CREATE INDEX ai_call_audit_org_conversation_idx ON ai_call_audit (organization_id, conversation_id)
+  WHERE conversation_id IS NOT NULL;
 -- Not unique: a retried step may audit again under the same (conversation, step).
 CREATE INDEX ai_call_audit_conversation_step_idx ON ai_call_audit (conversation_id, step)
   WHERE conversation_id IS NOT NULL;
