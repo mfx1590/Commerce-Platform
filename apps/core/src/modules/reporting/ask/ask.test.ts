@@ -205,7 +205,7 @@ describe('the per-store switch and the budget scope', () => {
     expect(runs[0]!.toolNames).toEqual(['query_metrics']);
     expect(runs[0]!.variables).toMatchObject({
       question: 'x',
-      stores: 'brand-a',
+      stores: `brand-a ${A.id}`,
       today: '2026-10-20',
     });
   });

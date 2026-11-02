@@ -1,9 +1,9 @@
 // BI Q&A's two operations (#606, contract #668), both `viewer` on `store:*` like queryMetrics:
 //   POST /admin/metrics/ask                              askMetrics          → ask.ts
 //   POST /admin/metrics/ask/{conversationId}/feedback    askMetricsFeedback  → feedback.ts (the asker only, else 404)
-// Fail closed: an operation the contract does not carry is a 503 before anything runs (operationGuard), and until
-// REQUEST #669 (the gateway's tool loop) lands, production's askMetrics answers 503 too — tests inject the scripted
-// gateway. Feedback is stored in `ai_qa_feedback` (0206) through the caller's own tenant client.
+// Fail closed: an operation the contract does not carry is a 503 before anything runs (operationGuard). The AI gateway
+// is packages/ai's (`ai.ts`: purpose `analysis`, the Redis limiter, `ai_call_audit`); tests inject one over its
+// scripted fake transport. Feedback is stored in `ai_qa_feedback` (0206) through the caller's own tenant client.
 import { Router } from 'express';
 import {
   can,
@@ -18,6 +18,7 @@ import { AppError } from '../../../lib/errors';
 import type { MetricsReader } from '../metrics/execute';
 import { sharedMetricsReader } from '../metrics/reader';
 import { metricsScope, operationGuard, type MetricsSpec } from '../metrics/routes';
+import { defaultGatewayFor } from './ai';
 import { askMetrics } from './ask';
 import { createPgFeedbackStore, type FeedbackStore, type Rating } from './feedback';
 import type { GatewayFactory } from './gateway';
@@ -28,7 +29,7 @@ export const ASK_FEEDBACK_PATH = '/admin/metrics/ask/:conversationId/feedback';
 export interface AskRouterOptions {
   reader?: MetricsReader;
   spec?: MetricsSpec;
-  /** the AI gateway per call; production has none until #669 lands (503) */
+  /** the AI gateway per question; default: packages/ai's (ai.ts) */
   gatewayFor?: GatewayFactory;
   /** where a caller's ratings go; default: `ai_qa_feedback` through their tenant client (tests: a memory store) */
   feedbackFor?: (p: StaffPrincipal) => FeedbackStore;
@@ -65,9 +66,6 @@ const defaultFeedback = (p: StaffPrincipal): FeedbackStore =>
     hasOrganizationAccess(p) ? organizationClientFor(p) : visibleStoresClientFor(p),
   );
 
-const notYet = (what: string, issue: string) =>
-  new AppError('unavailable', `BI Q&A ${what} is not available yet (${issue})`);
-
 export function askAdminRouter(opts: AskRouterOptions = {}): Router {
   const spec: MetricsSpec = opts.spec ?? loadSpec('admin-api.yaml');
   const guard = operationGuard(spec);
@@ -79,13 +77,12 @@ export function askAdminRouter(opts: AskRouterOptions = {}): Router {
     handle(async (req, res) => {
       const p = requirePrincipal(req);
       spec.validateBody('askMetrics', req.body);
-      if (!opts.gatewayFor) throw notYet("the AI gateway's tool use", '#669');
       const stores = await metricsScope(p);
       try {
         const answer = await askMetrics(
           {
             reader: opts.reader ?? sharedMetricsReader(),
-            gatewayFor: opts.gatewayFor,
+            gatewayFor: opts.gatewayFor ?? defaultGatewayFor,
             biQaSwitches: (ids) => biQaSwitches(p, ids),
           },
           {

@@ -253,7 +253,7 @@ describe('askMetricsFeedback', () => {
 });
 
 describe('fail closed', () => {
-  it('without the operations in the contract both routes are 503 before anything runs; without a gateway, too', async () => {
+  it('without the operations in the contract the route is 503 before anything runs; with them, the REAL gateway answers', async () => {
     const closed = express();
     mountCoreMiddleware(closed, new DevTokenVerifier(), {
       moduleRouters: [askAdminRouter({ reader, spec: specWith({}) })],
@@ -265,17 +265,33 @@ describe('fail closed', () => {
       .send({ question: 'x' });
     expect([a.status, a.body.code]).toEqual([503, 'unavailable']);
 
-    const noGateway = express();
-    mountCoreMiddleware(noGateway, new DevTokenVerifier(), {
-      moduleRouters: [askAdminRouter({ reader, spec: specWith(OPS) })],
-    });
-    noGateway.use(coreErrorHandler);
-    const b = await request(noGateway)
-      .post('/admin/metrics/ask')
-      .set('Authorization', 'Bearer dev:seed-owner')
-      .send({ question: 'x' });
-    expect([b.status, b.body.code]).toEqual([503, 'unavailable']);
-    expect(seen).toEqual([]);
+    // no gatewayFor: production's packages/ai gateway. With AI_ENABLED unset it refuses at the kill switch — before
+    // the limiter (Redis) or the provider — and still writes its audit row (ai_call_audit, purpose analysis)
+    const previous = process.env.AI_ENABLED;
+    delete process.env.AI_ENABLED;
+    try {
+      const real = express();
+      mountCoreMiddleware(real, new DevTokenVerifier(), {
+        moduleRouters: [askAdminRouter({ reader, spec: specWith(OPS) })],
+      });
+      real.use(coreErrorHandler);
+      const b = await request(real)
+        .post('/admin/metrics/ask')
+        .set('Authorization', 'Bearer dev:seed-owner')
+        .send({ question: 'x' });
+      expect([b.status, b.body.code]).toEqual([503, 'ai_disabled']);
+      expect(seen).toEqual([]);
+      const rows = await createOrganizationClient(db.app, { organizationId: ORG }).query<{
+        outcome: string;
+        store_id: string | null;
+      }>(
+        "SELECT outcome, store_id FROM ai_call_audit WHERE purpose = 'analysis' AND outcome = 'disabled'",
+      );
+      expect(rows.rows).toContainEqual({ outcome: 'disabled', store_id: null }); // the owner: organization scope
+    } finally {
+      if (previous === undefined) delete process.env.AI_ENABLED;
+      else process.env.AI_ENABLED = previous;
+    }
   });
 });
 

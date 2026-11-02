@@ -137,6 +137,8 @@ export function queryMetricsHandler(deps: {
   reader: MetricsReader;
   caller: MetricsCaller;
   executed: ExecutedQuery[];
+  /** store id → code: the model reads rows by store CODE (see below) */
+  codes?: ReadonlyMap<string, string>;
 }): (call: AiToolCall) => Promise<AiToolResult> {
   return async (call) => {
     let query: MetricQuery;
@@ -157,7 +159,13 @@ export function queryMetricsHandler(deps: {
     }
     const result = await executeMetricQuery(deps.reader, query, scope);
     deps.executed.push({ ref, query, result });
-    const rows = result.rows.slice(0, MODEL_ROWS);
+    // what the model reads names each store by its CODE, not its uuid: packages/ai redacts what is sent, and its phone
+    // pattern currently eats digit runs inside a uuid ("5a1b2c3d-[phone]-…"). The ids stay where the model needs them
+    // (the tool schema's enum, not redacted) and in the caller's full result.
+    const rows = result.rows.slice(0, MODEL_ROWS).map(({ store_id, ...rest }) => ({
+      ...rest,
+      store: store_id === null ? null : (deps.codes?.get(store_id) ?? store_id),
+    }));
     return {
       content: JSON.stringify({
         ref,

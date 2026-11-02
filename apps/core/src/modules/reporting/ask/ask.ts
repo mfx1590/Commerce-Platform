@@ -139,7 +139,8 @@ export async function askMetrics(
         question: input.question,
         today: day(now.getTime()),
         window: `${window.from}..${window.to}`,
-        stores: on.map((s) => s.code).join(', '),
+        // the template's format: code and id, one per line (bi-qa-answer@1)
+        stores: on.map((s) => `${s.code} ${s.id}`).join('\n'),
         currencyNote:
           'Amounts are integer minor units per currency; never add different currencies together.',
       },
@@ -149,6 +150,7 @@ export async function askMetrics(
           reader: deps.reader,
           caller: { stores: on.map((s) => s.id), finance: () => caller.finance },
           executed,
+          codes: new Map(on.map((s) => [s.id, s.code])),
         }),
         maxToolCalls: MAX_TOOL_CALLS,
       },

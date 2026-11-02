@@ -1,11 +1,21 @@
-// Plays a golden case through askMetrics with the scripted gateway and checks it (cases.ts). The final answer step
-// writes the figures of the results the run actually got, in the model's style ("EUR 1234.56 [q1]"), and the checks
-// hold any answer — scripted now, a real model's later — to the same rules.
+// Plays a golden case through askMetrics on the REAL AI gateway (packages/ai `createAiGateway`, purpose `analysis`)
+// over its scripted fake transport, and checks it (cases.ts). The final answer step writes the figures of the tool
+// results the gateway actually sent back to the model (after its denylist check and redaction), in the model's style
+// ("EUR 1234.56 [q1]"), and the checks hold any answer — scripted now, a real model's later — to the same rules.
 import { AppError } from '../../../../lib/errors';
 import { METRICS, type MetricId } from '../../metrics/catalogue';
 import type { MetricResult, MetricsReader } from '../../metrics/execute';
 import { askMetrics, type AskCaller, type MetricAnswer } from '../ask';
-import { scriptedGateways, type ScriptStep } from '../testing/fake-gateway';
+import {
+  createAiGateway,
+  createFakeTransport,
+  createMemoryAuditSink,
+  createMemoryLimiter,
+  type AiRequest,
+  type FakeScriptStep,
+  type FakeTransport,
+} from '@platform/ai';
+import type { GatewayFactory } from '../gateway';
 import type { GoldenCase, GoldenEnv, Principal } from './cases';
 
 export interface GoldenStores {
@@ -53,11 +63,37 @@ function answerFrom(results: { parsed: unknown }[]): string {
 }
 
 /** `finalText` replaces the scripted answer (tests prove the checks catch a wrong one). */
-export function scriptFor(c: GoldenCase, env: GoldenEnv, finalText?: string): ScriptStep[] {
+/** The tool results the gateway sent back to the model so far (the user turns of the run), parsed. */
+function resultsSent(req: AiRequest): { parsed: unknown }[] {
+  return (req.turns ?? []).flatMap((t) =>
+    t.role === 'user'
+      ? t.toolResults.map((r) => ({ parsed: JSON.parse(r.content) as unknown }))
+      : [],
+  );
+}
+
+export function scriptFor(c: GoldenCase, env: GoldenEnv, finalText?: string): FakeScriptStep[] {
   return [
-    ...c.calls(env).map((input): ScriptStep => ({ toolUse: [{ name: 'query_metrics', input }] })),
-    (run) => ({ text: finalText ?? answerFrom(run.results) }),
+    ...c
+      .calls(env)
+      .map((input): FakeScriptStep => ({ toolUse: [{ name: 'query_metrics', input }] })),
+    (req: AiRequest) => ({ text: finalText ?? answerFrom(resultsSent(req)) }),
   ];
+}
+
+/** The production gateway with only the provider replaced: memory limiter and audit, AI switched on. */
+function realGateway(transport: FakeTransport): GatewayFactory {
+  const limiter = createMemoryLimiter();
+  const audit = createMemoryAuditSink();
+  return (scope) =>
+    createAiGateway({
+      ...scope,
+      purpose: 'analysis',
+      transport,
+      limiter,
+      audit,
+      env: { AI_ENABLED: '1' },
+    });
 }
 
 export interface GoldenOutcome {
@@ -73,13 +109,13 @@ export async function runGoldenCase(
   finalText?: string,
 ): Promise<GoldenOutcome> {
   const problems: string[] = [];
-  const gateways = scriptedGateways(scriptFor(c, env, finalText));
+  const transport = createFakeTransport({ script: scriptFor(c, env, finalText) });
   let answer: MetricAnswer;
   try {
     answer = await askMetrics(
       {
         reader,
-        gatewayFor: gateways,
+        gatewayFor: realGateway(transport),
         biQaSwitches: async () => new Map(),
         now: () => new Date('2026-10-31T12:00:00Z'),
       },
@@ -92,7 +128,7 @@ export async function runGoldenCase(
         problems.push(
           `expected ${c.expect.error}, got ${(err as Error).name}: ${(err as Error).message}`,
         );
-      if (c.expect.error === 'forbidden' && gateways.runs.length > 0)
+      if (c.expect.error === 'forbidden' && transport.calls.length > 0)
         problems.push('a model call before the 403');
       return { problems };
     }
