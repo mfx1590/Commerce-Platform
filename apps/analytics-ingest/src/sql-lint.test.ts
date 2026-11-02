@@ -78,6 +78,8 @@ describe('the repository is clean', () => {
   // backfill select `assumeNotNull(store_id) AS store_id … WHERE … AND store_id IS NOT NULL`, which reads the alias
   // (a no-op filter). Harmless: order.placed is always store-scoped (packages/events), so the filter never had a row
   // to drop. Anything new must be clean; models are fixed in place (100_staging moved its filters into a subquery).
+  // Migration 0006 (#689) replaced that MV with mv_orders_minute_v2 (the filter in a subquery) and dropped it, so
+  // the frozen text no longer runs on any insert; it stays here only because an applied file is never edited.
   const FROZEN = new Set([
     "0002_orders_minute.sql: store_id: the alias of an expression shadows the column in this SELECT's WHERE/ON",
   ]);
