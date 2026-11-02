@@ -88,6 +88,9 @@ void ai.complete('bi-qa-answer@1', qa);
 void ai.complete('bi-qa-answer@2', { ...qa, locale: 'en-GB' });
 // @ts-expect-error v2 without locale
 void ai.complete('bi-qa-answer@2', qa);
+void ai.complete('bi-qa-answer@3', { ...qa, locale: 'en-GB' });
+// @ts-expect-error v3 without locale
+void ai.complete('bi-qa-answer@3', qa);
 // @ts-expect-error locale is not a v1 variable
 void ai.complete('bi-qa-answer@1', { ...qa, locale: 'en-GB' });
 
