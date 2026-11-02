@@ -122,12 +122,16 @@ export async function askResponse(request: Request, storeId?: string): Promise<R
   const from = day(b?.from);
   const to = day(b?.to);
   return forward(
-    await askMetrics({
-      question,
-      ...(storeId ? { store_ids: [storeId] } : {}),
-      ...(from ? { from } : {}),
-      ...(to ? { to } : {}),
-    }),
+    await askMetrics(
+      {
+        question,
+        ...(storeId ? { store_ids: [storeId] } : {}),
+        ...(from ? { from } : {}),
+        ...(to ? { to } : {}),
+      },
+      // the browser's, for the answer's language (bi-qa-answer@2); read here, in the request's own scope
+      request.headers.get('accept-language'),
+    ),
   );
 }
 

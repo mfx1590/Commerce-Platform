@@ -445,6 +445,9 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   files, the manager routes it to window 1 — not mine.
 
 ## Gotchas learned
+- (2026-11-02, #683 queue) Never call `next/headers` (headers()/cookies()) inside a (hq)/bi/_api.ts wrapper:
+  test-contract/bi calls the wrappers outside a request scope (Next E251). Read request data in the route handler
+  and pass it in. Run `pnpm --filter @platform/admin test:contract` (bi file) after touching _api.ts.
 - ClickHouse ALIAS SHADOWING (bit three times in Phase 5): an output alias with a column's name (`toString(x) AS x`,
   `coalesce(sum(f),0) AS f`) replaces the column in WHERE / GROUP BY / other expressions of the same SELECT. Never
   alias a column to its own name; select raw columns (JSON renders UUID/DateTime64 as strings) or use out_* names.
