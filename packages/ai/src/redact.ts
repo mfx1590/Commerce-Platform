@@ -3,6 +3,7 @@
 // phone numbers, address shapes (a street name with a number, NL/UK postcodes, a US "City, ST 12345" line) and the
 // tracking numbers of the common carriers (UPS 1Z…, DHL 10 digits or JJD…, PostNL 3S…, #671). It does NOT mask names, an
 // e-mail address spelled out in words, other carriers' tracking numbers, or an address in a shape it does not know.
+// RFC 4122 uuids are left as they are (#680): they are ids, and their digit groups would otherwise read as phones.
 // This is defence in depth: the hard guard is the denylist of customer fields (denylist.ts), which keeps those
 // fields out of a prompt altogether. The patterns lean towards masking; a masked GTIN in product copy costs a little
 // quality, a leaked card number costs much more.
@@ -16,6 +17,11 @@ export interface RedactionResult {
 }
 
 const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+// an RFC 4122 uuid (8-4-4-4-12 hex, version 1–8, variant 8/9/a/b; or the nil uuid) is an id, never PII, but its digit
+// groups look like phone, card and tracking runs ("00000000-0000-4000-8000-000000000031" became "[phone]-[phone]",
+// #680). Bounded by any non-alphanumeric character, so `ord_<uuid>` counts too. The capture group makes split() keep it.
+const UUID_SPLIT =
+  /(?<![0-9A-Za-z])([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|0{8}-0{4}-0{4}-0{4}-0{12})(?![0-9A-Za-z])/i;
 // 13–19 digits, optionally grouped by single spaces or hyphens
 const CARD_CANDIDATE = /\b\d(?:[ -]?\d){12,18}\b/g;
 // UPS 1Z + 16; DHL Express exactly 10 digits (a bare run of 10 — 12/13-digit GTINs and order numbers stay), DHL
@@ -124,25 +130,71 @@ export function redact(input: string): RedactionResult {
     address: 0,
     tracking: 0,
   };
-  let text = input;
-  const mask = (re: RegExp, kind: RedactionKind, keep?: (m: string) => boolean) => {
-    text = text.replace(re, (m) => {
+  const mask = (
+    text: string,
+    re: RegExp,
+    kind: RedactionKind,
+    keep?: (m: string) => boolean,
+  ): string =>
+    text.replace(re, (m) => {
       if (keep && !keep(m)) return m;
       counts[kind] += 1;
       return `[${kind}]`;
     });
+  // e-mail first, over the whole text, so a uuid used as an address's local part does not shield the address
+  const rest = (s: string) => {
+    s = mask(s, IBAN_CANDIDATE, 'iban', ibanValid);
+    s = mask(s, CARD_CANDIDATE, 'card', (m) => luhn(m.replace(/\D/g, '')));
+    s = mask(s, STREET_AFTER, 'address');
+    s = mask(s, STREET_BEFORE, 'address');
+    s = mask(s, NL_POSTCODE, 'address');
+    s = mask(s, UK_POSTCODE, 'address');
+    s = mask(s, US_CITY_ZIP, 'address');
+    // before the phone check, which keeps a bare 10-digit run (not phone-shaped)
+    s = mask(s, TRACKING, 'tracking');
+    return mask(s, PHONE, 'phone', looksLikePhone);
   };
-  mask(EMAIL, 'email');
-  mask(IBAN_CANDIDATE, 'iban', ibanValid);
-  mask(CARD_CANDIDATE, 'card', (m) => luhn(m.replace(/\D/g, '')));
-  mask(STREET_AFTER, 'address');
-  mask(STREET_BEFORE, 'address');
-  mask(NL_POSTCODE, 'address');
-  mask(UK_POSTCODE, 'address');
-  mask(US_CITY_ZIP, 'address');
-  // before the phone check, which keeps a bare 10-digit run (not phone-shaped)
-  mask(TRACKING, 'tracking');
-  mask(PHONE, 'phone', looksLikePhone);
+  // every other pass runs on the text between uuids (even indexes of the split) and leaves the uuids as they are
+  const text = mask(input, EMAIL, 'email')
+    .split(UUID_SPLIT)
+    .map((part, i) => (i % 2 === 1 ? part : rest(part)))
+    .join('');
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  return { text, counts, total };
+}
+
+// one JSON string or number token. Only for a text that JSON.parse accepted: outside strings valid JSON has no quotes,
+// and its only digits are numbers, so this finds every string (keys included) and every number, and nothing else.
+const JSON_TOKEN = /"(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
+
+/**
+ * `redact()` for a tool result that is valid JSON (#680 review): each string, value or key, is decoded, redacted and
+ * re-encoded. A number is left as written unless it is an integer of 13–19 digits that passes the Luhn check, which
+ * becomes the string `"[card]"`. Everything else (other numbers, booleans, null, the layout) stays byte for byte: a
+ * 10-digit figure stays a number instead of becoming `[tracking]` (a tracking number held as a JSON number is
+ * therefore not masked; manager's decision), a big integer keeps its digits, and the result stays valid JSON. A string
+ * with nothing to mask keeps its original encoding.
+ */
+export function redactJson(json: string): RedactionResult {
+  const counts: Record<RedactionKind, number> = {
+    email: 0,
+    card: 0,
+    iban: 0,
+    phone: 0,
+    address: 0,
+    tracking: 0,
+  };
+  const text = json.replace(JSON_TOKEN, (token) => {
+    if (!token.startsWith('"')) {
+      if (!/^\d{13,19}$/.test(token) || !luhn(token)) return token;
+      counts.card += 1;
+      return '"[card]"';
+    }
+    const r = redact(JSON.parse(token) as string);
+    if (r.total === 0) return token;
+    for (const k of Object.keys(counts) as RedactionKind[]) counts[k] += r.counts[k];
+    return JSON.stringify(r.text);
+  });
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   return { text, counts, total };
 }
