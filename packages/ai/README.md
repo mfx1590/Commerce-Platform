@@ -86,6 +86,9 @@ const run = await ai.runTools(
 - While the answer has tool calls, each is run in order: a name the caller did not offer gets an `is_error` result
   ("unknown tool") and `handle` is never called for it; every result is parsed as JSON (plain text has no keys),
   checked against the denylist (`DeniedFieldError`, nothing sent) and redacted before it goes back to the model.
+  A JSON result has only its strings redacted (values and keys, `\u` escapes decoded first); numbers, booleans,
+  null and the layout stay byte for byte, so `"bookings_minor":1234567890` stays a number and the result stays
+  valid JSON (#680). A plain-text result is redacted as a whole, as before.
   The tool INPUT is the model's: it is not redacted, but it is part of the next step's hash.
 - Calls to an unknown tool count toward `maxToolCalls` like any other. A step whose calls would take the run past
   `maxToolCalls` is not run: `AiToolLoopError` (`details.max_tool_calls`),

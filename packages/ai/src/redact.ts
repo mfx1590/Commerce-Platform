@@ -160,3 +160,32 @@ export function redact(input: string): RedactionResult {
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   return { text, counts, total };
 }
+
+// one JSON string token. Only for a text that JSON.parse accepted: outside strings valid JSON has no quotes, so this
+// finds every string (keys included) and nothing else.
+const JSON_STRING = /"(?:[^"\\]|\\.)*"/g;
+
+/**
+ * `redact()` for a tool result that is valid JSON (#680 review): each string, value or key, is decoded, redacted and
+ * re-encoded; everything else (numbers, booleans, null, the layout) stays byte for byte. A 10-digit figure stays a
+ * number instead of becoming `[tracking]`, a big integer keeps its digits, and the result stays valid JSON. A string
+ * with nothing to mask keeps its original encoding.
+ */
+export function redactJsonStrings(json: string): RedactionResult {
+  const counts: Record<RedactionKind, number> = {
+    email: 0,
+    card: 0,
+    iban: 0,
+    phone: 0,
+    address: 0,
+    tracking: 0,
+  };
+  const text = json.replace(JSON_STRING, (token) => {
+    const r = redact(JSON.parse(token) as string);
+    if (r.total === 0) return token;
+    for (const k of Object.keys(counts) as RedactionKind[]) counts[k] += r.counts[k];
+    return JSON.stringify(r.text);
+  });
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  return { text, counts, total };
+}

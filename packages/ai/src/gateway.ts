@@ -49,7 +49,7 @@ import {
   type Purpose,
   type TokenUsage,
 } from './models.js';
-import { redact } from './redact.js';
+import { redact, redactJsonStrings } from './redact.js';
 import {
   getTemplate,
   renderTemplate,
@@ -579,10 +579,12 @@ export function createAiGateway(opts: AiGatewayOptions): AiGateway {
             throw err;
           }
           let parsed: unknown;
+          let isJson = true;
           try {
             parsed = JSON.parse(out.content);
           } catch {
             parsed = undefined; // plain text: no keys to check; still redacted below
+            isJson = false;
           }
           const denied = findDeniedFields(parsed);
           if (denied.length > 0) {
@@ -593,7 +595,8 @@ export function createAiGateway(opts: AiGatewayOptions): AiGateway {
             });
             throw new DeniedFieldError(denied);
           }
-          const r = redact(out.content);
+          // JSON: only its strings are redacted, so figures and the JSON itself survive; plain text as a whole
+          const r = isJson ? redactJsonStrings(out.content) : redact(out.content);
           redactions += r.total;
           const isError = out.isError === true;
           results.push({ toolUseId: c.id, content: r.text, isError });
