@@ -25,9 +25,12 @@ minutes is a crashed runner's: it no longer counts, and the next runner sweeps i
 **A backfill waits for the inserts already running (#685).** A materialised view sees only inserts that start after it
 exists, and a backfill sees only rows committed before it reads. An insert that began before the MV and committed after
 the backfill's read was in neither: its rows were lost from the MV's table for good while `raw_events` kept them (proven
-on ClickHouse: 86 of 150 orders). So before every `INSERT … SELECT` the runner waits until every INSERT running on the
-database at that moment has finished (system.processes; `ch:migrate` runs as the admin, which sees every user's
-queries), and never for one that starts later, so a busy ingest cannot starve it. Past 10 minutes it refuses with
+on ClickHouse: 86 of 150 orders). So before every `INSERT … SELECT` the runner waits until every INSERT running at that
+moment has finished, into any database (one issued from another default database still writes here), and never for
+one that starts later, so a busy ingest cannot starve it. `ch:migrate` runs as the admin, which sees every user's
+queries. `system.processes` is per server, so a multi-replica service (ClickHouse Cloud behind one endpoint) MUST be
+read on every replica: the runner reads `clusterAllReplicas('default', system.processes)` and falls back to the local
+table only when the server has no `default` cluster (a single local server). Past 10 minutes it refuses with
 `InsertsStillRunningError` and backfills nothing; run it again. Migration 0005 refills the order.placed event_ids a
 database migrated before this fix may be missing from `orders_minute_events` (on a fresh database it adds nothing).
 Materialised views never go in `models/`: re-creating an MV that has no TO table drops its data.

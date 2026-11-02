@@ -120,7 +120,8 @@ Flags: `--once`, `--group <id>`, `--topic-prefix <p>` (tests and gates; applies 
 - `pii.test.ts`: the sweep (and a planted row proving the sweep finds each shape).
 - `migrations.test.ts`: the DDL; the idempotency lint over both SQL folders; migrations then models; a second run
   applies nothing; an edited model is re-applied while an edited migration is refused; the lock refuses a second
-  runner and is always released; a backfill waits for the INSERTs running before it (and only those), and past the
+  runner and is always released; a backfill waits for the INSERTs running before it (and only those, read on every
+  replica, the local table only on a single server with no `default` cluster), and past the
   timeout refuses without backfilling (#685).
 - `models.test.ts` (live) also runs ONE slow insert that begins before 0002's MV and commits after its backfill would
   have read: no row is lost (without the drain, 86 of 150 orders were, every run). Asserted once, no polling.

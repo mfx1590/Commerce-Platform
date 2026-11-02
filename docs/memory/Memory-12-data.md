@@ -70,6 +70,12 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   missing event_ids (filter in a subquery: the repo SQL lint caught the assumeNotNull alias shadowing store_id).
   Tests: drain on the runner double (4); live in-flight case (control without the drain: 64/150), 0005 repair.
   ingest unit 120, live models+live 17 pass; gates green. Fable review. Then #7 (product events in golden).
+  PR #687. Fable FINDINGS fixed: the drain reads clusterAllReplicas('default', system.processes) (system.processes
+  is per server; ClickHouse Cloud), falling back to the local table ONLY on CLUSTER_DOESNT_EXIST (170), every
+  other error thrown; every INSERT on every replica into any database (current_database filter dropped); ids
+  query_id@host; live test asserts the slow insert was SEEN running. The local server HAS a `default` cluster
+  (system.clusters), so it takes the replica-wide path; the fallback is unit-tested only. Live 17 pass, unit 123.
+  Follow-up filed: #689 (0002 MV alias shadows its own store_id IS NOT NULL — a new migration, not an edit).
 - REAL-MODEL RE-RUN (2026-11-02, on 9e65ecfa = #683 FINAL, bi-qa-answer@2; machine from manager ten, then freed):
   26/30 under the full checker; 55 calls, 166,376 tokens, $0.41 (first run: 55 / 134,608 / $0.35). Fails: #8 dates
   past the logged 240 chars (money figures pass; checker false positive, likely year-less dates); #17 "6" = most

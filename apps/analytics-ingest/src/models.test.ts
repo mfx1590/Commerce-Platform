@@ -475,15 +475,20 @@ describe.runIf(skip === null)('ClickHouse runner under concurrency', () => {
       query: `INSERT INTO raw_events SELECT * FROM stage WHERE sleepEachRow(${(2.5 / inFlight).toFixed(4)}) = 0`,
       clickhouse_settings: { max_threads: 1 },
     });
-    // migrate only once the slow insert is visibly running, so it truly began before the MV
-    for (let i = 0; i < 50; i++) {
+    // migrate only once the slow insert is visibly running, so it truly began before the MV — and fail if it never
+    // was (#687 review): otherwise this test could pass without the drain having anything to wait for
+    let seen = false;
+    for (let i = 0; i < 50 && !seen; i++) {
       const [p] = await q(
         admin,
         `SELECT count() n FROM system.processes WHERE query_kind = 'Insert' AND current_database = '${db}'`,
       );
-      if (Number(p!.n) > 0) break;
-      await new Promise((r) => setTimeout(r, 20));
+      seen = Number(p!.n) > 0;
+      if (!seen) await new Promise((r) => setTimeout(r, 20));
     }
+    expect(seen).toBe(true);
+    // The negative control (2026-11-02, ClickHouse 25.8): with the drain line in migrate() commented out
+    // (`if (INSERT.test(statement)) await waitForRunningInserts(…)`), this test fails at 64 of 150 — 86 orders lost.
     await migrate(admin, open(db), db, files);
     await slow;
     const [r] = await q(

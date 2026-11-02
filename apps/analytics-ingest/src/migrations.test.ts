@@ -26,6 +26,8 @@ function fakeServer() {
   /** system.processes, one answer per poll (the last one repeats; none running by default) */
   const running: string[][] = [];
   let polls = 0;
+  /** a single server with no `default` cluster: clusterAllReplicas fails with CLUSTER_DOESNT_EXIST */
+  const topology = { clusterless: false, sources: [] as string[] };
   const byHolder = () => {
     const m = new Map<string, { first: number; last: number }>();
     for (const l of locks) {
@@ -52,10 +54,19 @@ function fakeServer() {
       const ttl = Number(query_params?.ttl ?? 0);
       let rows: unknown[];
       if (query.includes('system.processes')) {
+        const cluster = query.includes('clusterAllReplicas');
+        topology.sources.push(cluster ? 'cluster' : 'local');
+        if (cluster && topology.clusterless)
+          throw Object.assign(
+            new Error("Requested cluster 'default' not found. (CLUSTER_DOESNT_EXIST)"),
+            {
+              code: '170',
+            },
+          );
         const ids = running[Math.min(polls, running.length - 1)] ?? [];
         polls += 1;
         commands.push(`POLL ${ids.join(',')}`);
-        rows = ids.map((query_id) => ({ query_id }));
+        rows = ids.map((query_id) => ({ host: 'ch-1', query_id }));
       } else if (query.includes('HAVING max(renewed_at) <='))
         rows = [...byHolder()]
           .filter(([, h]) => h.last <= now - ttl)
@@ -82,6 +93,7 @@ function fakeServer() {
     commands,
     /** the INSERTs system.processes shows, poll by poll */
     running,
+    topology,
     get locks() {
       return locks;
     },
@@ -353,7 +365,39 @@ describe('the drain before a backfill', () => {
       drainTimeoutMs: 20,
     }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(InsertsStillRunningError);
-    expect(err).toMatchObject({ database: 'analytics_test', queryIds: ['stuck'] });
+    expect(err).toMatchObject({ database: 'analytics_test', queryIds: ['stuck@ch-1'] });
+    expect(userStatements(s.commands)).not.toContain('INSERT INTO t SELECT x FROM src');
+    expect(s.locks).toEqual([]);
+  });
+
+  // #687 review: system.processes is per server — a multi-replica service must be read on every replica
+  it('reads every replica (clusterAllReplicas) when the server has a default cluster', async () => {
+    const s = fakeServer();
+    s.running.push(['ingest-1'], []);
+    await migrate(s.client(), s.client(), 'analytics_test', withBackfill, fast);
+    expect(s.topology.sources).toEqual(['cluster', 'cluster']);
+  });
+
+  it('on a single server with no default cluster it falls back to the local table, once, and still drains', async () => {
+    const s = fakeServer();
+    s.topology.clusterless = true;
+    s.running.push(['ingest-1'], []);
+    await migrate(s.client(), s.client(), 'analytics_test', withBackfill, fast);
+    expect(s.topology.sources).toEqual(['cluster', 'local', 'local']);
+    expect(s.commands.filter((c) => c.startsWith('POLL'))).toEqual(['POLL ingest-1', 'POLL ']);
+  });
+
+  it('any other error reading the processes is not swallowed: nothing is backfilled', async () => {
+    const s = fakeServer();
+    const c = s.client();
+    const base = c.query.bind(c);
+    c.query = async (p) => {
+      if (p.query.includes('system.processes')) throw new Error('ACCESS_DENIED');
+      return base(p);
+    };
+    await expect(migrate(s.client(), c, 'analytics_test', withBackfill, fast)).rejects.toThrow(
+      'ACCESS_DENIED',
+    );
     expect(userStatements(s.commands)).not.toContain('INSERT INTO t SELECT x FROM src');
     expect(s.locks).toEqual([]);
   });

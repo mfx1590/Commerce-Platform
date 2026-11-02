@@ -13,13 +13,15 @@
 // INSERT … SELECT into a ReplacingMergeTree table (a backfill whose copies fold). Two runners at once are kept
 // apart by `_migrations_lock`: each inserts its claim, and the oldest live claim wins; the other refuses.
 //
-// A backfill runs only once every INSERT already running on the database has finished (#685). A materialised view
+// A backfill runs only once every INSERT already running (any replica, any database) has finished (#685). An MV
 // sees only inserts that START after it exists, and a backfill sees only rows committed before it reads: an insert
 // that began before the MV and committed after the backfill's read was in neither, and its rows were lost from the
 // MV's table for good (proven on ClickHouse: 86 of 150 orders). Waiting for the inserts running at that moment
 // closes the gap — each one began either before the MV (it is waited for, so the backfill sees it) or after (the MV
 // sees it). Only those inserts are waited for, never ones that start later, so a busy ingest cannot starve it.
-// `ch:migrate` runs as the admin, which sees every user's queries in system.processes.
+// `ch:migrate` runs as the admin, which sees every user's queries. system.processes is PER SERVER, so it is read on
+// every replica (`clusterAllReplicas('default', …)`, which a multi-replica service such as ClickHouse Cloud needs),
+// falling back to the local table on a single server with no `default` cluster (#687 review).
 import { createHash, randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -253,38 +255,54 @@ export class InsertsStillRunningError extends Error {
     readonly queryIds: readonly string[],
   ) {
     super(
-      `${queryIds.length} INSERT(s) into ${database} still running before a backfill; nothing was backfilled — ` +
+      `${queryIds.length} INSERT(s) still running before a backfill into ${database}; nothing was backfilled — ` +
         'run ch:migrate again (every statement is idempotent)',
     );
     this.name = 'InsertsStillRunningError';
   }
 }
 
-const RUNNING_INSERTS =
-  "SELECT query_id FROM system.processes WHERE query_kind = 'Insert' AND current_database = {db:String}";
+/**
+ * Every INSERT running on EVERY replica (#687 review: system.processes is per server, so on a multi-replica service —
+ * ClickHouse Cloud behind one endpoint — the local table would miss an ingest insert on another replica and the
+ * drain would be blind). Every INSERT, not only this database's: one issued from another default database
+ * (`INSERT INTO analytics.raw_events`) still writes here; the timeout bounds the wait either way.
+ */
+const RUNNING_INSERTS_ALL_REPLICAS =
+  "SELECT hostName() AS host, query_id FROM clusterAllReplicas('default', system.processes) WHERE query_kind = 'Insert'";
+/** A single server with no `default` cluster configured (a local ClickHouse): its own table is the whole truth. */
+const RUNNING_INSERTS_LOCAL =
+  "SELECT hostName() AS host, query_id FROM system.processes WHERE query_kind = 'Insert'";
+
+/** ClickHouse's CLUSTER_DOESNT_EXIST (170): the server has no `default` cluster, so it is a single node. */
+const noSuchCluster = (err: unknown) =>
+  (err as { code?: string }).code === '170' ||
+  /CLUSTER_DOESNT_EXIST/.test((err as Error).message ?? '');
 
 /**
- * Waits until every INSERT running on `database` NOW has finished; inserts that start later are not waited for.
- * Past the timeout it throws rather than backfill with an insert still in flight (the rows it is writing could be
- * lost); the migration is re-run as a whole.
+ * Waits until every INSERT running NOW (on any replica, into any database) has finished; inserts that start later
+ * are not waited for. Past the timeout it throws rather than backfill with an insert still in flight (the rows it is
+ * writing could be lost); the migration is re-run as a whole.
  */
 export async function waitForRunningInserts(
   db: ChClient,
   database: string,
   opts: DrainOptions = {},
 ): Promise<void> {
-  const running = async () =>
-    new Set(
-      (
-        await (
-          await db.query({
-            query: RUNNING_INSERTS,
-            format: 'JSONEachRow',
-            query_params: { db: database },
-          })
-        ).json<{ query_id: string }>()
-      ).map((r) => r.query_id),
-    );
+  let query = RUNNING_INSERTS_ALL_REPLICAS;
+  const read = async () =>
+    (await db.query({ query, format: 'JSONEachRow' })).json<{ host: string; query_id: string }>();
+  const running = async () => {
+    let rows: { host: string; query_id: string }[];
+    try {
+      rows = await read();
+    } catch (err) {
+      if (query === RUNNING_INSERTS_LOCAL || !noSuchCluster(err)) throw err;
+      query = RUNNING_INSERTS_LOCAL;
+      rows = await read();
+    }
+    return new Set(rows.map((r) => `${r.query_id}@${r.host}`));
+  };
   const waitingFor = await running();
   const deadline = Date.now() + (opts.drainTimeoutMs ?? DRAIN_TIMEOUT_MS);
   while (waitingFor.size > 0) {
