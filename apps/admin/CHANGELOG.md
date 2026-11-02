@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added — #608 (CONTRACT CHANGE #664): AI product copy drafts in the product editor (Admin API 0.4.26)
+
+- Product page "Draft copy with AI": locale + fields → `draftProductCopy`; side-by-side current vs
+  editable draft with a line diff; "Use this field"; Save sends a partial `updateProduct` (accepted
+  fields only, default locale only; bullets into the description as a list; seo merged). Model and
+  template id/version shown; brand-voice hint when `brand_voice_source: default`; role gate below
+  store_staff.
+- Every error in words with the editor intact; `Retry-After` counted down on the button
+  (`ApiResult.retryAfterSeconds`, `parseRetryAfter` in the API client).
+- Wrapper `draftProductCopy`; guard rows `draftProductCopy` / `updateProduct` (store_staff);
+  `src/app/actions/copy-drafts.ts`; `src/lib/copy-drafts`. Tests: unit 35, component 15, Prism 6.
+
 ### Added — #520 (CONTRACT CHANGE #522): store tax rates (Admin API 0.4.23)
 
 - Store · Settings → Tax rates: list (country, region, category, name, bp and %), edit name/bp,

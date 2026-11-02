@@ -4,7 +4,10 @@ import { ApiStatePanel } from '@/components/states/state-panel';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { updateProductAction } from '@/app/actions/catalog';
 import { VariantsPanel } from './variants-panel';
-import { getProduct, listCategories } from '@/lib/api/admin';
+import { getProduct, getStore, listCategories } from '@/lib/api/admin';
+import { currentCopy, mayDraftCopy } from '@/lib/copy-drafts';
+import { loadPrincipal } from '@/lib/principal';
+import { CopyDraftPanel } from './copy-draft-panel';
 import type { ProductCreateValues } from '@/lib/forms/schemas';
 import { ProductForm } from '../product-form';
 import { PublishControls } from './publish-controls';
@@ -17,10 +20,13 @@ export default async function ProductDetailPage({
   params: Promise<{ storeId: string; productId: string }>;
 }) {
   const { storeId, productId } = await params;
-  const [product, categories] = await Promise.all([
+  const [product, categories, store, principal] = await Promise.all([
     getProduct(storeId, productId),
     listCategories(storeId),
+    getStore(storeId),
+    loadPrincipal(),
   ]);
+  const canDraft = principal.ok && mayDraftCopy(principal.data, storeId);
 
   if (!product.ok) {
     return (
@@ -82,12 +88,48 @@ export default async function ProductDetailPage({
         <Card>
           <CardHeader title="Details" />
           <CardBody>
+            {/* Keyed by updated_at: after any save (the AI panel's included) the form remounts on
+                the saved values, so a later "Save changes" never writes the old copy back. */}
             <ProductForm
+              key={current.updated_at}
               action={updateProductAction.bind(null, storeId, productId)}
               defaultValues={defaultValues}
               categories={categories.ok ? categories.data.items : []}
               submitLabel="Save changes"
             />
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="Draft copy with AI"
+            description="A draft beside the current copy: edit it, keep the fields you want, then save. Nothing is saved until you press Save."
+          />
+          <CardBody>
+            {store.ok ? (
+              <CopyDraftPanel
+                storeId={storeId}
+                productId={productId}
+                locales={
+                  store.data.locales.length > 0 ? store.data.locales : [store.data.default_locale]
+                }
+                defaultLocale={store.data.default_locale}
+                canDraft={canDraft}
+                current={currentCopy(current)}
+                product={{
+                  description: current.description,
+                  seo: (current.seo as Record<string, unknown> | undefined) ?? {},
+                }}
+                settingsHref={`/${storeId}/settings`}
+              />
+            ) : (
+              <ApiStatePanel
+                status={store.status}
+                error={store.error}
+                what="This store"
+                storeId={storeId}
+              />
+            )}
           </CardBody>
         </Card>
 
