@@ -60,6 +60,11 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   tokens, $0.016. Marked FAIL only by the checker reading the list numbering / p1… labels as figures → figuresOf
   now skips `p\d+` labels and a line-leading "1." (tested on that exact answer). Reporting 242 pass. Machine freed.
   (#685 is PR #687 on data/phase5-685 — its memory notes live on that branch until it merges.)
+  PR #688 Opus FINDINGS fixed: stripEnumeration runs first on the raw text and drops only a REAL run 1, 2, 3 …
+  (≥2 items, content on the line) — "Total orders:\n17." and "[q1] 12. orders" stay counts; figuresOf strips only
+  the labels the results gave (itemLabels, rebuilt as tool.ts assigns p1… per result), labelProblems reports an
+  invented pN and a "pN: X" that is not pN's figure (swapped ranking); selectCases throws on a blank/typo/unknown
+  id and the run fails on zero cases. real-model.test 76, reporting 264; no re-run.
 - REAL-MODEL RE-RUN (2026-11-02, on 9e65ecfa = #683 FINAL, bi-qa-answer@2; machine from manager ten, then freed):
   26/30 under the full checker; 55 calls, 166,376 tokens, $0.41 (first run: 55 / 134,608 / $0.35). Fails: #8 dates
   past the logged 240 chars (money figures pass; checker false positive, likely year-less dates); #17 "6" = most

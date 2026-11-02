@@ -1,7 +1,15 @@
 // The real-model checker's reading of prose (#606), on answers the real model actually gave in the one run of
 // 2026-11-02: dates are not figures; money in either notation is; a derived or wrong figure stays a figure.
 import { describe, expect, it } from 'vitest';
-import { checkDerived, figuresOf, type ResultValue } from './real-model';
+import type { MetricResult } from '../../metrics/execute';
+import {
+  checkDerived,
+  figuresOf,
+  itemLabels,
+  labelProblems,
+  selectCases,
+  type ResultValue,
+} from './real-model';
 
 describe('figuresOf', () => {
   it.each([
@@ -39,15 +47,39 @@ describe('figuresOf', () => {
     expect(figuresOf(text)).toEqual(figures);
   });
 
-  it("#7's answer in the targeted run (2026-11-02): the list numbering and the p1… labels are not figures", () => {
-    const answer =
-      'These are the top 5 products by units for brand-a, from 2026-10-01 to 2026-11-01:\n\n' +
-      '1. p1: 168 units [q1]\n2. p2: 128 units [q1]\n3. p3: 86 units [q1]\n4. p4: 84 units [q1]\n5. p5: 38 units [q1]';
-    expect(figuresOf(answer)).toEqual(['5', '168', '128', '86', '84', '38']);
-    // a figure that merely follows a label or a list number is still read — and a wrong one still fails
-    expect(figuresOf('1. p1: 169 units [q1]')).toEqual(['169']);
-    // a number mid-sentence is no list item
-    expect(figuresOf('We sold 12. Then 3. [q1]')).toEqual(['12', '3']);
+  const ANSWER_7 =
+    'These are the top 5 products by units for brand-a, from 2026-10-01 to 2026-11-01:\n\n' +
+    '1. p1: 168 units [q1]\n2. p2: 128 units [q1]\n3. p3: 86 units [q1]\n4. p4: 84 units [q1]\n5. p5: 38 units [q1]';
+  const P = ['p1', 'p2', 'p3', 'p4', 'p5'];
+
+  it("#7's answer in the targeted run (2026-11-02): a real enumeration and the result's own labels are not figures", () => {
+    expect(figuresOf(ANSWER_7, [], P)).toEqual(['5', '168', '128', '86', '84', '38']);
+    // a figure after a label or a list number is still read — and a wrong one still fails
+    expect(figuresOf('1. p1: 169 units [q1]\n2. p2: 128 units [q1]', [], P)).toEqual([
+      '169',
+      '128',
+    ]);
+  });
+
+  // #688 review: the numbering strip must never eat a count
+  it.each([
+    ['a count alone on its line', 'Total orders:\n17.', ['17']],
+    ['a count after a citation', '[q1] 12. orders', ['12']],
+    ['a number mid-sentence', 'We sold 12. Then 3. [q1]', ['12', '3']],
+    ['a lone "1." is no enumeration', '1. order today [q1]', ['1']],
+    [
+      'a run that skips keeps the skipped number',
+      '1. a 10\n2. b 20\n5. c 30',
+      ['10', '20', '5', '30'],
+    ],
+    ['a run that does not start at 1', '3. a 10\n4. b 20', ['3', '10', '4', '20']],
+    ['"1)" counts as numbering too', '1) a 10\n2) b 20', ['10', '20']],
+  ])('enumeration: %s', (_, text, figures) => {
+    expect(figuresOf(text)).toEqual(figures);
+  });
+
+  it('a label no result gave stays a figure (and labelProblems reports it)', () => {
+    expect(figuresOf('6. p9: 12 units [q1]', [], P)).toEqual(['6', '9', '12']);
   });
 
   it('the gap left, pinned: a bare pair that is also a date reads as a date', () => {
@@ -237,5 +269,59 @@ describe('checkDerived', () => {
     ],
   ])('template form: %s', (_, text, problems) => {
     expect(check(text).problems).toEqual(problems);
+  });
+});
+
+// #688 review: the labels the model saw, each with its own figures — an invented pN or a swapped ranking fails
+describe('item labels', () => {
+  const P1 = '00000000-0000-4000-8000-0000000000f1';
+  const P2 = '00000000-0000-4000-8000-0000000000f2';
+  const row = (product_id: string | null, units: number) => ({
+    period: null,
+    currency: null,
+    store_id: null,
+    product_id,
+    refund_reason: null,
+    provider: null,
+    values: { units },
+  });
+  const result = {
+    rows: [row(P2, 168), row(P1, 128), row(null, 5)],
+    currency_totals: [],
+  } as unknown as MetricResult;
+  const labels = itemLabels([{ query: { metrics: ['units'] }, result }]);
+
+  it('labels products p1, p2 … in row order, each with its own figures; a row without a product has none', () => {
+    expect([...labels.keys()]).toEqual(['p1', 'p2']);
+    expect([...labels.get('p1')!]).toEqual(['168']);
+    expect([...labels.get('p2')!]).toEqual(['128']);
+  });
+
+  it.each([
+    ['the right figures', '1. p1: 168 units [q1]\n2. p2: 128 units [q1]', []],
+    ['an invented label', 'p9: 12 units [q1]', ['p9 is no item of any result']],
+    [
+      'a swapped ranking',
+      '1. p1: 128 units [q1]\n2. p2: 168 units [q1]',
+      ["p1: 128 is not p1's figure", "p2: 168 is not p2's figure"],
+    ],
+    ['a label without a figure is fine', 'p1 sold the most [q1]', []],
+  ])('labelProblems: %s', (_, text, problems) => {
+    expect(labelProblems(text, labels)).toEqual(problems);
+  });
+});
+
+// #688 review: a targeted run can never pass on zero cases
+describe('selectCases', () => {
+  const all = [{ id: 1 }, { id: 7 }, { id: 17 }];
+  it.each([
+    [undefined, [1, 7, 17]],
+    ['7', [7]],
+    ['7, 17', [7, 17]],
+  ])('%j → %j', (raw, ids) => {
+    expect(selectCases(raw, all).map((c) => c.id)).toEqual(ids);
+  });
+  it.each([[''], [' '], ['7,'], ['7x'], ['99'], ['seven']])('%j throws before any call', (raw) => {
+    expect(() => selectCases(raw, all)).toThrow(/not golden case ids/);
   });
 });

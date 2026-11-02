@@ -8,7 +8,7 @@ import type { MetricsReader } from '../../metrics/execute';
 import { GOLDEN, type GoldenEnv } from './cases';
 import type { GatewayFactory } from '../gateway';
 import { catalogueFor } from './catalogue';
-import { runRealCase, type RealOutcome } from './real-model';
+import { runRealCase, selectCases, type RealOutcome } from './real-model';
 import { runGoldenCase, type GoldenStores } from './run';
 
 it('the golden set has 30 questions with distinct ids', () => {
@@ -215,14 +215,17 @@ describe.runIf(skip === null)('golden set on the generated month (ClickHouse)', 
           orgLimits: limits,
         });
       const outcomes: RealOutcome[] = [];
-      // AI_REAL_MODEL_CASES=7 (or 7,17): a targeted run of those cases only, a couple of calls instead of ~55
-      const only = process.env.AI_REAL_MODEL_CASES?.split(',').map((s) => Number(s.trim()));
-      for (const c of GOLDEN.filter((g) => !only || only.includes(g.id))) {
+      // AI_REAL_MODEL_CASES=7 (or 7,17): a targeted run of those cases only, a couple of calls instead of ~55; an
+      // unknown, blank or typo'd id throws before any call (#688 review), and a run of nothing fails below
+      const cases = selectCases(process.env.AI_REAL_MODEL_CASES, GOLDEN);
+      for (const c of cases) {
         const before = calls;
         outcomes.push(await runRealCase(c, env, stores, reader, gatewayFor, () => calls - before));
       }
       const tokens = audit.records.reduce((n, r) => n + r.inputTokens + r.outputTokens, 0);
       const costMicroUsd = audit.records.reduce((n, r) => n + r.costMicroUsd, 0);
+      expect(outcomes.length).toBe(cases.length);
+      expect(outcomes.length).toBeGreaterThan(0);
       const passed = outcomes.filter((o) => o.problems.length === 0).length;
       // the WHOLE answer (dev data only): the 2026-11-02 re-run cut it at 240 characters and lost #8's and #17's causes
       for (const o of outcomes)
