@@ -70,7 +70,7 @@ export {
 } from './customer-routes';
 export type { CustomerTokenVerifier } from './customer-routes';
 export { adminRouter } from './admin-routes';
-export { moduleAdminRouters, moduleWebhookRouters } from './module-routers';
+export { moduleAdminRouters, moduleStoreRouters, moduleWebhookRouters } from './module-routers';
 export { loadSpec, openApiDir } from './openapi';
 export type { Spec, SpecFile } from './openapi';
 export {

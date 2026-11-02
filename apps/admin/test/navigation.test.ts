@@ -70,6 +70,7 @@ describe('store navigation per role fixture', () => {
       [
         'catalog',
         'orders',
+        'bi',
         'inventory',
         'customers',
         'promotions',
@@ -84,6 +85,7 @@ describe('store navigation per role fixture', () => {
       [
         'catalog',
         'orders',
+        'bi',
         'inventory',
         'customers',
         'promotions',
@@ -95,14 +97,14 @@ describe('store navigation per role fixture', () => {
     // store_staff authors content and marketing, but Customers now needs `support` (0.2.1)
     [
       'storeStaff',
-      ['catalog', 'orders', 'inventory', 'promotions', 'content', 'marketing', 'settings'],
+      ['catalog', 'orders', 'bi', 'inventory', 'promotions', 'content', 'marketing', 'settings'],
     ],
     // an organization `support` is support on every store, so it reaches customer records
-    ['support', ['catalog', 'orders', 'inventory', 'customers', 'promotions']],
+    ['support', ['catalog', 'orders', 'bi', 'inventory', 'customers', 'promotions']],
     // the other organization relations imply store viewer and nothing more
-    ['finance', ['catalog', 'orders', 'inventory', 'promotions']],
-    ['operations', ['catalog', 'orders', 'inventory', 'promotions']],
-    ['analyst', ['catalog', 'orders', 'inventory', 'promotions']],
+    ['finance', ['catalog', 'orders', 'bi', 'inventory', 'promotions']],
+    ['operations', ['catalog', 'orders', 'bi', 'inventory', 'promotions']],
+    ['analyst', ['catalog', 'orders', 'bi', 'inventory', 'promotions']],
   ];
 
   it.each(cases)('%s sees exactly %j on brand-a', (key, expected) => {

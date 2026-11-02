@@ -2,6 +2,15 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-11-02 · Store API recommendations mounted (REQUEST #624, #607)
+
+- `moduleStoreRouters()` (`src/http/module-routers.ts`), the Store API mount point for other modules' routers, and
+  `mountCoreMiddleware`'s `storeRouters` option: mounted after `mountStoreRoutes()` and BEFORE the fallback proxy;
+  `createServer()` passes it. First router: window 9's `recommendationsRouter()` — Store API 0.5.9
+  `listProductRecommendations` (`GET /store/recommendations`) over db 0204 `product_recommendation`, rebuilt nightly
+  by window 9's scheduled job `src/jobs/index-recommendations.ts`. Tested: 200 `RecommendationList` instead of the
+  proxy's answer, another store's product 404, no key 401.
+
 ### 2026-11-02 · copy drafts: review follow-ups (#672 review, Refs #608)
 
 - `draftProductCopy` builds the gateway inside the error mapping, so an error constructing the limiter, the audit

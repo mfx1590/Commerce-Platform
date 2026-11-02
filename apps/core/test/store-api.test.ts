@@ -8,7 +8,7 @@ import request from 'supertest';
 import { createOrganizationClient, SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { DevTokenVerifier, paymentMethodsOf } from '../src/http';
+import { DevTokenVerifier, moduleStoreRouters, paymentMethodsOf } from '../src/http';
 import { closePool, initDb, tenantClient } from '../src/lib/db';
 import { setFraudCheck } from '../src/modules/checkout';
 import { markAbandonedCarts, setDiscountEvaluator } from '../src/modules/cart';
@@ -986,5 +986,52 @@ describe('a currency removed from the store (registry set replacement, #279)', (
     expect(fresh.status).toBe(400);
     expect(fresh.body.details).toEqual({ currency: 'one of EUR' });
     expect((await asA('/store/products?currency=USD')).status).toBe(400);
+  });
+});
+
+describe('Store API routers of other modules (#624): recommendations is mounted before the fallback proxy', () => {
+  // the server's chain with the module store routers AND a fallback proxy pointed at a port nothing listens on: a
+  // request the routers answer never reaches the proxy (which would answer 502), anything else still does
+  let chained: express.Express;
+  beforeAll(() => {
+    chained = express();
+    mountCoreMiddleware(chained, new DevTokenVerifier(), {
+      storeRouters: moduleStoreRouters(),
+      storeApiFallbackUrl: 'http://127.0.0.1:9',
+    });
+  });
+  const asStore = (key: string, path: string) =>
+    request(chained).get(path).set('X-Publishable-Key', key);
+
+  it('GET /store/recommendations?kind=popular answers 200 { kind, items } from the core, not 404 or the proxy', async () => {
+    const res = await asStore(KEY_A, '/store/recommendations?kind=popular');
+    expect(res.status).toBe(200);
+    spec.assertSchema('RecommendationList', res.body);
+    expect(res.body.kind).toBe('popular');
+    expect(Array.isArray(res.body.items)).toBe(true);
+    // without the router (createServer passes it; the default is none) the path is the proxy's
+    const bare = express();
+    mountCoreMiddleware(bare, new DevTokenVerifier(), {
+      storeApiFallbackUrl: 'http://127.0.0.1:9',
+    });
+    expect(
+      (
+        await request(bare)
+          .get('/store/recommendations?kind=popular')
+          .set('X-Publishable-Key', KEY_A)
+      ).status,
+    ).toBe(502);
+  });
+
+  it('a product of another store is 404 not_found from the router; no key is 401', async () => {
+    const other = await owner.query<{ id: string }>(
+      `SELECT id FROM product WHERE store_id = $1 LIMIT 1`,
+      [SEED_IDS.stores.brandB],
+    );
+    const res = await asStore(KEY_A, `/store/recommendations?product_id=${other.rows[0]!.id}`);
+    expect(res.status).toBe(404);
+    spec.assertSchema('Error', res.body);
+    expect(res.body.code).toBe('not_found');
+    expect((await request(chained).get('/store/recommendations?kind=popular')).status).toBe(401);
   });
 });
