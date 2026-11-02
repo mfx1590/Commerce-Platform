@@ -8,7 +8,7 @@ machine.
 
 # Memory 16 — CRM, CDP, ops alerts & support
 Window: 16 · Key: `engagement` · Branch prefix: `engagement/` · Model: Sonnet
-Last updated: 2026-11-02 (window 16, #678 / PR #695 review items) · Contracts: contracts-v0.4.26, events-v1 = 2abe310 · Last commit: see Done/In progress · Merged: #553 via #563 (7c41d82) · Status: 16.1 delivered (PR #562, head a2e9abc, pushed); 16.2 BUILT and green locally (166/166 with the broker up, twice); pushes HELD until the manager confirms #562 merged
+Last updated: 2026-11-02 (window 16, #678 / PR #695 review items) · Contracts: contracts-v0.4.26, events-v1 = 2abe310 · Last commit: see Done/In progress · Merged: #553 via #563 (7c41d82) · Status: IDLE 2026-11-02 — #678 merged via PR #695 (merge fd7fc8c2, merged head 96d0a67a); package 0.9.2; two memory commits are local-only, cherry-pick them onto the next branch off origin/main
 
 ## Identity (does not change)
 Owned paths (write):
@@ -185,7 +185,7 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **Never commit a 64-hex email_hash fixture.** The `sha256` $def needs a real 64-hex value, so a word will not validate — compute it: `createHash('sha256').update('…').digest('hex')`, which is what apps/core does. I had three such literals before catching it; one would have reddened every open PR.
 - `pg` is deliberately NOT a dependency of this app: for a pool type use `Parameters<typeof createTenantClient>[0]`.
 
-## RESUME HERE — 2026-11-02: #678 PR #695 reviewed (FINDINGS, no block); the review items are IN the tree, push HELD for #697
+## RESUME HERE — 2026-11-02: #678 DONE, PR #695 merged (fd7fc8c2); idle, two memory commits to cherry-pick
 
 **Manager session TEN.** Branch `engagement/phase5-678` from `origin/main` `d6ed17ee`. #610 merged
 (`4c2ca7ab`) — AI support drafts are on main, ON by default per store.
@@ -234,9 +234,19 @@ codes ARE in the contract now. Six sites, not the two the review item named (`ty
 import/tests/comment, package CLAUDE.md, README, CHANGELOG 0.9.2, version bump). 547 passed / 9 live skipped
 offline, 556/556 with the broker up; lint, typecheck, prettier, ownership clean. Package **0.9.2**.
 
-**`2f125563` is FINAL** (manager ten, 2026-11-02): re-checked and queued after the current run. **No further
-push to this branch** — every push restarts CI and the review. Anything else that comes up waits for a new
-branch off main after #695 merges.
+**#695 is MERGED and #678 is CLOSED** (2026-11-02 17:46Z, verified on GitHub, not taken from the note):
+merge commit **`fd7fc8c2`** on main. My final push was `2f125563`; the MERGED HEAD is **`96d0a67a`**, because
+the merge queue added one `Merge remote-tracking branch 'origin/main'` commit on top of mine to re-check
+against #698/#699 before landing. `2f125563` is an ancestor of it and nothing of mine was rewritten — worth
+knowing so a "my head is not the head that merged" moment does not look like someone force-pushing my branch.
+
+**Status: IDLE**, waiting for the next assignment from the manager.
+
+**One loose end for whoever picks up the next task: TWO memory commits are local-only and NOT on main** —
+`8cd80fce` and the one recording this merge. The branch was declared final and then merged, so they could not
+be pushed. **Start the next task with a fresh branch off `origin/main` and `git cherry-pick` them first**
+(they touch only `docs/memory/Memory-16-engagement.md`, so they carry cleanly); then the branch's own commits
+go on top. Do not push them to `engagement/phase5-678`, which is merged and done.
 
 **Manager's answers (2026-11-02):** the 413 limit stays recorded in the README, **no issue** — "the webhook
 bodies are small, and the cap is a guard, not a flow". The live-suite slip: noted, no harm, the memory note
