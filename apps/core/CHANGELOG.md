@@ -2,6 +2,15 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-11-02 · copy drafts: review follow-ups (#672 review, Refs #608)
+
+- `draftProductCopy` builds the gateway inside the error mapping, so an error constructing the limiter, the audit
+  sink or the gateway is the documented 503 `unavailable` / 500 `internal`. The Anthropic transport is created on the
+  first call that goes out and then reused.
+- Tests: the privacy test asserts the rendered `<facts>` block exactly (a product with known facts, the nested
+  attribute dropped); `toAppError`'s limiter / audit → 503 and config / template / denied-field → 500 branches, and a
+  factory that throws.
+
 ### 2026-10-31 · AI product copy drafts (#608, P5.9; CONTRACT CHANGE #664, Admin API 0.4.26)
 
 - `POST /admin/stores/{storeId}/products/{productId}/copy-drafts` (`draftProductCopy`, store_staff): a draft of

@@ -448,6 +448,92 @@ describe('runTools: what goes back to the model', () => {
     expect(JSON.stringify(s.audit.records)).not.toContain('anna');
   });
 
+  it('uuids in a JSON result reach the model intact; a phone beside them is still masked (#680)', async () => {
+    const ids = ['00000000-0000-4000-8000-000000000031', '5a1b2c3d-1111-4222-8333-444455556666'];
+    const s = setup([{ toolUse: [q('a')] }, { text: 'done' }], {}, async () => ({
+      content: JSON.stringify({
+        rows: [{ store_id: ids[0], order_id: ids[1], note: 'call +31 6 1234 5678' }],
+      }),
+    }));
+    await s.run();
+    const sent = s.transport.calls[1]!.turns![1] as Extract<AiTurn, { role: 'user' }>;
+    expect(JSON.parse(sent.toolResults[0]!.content)).toEqual({
+      rows: [{ store_id: ids[0], order_id: ids[1], note: 'call [phone]' }],
+    });
+  });
+
+  it('a JSON result: only its strings are redacted; numbers, booleans, null and the layout stay byte for byte (#680)', async () => {
+    const content = JSON.stringify(
+      {
+        rows: [
+          {
+            store: 'brand-a',
+            bookings_minor: 1234567890,
+            ok: true,
+            prev: null,
+            note: 'call +31 6 1234 5678',
+          },
+        ],
+      },
+      null,
+      2,
+    ).replace('"prev": null', '"prev": null, "big": 12345678901234567890'); // beyond 2^53: kept as written
+    const s = setup([{ toolUse: [q('a')] }, { text: 'done' }], {}, async () => ({ content }));
+    await s.run();
+    const sent = s.transport.calls[1]!.turns![1] as Extract<AiTurn, { role: 'user' }>;
+    const text = sent.toolResults[0]!.content;
+    expect(text).toBe(content.replace('"call +31 6 1234 5678"', '"call [phone]"'));
+    expect(JSON.parse(text)).toMatchObject({
+      rows: [{ bookings_minor: 1234567890, ok: true, prev: null, note: 'call [phone]' }],
+    });
+    expect(s.audit.records[1]!.redactions).toBe(s.audit.records[0]!.redactions + 1);
+  });
+
+  it('a JSON result: a key and a \\u-escaped e-mail are redacted too, and the result stays valid JSON', async () => {
+    const content = '{"by_customer":{"anna@example.org":3},"note":"ask anna\\u0040example.org"}';
+    const s = setup([{ toolUse: [q('a')] }, { text: 'done' }], {}, async () => ({ content }));
+    await s.run();
+    const sent = s.transport.calls[1]!.turns![1] as Extract<AiTurn, { role: 'user' }>;
+    expect(JSON.parse(sent.toolResults[0]!.content)).toEqual({
+      by_customer: { '[email]': 3 },
+      note: 'ask [email]',
+    });
+    expect(s.audit.records[1]!.redactions).toBe(s.audit.records[0]!.redactions + 2);
+  });
+
+  it('a JSON result: a Luhn-valid 13–19 digit NUMBER becomes "[card]" (nested or bare); other numbers stay (#681 review)', async () => {
+    // the well-known public test PAN, assembled at runtime so no card-shaped literal sits in git
+    const pan = ['4111', ...Array<string>(3).fill('1111')].join('');
+    const sentFor = async (content: string) => {
+      const s = setup([{ toolUse: [q('a')] }, { text: 'done' }], {}, async () => ({ content }));
+      await s.run();
+      const sent = s.transport.calls[1]!.turns![1] as Extract<AiTurn, { role: 'user' }>;
+      return {
+        text: sent.toolResults[0]!.content,
+        added: s.audit.records[1]!.redactions - s.audit.records[0]!.redactions,
+      };
+    };
+    const nested = await sentFor(
+      `{"rows":[{"meta":{"ref":${pan}},"order_no":1234567890123,"tracking":1234567890,"n":-${pan}.5}]}`,
+    );
+    expect(nested.text).toBe(
+      `{"rows":[{"meta":{"ref":"[card]"},"order_no":1234567890123,"tracking":1234567890,"n":-${pan}.5}]}`,
+    );
+    expect(JSON.parse(nested.text)).toMatchObject({ rows: [{ meta: { ref: '[card]' } }] });
+    expect(nested.added).toBe(1);
+    // a result that is just the number
+    expect(await sentFor(pan)).toEqual({ text: '"[card]"', added: 1 });
+  });
+
+  it('free text keeps the whole-text redaction: a bare 10-digit run there is still [tracking]', async () => {
+    const s = setup([{ toolUse: [q('a')] }, { text: 'done' }], {}, async () => ({
+      content: 'total 1234567890, ask anna@example.org',
+    }));
+    await s.run();
+    const sent = s.transport.calls[1]!.turns![1] as Extract<AiTurn, { role: 'user' }>;
+    expect(sent.toolResults[0]!.content).toBe('total [tracking], ask [email]');
+  });
+
   it('a plain-text result has no keys to check and is still redacted', async () => {
     const s = setup([{ toolUse: [q('a')] }, { text: 'done' }], {}, async () => ({
       content: 'no rows; contact anna@example.org',
