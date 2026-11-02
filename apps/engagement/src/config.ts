@@ -17,6 +17,7 @@ import type { ConsentMode } from './consent.js';
 // are printed to the log.
 import { ConfigRefusedError } from './config-error.js';
 import {
+  readPerStoreOverrides,
   CONSENT_MODE_ENV,
   parseConsentMode,
   readConsentModeOverrides,
@@ -57,12 +58,36 @@ export interface EngagementConfig {
   drain: { enabled: boolean; idleMs: number; minRunMs: number };
 }
 
+/** The per-store AI reply-draft switch (#610). ON by default, by the owner's 2026-11-01 decision. */
+export const AI_DRAFTS_ENV = 'ENGAGEMENT_SUPPORT_AI_DRAFTS';
+export const AI_DRAFTS_ENV_PREFIX = `${AI_DRAFTS_ENV}_`;
+
 export interface SupportConfig {
   /** `false` keeps the HTTP server off (the default: nothing calls it until a Chatwoot app is configured). */
   enabled: boolean;
   port: number;
   /** The core Admin API the agent's reads go to. */
   adminApiUrl: string;
+  /**
+   * AI reply drafts (#610), per store. **ON by default** (owner decision 2026-11-01: "we need everything at
+   * start; we can limit later"), so `aiDraftsFor(code)` is the only honest way to read it — the global is a
+   * default, not the answer. While a store is OFF, no support data reaches the gateway at all: the route
+   * refuses before it reads a context.
+   */
+  aiDrafts: boolean;
+  aiDraftsFor(storeCode: string): boolean;
+  /**
+   * Whether the AI RUNTIME could answer at all: `AI_ENABLED` is exactly `1` and an API key is present
+   * (#674 review). Presence only — the value is never read into this object, let alone logged. The template
+   * half of readiness is checked in `main.ts`, which is where `@platform/ai`'s registry is in scope.
+   */
+  aiRuntimeReady: boolean;
+  /** The normalised per-store keys, for the post-`warm()` check against the real store list. */
+  aiDraftsOverrides: ReadonlyMap<string, boolean>;
+  /** The brand voice the drafts are written in. Tone only; it never carries a claim. */
+  brandVoice: string;
+  /** Fallback language for a draft when the request names none. */
+  defaultLocale: string;
   /** How many of a customer's orders to detail, newest first. Bounds the fan-out per request. */
   maxOrders: number;
   /** `CHATWOOT_WEBHOOK_SECRET`; without it the webhook route answers 503 rather than accepting blindly. */
@@ -334,8 +359,31 @@ function resolveSupport(
     throw new ConfigRefusedError('ENGAGEMENT_DEV_TOKENS=1 is refused in production');
   }
   const secret = env.CHATWOOT_WEBHOOK_SECRET?.trim() || undefined;
+
+  // #610: a flag, not a mode, but the same env contract as the consent mode — one normalisation for writing
+  // and reading, an empty value refused, an ambiguous or unknown key refused once the stores are known.
+  const flag = (raw: string, where: string): boolean => {
+    if (raw === '1' || raw === 'true') return true;
+    if (raw === '0' || raw === 'false') return false;
+    throw new ConfigRefusedError(`${where} must be "1" or "0" (got "${raw}")`);
+  };
+  const aiDrafts = env[AI_DRAFTS_ENV]?.trim()
+    ? flag(env[AI_DRAFTS_ENV]!.trim(), AI_DRAFTS_ENV)
+    : true;
+  const aiDraftsOverrides = readPerStoreOverrides(env, AI_DRAFTS_ENV_PREFIX, flag);
+  // `AI_ENABLED` is the gateway's own kill switch and the key is its credential; both live in the
+  // environment, which this file is the only place to read. Presence, never the value.
+  const aiRuntimeReady =
+    env.AI_ENABLED?.trim() === '1' && Boolean(env.AI_ANTHROPIC_API_KEY?.trim());
+
   return {
     enabled,
+    aiDrafts,
+    aiDraftsOverrides,
+    aiRuntimeReady,
+    aiDraftsFor: (storeCode: string) => aiDraftsOverrides.get(storeEnvKey(storeCode)) ?? aiDrafts,
+    brandVoice: env.ENGAGEMENT_SUPPORT_BRAND_VOICE?.trim() || 'warm, brief and factual',
+    defaultLocale: env.ENGAGEMENT_SUPPORT_DEFAULT_LOCALE?.trim() || 'en-GB',
     port: intFrom(env.ENGAGEMENT_SUPPORT_PORT, 4040, 'ENGAGEMENT_SUPPORT_PORT'),
     adminApiUrl: env.ADMIN_API_URL?.trim() || 'http://localhost:9000',
     maxOrders: intFrom(env.ENGAGEMENT_SUPPORT_MAX_ORDERS, 25, 'ENGAGEMENT_SUPPORT_MAX_ORDERS'),

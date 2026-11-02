@@ -294,6 +294,9 @@ importers:
 
   apps/engagement:
     dependencies:
+      '@platform/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@platform/auth-sdk':
         specifier: workspace:*
         version: link:../../packages/auth-sdk

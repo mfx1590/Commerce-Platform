@@ -14,6 +14,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { components } from '@platform/contracts/admin';
 import type { SupportReader } from './admin-api.js';
 import { createAgentAuth, type PermissionChecker } from './auth.js';
+import type { DraftVariables } from './draft-context.js';
 import { createChatwootReceiver, signBody } from './chatwoot.js';
 import { createSupportServer, type SupportLogLine } from './server.js';
 
@@ -213,25 +214,82 @@ const fga: PermissionChecker = {
 async function req(
   path: string,
   init: { method?: string; headers?: Record<string, string>; body?: string } = {},
-): Promise<{ status: number; body: Record<string, unknown> }> {
+): Promise<{
+  status: number;
+  body: Record<string, unknown>;
+  headers: Headers;
+}> {
   const res = await fetch(`${base}${path}`, {
     method: init.method ?? 'GET',
     ...(init.headers ? { headers: init.headers } : {}),
     ...(init.body === undefined ? {} : { body: init.body }),
   });
   const text = await res.text();
-  return { status: res.status, body: text ? (JSON.parse(text) as Record<string, unknown>) : {} };
+  return {
+    status: res.status,
+    body: text ? (JSON.parse(text) as Record<string, unknown>) : {},
+    headers: res.headers,
+  };
 }
 
-function build(reader: SupportReader = fakeReader()): Server {
+function build(
+  reader: SupportReader = fakeReader(),
+  draft?: Parameters<typeof createSupportServer>[0]['draft'],
+): Server {
   const auth = createAgentAuth({ client: hq, fga, devTokens: true, env: {} as NodeJS.ProcessEnv });
   return createSupportServer({
     hq,
     auth,
     reader,
     chatwoot: createChatwootReceiver({ secret: SECRET, now: () => NOW }),
+    ...(draft ? { draft } : {}),
     log: (l) => lines.push(l),
   });
+}
+
+/**
+ * The AI draft options with a recording gateway (#610). `enabled` decides the per-store switch and
+ * `gatewayCalls` proves whether the gateway was constructed at all — which is the whole point of the OFF
+ * test: a store that is off must not have its support data read, let alone sent.
+ */
+function draftOptions(
+  opts: {
+    enabled?: boolean;
+    ready?: boolean;
+    fail?: Error;
+    /** Thrown by the FACTORY, which is how a missing API key behaves (#674 review). */
+    factoryFails?: Error;
+    answer?: string;
+  } = {},
+) {
+  const gatewayCalls: { storeId: string; actorId: string }[] = [];
+  const completed: { key: string; variables: DraftVariables }[] = [];
+  return {
+    gatewayCalls,
+    completed,
+    draft: {
+      enabledFor: () => opts.enabled !== false,
+      ready: () => opts.ready !== false,
+      gatewayFor: (storeId: string, actorId: string) => {
+        gatewayCalls.push({ storeId, actorId });
+        if (opts.factoryFails) throw opts.factoryFails;
+        return {
+          model: 'claude-sonnet-5-5',
+          async complete(key: string, variables: DraftVariables) {
+            completed.push({ key, variables });
+            if (opts.fail) throw opts.fail;
+            return {
+              text: opts.answer ?? 'Your order shipped on 29 October with DHL.',
+              stopReason: 'end_turn',
+              servedModel: 'claude-sonnet-5-5',
+            };
+          },
+        };
+      },
+      brandVoice: 'warm and brief',
+      defaultLocale: 'en-GB',
+    },
+  };
 }
 
 async function listen(s: Server): Promise<string> {
@@ -546,6 +604,212 @@ describe('GET /support/customers/:id/context — the answer', () => {
     expect(text).not.toContain('ada@example.test');
     expect(text).not.toContain('Lovelace');
     expect(text).not.toContain('TRACK-ALPHA-WORDS');
+  });
+});
+
+describe('POST /support/customers/:customerId/reply-draft (#610)', () => {
+  const path = `/support/customers/${CUSTOMER}/reply-draft?store=brand-a`;
+  const ask = (body: unknown, headers: Record<string, string> = { authorization: AGENT_TOKEN }) =>
+    req(path, { method: 'POST', headers, body: JSON.stringify(body) });
+
+  it('WHILE A STORE IS OFF: 404, and NO support data is read or sent', async () => {
+    // The acceptance criterion of #610, and the order matters: the switch is checked before the context is
+    // built, so a store that is off never has its customer read — `calls` is the reader's own log, and
+    // `gatewayCalls` records whether a gateway was even constructed.
+    const d = draftOptions({ enabled: false });
+    await new Promise<void>((done) => server.close(() => done()));
+    server = build(fakeReader(), d.draft);
+    base = await listen(server);
+
+    const r = await ask({ question: 'Where is my parcel?' });
+    expect(r.status).toBe(404);
+    expect(r.body.code).toBe('not_found');
+    expect(d.gatewayCalls).toEqual([]);
+    expect(d.completed).toEqual([]);
+    // Nothing about the customer was fetched at all.
+    expect(calls).toEqual([]);
+  });
+
+  it('is 404 when the feature is not mounted at all', async () => {
+    const r = await ask({ question: 'Where is my parcel?' });
+    expect(r.status).toBe(404);
+  });
+
+  it('drafts from the support context, and the log line carries no question and no draft', async () => {
+    const d = draftOptions();
+    await new Promise<void>((done) => server.close(() => done()));
+    server = build(fakeReader(), d.draft);
+    base = await listen(server);
+
+    const r = await ask({ question: 'Where is my parcel, Ada here' });
+    expect(r.status).toBe(200);
+    expect(r.body.template).toBe('support-reply-draft@1');
+    expect(r.body.draft).toContain('DHL');
+    expect(r.body.orderRef).toBeTypeOf('string');
+
+    // One gateway per request, with the agent as the audit actor.
+    expect(d.gatewayCalls).toHaveLength(1);
+    expect(d.gatewayCalls[0]!.actorId).toBeTypeOf('string');
+
+    // A log line names the template and the order the customer sees — never the question, never the draft.
+    const line = lines.find((l) => l.event === 'draft')!;
+    expect(line.template).toBe('support-reply-draft@1');
+    expect(line.order_ref).toBeTypeOf('string');
+    const text = JSON.stringify(lines);
+    expect(text).not.toContain('Where is my parcel');
+    expect(text).not.toContain('DHL');
+  });
+
+  it('keeps the gates, in the same order as the context route', async () => {
+    const d = draftOptions();
+    await new Promise<void>((done) => server.close(() => done()));
+    server = build(fakeReader(), d.draft);
+    base = await listen(server);
+
+    // No token: refused before the body or the switch is even looked at.
+    expect((await ask({ question: 'x' }, {})).status).toBe(401);
+    // Not support for this store.
+    allow = false;
+    expect((await ask({ question: 'x' })).status).toBe(403);
+    allow = true;
+    expect(d.completed).toEqual([]);
+    // GET is not a draft.
+    expect((await req(path, { headers: { authorization: AGENT_TOKEN } })).status).toBe(405);
+  });
+
+  it('validates the body before anything is sent', async () => {
+    const d = draftOptions();
+    await new Promise<void>((done) => server.close(() => done()));
+    server = build(fakeReader(), d.draft);
+    base = await listen(server);
+
+    expect(
+      (
+        await req(path, {
+          method: 'POST',
+          headers: { authorization: AGENT_TOKEN },
+          body: 'not json',
+        })
+      ).status,
+    ).toBe(400);
+    expect((await ask({})).status).toBe(400);
+    expect((await ask({ question: '   ' })).status).toBe(400);
+    // A malformed order id is a 404, like every other path id: malformed and absent must look the same.
+    expect((await ask({ question: 'x', orderId: 'not-a-uuid' })).status).toBe(404);
+    expect(d.completed).toEqual([]);
+  });
+
+  it('maps a rate limit to 429 with Retry-After, and carries no upstream message', async () => {
+    const err = Object.assign(new Error('bucket full: 10/min for store brand-a'), {
+      name: 'AiRateLimitedError',
+      retryAfterSeconds: 12,
+    });
+    const d = draftOptions({ fail: err });
+    await new Promise<void>((done) => server.close(() => done()));
+    server = build(fakeReader(), d.draft);
+    base = await listen(server);
+
+    const r = await ask({ question: 'Where is my parcel?' });
+    expect(r.status).toBe(429);
+    expect(r.body.code).toBe('ai_rate_limited');
+    expect(r.headers.get('retry-after')).toBe('12');
+    expect(JSON.stringify(r.body)).not.toContain('bucket full');
+  });
+
+  it('a missing API key is 503 BEFORE any customer data is read (#674 review)', async () => {
+    // The finding: the gateway used to be resolved as an argument, so a missing key read the whole order
+    // history and then answered 500 with no audit row. Nothing about a customer is touched until the thing
+    // that would send it is known to exist.
+    const d = draftOptions({
+      factoryFails: Object.assign(new Error('AI_ANTHROPIC_API_KEY is not set'), {
+        name: 'AiConfigError',
+      }),
+    });
+    await new Promise<void>((done) => server.close(() => done()));
+    server = build(fakeReader(), d.draft);
+    base = await listen(server);
+
+    const r = await ask({ question: 'Where is my parcel?' });
+    expect([r.status, r.body.code]).toEqual([503, 'unavailable']);
+    // The reader's own log: not one call about this customer.
+    expect(calls).toEqual([]);
+    expect(d.completed).toEqual([]);
+    expect(JSON.stringify(r.body)).not.toContain('AI_ANTHROPIC_API_KEY');
+  });
+
+  it('validates the locale to a BCP-47 shape (#674 review)', async () => {
+    const d = draftOptions();
+    await new Promise<void>((done) => server.close(() => done()));
+    server = build(fakeReader(), d.draft);
+    base = await listen(server);
+
+    for (const locale of ['english please', 'e', 'x'.repeat(36), 'en_GB', '../../etc', 'en-GB;']) {
+      const r = await ask({ question: 'Where is my parcel?', locale });
+      expect([locale, r.status, r.body.code]).toEqual([locale, 400, 'validation_error']);
+    }
+    // And the shapes a real agent sends are accepted.
+    for (const locale of ['en', 'en-GB', 'nl-NL', 'zh-Hant-TW']) {
+      expect((await ask({ question: 'Where is my parcel?', locale })).status).toBe(200);
+    }
+  });
+
+  it('answers 503 ai_disabled when AI is switched off at the gateway', async () => {
+    const d = draftOptions({
+      fail: Object.assign(new Error('AI_ENABLED is not 1'), { name: 'AiDisabledError' }),
+    });
+    await new Promise<void>((done) => server.close(() => done()));
+    server = build(fakeReader(), d.draft);
+    base = await listen(server);
+    const r = await ask({ question: 'Where is my parcel?' });
+    expect([r.status, r.body.code]).toEqual([503, 'ai_disabled']);
+  });
+});
+
+describe('the context answer carries the ai_drafts capability (#610)', () => {
+  // So a dashboard hides the button instead of discovering a 404 (manager decision).
+  it('is true when the store has drafting', async () => {
+    const d = draftOptions();
+    await new Promise<void>((done) => server.close(() => done()));
+    server = build(fakeReader(), d.draft);
+    base = await listen(server);
+    const r = await req(`/support/customers/${CUSTOMER}/context?store=brand-a`, {
+      headers: { authorization: AGENT_TOKEN },
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.ai_drafts).toBe(true);
+  });
+
+  it('is FALSE when drafting could not work, even with the store switched on (#674 review)', async () => {
+    // `AI_ENABLED` unset, no key, or an unpublished template: a flag that is true while every draft answers
+    // 503 is worse than no flag, because a dashboard shows a button that cannot work.
+    const d = draftOptions({ ready: false });
+    await new Promise<void>((done) => server.close(() => done()));
+    server = build(fakeReader(), d.draft);
+    base = await listen(server);
+    const r = await req(`/support/customers/${CUSTOMER}/context?store=brand-a`, {
+      headers: { authorization: AGENT_TOKEN },
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.ai_drafts).toBe(false);
+  });
+
+  it('is false while the store is off, and false when the feature is not mounted', async () => {
+    const d = draftOptions({ enabled: false });
+    await new Promise<void>((done) => server.close(() => done()));
+    server = build(fakeReader(), d.draft);
+    base = await listen(server);
+    let r = await req(`/support/customers/${CUSTOMER}/context?store=brand-a`, {
+      headers: { authorization: AGENT_TOKEN },
+    });
+    expect(r.body.ai_drafts).toBe(false);
+
+    await new Promise<void>((done) => server.close(() => done()));
+    server = build();
+    base = await listen(server);
+    r = await req(`/support/customers/${CUSTOMER}/context?store=brand-a`, {
+      headers: { authorization: AGENT_TOKEN },
+    });
+    expect(r.body.ai_drafts).toBe(false);
   });
 });
 
