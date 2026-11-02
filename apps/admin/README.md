@@ -724,6 +724,38 @@ writes no stock (the dev database is pooled and shared): the store admin's refus
 inventory rows in both modes; in core mode the owner reads a shared item, opens the pool action up
 to its confirmation and cancels, and reads the counts.
 
+## Draft copy with AI (#608, CONTRACT CHANGE #664; Admin API 0.4.26)
+
+**Product page → Draft copy with AI.** Pick a locale (the store's enabled locales; the default is
+marked) and the fields (title, description, bullets, SEO), then **Draft with AI**
+(`draftProductCopy`, store_staff on the store). The draft is shown beside the current copy, field by
+field, with the changed lines marked (added / removed, a line diff in `src/lib/copy-drafts`). Every
+draft field is editable, and "Use this field" decides what is kept. **Nothing is saved until Save to
+product**, which sends a PARTIAL `updateProduct` body with only the accepted fields
+(`saveProductCopyAction`; the product form carries no `seo`, so its full-form action cannot). Under
+the draft: the model, the template id and version, the locale and the time.
+
+The product holds ONE copy (title, description, seo). A draft in another locale can be read, edited
+and copied, but Save is offered for the store's default locale only, so it never overwrites the one
+copy with another language. Bullets have no field of their own: they are saved into the description
+as a "- " list, which the diff shows exactly. SEO is merged into the product's `seo` object
+(`title` ≤ 70, `description` ≤ 160; other keys kept).
+
+When the draft says `brand_voice_source: default`, a note links to Store settings
+(`content.brand_voice`). Below store_staff the button is disabled and names the relation; the
+server action refuses the same way before the API, and the core decides.
+
+Every refusal is said in words and the editor keeps working (`describeDraftError`):
+
+- `ai_disabled`: AI is off.
+- `ai_budget_exceeded`: used/limit tokens, and when the budget resets.
+- `ai_rate_limited`: the button counts `Retry-After` down. Failed results carry `retryAfterSeconds`,
+  from the API client's `parseRetryAfter`.
+- `ai_refused`: reword the product facts.
+- `ai_unavailable` / `ai_invalid_draft`: try again.
+- `unavailable`: nothing was sent.
+- 404 and 400 in their own words.
+
 ## Tax rates (#520, CONTRACT CHANGE #522; Admin API 0.4.23)
 
 **Store · Settings → Tax rates** lists the store's rates (`listTaxRates`, viewer on the store):
