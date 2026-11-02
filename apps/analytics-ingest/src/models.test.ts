@@ -449,6 +449,91 @@ describe.runIf(skip === null)('ClickHouse runner under concurrency', () => {
     expect(Number(t!.n)).toBe(placed.length);
   });
 
+  // #685, deterministic: ONE slow insert that begins before the MV exists and commits only after the backfill would
+  // have read raw_events. Before the drain this lost every order.placed row of that insert (86 of 150, every run);
+  // the runner now waits for it before backfilling. No polling: the count is asserted once, right after migrate.
+  it('an insert in flight across the 0002 migration (begun before the MV, committed after the backfill) loses no row', async () => {
+    const db = throwawayDatabase();
+    made.push(db);
+    const c = open(db);
+    const files = readSqlFiles();
+    await migrate(
+      admin,
+      c,
+      db,
+      files.filter((f) => f.name === '0001_raw_events.sql'),
+    );
+    const rows = rowsOf(allEvents, '2026-11-01T00:00:00.000Z');
+    const half = Math.floor(rows.length / 2);
+    await createRawEventsSink(c).insert(rows.slice(0, half));
+    // the second half staged in a throwaway table, then copied into raw_events as ONE block that takes ~3 s to
+    // build (sleepEachRow), so it is still running when the MV is created and when the backfill would read
+    await c.command({ query: 'CREATE TABLE stage AS raw_events' });
+    await createRawEventsSink(c, 'stage').insert(rows.slice(half));
+    const inFlight = rows.length - half;
+    const slow = c.command({
+      query: `INSERT INTO raw_events SELECT * FROM stage WHERE sleepEachRow(${(2.5 / inFlight).toFixed(4)}) = 0`,
+      clickhouse_settings: { max_threads: 1 },
+    });
+    // migrate only once the slow insert is visibly running, so it truly began before the MV
+    for (let i = 0; i < 50; i++) {
+      const [p] = await q(
+        admin,
+        `SELECT count() n FROM system.processes WHERE query_kind = 'Insert' AND current_database = '${db}'`,
+      );
+      if (Number(p!.n) > 0) break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    await migrate(admin, open(db), db, files);
+    await slow;
+    const [r] = await q(
+      c,
+      `SELECT count() n, uniqExact(event_id) u FROM orders_minute_events FINAL`,
+    );
+    expect(Number(r!.n)).toBe(placed.length);
+    expect(Number(r!.u)).toBe(placed.length);
+    const [t] = await q(c, 'SELECT sum(orders) n FROM live_orders_minute');
+    expect(Number(t!.n)).toBe(placed.length);
+  });
+
+  it('migration 0005 refills the order rows an earlier 0002 run lost, and only those (#685)', async () => {
+    const db = throwawayDatabase();
+    made.push(db);
+    const c = open(db);
+    const files = readSqlFiles();
+    await migrate(
+      admin,
+      c,
+      db,
+      files.filter((f) => f.name === '0001_raw_events.sql'),
+    );
+    await createRawEventsSink(c).insert(rowsOf(allEvents, '2026-11-01T00:00:00.000Z'));
+    await migrate(
+      admin,
+      c,
+      db,
+      files.filter((f) => f.kind === 'migration' && f.name < '0005'),
+    );
+    // a database migrated before the fix: some order rows never reached orders_minute_events
+    const lost = placed.slice(0, 40).map((p) => p.event_id);
+    await c.command({
+      query: 'DELETE FROM orders_minute_events WHERE event_id IN {lost:Array(UUID)}',
+      query_params: { lost },
+    });
+    const count = async () =>
+      Number((await q(c, 'SELECT count() n FROM orders_minute_events FINAL'))[0]!.n);
+    expect(await count()).toBe(placed.length - lost.length);
+    const r = await migrate(admin, c, db, files);
+    expect(r.applied).toContain('0005_orders_minute_refill.sql');
+    expect(await count()).toBe(placed.length);
+    const [u] = await q(
+      c,
+      "SELECT uniqExact(event_id) u, countIf(store_id = toUUID('00000000-0000-0000-0000-000000000000')) z FROM orders_minute_events FINAL",
+    );
+    expect(Number(u!.u)).toBe(placed.length);
+    expect(Number(u!.z)).toBe(0); // no NULL store slipped through as the zero uuid
+  });
+
   it('a second runner exits cleanly while the first holds the lock, and no file is applied twice', async () => {
     const db = throwawayDatabase();
     made.push(db);

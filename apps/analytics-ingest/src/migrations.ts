@@ -12,6 +12,14 @@
 // (`lintSqlFiles`, enforced by a test over the folders) accepts only IF NOT EXISTS / OR REPLACE statements and an
 // INSERT … SELECT into a ReplacingMergeTree table (a backfill whose copies fold). Two runners at once are kept
 // apart by `_migrations_lock`: each inserts its claim, and the oldest live claim wins; the other refuses.
+//
+// A backfill runs only once every INSERT already running on the database has finished (#685). A materialised view
+// sees only inserts that START after it exists, and a backfill sees only rows committed before it reads: an insert
+// that began before the MV and committed after the backfill's read was in neither, and its rows were lost from the
+// MV's table for good (proven on ClickHouse: 86 of 150 orders). Waiting for the inserts running at that moment
+// closes the gap — each one began either before the MV (it is waited for, so the backfill sees it) or after (the MV
+// sees it). Only those inserts are waited for, never ones that start later, so a busy ingest cannot starve it.
+// `ch:migrate` runs as the admin, which sees every user's queries in system.processes.
 import { createHash, randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -229,6 +237,65 @@ export interface MigrateResult {
   skipped: string[];
 }
 
+// ---- the drain before a backfill (#685) ---------------------------------------------------------------------
+
+export const DRAIN_TIMEOUT_MS = 600_000;
+export const DRAIN_POLL_MS = 200;
+
+export interface DrainOptions {
+  drainTimeoutMs?: number;
+  drainPollMs?: number;
+}
+
+export class InsertsStillRunningError extends Error {
+  constructor(
+    readonly database: string,
+    readonly queryIds: readonly string[],
+  ) {
+    super(
+      `${queryIds.length} INSERT(s) into ${database} still running before a backfill; nothing was backfilled — ` +
+        'run ch:migrate again (every statement is idempotent)',
+    );
+    this.name = 'InsertsStillRunningError';
+  }
+}
+
+const RUNNING_INSERTS =
+  "SELECT query_id FROM system.processes WHERE query_kind = 'Insert' AND current_database = {db:String}";
+
+/**
+ * Waits until every INSERT running on `database` NOW has finished; inserts that start later are not waited for.
+ * Past the timeout it throws rather than backfill with an insert still in flight (the rows it is writing could be
+ * lost); the migration is re-run as a whole.
+ */
+export async function waitForRunningInserts(
+  db: ChClient,
+  database: string,
+  opts: DrainOptions = {},
+): Promise<void> {
+  const running = async () =>
+    new Set(
+      (
+        await (
+          await db.query({
+            query: RUNNING_INSERTS,
+            format: 'JSONEachRow',
+            query_params: { db: database },
+          })
+        ).json<{ query_id: string }>()
+      ).map((r) => r.query_id),
+    );
+  const waitingFor = await running();
+  const deadline = Date.now() + (opts.drainTimeoutMs ?? DRAIN_TIMEOUT_MS);
+  while (waitingFor.size > 0) {
+    const now = await running();
+    for (const id of [...waitingFor]) if (!now.has(id)) waitingFor.delete(id);
+    if (waitingFor.size === 0) return;
+    if (Date.now() >= deadline) throw new InsertsStillRunningError(database, [...waitingFor]);
+    await new Promise((r) => setTimeout(r, opts.drainPollMs ?? DRAIN_POLL_MS));
+  }
+}
+
 /**
  * `admin` is a client on any existing database (it creates `database`); `db` is a client on `database`.
  * Migrations first, then models, each in file-name order.
@@ -238,7 +305,7 @@ export async function migrate(
   db: ChClient,
   database: string,
   files: readonly SqlFile[] = readSqlFiles(),
-  opts: { holder?: string } & LockOptions = {},
+  opts: { holder?: string } & LockOptions & DrainOptions = {},
 ): Promise<MigrateResult> {
   const problems = lintSqlFiles(files);
   if (problems.length > 0) throw new Error(`refusing to migrate:\n${problems.join('\n')}`);
@@ -272,7 +339,10 @@ export async function migrate(
         continue;
       }
       if (recorded !== undefined && f.kind === 'migration') throw new MigrationChangedError(f.name);
-      for (const statement of splitStatements(f.sql)) await db.command({ query: statement });
+      for (const statement of splitStatements(f.sql)) {
+        if (INSERT.test(statement)) await waitForRunningInserts(db, database, opts);
+        await db.command({ query: statement });
+      }
       await db.insert({
         table: '_migrations',
         values: [{ name: f.name, checksum: f.checksum }],
