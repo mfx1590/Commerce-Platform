@@ -16,7 +16,7 @@ import {
 } from '@platform/ai';
 import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AppError } from '../../lib/errors';
 import { toAppError } from './copy-draft';
 import {
@@ -331,16 +331,36 @@ describe('the gateway’s outcomes become typed results the admin can explain (#
 describe('toAppError: the branches no gateway call reaches in the tests above (#672 review)', () => {
   it('a limiter or audit failure is 503 unavailable; a config, template or denied-field error is 500 internal', () => {
     for (const err of [new AiLimiterError('RedisError'), new AiAuditError('audit write failed')]) {
-      expect(toAppError(err)).toMatchObject({ code: 'unavailable', status: 503 });
-    }
-    for (const err of [
-      new AiConfigError('no key'),
-      new TemplateError('unknown template'),
-      new DeniedFieldError(['email']),
-    ]) {
       const mapped = toAppError(err) as AppError;
-      expect(mapped).toMatchObject({ code: 'internal', status: 500 });
-      expect(JSON.stringify(mapped.toBody())).not.toContain('email'); // never the gateway's message
+      expect(mapped.status).toBe(503);
+      expect(mapped.toBody()).toEqual({
+        code: 'unavailable',
+        message: 'AI drafting is unavailable right now; nothing was sent',
+      });
+    }
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      for (const err of [
+        new AiConfigError('no key'),
+        new TemplateError('unknown template'),
+        new DeniedFieldError(['email']),
+      ]) {
+        const mapped = toAppError(err) as AppError;
+        expect(mapped.status).toBe(500);
+        // the whole body: never the gateway's message (it can name a denied field)
+        expect(mapped.toBody()).toEqual({
+          code: 'internal',
+          message: 'AI drafting is misconfigured',
+        });
+      }
+      // the log names the class only, never the message
+      expect(logged.mock.calls.map((c) => String(c[0]))).toEqual([
+        '[catalog] AI copy draft misconfigured: AiConfigError',
+        '[catalog] AI copy draft misconfigured: TemplateError',
+        '[catalog] AI copy draft misconfigured: DeniedFieldError',
+      ]);
+    } finally {
+      logged.mockRestore();
     }
     const other = new Error('not the gateway');
     expect(toAppError(other)).toBe(other); // anything else is left for the error handler

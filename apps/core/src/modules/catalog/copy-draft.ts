@@ -87,7 +87,8 @@ export type CopyDraftGatewayFactory = (ctx: {
 // One limiter (Redis) per process, created on first use; the transport is resolved only when a call goes out, so
 // `AI_ENABLED` off is `ai_disabled` (the gateway refuses before the transport) even without a key configured.
 let redisLimiter: UsageLimiter | null = null;
-let anthropic: AiTransport | null = null; // created on the first call that goes out, then reused
+// created on the first call that goes out, then reused: the key is read once; rotating it means a restart
+let anthropic: AiTransport | null = null;
 const lazyTransport: AiTransport = {
   kind: 'anthropic',
   complete: (req) => (anthropic ??= createAnthropicTransport()).complete(req),
@@ -281,6 +282,8 @@ export function toAppError(err: unknown, now: Date = new Date()): unknown {
     err instanceof TemplateError ||
     err instanceof DeniedFieldError
   ) {
+    // our bug, not the user's: log the class only — a gateway message can name a field or a template (#679 review)
+    console.error(`[catalog] AI copy draft misconfigured: ${err.constructor.name}`);
     return new AppError('internal', 'AI drafting is misconfigured');
   }
   return err;
