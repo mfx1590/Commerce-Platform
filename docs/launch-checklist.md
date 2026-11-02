@@ -29,8 +29,11 @@ issue; tick it only with a link to the evidence.
       reload + re-scrub; Fable review of #631). A second replica would keep writing an erased customer's rows.
 - [ ] The ClickHouse HTTP endpoint is not logged with full request URLs by any proxy/LB (identifiers are sent as
       multipart params since #631's fix; keep it that way).
-- [ ] **Bus retention vs erasure (#629):** bounded retention for topics carrying pseudonymous ids; outbox pruning,
-      if ever added, exempts `customer.erased`.
+- [ ] **Bus retention vs erasure (#629, plan approved 2026-11-02):** order.* on the bus for 30 days (with 1-day
+      segments, so about 31 days at most), like every topic carrying customer_id / email_hash. Replays skip or scrub
+      erased customers (order.placed@2 with email_hash null). Outbox pruning, if ever added, exempts `customer.erased`.
+      Lawyer: is the outbox at rest covered by "orders retained", is a ~31-day bus window after erasure acceptable, and
+      is crypto-shredding not required?
 - [ ] **CDP erasure verified end to end on the real RudderStack workspace (#657, PR #660):** erase a customer who
       was first tracked as a guest, and confirm BOTH the customer-id profile and the guest-period profile
       (anonymousId = email_hash) are gone in every destination. A guest who never registered cannot be erased
