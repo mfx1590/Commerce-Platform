@@ -1974,12 +1974,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/metrics/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answer a question about the metrics with AI tool use over queryMetrics — no SQL, the caller's scope only
+         * @description Runs the AI gateway (purpose `analysis`, template `bi-qa-answer`) with ONE tool, `query_metrics`, whose input is a `MetricQuery` narrowed to the caller: the metric enum is the caller's catalogue (`listMetrics`; finance metrics only with `finance` on `organization:hq`) and `filters.store_ids` may name only the caller's stores. Every tool call is validated, scoped and executed exactly as `queryMetrics` (the server adds the caller's store scope to every statement); a call outside the scope is returned to the model as a tool error and never reaches the analytics store. A store whose `settings.ai.bi_qa` is `false` is left out of the scope (it is listed in `excluded_store_ids` — only stores the caller may see are ever listed); absent means ON. The question is redacted before it is sent; what is sent to the model provider is store aggregates. A store question is charged to that store's AI budget. Organization scope is decided by the PRINCIPAL, never by how many stores a question covers: only a caller with an organization-level relation (e.g. `viewer` or `finance` on `organization:hq`) asks in organization scope (the organization's budget, audit rows with no store). A store-level caller with several stores in scope must name exactly ONE in `store_ids` (400 `validation_error`, `details.reason: store_required`, otherwise). One `ai_call_audit` row per model step (no content). POST: every call costs tokens and is audited. 403 (`forbidden`), before anything is sent to the model: a `store_ids` entry outside the caller's scope (`details: { relation, object }`), or every store in scope has BI Q&A switched off (`details: { reason: bi_qa_off }`).
+         */
+        post: operations["askMetrics"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/metrics/ask/{conversationId}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversationId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Thumbs up or down on an answer — the asker only, no free text
+         * @description Stored with the conversation (`ai_qa_feedback`); a later rating replaces the earlier one. No comment field: free text could carry personal data. A conversation the caller did not ask is a 404 (never a 403, so ids are not confirmed). The rating takes its organization, store and ownership from the conversation's own audit rows (the asker is the `actor_id` of step 0), read in the same scope the question was asked in.
+         */
+        post: operations["askMetricsFeedback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         Error: {
-            /** @description validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, unavailable, expired, internal, ai_disabled, ai_budget_exceeded, ai_rate_limited, ai_refused, ai_unavailable, ai_invalid_draft */
+            /** @description validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, unavailable, expired, internal, ai_disabled, ai_budget_exceeded, ai_rate_limited, ai_refused, ai_unavailable, ai_invalid_draft, ai_tool_limit */
             code: string;
             message: string;
             details?: {
@@ -3648,6 +3690,37 @@ export interface components {
                 };
             }[];
         };
+        MetricAnswer: {
+            /**
+             * Format: uuid
+             * @description The id the feedback and the audit rows carry.
+             */
+            conversation_id: string;
+            /** @description The model's answer, from the query results only; it cites queries as [q1], [q2] … (1-based into `queries`). */
+            answer: string;
+            /** @description Every tool call that parsed as a `MetricQuery`, in order: run ones with their result, refused ones (out of scope, invalid window, …) with the error. A call that did not parse is answered to the model as a tool error and is not listed. Each result carries a server-assigned `ref` (`q1`, `q2`, …); `[qN]` in `answer` is the 1-based index into this list. */
+            queries: {
+                query: components["schemas"]["MetricQuery"];
+                /** @description Present when the query ran; capped like queryMetrics (`truncated` carried through). */
+                result?: components["schemas"]["MetricResult"];
+                /** @description Present when the query was refused (validation_error, forbidden) or failed. */
+                error?: components["schemas"]["Error"];
+            }[];
+            /** @description Which query and metric the admin draws (one currency, day grain); null when nothing is chartable. */
+            chart: {
+                query_index: number;
+                metric: components["schemas"]["MetricId"];
+            } | null;
+            /** @description Stores in the caller's scope left out because their `settings.ai.bi_qa` is false. Never another store. */
+            excluded_store_ids: string[];
+            model: string;
+            template: {
+                id: string;
+                version: number;
+            };
+            /** Format: date-time */
+            created_at: string;
+        };
     };
     responses: {
         /** @description Validation error */
@@ -5014,15 +5087,15 @@ export interface operations {
                     /**
                      * @example {
                      *       "product_id": "50000000-0000-4000-8000-000000000001",
-                     *       "locale": "nl-NL",
+                     *       "locale": "en-GB",
                      *       "fields": [
                      *         "description",
                      *         "bullets"
                      *       ],
                      *       "draft": {
-                     *         "description": "Een theedoek van zuiver linnen …",
+                     *         "description": "A tea towel of pure linen …",
                      *         "bullets": [
-                     *           "100% linnen",
+                     *           "100% linen",
                      *           "50 x 70 cm"
                      *         ]
                      *       },
@@ -9972,6 +10045,228 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    askMetrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    question: string;
+                    /** @description Narrows the scope; an id outside the caller's scope is a 403 (before any AI call). */
+                    store_ids?: string[];
+                    /**
+                     * Format: date
+                     * @description UTC, inclusive; default today − 30 days
+                     */
+                    from?: string;
+                    /**
+                     * Format: date
+                     * @description UTC, exclusive; default tomorrow; at most 366 days after `from`
+                     */
+                    to?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The answer, every query the model ran (with its result or its error), and a chart hint. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "conversation_id": "7c1e2a4b-0000-4000-8000-000000000606",
+                     *       "answer": "Bookings in October were €12,345.00 [q1]; refunds were €410.00 [q2].",
+                     *       "queries": [
+                     *         {
+                     *           "query": {
+                     *             "metrics": [
+                     *               "bookings_minor"
+                     *             ],
+                     *             "dimensions": [],
+                     *             "grain": "total",
+                     *             "from": "2026-10-01",
+                     *             "to": "2026-11-01",
+                     *             "limit": 1000
+                     *           },
+                     *           "result": {
+                     *             "query": {
+                     *               "metrics": [
+                     *                 "bookings_minor"
+                     *               ],
+                     *               "dimensions": [],
+                     *               "grain": "total",
+                     *               "from": "2026-10-01",
+                     *               "to": "2026-11-01",
+                     *               "limit": 1000
+                     *             },
+                     *             "generated_at": "2026-11-01T09:00:00Z",
+                     *             "data_as_of": "2026-11-01T08:59:50Z",
+                     *             "truncated": false,
+                     *             "rows": [
+                     *               {
+                     *                 "period": null,
+                     *                 "currency": "EUR",
+                     *                 "store_id": null,
+                     *                 "product_id": null,
+                     *                 "refund_reason": null,
+                     *                 "provider": null,
+                     *                 "values": {
+                     *                   "bookings_minor": 1234500
+                     *                 }
+                     *               }
+                     *             ],
+                     *             "currency_totals": [
+                     *               {
+                     *                 "currency": "EUR",
+                     *                 "values": {
+                     *                   "bookings_minor": 1234500
+                     *                 }
+                     *               }
+                     *             ]
+                     *           }
+                     *         },
+                     *         {
+                     *           "query": {
+                     *             "metrics": [
+                     *               "refunds_minor"
+                     *             ],
+                     *             "dimensions": [],
+                     *             "grain": "total",
+                     *             "from": "2026-10-01",
+                     *             "to": "2026-11-01",
+                     *             "limit": 1000
+                     *           },
+                     *           "result": {
+                     *             "query": {
+                     *               "metrics": [
+                     *                 "refunds_minor"
+                     *               ],
+                     *               "dimensions": [],
+                     *               "grain": "total",
+                     *               "from": "2026-10-01",
+                     *               "to": "2026-11-01",
+                     *               "limit": 1000
+                     *             },
+                     *             "generated_at": "2026-11-01T09:00:01Z",
+                     *             "data_as_of": "2026-11-01T08:59:50Z",
+                     *             "truncated": false,
+                     *             "rows": [
+                     *               {
+                     *                 "period": null,
+                     *                 "currency": "EUR",
+                     *                 "store_id": null,
+                     *                 "product_id": null,
+                     *                 "refund_reason": null,
+                     *                 "provider": null,
+                     *                 "values": {
+                     *                   "refunds_minor": 41000
+                     *                 }
+                     *               }
+                     *             ],
+                     *             "currency_totals": [
+                     *               {
+                     *                 "currency": "EUR",
+                     *                 "values": {
+                     *                   "refunds_minor": 41000
+                     *                 }
+                     *               }
+                     *             ]
+                     *           }
+                     *         }
+                     *       ],
+                     *       "chart": null,
+                     *       "excluded_store_ids": [],
+                     *       "model": "claude-sonnet-5-5",
+                     *       "template": {
+                     *         "id": "bi-qa-answer",
+                     *         "version": 1
+                     *       },
+                     *       "created_at": "2026-11-01T09:00:02Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["MetricAnswer"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description `ai_refused` (the model refused; `details.category`) or `ai_tool_limit` (the model asked for more queries than the loop allows; `details: { max_tool_calls }`) — reword the question and try again */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `ai_rate_limited` (`details: { limit_per_minute }`, `Retry-After` seconds) or `ai_budget_exceeded` (`details: { used_tokens, limit_tokens, resets_at }` — the store's, or for an HQ question the organization's, monthly token budget, UTC month) */
+            429: {
+                headers: {
+                    /** @description Seconds to wait; sent with `ai_rate_limited` only. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `ai_unavailable` — the provider call failed (`details.error_class`, never a message) */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `ai_disabled` — AI is switched off (`AI_ENABLED` is not `1`); or `unavailable` — the limiter, the audit or the analytics store could not be reached (nothing partial, no unaudited output) */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    askMetricsFeedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    rating: "up" | "down";
+                };
+            };
+        };
+        responses: {
+            /** @description Stored */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
 }

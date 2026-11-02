@@ -6,9 +6,9 @@
 import { writeSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { createOrganizationClient, createPool } from '@platform/db';
-import { resolveConfig, type EngagementConfig } from './config.js';
+import { AI_DRAFTS_ENV_PREFIX, resolveConfig, type EngagementConfig } from './config.js';
 import { CONFIG_REFUSED_EXIT, ConfigRefusedError } from './config-error.js';
-import { assertConsentModeOverridesKnown } from './consent-mode.js';
+import { assertConsentModeOverridesKnown, assertPerStoreOverridesKnown } from './consent-mode.js';
 import {
   drainIsClean,
   summariseDrain,
@@ -28,7 +28,16 @@ import { TwentyCrmAdapter } from './crm/adapter/twenty.js';
 import type { CrmAdapter, TokenProvider } from './crm/types.js';
 import { createOpsConsumer } from './ops/consumer.js';
 import { can } from '@platform/auth-sdk';
+import {
+  createAiGateway,
+  createAnthropicTransport,
+  createPgAuditSink,
+  createRedisLimiter,
+  TEMPLATES,
+} from '@platform/ai';
+import { TEMPLATE_KEY } from './support/draft-template.js';
 import { createAgentAuth, type PermissionChecker } from './support/auth.js';
+import type { DraftGateway } from './support/reply-draft.js';
 import { createSupportReader } from './support/admin-api.js';
 import { createChatwootReceiver } from './support/chatwoot.js';
 import { createSupportServer } from './support/server.js';
@@ -95,6 +104,58 @@ export function buildTokenProvider(config: EngagementConfig): TokenProvider {
   // `ENGAGEMENT_CRM_MOCK_TOKEN` is the dev stand-in for the crm-sync principal (#565); never in production,
   // where both the mock provider and the value itself are refused by `resolveConfig`.
   return config.crm.mockToken ? mockTokenProvider(config.crm.mockToken) : mockTokenProvider();
+}
+
+/**
+ * The one real `DraftGateway` (#610): `packages/ai`'s guarded gateway, per store and per agent.
+ *
+ * A gateway PER REQUEST, because the budget and the rate limit are per store and the audit row's actor is the
+ * agent who asked for the draft — so a draft is attributable to a person. The transport, the limiter and the
+ * audit sink are built ONCE and shared: they hold a client each, and one per request would open a Redis
+ * connection per draft.
+ *
+ * They are also built LAZILY. `AI_ENABLED` is off and the API key absent in most environments, and support
+ * context must keep working there: a deployment with no key answers 503 on a draft and 200 on everything
+ * else, rather than failing to boot.
+ */
+export function buildDraftGatewayFactory(
+  config: EngagementConfig,
+  pool: ReturnType<typeof createPool>,
+): (storeId: string, actorId: string) => DraftGateway {
+  let shared: {
+    transport: ReturnType<typeof createAnthropicTransport>;
+    limiter: ReturnType<typeof createRedisLimiter>;
+    audit: ReturnType<typeof createPgAuditSink>;
+  } | null = null;
+
+  return (storeId, actorId) => {
+    shared ??= {
+      transport: createAnthropicTransport(),
+      limiter: createRedisLimiter(),
+      audit: createPgAuditSink(pool),
+    };
+    const ai = createAiGateway({
+      organizationId: config.organizationId,
+      storeId,
+      purpose: 'drafting',
+      actorId,
+      transport: shared.transport,
+      limiter: shared.limiter,
+      audit: shared.audit,
+    });
+    return {
+      model: ai.model,
+      // NO CAST (#671 landed, #674 item 1): `complete` is typed to the published registry, so this line is
+      // the proof that `DraftVariables` IS `support-reply-draft@1`'s declared variable set — add a field to
+      // the projection without adding it to the template and this stops compiling.
+      complete: (key, variables) =>
+        ai.complete(key, variables).then((d) => ({
+          text: d.text,
+          stopReason: d.stopReason,
+          servedModel: d.servedModel,
+        })),
+    };
+  };
 }
 
 /**
@@ -376,6 +437,17 @@ async function main(): Promise<void> {
     await storeCodes.warm();
     assertConsentModeOverridesKnown(config.cdp.consentModeOverrides, storeCodes.codes());
   }
+  // The same refusal for the AI-drafts switch (#610): a per-store key that names no store, or names two,
+  // would silently leave that store on the global default — which is now ON. `warm()` is idempotent, so
+  // this costs nothing when the CDP has already warmed it.
+  if (config.support.enabled && config.support.aiDraftsOverrides.size > 0) {
+    await storeCodes.warm();
+    assertPerStoreOverridesKnown(
+      AI_DRAFTS_ENV_PREFIX,
+      config.support.aiDraftsOverrides.keys(),
+      storeCodes.codes(),
+    );
+  }
 
   // #599: built by the SAME function the drain uses, so a group override moves the consumer and the DLQ
   // watch together. This path used to construct them inline without a group id, which is exactly how the
@@ -414,6 +486,18 @@ async function main(): Promise<void> {
         ...(config.support.chatwootSecret
           ? { chatwoot: createChatwootReceiver({ secret: config.support.chatwootSecret }) }
           : {}),
+        // AI reply drafts (#610), ON by default per store (owner 2026-11-01). The route refuses before it
+        // reads any support data for a store that is off.
+        draft: {
+          enabledFor: config.support.aiDraftsFor,
+          // Readiness (#674 review): the switch says a store MAY draft; this says the process COULD. The
+          // template half is checked here because this is where the registry is in scope — and until
+          // REQUEST #667 lands it is what makes `ai_drafts` honestly false rather than optimistically true.
+          ready: () => config.support.aiRuntimeReady && TEMPLATE_KEY in TEMPLATES,
+          gatewayFor: buildDraftGatewayFactory(config, pool),
+          brandVoice: config.support.brandVoice,
+          defaultLocale: config.support.defaultLocale,
+        },
         log: (line) => console.info(JSON.stringify(line)),
       })
     : null;
