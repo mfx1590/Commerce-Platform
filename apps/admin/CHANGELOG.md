@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added — #642: the store-view rail entry for BI
+
+- `STORE_SECTIONS` gains `bi` (label BI, after Orders), `viewer` on the store like Catalog and
+  Orders (`queryMetrics` is `viewer` on `store:*`; the server scopes every statement). It links
+  `/<storeId>/bi`, window 12's page (#604). The navigation, role-access and rail tests list it.
+
 ### Added — #608 (CONTRACT CHANGE #664): AI product copy drafts in the product editor (Admin API 0.4.26)
 
 - Product page "Draft copy with AI": locale + fields → `draftProductCopy`; side-by-side current vs
