@@ -457,6 +457,8 @@ export function createAiGateway(opts: AiGatewayOptions): AiGateway {
       // 1–3 once
       const { t, system, user, redactions: rendered } = await prepare(key, variables, first);
       const tools = runOpts.tools;
+      // the tool definitions are sent with every step, so they count toward its input estimate
+      const toolsText = JSON.stringify(tools);
       const turns: AiTurn[] = [];
       // what the turns contribute to the hash: the assistant's text and tool calls, and the redacted results — never
       // the transport's opaque blocks, so the hash does not depend on the transport
@@ -486,7 +488,7 @@ export function createAiGateway(opts: AiGatewayOptions): AiGateway {
         // 4–5 for every step: the run's ceiling first, then the kill switch and the scope's budget and minute
         const at = now();
         const turnsText = turns.length ? JSON.stringify(turns) : '';
-        const reservation = estimateInputTokens(system, user + turnsText) + t.maxTokens;
+        const reservation = estimateInputTokens(system, user + turnsText + toolsText) + t.maxTokens;
         const usedSoFar = usage.inputTokens + usage.outputTokens;
         if (
           runOpts.maxTokensTotal !== undefined &&

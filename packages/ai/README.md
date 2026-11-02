@@ -53,7 +53,9 @@ error and, if it gets through `as` casts, a `DeniedFieldError` at runtime.
 
 ### Store or organization scope (#669)
 
-`storeId` is a store's id, or `null` for an organization-scope call (an HQ question over several stores). A null
+`storeId` is a store's id, or `null` for an organization-scope call (an HQ question over several stores). **A caller
+may build a `storeId: null` gateway only after its own organization-level permission check**: the gateway does not
+check permissions, and its rows are written through the organization client. A null
 store uses the organization's OWN monthly budget (`AI_ORG_MONTHLY_TOKEN_BUDGET`, default: the store budget) and its own
 minute (the same `AI_RATE_LIMIT_PER_MINUTE` number, keyed by organization); it never charges a store, and a store call
 never charges the organization. Its audit rows have `store_id` NULL and are written in organization scope. The
@@ -76,13 +78,17 @@ const run = await ai.runTools(
 // run.text, run.toolCalls, run.steps, run.stopReason, run.usage, run.costMicroUsd, run.conversationId, run.auditIds
 ```
 
-- Steps 1–3 below run once; steps 4–8 run for EVERY model step (the kill switch, the run's ceiling, the scope's budget
-  and minute, the call, the audit). A run of N steps uses N calls of the minute.
+- Order: the run's own options are checked (step 0's row on a refusal); steps 1–3 below (template, denylist, render
+  and redact) run once; then for EVERY model step: the run's `maxTokensTotal` ceiling (`scope: 'run'`), the kill switch,
+  the scope's budget and minute, the call and settle, then that step's tool calls, then its audit row. A step's
+  reservation counts the system and user text, the turns so far and the tool definitions, plus `maxTokens`. A run of
+  N steps uses N calls of the minute.
 - While the answer has tool calls, each is run in order: a name the caller did not offer gets an `is_error` result
   ("unknown tool") and `handle` is never called for it; every result is parsed as JSON (plain text has no keys),
   checked against the denylist (`DeniedFieldError`, nothing sent) and redacted before it goes back to the model.
   The tool INPUT is the model's: it is not redacted, but it is part of the next step's hash.
-- A step whose calls would take the run past `maxToolCalls` is not run: `AiToolLoopError` (`details.max_tool_calls`),
+- Calls to an unknown tool count toward `maxToolCalls` like any other. A step whose calls would take the run past
+  `maxToolCalls` is not run: `AiToolLoopError` (`details.max_tool_calls`),
   outcome `tool_loop_cap`, no partial answer. A step cut off at `max_tokens` ends the run with that stop reason and
   runs none of its tools. A refusal is `AiRefusedError`; a throwing `handle` ends the run (audited `error`, the class
   only) and its error is rethrown.
@@ -92,7 +98,8 @@ const run = await ai.runTools(
   `step` (0-based) and `tool_names` (the names that step asked for; a name not offered is recorded as `unknown`).
   A run refused before its first call writes one row with `step = 0`. `input_sha256` hashes what that step sent: the
   system and user text, then the turns as text, tool calls (name, input) and the redacted results (never the
-  transport's own blocks). `complete()` rows have `conversation_id` and `step` NULL.
+  transport's own blocks). `redactions` on a step's row is cumulative for the run: the rendered prompt's masked spans
+  plus those in every tool result sent so far. `complete()` rows have `conversation_id` and `step` NULL.
 - Tests script the model with `createFakeTransport({ script: [{ toolUse: [{ name, input }] }, { text }] })`; a step can be
   a function of the request, or an Error. The fake records every request (system, user, turns, tools).
 
@@ -105,7 +112,7 @@ A published template is never edited: a changed prompt is a new `v<N+1>.json`, a
 | `product-copy-draft@1`       | drafting       | 1200          | `brandVoice`, `locale`, `audience`, `productTitle`, `attributes`                 | plain text: two short paragraphs, then up to five bullets                                                                                                                                                                                                                                |
 | `product-copy-draft@2`       | drafting       | 2000          | as v1, plus `fields` (comma-separated: `title`, `description`, `bullets`, `seo`) | ONE strict-JSON object with every requested key and no others: `title` ≤ 200, `description` ≤ 5000 (paragraph breaks as `\n\n` in the string), `bullets` ≤ 5 × ≤ 200 (may be `[]`), `seo: { title ≤ 70, description ≤ 160 }` — the `ProductCopyDraft` shape of `draftProductCopy` (#608) |
 | `product-category-suggest@1` | classification | 64            | `productTitle`, `attributes`, `categories`                                       | one category handle from the list, or `none`                                                                                                                                                                                                                                             |
-| `bi-qa-answer@1`             | analysis       | 1200 per step | `question` (untrusted), `today`, `window`, `stores`, `currencyNote`              | for `runTools` with `query_metrics` (#606): only from tool results, every figure cited `[qN]` in call order, per currency (never summed across), at most 5 calls; off-topic or an unlisted store is said without calling the tool                                                        |
+| `bi-qa-answer@1`             | analysis       | 1200 per step | `question` (untrusted), `today`, `window`, `stores`, `currencyNote`              | for `runTools` with `query_metrics` (#606): only from tool results, every figure cited by its result's `ref` (`[q1]`; never by call order), per currency (never summed across), at most 5 calls; off-topic or an unlisted store is said without calling the tool                         |
 
 Every drafting template uses only the given facts. In `product-copy-draft@2` each value sits in its own tag
 (`<locale>`, `<brand_voice>`, `<audience>`, `<product_title>`, `<facts>`), the requested keys stay outside the tags,
