@@ -218,12 +218,13 @@ block**; manager ten's order is **ONE push, after #697 (CONTRACT CHANGE #690, co
    table's `ENGAGEMENT_CRM_TOKEN_PROVIDER` default `mock` is corrected to "no default when the CRM is
    enabled" (#646 removed it and the table still advertised it).
 
-**STILL TO DO when the manager says #697 has merged — in ONE push:** merge main, **delete
-`PENDING_ERROR_CODES` and its two tests**, re-run the gates, push. The delete is WRITTEN and ready, not run:
-`<scratchpad>/patch_690_delete.py`, covering all six sites — `types.ts` (list + type), `reply-draft.test.ts`
-(import, the two tests, the comment; it leaves a test asserting the two codes are now IN `ERROR_CODES`),
-`CLAUDE.md`, `README.md`, a new CHANGELOG 0.9.2 entry (its date still says `DATE`) and the version bump. Six
-sites because a list is not deleted until every mention of it is, which is #657's lesson.
+**#697 MERGED (`19cb51ca`) and the delete is DONE** — commit `35e4423c`, after merging `origin/main`
+(`19cb51ca`) into this branch at `5ff28fc3`. `method_not_allowed` and `payload_too_large` are in
+`ERROR_CODES`, so `SupportError.code` is plain `ErrorCode`; the two tests that pinned the interim list went
+red on the merge exactly as designed and went with it, and one test stays in their place asserting both
+codes ARE in the contract now. Six sites, not the two the review item named (`types.ts`, the test file's
+import/tests/comment, package CLAUDE.md, README, CHANGELOG 0.9.2, version bump). 547 passed / 9 live skipped
+offline, 556/556 with the broker up; lint, typecheck, prettier, ownership clean. Package **0.9.2**.
 
 **Manager's answers (2026-11-02):** the 413 limit stays recorded in the README, **no issue** — "the webhook
 bodies are small, and the cap is a guard, not a flow". The live-suite slip: noted, no harm, the memory note
