@@ -123,7 +123,7 @@ export function createChatwootReceiver(opts: ChatwootVerifierOptions): ChatwootR
       try {
         payload = JSON.parse(body) as Record<string, unknown>;
       } catch {
-        throw new SupportError(400, 'bad_request', 'Body is not JSON');
+        throw new SupportError(400, 'validation_error', 'Body is not JSON');
       }
 
       const conversation = payload.conversation as Record<string, unknown> | undefined;
@@ -134,11 +134,11 @@ export function createChatwootReceiver(opts: ChatwootVerifierOptions): ChatwootR
             ? String(payload.conversation_id)
             : null;
       if (!conversationId) {
-        throw new SupportError(400, 'bad_request', 'Payload names no conversation');
+        throw new SupportError(400, 'validation_error', 'Payload names no conversation');
       }
 
       const event = typeof payload.event === 'string' ? payload.event : '';
-      if (!event) throw new SupportError(400, 'bad_request', 'Payload names no event');
+      if (!event) throw new SupportError(400, 'validation_error', 'Payload names no event');
 
       const occurredAtRaw =
         (typeof payload.created_at === 'string' && payload.created_at) ||
@@ -148,7 +148,7 @@ export function createChatwootReceiver(opts: ChatwootVerifierOptions): ChatwootR
       if (!Number.isFinite(occurredAtMs)) {
         // Rejected rather than accepted: without a timestamp the freshness guard does not exist, and a stub
         // that waves those through is a stub with no replay protection at all.
-        throw new SupportError(400, 'bad_request', 'Payload carries no usable timestamp');
+        throw new SupportError(400, 'validation_error', 'Payload carries no usable timestamp');
       }
       if (Math.abs(now() - occurredAtMs) > maxAgeMs) {
         throw new SupportError(401, 'unauthorized', 'Payload is outside the freshness window');
@@ -160,7 +160,9 @@ export function createChatwootReceiver(opts: ChatwootVerifierOptions): ChatwootR
         .update(`${conversationId}.${event}.${occurredAtRaw ?? ''}`)
         .digest('hex');
       if (seen.has(digest)) {
-        throw new SupportError(409, 'replayed', 'This delivery has already been received');
+        throw new SupportError(409, 'conflict', 'This delivery has already been received', {
+          reason: 'replayed',
+        });
       }
       seen.add(digest);
       if (seen.size > seenMax) {

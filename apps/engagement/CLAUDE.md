@@ -141,6 +141,13 @@ package yet.
 - Nothing from a support answer is cached or stored, and every response is `cache-control: no-store`: it is
   personal data and the agent's permission is only true at the moment the core says so.
 - A support log line carries ids, the store code and counts — never a name, address, e-mail or tracking number.
+- **Every code the support server answers is an `ErrorCode` from `@platform/contracts`** (#678), enforced by
+  the type on `SupportError`, with **no exceptions** since CONTRACT CHANGE #690 landed `method_not_allowed`
+  and `payload_too_large` (the interim `PENDING_ERROR_CODES` list is gone, which was the plan). Never widen
+  the field back to `string`: typing it is what found `internal_error` (the contract says `internal`) and
+  `upstream_unavailable`, neither of which the issue had listed. Where a mapping loses a distinction —
+  `upstream_error` / `upstream_unavailable` both became `unavailable`, `replayed` became `conflict` — the
+  distinction moves to `details.reason` rather than disappearing.
 - **AI reply drafts (#610) send a REDUCED projection, never the support context.** `draft-context.ts` builds
   `DraftVariables` whose TYPE cannot carry a denied field; the context itself holds an e-mail, a name and
   every tracking number. What is sent: the question, the store code, brand voice, locale, the order's

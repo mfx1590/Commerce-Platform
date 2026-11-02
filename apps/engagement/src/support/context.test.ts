@@ -368,7 +368,7 @@ describe('buildContext', () => {
     const c = await build({
       listOrders: async () => [s],
       getOrder: async () => {
-        throw new SupportError(502, 'upstream_error', 'The core answered 500 (order)');
+        throw new SupportError(502, 'unavailable', 'The core answered 500 (order)');
       },
     });
     expect(c.orders).toHaveLength(1);
