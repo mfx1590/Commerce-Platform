@@ -1,11 +1,13 @@
 // Redaction before anything leaves the process (D8, #605): every rendered string is passed through `redact()`.
 // It masks e-mail addresses, payment-like numbers (card numbers that pass the Luhn check, IBANs that pass mod-97),
-// phone numbers, and address shapes (a street name with a number, NL/UK postcodes, a US "City, ST 12345" line).
+// phone numbers, address shapes (a street name with a number, NL/UK postcodes, a US "City, ST 12345" line) and the
+// tracking numbers of the common carriers (UPS 1Z…, DHL 10 digits or JJD…, PostNL 3S…, #671). It does NOT mask names, an
+// e-mail address spelled out in words, other carriers' tracking numbers, or an address in a shape it does not know.
 // This is defence in depth: the hard guard is the denylist of customer fields (denylist.ts), which keeps those
 // fields out of a prompt altogether. The patterns lean towards masking; a masked GTIN in product copy costs a little
 // quality, a leaked card number costs much more.
 
-export type RedactionKind = 'email' | 'card' | 'iban' | 'phone' | 'address';
+export type RedactionKind = 'email' | 'card' | 'iban' | 'phone' | 'address' | 'tracking';
 
 export interface RedactionResult {
   text: string;
@@ -16,6 +18,9 @@ export interface RedactionResult {
 const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 // 13–19 digits, optionally grouped by single spaces or hyphens
 const CARD_CANDIDATE = /\b\d(?:[ -]?\d){12,18}\b/g;
+// UPS 1Z + 16; DHL Express exactly 10 digits (a bare run of 10 — 12/13-digit GTINs and order numbers stay), DHL
+// parcel JJD + digits; PostNL 3S + a 4-letter customer code + digits
+const TRACKING = /\b(?:1Z[0-9A-Z]{16}|JJD\d{10,20}|3S[A-Z]{4}\d{6,11}|\d{10})\b/gi;
 const IBAN_CANDIDATE = /\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]){11,30}\b/g;
 // a phone-shaped run. Two shapes: an international one that starts with + or 00 and runs on through digits and
 // separators ("+31612345678", "+1 (415) 555-2671") — its own branch, because a `\b` after the country code cannot
@@ -117,6 +122,7 @@ export function redact(input: string): RedactionResult {
     iban: 0,
     phone: 0,
     address: 0,
+    tracking: 0,
   };
   let text = input;
   const mask = (re: RegExp, kind: RedactionKind, keep?: (m: string) => boolean) => {
@@ -134,6 +140,8 @@ export function redact(input: string): RedactionResult {
   mask(NL_POSTCODE, 'address');
   mask(UK_POSTCODE, 'address');
   mask(US_CITY_ZIP, 'address');
+  // before the phone check, which keeps a bare 10-digit run (not phone-shaped)
+  mask(TRACKING, 'tracking');
   mask(PHONE, 'phone', looksLikePhone);
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   return { text, counts, total };
