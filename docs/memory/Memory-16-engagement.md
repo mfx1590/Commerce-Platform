@@ -220,6 +220,29 @@ in the entry's `$comment`.
 **Verified:** 552 passed / 9 live skipped offline, 561/561 with the broker up; lint, typecheck (29/29),
 prettier, ownership clean. Package **0.9.3**.
 
+**#705 review = FINDINGS, production claim upheld; fixed in `PENDING_SHA`:**
+1. **(must, and the reviewer was right)** my mock carried the REAL @2 `$id`, and `createValidator()` compiles
+   every schema in `EVENT_SCHEMAS` — so the day #696 lands, `ajv.compile(mock)` throws *already exists* and
+   all five v2 tests fail on the very change meant to make them pass. Now `ajv.getSchema(id) ?? compile(mock)`,
+   so the published schema takes over by itself, and the pin test asks `orderPlacedV2IsPublished()` and
+   expects `ok: true` from then on. **I verified the failure mode rather than trusting it**: a second
+   `ajv.compile` under one `$id` does throw (node one-liner against `packages/events/dist`). LESSON: a mock
+   that deliberately wears the real identifier has to plan for the day the real thing shows up.
+2. **The erasure case I had missed.** My "scrubbed" CRM test seeded `customer_id = NULL` on the ORDER, but
+   erasure KEEPS orders linked (`apps/core` gdpr.ts — legal-obligation exception) and the replay scrubs only
+   the payload. The real case: the order still names an ERASED customer, so the CRM finds them from the order
+   row and must answer **`customer_erased`**, not `no_identity` — "we were told to forget this person" rather
+   than "a guest bought something". Both tests exist now, and the CDP one uses the erased-linked order to pin
+   the opposite guarantee: `order.placed` resolves identity from the PAYLOAD, so the CDP cannot resurrect
+   them by reading the order behind it. LESSON: when a fixture stands in for a replay, check what the replay
+   actually leaves behind — I had modelled the payload and not the row.
+3. `src/testing/**` is excluded from the build (proved: no `dist/testing`), and the README now carries the
+   **deploy order** — this service needs the regenerated `@platform/events` build no later than the core, or
+   a live `order.placed@2` is `skipped_unmapped` and LOST for this group. The manager put that on #696.
+
+**Verified after the fixes:** 553 passed / 9 live skipped offline, 562/562 with the broker up; lint,
+typecheck, prettier, ownership clean; `pnpm build` clean.
+
 **Budget note:** this ran past the ~20-call guide, all of it reading (five source files plus the SDK's
 version handling) rather than writing, because the answer to "does it already work?" is only worth having if
 you have read the paths. Said so in the report instead of stopping with the branch half-built.

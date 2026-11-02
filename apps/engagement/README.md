@@ -277,7 +277,15 @@ nobody can delete. Nothing in the mapping reads the hash — it is not one of th
 event with a customer is byte-identical to v1, which a test asserts. The CRM is unaffected: it takes the
 contact's e-mail from the Admin API and resolves the customer from the order row, never from the payload's
 hash. Until window 14 publishes the schema, `src/testing/order-placed-v2.ts` mocks it — derived from the real
-v1 schema rather than copied — and the SDK skips a v2 message, which is what the manager's gate relies on.
+v1 schema rather than copied — and the SDK skips a v2 message, which is what the manager's gate relies on. The
+mock carries the `$id` the published schema will have and asks `ajv.getSchema` for it before compiling, so the
+real schema takes over the moment it exists; the test that pins the mock expects a VALID @2 from then on, and
+nothing here needs editing when #696 lands.
+
+**Deploy order, when #696 lands:** redeploy this service with the regenerated `@platform/events` build **no
+later than the core**. The SDK only accepts `topic@version` pairs it has a schema for, so an old build facing
+a live `order.placed@2` logs `skipped_unmapped` and moves on — the event is lost for this group rather than
+retried, and the CDP and CRM quietly miss every order placed in that window.
 
 A guest is only trackable where an identity exists: of the six mapped commerce topics only `order.placed`
 carries an `email_hash`, so a guest's _Order Completed_ reaches the CDP while their later _Order Shipped_ does

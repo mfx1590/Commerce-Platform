@@ -22,7 +22,26 @@ patching it, and the proof is what the gate actually asks for.
   the payload. One test pins the mock itself: v1 refuses the null, @2 accepts it, @2 still accepts a hash,
   and the SDK does not know @2 yet (which is the premise the gate rests on — that line goes green on its own
   the day #696 lands). `packages/events` is untouched.
-- Tests: **552 passing / 9 live skipped** offline (was 547/9).
+- **The mock hands over to the published schema by itself** (#705 review, must-fix): it carries the `$id`
+  the real @2 will have, and `createValidator()` compiles every schema in `EVENT_SCHEMAS` — so a plain
+  `ajv.compile(mock)` would throw _already exists_ the day #696 lands and fail every v2 test on the very
+  change that is meant to make them pass. `ajv.getSchema(id) ?? compile(mock)` means the real schema wins
+  once it exists (verified: a second compile under one `$id` does throw). The pin test asks
+  `orderPlacedV2IsPublished()` and expects `ok: true` from then on, so this suite survives #696 without an
+  edit.
+- **The erasure case the first version missed** (#705 review): erasure KEEPS orders, linked by `customer_id`
+  (`apps/core` gdpr.ts — retained under the legal-obligation exception), and the replay scrubs only the
+  payload. So the CRM, which resolves an order-scoped event from the order row, still finds the person and
+  refuses them as **`customer_erased`**, not `no_identity` — the distinction an operator reads as "we were
+  told to forget this person" rather than "a guest bought something". The CDP case now uses the same shape to
+  pin the opposite guarantee: `order.placed` takes its identity from the payload, so a scrubbed event cannot
+  resurrect the customer by reading the order behind it.
+- `src/testing/**` is excluded from the build, like `*.test.ts`: the mock is test scaffolding and has no
+  business in `dist`.
+- **Deploy order** (from the review, recorded on #696): this service must be redeployed with the regenerated
+  `@platform/events` build no later than the core. Running an old build against a live `order.placed@2` means
+  the SDK does not know the version and skips it — and a skipped event is lost for this group, not retried.
+- Tests: **553 passing / 9 live skipped** offline (was 547/9).
 
 ## 0.9.2 — 2026-11-02 (CONTRACT CHANGE #690 landed)
 

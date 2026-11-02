@@ -50,9 +50,17 @@ let errorsOf: () => string;
 function validators(): void {
   if (compiled && envelopeCheck) return;
   // One validator instance, which already has COMMON_SCHEMA registered and ENVELOPE_SCHEMA compiled; the mock
-  // joins it under its own `$id`, so the `$ref` to common/v1.json resolves exactly as the real schema's does.
+  // joins it under the real v2 `$id`, so the `$ref` to common/v1.json resolves exactly as the real schema's
+  // does.
   const { ajv } = createValidator();
-  const payloadFn = ajv.compile(orderPlacedV2Schema());
+  // THE REAL ONE WINS (#705 review, must-fix): the mock deliberately carries the `$id` the published schema
+  // will have, and `createValidator()` compiles every schema in `EVENT_SCHEMAS` — so the day #696 lands,
+  // `ajv.compile(mock)` would throw "already exists" and every test here would fail on a change that is
+  // supposed to make them pass. Asking for the id first means this file hands over to the published schema by
+  // itself: before #696 the lookup misses and the mock is compiled; after it, the real @2 validates the
+  // fixtures and the mock is never used.
+  const id = (orderPlacedV2Schema() as { $id: string }).$id;
+  const payloadFn = ajv.getSchema(id) ?? ajv.compile(orderPlacedV2Schema());
   const envelopeFn = ajv.getSchema((ENVELOPE_SCHEMA as { $id: string }).$id);
   if (!envelopeFn) throw new Error('the envelope schema is not compiled in this validator');
   compiled = (payload) => payloadFn(payload) === true;
@@ -61,6 +69,11 @@ function validators(): void {
     [...(payloadFn.errors ?? []), ...(envelopeFn.errors ?? [])]
       .map((e) => `${e.instancePath || '/'} ${e.message ?? 'invalid'}`)
       .join('; ');
+}
+
+/** True once `packages/events` publishes @2, i.e. once this mock has been superseded (#696). */
+export function orderPlacedV2IsPublished(): boolean {
+  return 'order.placed@2' in (EVENT_SCHEMAS as Record<string, unknown>);
 }
 
 /** Does this payload satisfy `order.placed@2`? Used to pin the mock's own behaviour in a test. */

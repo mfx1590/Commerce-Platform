@@ -45,7 +45,12 @@ import {
   type CdpLogLine,
 } from './consumer.js';
 import { CdpError } from './types.js';
-import { ORDER_PLACED_V2, toOrderPlacedV2, validatesAsV2 } from '../testing/order-placed-v2.js';
+import {
+  ORDER_PLACED_V2,
+  orderPlacedV2IsPublished,
+  toOrderPlacedV2,
+  validatesAsV2,
+} from '../testing/order-placed-v2.js';
 
 const ORG = SEED_IDS.organization;
 const STORE_A = SEED_IDS.stores.brandA;
@@ -447,11 +452,17 @@ describe('order.placed@2 — a null email_hash is an erased customer, never a pr
     expect(validatesAsV2(scrubbed.payload)).toBe(true);
     // v2 is v1 PLUS null, not instead of it: a live checkout still sends a hash.
     expect(validatesAsV2(toOrderPlacedV2(v1, { emailHash: EMAIL_HASH }).payload)).toBe(true);
-    // And the premise the whole gate rests on: until #696 lands, the SDK has no @2 schema, so a v2 message
-    // is skipped rather than mishandled. This line goes green by itself the day it lands.
-    expect(validator.validatePayload('order.placed', 2, scrubbed.payload)).toMatchObject({
-      ok: false,
-    });
+    // The premise the whole gate rests on, stated so that LANDING #696 does not break this file (#705
+    // review): while @2 is unpublished the SDK has no schema for it and skips such a message rather than
+    // mishandling it — which is why the gate is safe to hold open. Once window 14 publishes it, the same
+    // payload must validate against the REAL schema, and the assertion flips to that without an edit here.
+    const published = validator.validatePayload('order.placed', 2, scrubbed.payload);
+    if (orderPlacedV2IsPublished()) {
+      expect(published).toEqual({ ok: true, errors: [] });
+    } else {
+      expect(published).toMatchObject({ ok: false });
+      expect(published.errors.join()).toMatch(/unknown event/);
+    }
   });
 
   it('a NAMED customer is tracked exactly as on v1, with no anonymousId', async () => {
@@ -477,7 +488,13 @@ describe('order.placed@2 — a null email_hash is an erased customer, never a pr
   });
 
   it('a SCRUBBED order — null customer_id AND null email_hash — is dropped as no_identity in BOTH modes, counted and logged', async () => {
-    const orderId = await makeOrder(STORE_A, null);
+    // The order row still NAMES the erased customer: erasure keeps orders linked (`apps/core` gdpr.ts — they
+    // are retained under the legal-obligation exception), and only the PAYLOAD is scrubbed. It makes no
+    // difference here, which is the point worth pinning: `order.placed` resolves its identity from the
+    // payload, so the CDP cannot resurrect a person the replay just scrubbed by reading the order behind it.
+    const erased = await makeCustomer(STORE_A, true);
+    await db.owner.query(`UPDATE customer SET status = 'erased' WHERE id = $1`, [erased]);
+    const orderId = await makeOrder(STORE_A, erased);
     const scrubbed = toOrderPlacedV2(orderPlaced(orderId, null), {
       emailHash: null,
       customerId: null,
