@@ -6,14 +6,13 @@
 //
 // Erasure (#629): the outbox keeps every payload, so a replay would hand an erased customer's ids back to the bus.
 // Before it sends, the replay reads the erased customers from the outbox's own customer.erased rows (published or
-// not; they are never pruned) and, per store, SKIPS the rows of a topic that names one (customer.*, cart.abandoned,
-// review.published, referral.converted) and SCRUBS order.placed, which the ledger still needs: customer_id and
-// email_hash become null, the row goes out as order.placed@2 (#696) with the header `erased: 1`. Without @2 in
-// @platform/events the replay stops before the batch that holds such a row, so nothing erased is ever sent.
+// not; they are never pruned) and, per store, SKIPS every row of a topic that names one: order.placed, customer.*,
+// cart.abandoned, review.published, referral.converted. customer.erased itself is sent whole. Skipping order.placed
+// means a ledger rebuilt from scratch misses those orders until order.placed@2 (#696, email_hash nullable) lets the
+// replay send them without the ids; an existing ledger keeps them (idempotent by source_event_id).
 import {
   createValidator,
   envelopeToMessage,
-  EVENT_SCHEMAS,
   EVENT_TOPICS,
   outboxRowToEnvelope,
   type OutboxRow,
@@ -26,8 +25,6 @@ import { errorClass, RelayPublishTimeout, type RelayPublisher } from './relay';
 export const REPLAY_PRODUCER = 'core-outbox-replay/1';
 export const HEADER_REPLAY = 'replay';
 export const HEADER_REPLAYED_AT = 'replayed_at';
-/** On a scrubbed row (#629): the replay removed an erased customer's ids. */
-export const HEADER_ERASED = 'erased';
 export const DEFAULT_REPLAY_BATCH = 500;
 
 export interface ReplayOptions {
@@ -54,25 +51,14 @@ export interface ReplayOptions {
   publishTimeoutMs?: number;
   log?: (line: ReplayBatchLine) => void;
   now?: () => Date;
-  /** Tests only: the event contract the replay validates against (a local mock of order.placed@2 until #696). */
-  contract?: ReplayContract;
-}
-
-export interface ReplayContract {
-  validateEnvelope(envelope: unknown): { ok: boolean; errors: string[] };
-  /** Whether `topic@version` is a schema of @platform/events. */
-  has(topic: string, version: number): boolean;
 }
 
 type Payload = Record<string, unknown>;
 
+/** Where a topic's payload names a customer: the customer ids and the e-mail hashes it carries. */
 interface ErasureRule {
-  action: 'skip' | 'scrub';
   customerIds: (p: Payload) => unknown[];
   emailHashes: (p: Payload) => unknown[];
-  /** scrub only: the payload without the customer's ids, sent as `scrubbedVersion`. */
-  scrub?: (p: Payload) => Payload;
-  scrubbedVersion?: number;
 }
 
 const byCustomer = (p: Payload): unknown[] => [p.customer_id];
@@ -80,26 +66,19 @@ const byHash = (p: Payload): unknown[] => [p.email_hash];
 const none = (): unknown[] => [];
 
 /**
- * Every topic whose payload names a customer (#629), and what the replay does with an erased customer's row: skip
- * it, or scrub the ids and send it as `scrubbedVersion`. customer.erased is not here: it is the erasure itself, and
- * every consumer needs it. replay.test.ts fails when a schema with a customer id or an e-mail hash is missing.
+ * Every topic whose payload names a customer (#629). A replay skips the rows that name an erased customer of their
+ * store. customer.erased is not here: it is the erasure itself, and every consumer needs it.
+ * replay-erasure.test.ts fails when a schema with a customer id or an e-mail hash has no entry.
  */
 export const ERASURE_RULES: Readonly<Record<string, ErasureRule>> = {
-  'order.placed': {
-    action: 'scrub',
-    customerIds: byCustomer,
-    emailHashes: byHash,
-    scrub: (p) => ({ ...p, customer_id: null, email_hash: null }),
-    scrubbedVersion: 2,
-  },
-  'cart.abandoned': { action: 'skip', customerIds: byCustomer, emailHashes: byHash },
-  'customer.created': { action: 'skip', customerIds: byCustomer, emailHashes: byHash },
-  'customer.updated': { action: 'skip', customerIds: byCustomer, emailHashes: byHash },
-  'customer.export_requested': { action: 'skip', customerIds: byCustomer, emailHashes: none },
-  'customer.export_ready': { action: 'skip', customerIds: byCustomer, emailHashes: none },
-  'review.published': { action: 'skip', customerIds: byCustomer, emailHashes: none },
+  'order.placed': { customerIds: byCustomer, emailHashes: byHash },
+  'cart.abandoned': { customerIds: byCustomer, emailHashes: byHash },
+  'customer.created': { customerIds: byCustomer, emailHashes: byHash },
+  'customer.updated': { customerIds: byCustomer, emailHashes: byHash },
+  'customer.export_requested': { customerIds: byCustomer, emailHashes: none },
+  'customer.export_ready': { customerIds: byCustomer, emailHashes: none },
+  'review.published': { customerIds: byCustomer, emailHashes: none },
   'referral.converted': {
-    action: 'skip',
     customerIds: (p) => [p.referrer_customer_id, p.referee_customer_id],
     emailHashes: none,
   },
@@ -153,16 +132,6 @@ export function namesErased(
   ].some((k) => k !== null && erased.keys.has(k));
 }
 
-/** Stops a replay before the batch that holds an erased customer's row the contract cannot carry yet. */
-export class ReplayErasureUnsupported extends Error {
-  constructor(topic: string, version: number, outboxId: string, sent: string) {
-    super(
-      `replay of ${topic} stopped (${sent}): outbox row ${outboxId} names an erased customer and ${topic}@${version} (#696) is not in @platform/events yet, so it cannot be sent without the customer's ids`,
-    );
-    this.name = 'ReplayErasureUnsupported';
-  }
-}
-
 export interface ReplayBatchLine {
   replay: 'outbox';
   organization_id: string;
@@ -187,10 +156,8 @@ export interface ReplaySummary {
   newest_occurred_at: string | null;
   /** customer.erased rows in scope (#629); 0 for a topic that names no customer. */
   erased_customers: number;
-  /** Rows not sent because they name an erased customer. */
-  erased_skipped: number;
-  /** order.placed rows sent as @2 without the customer's ids. */
-  erased_scrubbed: number;
+  /** Rows not sent because they name an erased customer, per event type (`{ "order.placed": 2 }`); empty for a topic that names no customer. */
+  erased_skipped: Record<string, number>;
   duration_ms: number;
 }
 
@@ -198,10 +165,6 @@ type Row = OutboxRow & { seq: string };
 
 let validator: Validator | undefined;
 const getValidator = (): Validator => (validator ??= createValidator());
-const defaultContract = (): ReplayContract => ({
-  validateEnvelope: (e) => getValidator().validateEnvelope(e),
-  has: (topic, version) => `${topic}@${version}` in EVENT_SCHEMAS,
-});
 
 function where(opts: ReplayOptions): { sql: string; params: unknown[] } {
   const params: unknown[] = [opts.topic];
@@ -295,8 +258,7 @@ export async function replayOutbox(
     dry_run: opts.dryRun === true,
     ...described,
     erased_customers: erased.customers,
-    erased_skipped: 0,
-    erased_scrubbed: 0,
+    erased_skipped: rule ? { [opts.topic]: 0 } : {},
     published: 0,
     batches: 0,
     duration_ms: 0,
@@ -306,7 +268,7 @@ export async function replayOutbox(
     return summary;
   }
 
-  const contract = opts.contract ?? defaultContract();
+  const v = getValidator();
   const w = where(opts);
   let lastSeq = '0';
   for (;;) {
@@ -324,47 +286,20 @@ export async function replayOutbox(
     const replayedAt = now().toISOString();
     const messages: RelayMessage[] = [];
     let skipped = 0;
-    let scrubbed = 0;
     for (const row of rows) {
-      let envelope = outboxRowToEnvelope(row);
-      // the stored row must still validate, whatever happens to it next
-      const stored = contract.validateEnvelope(envelope);
-      if (!stored.ok)
-        throw new Error(`outbox row ${row.id} no longer validates: ${stored.errors.join('; ')}`);
-      const isErased =
-        rule !== undefined &&
-        namesErased(row.topic, row.store_id, envelope.payload as Payload, erased);
-      if (isErased && rule.action === 'skip') {
+      const envelope = outboxRowToEnvelope(row);
+      const check = v.validateEnvelope(envelope);
+      if (!check.ok)
+        throw new Error(`outbox row ${row.id} no longer validates: ${check.errors.join('; ')}`);
+      if (namesErased(row.topic, row.store_id, envelope.payload as Payload, erased)) {
         skipped += 1;
         continue;
       }
-      if (isErased) {
-        const version = rule.scrubbedVersion!;
-        if (!contract.has(row.topic, version))
-          throw new ReplayErasureUnsupported(
-            row.topic,
-            version,
-            row.id,
-            `${summary.published} row(s) sent in ${summary.batches} batch(es), last_seq ${lastSeq}; this batch sent nothing`,
-          );
-        envelope = {
-          ...envelope,
-          version,
-          payload: rule.scrub!(envelope.payload as Payload),
-        } as typeof envelope;
-        const check = contract.validateEnvelope(envelope);
-        if (!check.ok)
-          throw new Error(
-            `outbox row ${row.id} does not validate as ${row.topic}@${version} once scrubbed: ${check.errors.join('; ')}`,
-          );
-        scrubbed += 1;
-      }
       const m = envelopeToMessage(envelope, REPLAY_PRODUCER, {
-        schemaId: opts.schemaIds?.[`${row.topic}@${envelope.version}`],
+        schemaId: opts.schemaIds?.[`${row.topic}@${row.version}`],
       });
       m.headers[HEADER_REPLAY] = '1';
       m.headers[HEADER_REPLAYED_AT] = replayedAt;
-      if (isErased) m.headers[HEADER_ERASED] = '1';
       messages.push(m);
     }
     let timer: NodeJS.Timeout | undefined;
@@ -390,8 +325,8 @@ export async function replayOutbox(
     }
     lastSeq = rows[rows.length - 1]!.seq;
     summary.published += messages.length;
-    summary.erased_skipped += skipped;
-    summary.erased_scrubbed += scrubbed;
+    if (rule)
+      summary.erased_skipped[opts.topic] = (summary.erased_skipped[opts.topic] ?? 0) + skipped;
     summary.batches += 1;
     log({
       replay: 'outbox',

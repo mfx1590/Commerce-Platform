@@ -188,19 +188,24 @@ from the outbox's own `customer.erased` rows (published or not; v1 has no `email
 STORE, by customer id or e-mail hash, so an erased customer's guest orders in that store match too, and the same
 person in another store does not:
 
-- **Skipped:** `customer.created`, `customer.updated`, `customer.export_requested`, `customer.export_ready`,
-  `cart.abandoned`, `review.published`, and `referral.converted` (either party). Nothing is sent for the row.
-- **Scrubbed:** `order.placed`, because the ledger and the reports still need the order. `customer_id` and
-  `email_hash` become null, and the row goes out as `order.placed@2` (#696, `email_hash` nullable) with the header
-  `erased: 1`. Consumers treat a null hash as no profile and no guest identity.
+- **Skipped:** every row that names an erased customer in `order.placed`, `customer.created`, `customer.updated`,
+  `customer.export_requested`, `customer.export_ready`, `cart.abandoned`, `review.published` and
+  `referral.converted` (either party). Nothing is sent for the row.
 - **Sent whole:** `customer.erased` itself, the instruction every consumer acts on.
 
-Until `order.placed@2` is in `@platform/events`, a replay that meets such an order stops BEFORE sending that batch
-(`ReplayErasureUnsupported`, with what was sent so far): nothing erased reaches the bus, and the fix is #696, not a
-resume. The summary adds `erased_customers` (`customer.erased` rows in scope; also on `--dry-run`), `erased_skipped`
-and `erased_scrubbed`. `replay-erasure.test.ts` checks every schema that names a customer has a rule, so a new one
-fails the build until it gets one. A customer erased while a replay runs is not in that replay's set: their
-`customer.erased` row is relayed after the replay started, and consumers delete what the replay sent.
+The summary adds `erased_customers` (`customer.erased` rows in scope; also on `--dry-run`) and `erased_skipped` per
+event type (`{ "order.placed": 2 }`; `{}` for a topic that names no customer). `replay-erasure.test.ts` checks that
+every schema naming a customer has a rule, so a new one fails the build until it gets one. A customer erased while a
+replay runs is not in that replay's set: their `customer.erased` row is relayed after the replay started, and
+consumers delete what the replay sent.
+
+**What skipping `order.placed` costs (manager decision 2026-11-02).** A ledger REBUILT FROM SCRATCH by a replay
+misses the revenue lines of an erased customer's orders, and that order's later `shipment.*` / `refund.*` events
+park in accounting (`accounting_parked_event`) with no order to post against. That holds until `order.placed@2`
+(#696, `email_hash` nullable; deferred, it needs five consumer windows first) lets the replay send those orders
+without the ids. The EXISTING ledger keeps them: accounting posted each order when it was first delivered and is
+idempotent by `source_event_id` (UNIQUE (`source_event_id`, `account_code`)), so a replay into it changes nothing.
+Rebuild the ledger from scratch only with this gap in mind; the outbox still holds the orders.
 
 ## Pruning (not built)
 

@@ -1,11 +1,9 @@
 // The erasure-aware replay (#629). The outbox keeps every payload, so a replay must not hand an erased customer's ids
-// back to the bus: per store, rows that name an erased customer are skipped, and order.placed (the ledger needs it)
-// goes out as order.placed@2 with customer_id and email_hash null. order.placed@2 arrives with #696; until then these
-// tests use a local mock of it (v2 = v1 with email_hash nullable) and check that the real contract refuses instead.
+// back to the bus: per store, every row that names an erased customer is skipped, order.placed included (until
+// order.placed@2, #696, lets the replay send it without the ids), and customer.erased itself is sent whole.
 import { createOrganizationClient } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import {
-  createValidator,
   EVENT_SCHEMAS,
   EVENT_TOPICS,
   type EventEnvelope,
@@ -15,14 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createStore } from '../modules/registry';
 import { buildEvent, withEvents } from './index';
 import { runRelayLoop } from './relay';
-import {
-  ERASURE_RULES,
-  HEADER_ERASED,
-  namesErased,
-  ReplayErasureUnsupported,
-  replayOutbox,
-  type ReplayContract,
-} from './replay';
+import { ERASURE_RULES, namesErased, replayOutbox } from './replay';
 
 const ORG = '32000000-0000-4000-8000-000000000002';
 const LE = '32000000-0000-4000-8000-000000000012';
@@ -39,23 +30,6 @@ let db: TestDatabase;
 let hq: ReturnType<typeof createOrganizationClient>;
 let storeA = '';
 let storeB = '';
-
-/** The local mock of #696: order.placed@2 = v1 with email_hash nullable; everything else is the real contract. */
-const real = createValidator();
-const mockV2: ReplayContract = {
-  has: (topic, version) =>
-    (topic === 'order.placed' && version === 2) || `${topic}@${version}` in EVENT_SCHEMAS,
-  validateEnvelope: (e) => {
-    const env = e as EventEnvelope;
-    if (env.topic !== 'order.placed' || env.version !== 2) return real.validateEnvelope(e);
-    const p = env.payload as Record<string, unknown>;
-    return real.validateEnvelope({
-      ...env,
-      version: 1,
-      payload: { ...p, email_hash: p.email_hash ?? '0'.repeat(64) },
-    });
-  },
-};
 
 const orderPlaced = (storeId: string, customerId: string | null, emailHash: string) => {
   const orderId = uuid();
@@ -159,12 +133,7 @@ function recorder() {
       },
     },
     envelopes: () =>
-      sent.flatMap((s) =>
-        s.messages.map((m) => ({
-          headers: m.headers,
-          envelope: JSON.parse(m.value) as EventEnvelope,
-        })),
-      ),
+      sent.flatMap((s) => s.messages.map((m) => JSON.parse(m.value) as EventEnvelope)),
   };
 }
 
@@ -194,8 +163,8 @@ beforeAll(async () => {
   storeB = await store('brand-eb');
 
   const events = [
-    await orderPlaced(storeA, X, HX), // X's own order: scrubbed
-    await orderPlaced(storeA, null, HX), // X's guest order before registering: scrubbed by the hash
+    await orderPlaced(storeA, X, HX), // X's own order: skipped
+    await orderPlaced(storeA, null, HX), // X's guest order before registering: skipped by the hash
     await orderPlaced(storeA, Y, HY), // Y stays
     await orderPlaced(storeB, null, HX), // the same person in another store, not erased there
     await cartAbandoned(storeA, X, HX), // skipped
@@ -234,19 +203,10 @@ describe('ERASURE_RULES', () => {
     const topics = [...new Set(naming)].filter((t) => t !== 'customer.erased').sort();
     expect(Object.keys(ERASURE_RULES).sort()).toEqual(topics);
     for (const t of Object.keys(ERASURE_RULES)) expect(EVENT_TOPICS).toContain(t);
-    // only order.placed is scrubbed (the ledger needs it); the rest are skipped
-    expect(
-      Object.entries(ERASURE_RULES)
-        .filter(([, r]) => r.action === 'scrub')
-        .map(([t]) => t),
-    ).toEqual(['order.placed']);
   });
 
   it('matches per store, by customer id or e-mail hash, and every referral party', () => {
-    const erased = {
-      customers: 1,
-      keys: new Set([`s1|c:${X}`, `s1|h:${HX}`]),
-    };
+    const erased = { customers: 1, keys: new Set([`s1|c:${X}`, `s1|h:${HX}`]) };
     expect(namesErased('order.placed', 's1', { customer_id: null, email_hash: HX }, erased)).toBe(
       true,
     );
@@ -267,73 +227,38 @@ describe('ERASURE_RULES', () => {
 });
 
 describe('replayOutbox with an erased customer (database, recording publisher)', () => {
-  it('scrubs the erased customer’s order.placed in that store only, as @2 with the erased header', async () => {
+  it('skips the erased customer’s order.placed in that store only, by id and by hash, and counts it per type', async () => {
     const r = recorder();
     const summary = await replayOutbox(hq, r.publisher, {
       organizationId: ORG,
       topic: 'order.placed',
-      contract: mockV2,
       log: quiet,
     });
     expect(summary).toMatchObject({
       rows: 4,
-      published: 4,
+      published: 2,
       erased_customers: 1,
-      erased_scrubbed: 2,
-      erased_skipped: 0,
+      erased_skipped: { 'order.placed': 2 },
     });
     const out = r.envelopes();
-    expect(out).toHaveLength(4);
-    const scrubbed = out.filter((o) => o.headers[HEADER_ERASED] === '1');
-    expect(scrubbed).toHaveLength(2);
-    for (const o of scrubbed) {
-      expect(o.envelope).toMatchObject({ topic: 'order.placed', version: 2, store_id: storeA });
-      expect(o.envelope.payload).toMatchObject({ customer_id: null, email_hash: null });
-      expect(o.headers.version).toBe('2');
-    }
-    const kept = out.filter((o) => o.headers[HEADER_ERASED] === undefined);
-    expect(kept.map((o) => [o.envelope.store_id, o.envelope.version])).toEqual([
-      [storeA, 1],
-      [storeB, 1],
+    expect(out.map((e) => [e.store_id, (e.payload as { email_hash: string }).email_hash])).toEqual([
+      [storeA, HY],
+      [storeB, HX],
     ]);
-    expect(kept.map((o) => (o.envelope.payload as { email_hash: string }).email_hash)).toEqual([
-      HY,
-      HX,
-    ]);
-    // nothing on the wire carries the erased customer's id or their hash in store A
+    // nothing on the wire carries the erased customer's id, or their hash in store A
     const wire = r.sent.flatMap((s) => s.messages.map((m) => m.value));
     expect(wire.filter((v) => v.includes(X))).toEqual([]);
     expect(wire.filter((v) => v.includes(HX) && v.includes(storeA))).toEqual([]);
-  });
 
-  it('refuses before sending a batch with such a row while @platform/events has no order.placed@2 (#696)', async () => {
-    const r = recorder();
-    const run = replayOutbox(hq, r.publisher, {
-      organizationId: ORG,
-      topic: 'order.placed',
-      log: quiet,
-    });
-    if ('order.placed@2' in EVENT_SCHEMAS) {
-      // #696 has landed: the real contract carries the scrubbed row
-      await expect(run).resolves.toMatchObject({ erased_scrubbed: 2 });
-      return;
-    }
-    await expect(run).rejects.toBeInstanceOf(ReplayErasureUnsupported);
-    await expect(
-      replayOutbox(hq, r.publisher, { organizationId: ORG, topic: 'order.placed', log: quiet }),
-    ).rejects.toThrow(
-      /stopped \(0 row\(s\) sent in 0 batch\(es\), last_seq 0; this batch sent nothing\): .*order\.placed@2 \(#696\)/,
-    );
-    expect(r.sent).toEqual([]);
     // a store without erased customers replays as before
-    await expect(
-      replayOutbox(hq, r.publisher, {
+    expect(
+      await replayOutbox(hq, recorder().publisher, {
         organizationId: ORG,
         topic: 'order.placed',
         storeId: storeB,
         log: quiet,
       }),
-    ).resolves.toMatchObject({ published: 1, erased_customers: 0, erased_scrubbed: 0 });
+    ).toMatchObject({ published: 1, erased_customers: 0, erased_skipped: { 'order.placed': 0 } });
   });
 
   it('skips the erased customer’s cart.abandoned, sends customer.erased whole, and the dry run counts the erased', async () => {
@@ -344,23 +269,19 @@ describe('replayOutbox with an erased customer (database, recording publisher)',
         topic: 'cart.abandoned',
         log: quiet,
       }),
-    ).toMatchObject({ rows: 2, published: 1, erased_skipped: 1, erased_scrubbed: 0 });
+    ).toMatchObject({ rows: 2, published: 1, erased_skipped: { 'cart.abandoned': 1 } });
     expect(
-      carts.envelopes().map((o) => (o.envelope.payload as { customer_id: string }).customer_id),
+      carts.envelopes().map((e) => (e.payload as { customer_id: string }).customer_id),
     ).toEqual([Y]);
 
     const erasures = recorder();
-    expect(
-      await replayOutbox(hq, erasures.publisher, {
-        organizationId: ORG,
-        topic: 'customer.erased',
-        log: quiet,
-      }),
-    ).toMatchObject({ published: 1, erased_customers: 0, erased_skipped: 0 });
-    expect(erasures.envelopes()[0]!.envelope.payload).toMatchObject({
-      customer_id: X,
-      email_hash: HX,
+    const whole = await replayOutbox(hq, erasures.publisher, {
+      organizationId: ORG,
+      topic: 'customer.erased',
+      log: quiet,
     });
+    expect(whole).toMatchObject({ published: 1, erased_customers: 0, erased_skipped: {} });
+    expect(erasures.envelopes()[0]!.payload).toMatchObject({ customer_id: X, email_hash: HX });
 
     expect(
       await replayOutbox(hq, carts.publisher, {
@@ -380,7 +301,12 @@ describe('replayOutbox with an erased customer (database, recording publisher)',
       batchSize: 1,
       log: quiet,
     });
-    expect(summary).toMatchObject({ rows: 2, published: 1, batches: 2, erased_skipped: 1 });
+    expect(summary).toMatchObject({
+      rows: 2,
+      published: 1,
+      batches: 2,
+      erased_skipped: { 'cart.abandoned': 1 },
+    });
     expect(r.sent).toHaveLength(1);
   });
 });
