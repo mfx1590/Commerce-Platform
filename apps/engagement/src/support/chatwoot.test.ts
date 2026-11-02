@@ -198,8 +198,10 @@ describe('replay', () => {
       }
     })();
     expect(err?.status).toBe(409);
-    // 409 + `conflict`, the contract's name for exactly this (#678).
+    // 409 + `conflict`, the contract's name for exactly this (#678), with the old code kept as the reason
+    // so a reader still knows WHICH conflict it was (#695 review).
     expect(err?.code).toBe('conflict');
+    expect(err?.details).toEqual({ reason: 'replayed' });
   });
 
   it('catches a re-send whose body was cosmetically changed', () => {

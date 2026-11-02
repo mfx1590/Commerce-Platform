@@ -10,8 +10,8 @@ Every code this service answers is now the contract's, enforced by the compiler.
   `internal_error`, where the contract says `internal`, and `upstream_unavailable` — which is a fair argument
   for types over greps.
 - **Mapped onto the contract's names:** `bad_request` → `validation_error` (7 sites), `upstream_error` and
-  `upstream_unavailable` → `unavailable` (5), `replayed` → `conflict` (409, which is exactly what that code
-  is for). Where a mapping lost a distinction it moved to **`details.reason`** rather than disappearing, so a
+  `upstream_unavailable` → `unavailable` (4, all in `admin-api.ts`), `replayed` → `conflict` (409, which is
+  exactly what that code is for). Where a mapping lost a distinction it moved to **`details.reason`** rather than disappearing, so a
   reader can still tell a core that did not answer from one that answered badly; `SupportError` takes those
   details as a fourth argument now.
 - **One named exception, not a loophole:** `PENDING_ERROR_CODES` holds `method_not_allowed` and
@@ -19,7 +19,13 @@ Every code this service answers is now the contract's, enforced by the compiler.
   filed as **CONTRACT CHANGE #690** with the exact diff for the manager to land. A test pins the list's
   contents and a second asserts every entry is still missing from `ERROR_CODES`, so **the day #690 lands that
   test fails and the fix is to delete the list** — after which the compiler holds every code to the contract.
-- Tests: **544 passing / 9 live skipped** offline (was 541/9).
+- **The 404 fallback goes through `fail()`** like every other refusal (#695 review): it was the one answer
+  built by hand, so it had no log line and an untyped code. Its line says `route: 'unknown'` rather than the
+  requested path — a path is caller input and could carry an address into a log line.
+- Tests asserted on the WIRE as well as per unit (#695 review): the codes a client actually receives for a
+  missing parameter, a wrong verb, an oversized body and an unknown route, and `details.reason` at the real
+  sites (an unreachable core, a replayed webhook delivery) rather than on a constructed error.
+- Tests: **548 passing / 9 live skipped** offline (was 541/9); with the broker up the whole file passes 557/557.
 
 ## 0.9.0 — 2026-11-01 (#610, AI support reply drafts)
 

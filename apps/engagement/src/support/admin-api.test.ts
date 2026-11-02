@@ -239,8 +239,10 @@ describe('how it maps the core s answers', () => {
       .catch((e: unknown) => e)) as SupportError;
     expect(err.status).toBe(502);
     // `unavailable` is the contract's name; the distinction between "did not answer" and "answered badly"
-    // lives in `details.reason` now (#678).
+    // lives in `details.reason` now (#678), and this is the real site rather than a constructed error
+    // (#695 review).
     expect(err.code).toBe('unavailable');
+    expect(err.details).toEqual({ reason: 'upstream_unavailable' });
     expect(err.message).not.toContain('agent-token-in-words');
   });
 
