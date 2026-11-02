@@ -78,7 +78,7 @@ export interface CoreMiddlewareOptions {
    */
   webhookRouters?: express.Router[];
   /**
-   * Store API routers of other windows' modules (#624), mounted after `mountStoreRoutes()` and BEFORE the
+   * Store API routers of other windows' modules (#624), mounted after `mountStoreRoutes` and BEFORE the
    * fallback proxy. createServer() passes `moduleStoreRouters()`; the default is NONE, same rule as
    * `moduleRouters`, so a module's own tests mount their own router.
    */
