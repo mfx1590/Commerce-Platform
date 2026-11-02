@@ -1,6 +1,14 @@
+**What "ask for the machine" actually covers (manager ten, 2026-11-02 — standing OK, and it CORRECTS the
+note I wrote earlier today):** measurement runs, and anything that loads the shared stack heavily or for a
+long time. A suite that only creates and deletes its own prefixed, self-cleaning topics — which is what
+`ops/consumer.test.ts` and `cdp/consumer.test.ts` do — does **not** need it, so `pnpm test --filter
+@platform/engagement` with the broker up is fine to run unasked. The rule is about CONTENTION on the stack,
+not about the word "live". A drain, a full end-to-end measurement or a long-running consumer still needs the
+machine.
+
 # Memory 16 — CRM, CDP, ops alerts & support
 Window: 16 · Key: `engagement` · Branch prefix: `engagement/` · Model: Sonnet
-Last updated: 2026-11-02 (window 16, #678 / PR #695 review items) · Contracts: contracts-v0.4.26, events-v1 = 2abe310 · Last commit: see Done/In progress · Merged: #553 via #563 (7c41d82) · Status: 16.1 delivered (PR #562, head a2e9abc, pushed); 16.2 BUILT and green locally (166/166 with the broker up, twice); pushes HELD until the manager confirms #562 merged
+Last updated: 2026-11-02 (window 16, #678 / PR #695 review items) · Contracts: contracts-v0.4.26, events-v1 = 2abe310 · Last commit: see Done/In progress · Merged: #553 via #563 (7c41d82) · Status: IDLE 2026-11-02 — #678 merged via PR #695 (merge fd7fc8c2, merged head 96d0a67a); package 0.9.2; two memory commits are local-only, cherry-pick them onto the next branch off origin/main
 
 ## Identity (does not change)
 Owned paths (write):
@@ -177,7 +185,69 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **Never commit a 64-hex email_hash fixture.** The `sha256` $def needs a real 64-hex value, so a word will not validate — compute it: `createHash('sha256').update('…').digest('hex')`, which is what apps/core does. I had three such literals before catching it; one would have reddened every open PR.
 - `pg` is deliberately NOT a dependency of this app: for a pool type use `Parameters<typeof createTenantClient>[0]`.
 
-## RESUME HERE — 2026-11-02: #678 PR #695 reviewed (FINDINGS, no block); the review items are IN the tree, push HELD for #697
+## RESUME HERE — 2026-11-02: #696 gate (order.placed@2) — engagement's half is BUILT, PR opening
+
+**Manager session TEN.** Branch `engagement/phase5-696-gate` from `origin/main` `fd7fc8c2`, carrying the two
+memory commits that could not be pushed to the merged #695 branch (cherry-picked as `639ec71c`, `942ebf3d`).
+
+**THE FINDING: no production code needed changing, and saying so IS the deliverable.** #696 makes
+`order.placed.email_hash` nullable so the outbox replay can scrub an erased customer and still republish the
+order the ledger needs; the manager's gate is that every consumer takes v1 AND v2 before it lands. All three
+paths the issue names were already null-safe, for reasons worth keeping:
+- `cdp/consumer.ts` reads the hash through `typeof payload.email_hash === 'string' ? … : null`, a CHECK and
+  not a cast, so a null arrives as `null`;
+- `gate()` in `consent.ts` then gives `{ userId, anonymousId: null }` for a named customer and NO identity at
+  all when `customer_id` is null too → drop, reason `no_identity`, counted in `dropped` and logged with the
+  consent mode, in `analytics` as well as `strict`. `analytics` is the mode that would track a guest by hash,
+  so it is the one that had to refuse;
+- `cdp/mapper.ts` never reads the hash (it is not a tracked property), so a v2 event with a customer is
+  byte-identical to v1 — the test asserts that EQUALITY rather than re-listing properties;
+- `crm/consumer.ts` treats `order.placed` as order-scoped: the customer comes from the order row and the
+  e-mail from the Admin API, so the payload's hash is never read at all;
+- `support/draft-context.ts` reads the Admin API, not events.
+
+**The mock (`src/testing/order-placed-v2.ts`) is DERIVED, not copied:** clone `EVENT_SCHEMAS['order.placed@1']`,
+give it the v2 `$id`, make `email_hash` `oneOf [sha256, null]` — the issue's diff as code, so the mock cannot
+end up describing a v1 that has changed. A v2 fixture is built from an already-VALIDATED v1 envelope, so no
+test duplicates the payload. One test pins the mock itself: v1 refuses the null, @2 accepts it, @2 still
+accepts a hash, and `validatePayload('order.placed', 2, …)` is still "unknown event" — the premise the gate
+rests on, and a line that goes green by itself the day #696 lands. `packages/events` untouched.
+
+`data/cdp/tracking-plan.json` keeps `version: 1` for the entry on purpose: the mapping reads no field that
+differs between the versions, so bumping it would claim a schema that does not exist here yet. The reason is
+in the entry's `$comment`.
+
+**Verified:** 552 passed / 9 live skipped offline, 561/561 with the broker up; lint, typecheck (29/29),
+prettier, ownership clean. Package **0.9.3**.
+
+**#705 review = FINDINGS, production claim upheld; fixed in `76bbe365`:**
+1. **(must, and the reviewer was right)** my mock carried the REAL @2 `$id`, and `createValidator()` compiles
+   every schema in `EVENT_SCHEMAS` — so the day #696 lands, `ajv.compile(mock)` throws *already exists* and
+   all five v2 tests fail on the very change meant to make them pass. Now `ajv.getSchema(id) ?? compile(mock)`,
+   so the published schema takes over by itself, and the pin test asks `orderPlacedV2IsPublished()` and
+   expects `ok: true` from then on. **I verified the failure mode rather than trusting it**: a second
+   `ajv.compile` under one `$id` does throw (node one-liner against `packages/events/dist`). LESSON: a mock
+   that deliberately wears the real identifier has to plan for the day the real thing shows up.
+2. **The erasure case I had missed.** My "scrubbed" CRM test seeded `customer_id = NULL` on the ORDER, but
+   erasure KEEPS orders linked (`apps/core` gdpr.ts — legal-obligation exception) and the replay scrubs only
+   the payload. The real case: the order still names an ERASED customer, so the CRM finds them from the order
+   row and must answer **`customer_erased`**, not `no_identity` — "we were told to forget this person" rather
+   than "a guest bought something". Both tests exist now, and the CDP one uses the erased-linked order to pin
+   the opposite guarantee: `order.placed` resolves identity from the PAYLOAD, so the CDP cannot resurrect
+   them by reading the order behind it. LESSON: when a fixture stands in for a replay, check what the replay
+   actually leaves behind — I had modelled the payload and not the row.
+3. `src/testing/**` is excluded from the build (proved: no `dist/testing`), and the README now carries the
+   **deploy order** — this service needs the regenerated `@platform/events` build no later than the core, or
+   a live `order.placed@2` is `skipped_unmapped` and LOST for this group. The manager put that on #696.
+
+**Verified after the fixes:** 553 passed / 9 live skipped offline, 562/562 with the broker up; lint,
+typecheck, prettier, ownership clean; `pnpm build` clean.
+
+**Budget note:** this ran past the ~20-call guide, all of it reading (five source files plus the SDK's
+version handling) rather than writing, because the answer to "does it already work?" is only worth having if
+you have read the paths. Said so in the report instead of stopping with the branch half-built.
+
+## RESUME (superseded) — 2026-11-02: #678 DONE, PR #695 merged (fd7fc8c2); idle, two memory commits to cherry-pick
 
 **Manager session TEN.** Branch `engagement/phase5-678` from `origin/main` `d6ed17ee`. #610 merged
 (`4c2ca7ab`) — AI support drafts are on main, ON by default per store.
@@ -225,6 +295,20 @@ red on the merge exactly as designed and went with it, and one test stays in the
 codes ARE in the contract now. Six sites, not the two the review item named (`types.ts`, the test file's
 import/tests/comment, package CLAUDE.md, README, CHANGELOG 0.9.2, version bump). 547 passed / 9 live skipped
 offline, 556/556 with the broker up; lint, typecheck, prettier, ownership clean. Package **0.9.2**.
+
+**#695 is MERGED and #678 is CLOSED** (2026-11-02 17:46Z, verified on GitHub, not taken from the note):
+merge commit **`fd7fc8c2`** on main. My final push was `2f125563`; the MERGED HEAD is **`96d0a67a`**, because
+the merge queue added one `Merge remote-tracking branch 'origin/main'` commit on top of mine to re-check
+against #698/#699 before landing. `2f125563` is an ancestor of it and nothing of mine was rewritten — worth
+knowing so a "my head is not the head that merged" moment does not look like someone force-pushing my branch.
+
+**Status: IDLE**, waiting for the next assignment from the manager.
+
+**One loose end for whoever picks up the next task: TWO memory commits are local-only and NOT on main** —
+`8cd80fce` and the one recording this merge. The branch was declared final and then merged, so they could not
+be pushed. **Start the next task with a fresh branch off `origin/main` and `git cherry-pick` them first**
+(they touch only `docs/memory/Memory-16-engagement.md`, so they carry cleanly); then the branch's own commits
+go on top. Do not push them to `engagement/phase5-678`, which is merged and done.
 
 **Manager's answers (2026-11-02):** the 413 limit stays recorded in the README, **no issue** — "the webhook
 bodies are small, and the cap is a guard, not a flow". The live-suite slip: noted, no harm, the memory note

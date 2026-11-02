@@ -45,6 +45,12 @@ import {
   type CdpLogLine,
 } from './consumer.js';
 import { CdpError } from './types.js';
+import {
+  ORDER_PLACED_V2,
+  orderPlacedV2IsPublished,
+  toOrderPlacedV2,
+  validatesAsV2,
+} from '../testing/order-placed-v2.js';
 
 const ORG = SEED_IDS.organization;
 const STORE_A = SEED_IDS.stores.brandA;
@@ -424,6 +430,107 @@ describe('handleCdpEvent — the decision path', () => {
     const id = await makeCustomer(STORE_A, true);
     adapter.failWith = new CdpError('rudderstack /v1/identify: HTTP 500');
     await expect(handleCdpEvent(customerCreated(id), 'out-14', deps())).rejects.toThrow('HTTP 500');
+  });
+});
+
+describe('order.placed@2 — a null email_hash is an erased customer, never a profile (#696)', () => {
+  // CONTRACT CHANGE #696 makes `email_hash` nullable so the outbox replay can scrub an erased customer and
+  // still republish the order the ledger needs. The manager's gate: it lands only once every consumer takes
+  // v1 AND v2, and these are this service's proof. The @2 schema is a LOCAL mock (src/testing) until window
+  // 14 lands it — `packages/events` is not mine to edit.
+
+  it('the fixture is #696 shape, not this file s invention: v1 refuses the null, @2 takes it, and the SDK does not know @2 yet', async () => {
+    const orderId = await makeOrder(STORE_A, null);
+    const v1 = orderPlaced(orderId, null);
+    const scrubbed = toOrderPlacedV2(v1, { emailHash: null, customerId: null });
+
+    expect(scrubbed.version).toBe(ORDER_PLACED_V2);
+    // The field is still REQUIRED and may now hold null — which is the difference between an erased customer
+    // and a producer that forgot the field.
+    expect(Object.keys(scrubbed.payload as Record<string, unknown>)).toContain('email_hash');
+    expect(validator.validatePayload('order.placed', 1, scrubbed.payload).ok).toBe(false);
+    expect(validatesAsV2(scrubbed.payload)).toBe(true);
+    // v2 is v1 PLUS null, not instead of it: a live checkout still sends a hash.
+    expect(validatesAsV2(toOrderPlacedV2(v1, { emailHash: EMAIL_HASH }).payload)).toBe(true);
+    // The premise the whole gate rests on, stated so that LANDING #696 does not break this file (#705
+    // review): while @2 is unpublished the SDK has no schema for it and skips such a message rather than
+    // mishandling it — which is why the gate is safe to hold open. Once window 14 publishes it, the same
+    // payload must validate against the REAL schema, and the assertion flips to that without an edit here.
+    const published = validator.validatePayload('order.placed', 2, scrubbed.payload);
+    if (orderPlacedV2IsPublished()) {
+      expect(published).toEqual({ ok: true, errors: [] });
+    } else {
+      expect(published).toMatchObject({ ok: false });
+      expect(published.errors.join()).toMatch(/unknown event/);
+    }
+  });
+
+  it('a NAMED customer is tracked exactly as on v1, with no anonymousId', async () => {
+    const id = await makeCustomer(STORE_A, true);
+    const orderId = await makeOrder(STORE_A, id);
+    const v1 = orderPlaced(orderId, id);
+
+    await handleCdpEvent(v1, 'out-696a', deps());
+    const onV1 = adapter.tracks[0]!;
+    expect(onV1.identity).toEqual({ userId: id, anonymousId: EMAIL_HASH });
+
+    adapter = new MemoryCdpAdapter();
+    const r = await handleCdpEvent(toOrderPlacedV2(v1, { emailHash: null }), 'out-696b', deps());
+
+    expect(r.sent?.kind).toBe('track');
+    const onV2 = adapter.tracks[0]!;
+    // No anonymousId at all — not an empty string, not the word null. There is no guest profile to key.
+    expect(onV2.identity).toEqual({ userId: id, anonymousId: null });
+    // Everything else is byte-identical, which is the proof that the mapper never read the hash: it is not
+    // one of the properties, so making it nullable cannot change what the CDP receives.
+    expect(onV2.properties).toEqual(onV1.properties);
+    expect(JSON.stringify(onV2)).not.toContain(EMAIL_HASH);
+  });
+
+  it('a SCRUBBED order — null customer_id AND null email_hash — is dropped as no_identity in BOTH modes, counted and logged', async () => {
+    // The order row still NAMES the erased customer: erasure keeps orders linked (`apps/core` gdpr.ts — they
+    // are retained under the legal-obligation exception), and only the PAYLOAD is scrubbed. It makes no
+    // difference here, which is the point worth pinning: `order.placed` resolves its identity from the
+    // payload, so the CDP cannot resurrect a person the replay just scrubbed by reading the order behind it.
+    const erased = await makeCustomer(STORE_A, true);
+    await db.owner.query(`UPDATE customer SET status = 'erased' WHERE id = $1`, [erased]);
+    const orderId = await makeOrder(STORE_A, erased);
+    const scrubbed = toOrderPlacedV2(orderPlaced(orderId, null), {
+      emailHash: null,
+      customerId: null,
+    });
+    const seen: CdpLogLine[] = [];
+
+    const analytics = await handleCdpEvent(
+      scrubbed,
+      'out-696c',
+      deps({ consentModeFor: modes({}, 'analytics'), log: (l: CdpLogLine) => seen.push(l) }),
+    );
+    expect(analytics).toMatchObject({ sent: null, reason: 'no_identity' });
+
+    // `analytics` is the mode that WOULD track a guest under their hash, so it is the one that has to refuse
+    // here: with no hash and no customer there is nobody to attribute the order to, and a placeholder would
+    // be a junk anonymous profile — the thing #696 rejected a placeholder hash to avoid.
+    const strict = await handleCdpEvent(
+      scrubbed,
+      'out-696d',
+      deps({ log: (l: CdpLogLine) => seen.push(l) }),
+    );
+    expect(strict).toMatchObject({ sent: null, reason: 'no_identity' });
+
+    expect(adapter.count).toBe(0);
+    // Never silent: a reason per drop, with the mode it was judged under — "the CDP is empty" has to be an
+    // answerable question.
+    expect(seen.filter((l) => l.event === 'dropped')).toHaveLength(2);
+    expect(seen.find((l) => l.event === 'dropped')).toMatchObject({
+      topic: 'order.placed',
+      reason: 'no_identity',
+      call: 'track',
+      store_code: 'brand-a',
+      consent_mode: 'analytics',
+    });
+    // A log line carries reason codes and ids, never the payload.
+    expect(JSON.stringify(seen)).not.toContain(EMAIL_HASH);
   });
 });
 
