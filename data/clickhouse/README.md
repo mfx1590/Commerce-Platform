@@ -21,6 +21,18 @@ idempotent, so a file that failed halfway can simply run again. A test lints bot
 renews its claim every 2 minutes, so a run longer than the 10-minute TTL keeps the lock (the longest expected run is
 the 0002 backfill over `raw_events FINAL`: seconds today, minutes at years of history). A claim not renewed for 10
 minutes is a crashed runner's: it no longer counts, and the next runner sweeps it (#628 review, finding 3).
+
+**A backfill waits for the inserts already running (#685).** A materialised view sees only inserts that start after it
+exists, and a backfill sees only rows committed before it reads. An insert that began before the MV and committed after
+the backfill's read was in neither: its rows were lost from the MV's table for good while `raw_events` kept them (proven
+on ClickHouse: 86 of 150 orders). So before every `INSERT … SELECT` the runner waits until every INSERT running at that
+moment has finished, into any database (one issued from another default database still writes here), and never for
+one that starts later, so a busy ingest cannot starve it. `ch:migrate` runs as the admin, which sees every user's
+queries. `system.processes` is per server, so a multi-replica service (ClickHouse Cloud behind one endpoint) MUST be
+read on every replica: the runner reads `clusterAllReplicas('default', system.processes)` and falls back to the local
+table only when the server has no `default` cluster (a single local server). Past 10 minutes it refuses with
+`InsertsStillRunningError` and backfills nothing; run it again. Migration 0005 refills the order.placed event_ids a
+database migrated before this fix may be missing from `orders_minute_events` (on a fresh database it adds nothing).
 Materialised views never go in `models/`: re-creating an MV that has no TO table drops its data.
 
 ## Access (#648)
@@ -125,7 +137,8 @@ one row per order.placed event into `orders_minute_events`, a ReplacingMergeTree
 `(store_id, currency, minute, event_id)`, where copies of an event fold. `live_orders_minute` aggregates at read
 time over FINAL: `uniqExact(order_id)` (never the approximate `uniq`) and `sum(total_minor)` per currency. It counts
 every placed order, cancelled ones included (a live order count, not bookings). Migration 0002 backfills what
-`raw_events` held before the MV existed.
+`raw_events` held before the MV existed (after the inserts in flight have finished, #685); 0005 refills what an earlier
+run of 0002 missed.
 
 ### fct_order_line: the interface window 9 reads (binding, #607)
 

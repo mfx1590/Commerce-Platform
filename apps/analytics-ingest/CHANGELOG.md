@@ -2,6 +2,14 @@
 
 ## 0.8.1 — unreleased (#648 follow-ups)
 
+- #685, a lost-row bug, not a flaky test: an insert that began before 0002's materialised view and committed after its
+  backfill had read `raw_events` reached neither, and its order.placed rows were missing from `orders_minute_events`
+  for good (86 of 150 in a forced run; 143 of 150 on CI). `migrate` now waits, before every backfill, for every
+  INSERT running at that moment, on every replica (`clusterAllReplicas`, the local table on a single server) and into
+  any database (`waitForRunningInserts`, `DrainOptions`; past 10 minutes
+  `InsertsStillRunningError`, nothing backfilled). Migration 0005 refills the missing event_ids of a database
+  migrated before the fix. Tests: the drain on the runner double; live, a deterministic slow insert across the
+  migration (fails without the drain: 64 of 150), and 0005 restoring rows deleted from a pre-fix database.
 - `analytics_ingest` INSERTs only into the tables it writes: `raw_events`, `customer_erasures` and the MV target
   `orders_minute_events` (was `analytics.*`); a test derives every MV target on `raw_events` from the migrations so a
   new MV cannot be left without its grant.

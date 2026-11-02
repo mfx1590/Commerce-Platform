@@ -12,6 +12,9 @@ export {
 export type { ChClient } from './clickhouse.js';
 export {
   DEFAULT_SQL_SOURCES,
+  DRAIN_POLL_MS,
+  DRAIN_TIMEOUT_MS,
+  InsertsStillRunningError,
   lintSqlFiles,
   LOCK_RENEW_SECONDS,
   LOCK_TTL_SECONDS,
@@ -20,8 +23,9 @@ export {
   MigrationLockedError,
   readSqlFiles,
   splitStatements,
+  waitForRunningInserts,
 } from './migrations.js';
-export type { MigrateResult, SqlFile, SqlKind, SqlSource } from './migrations.js';
+export type { DrainOptions, MigrateResult, SqlFile, SqlKind, SqlSource } from './migrations.js';
 export { ConfigError, DEFAULT_GROUP, loadConfig } from './config.js';
 export type { ClickHouseConfig, IngestConfig } from './config.js';
 export {
