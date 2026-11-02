@@ -77,6 +77,7 @@ describe('templates', () => {
   it('every template is id@version with a purpose, an effort, a token cap and its declared variables', () => {
     expect(Object.keys(TEMPLATES).sort()).toEqual([
       'bi-qa-answer@1',
+      'bi-qa-answer@2',
       'product-category-suggest@1',
       'product-copy-draft@1',
       'product-copy-draft@2',
