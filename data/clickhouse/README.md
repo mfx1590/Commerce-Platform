@@ -15,9 +15,11 @@ idempotent, so a file that failed halfway can simply run again. A test lints bot
 
 - `CREATE … IF NOT EXISTS` and `ALTER TABLE … ADD COLUMN IF NOT EXISTS` in migrations;
 - `INSERT … SELECT` into a ReplacingMergeTree table (a backfill whose copies fold);
-- `DROP VIEW IF EXISTS` of a view a migration created as a MATERIALIZED view (replacing an MV: create the new one
-  first, then drop the old, #689), and `DELETE FROM` a ReplacingMergeTree table `WHERE store_id =
-toUUID('00000000-0000-0000-0000-000000000000')` exactly (the rows a no-op NULL filter let through) — nothing wider;
+- `DROP VIEW IF EXISTS` of a materialised view created EARLIER (an earlier file or statement), and only once
+  another, later-created MV already writes to its TO table (replacing an MV: the new one first, #689); and
+  `DELETE FROM` a table that is a materialised view's TO table AND ReplacingMergeTree (never `raw_events`) `WHERE
+store_id = toUUID('00000000-0000-0000-0000-000000000000')` exactly, `toUUID` as written (the rows a no-op NULL
+  filter let through) — nothing wider;
 - `CREATE OR REPLACE VIEW` in models.
 
 `_migrations_lock` keeps two runners apart: the oldest LIVE claim wins and the other refuses. A running migration

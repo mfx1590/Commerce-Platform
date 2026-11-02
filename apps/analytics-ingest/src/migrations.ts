@@ -89,12 +89,17 @@ const MIGRATION_OK = [
 const MODEL_OK = /^CREATE\s+OR\s+REPLACE\s+VIEW\s/i;
 const INSERT = /^INSERT\s+INTO\s+(\w+)\s/i;
 // #689: replacing a materialised view (create the new one, then drop the old) and removing rows a buggy one wrote.
-// Both are narrow on purpose: a DROP only of a VIEW, IF EXISTS, that a migration created as a materialised view;
-// a DELETE only of the zero-uuid store rows (what an MV's no-op `store_id IS NOT NULL` let through) from a
-// ReplacingMergeTree table. Both are idempotent: a second run drops nothing and deletes nothing.
+// Both are narrow on purpose (#692 review):
+//   * a DROP only as DROP VIEW IF EXISTS of a materialised view created EARLIER (an earlier file or statement), and
+//     only once another, later-created MV already writes to the same TO table — the replacement exists first;
+//   * a DELETE only of the zero-uuid store rows (what an MV's no-op `store_id IS NOT NULL` let through), only from a
+//     table that is a materialised view's TO table AND ReplacingMergeTree — never raw_events, the truth. `store_id`
+//     and `toUUID` are matched as written (the server rejects `touuid`).
+// Both are idempotent: a second run drops nothing and deletes nothing.
 const DROP_VIEW = /^DROP\s+VIEW\s+(IF\s+EXISTS\s+)?(\w+)$/i;
 const DELETE = /^DELETE\s+FROM\s+(\w+)\s+WHERE\s+([\s\S]+)$/i;
-const ZERO_STORE = /^store_id\s*=\s*toUUID\(\s*'00000000-0000-0000-0000-000000000000'\s*\)$/i;
+const ZERO_STORE = /^store_id\s*=\s*toUUID\(\s*'00000000-0000-0000-0000-000000000000'\s*\)$/;
+const CREATE_MV = /^CREATE\s+MATERIALIZED\s+VIEW\s+IF\s+NOT\s+EXISTS\s+(\w+)(?:\s+TO\s+(\w+))?/i;
 
 /** Tables created by the migrations with a ReplacingMergeTree engine: the only safe backfill targets. */
 function replacingTables(files: readonly SqlFile[]): Set<string> {
@@ -109,14 +114,14 @@ function replacingTables(files: readonly SqlFile[]): Set<string> {
   return out;
 }
 
-/** Materialised views the migrations create: the only views a migration may drop. */
-function materializedViews(files: readonly SqlFile[]): Set<string> {
+/** The TO tables of the materialised views the migrations create: the only tables a DELETE may touch. */
+function viewTargets(files: readonly SqlFile[]): Set<string> {
   const out = new Set<string>();
   for (const f of files) {
     if (f.kind !== 'migration') continue;
     for (const s of splitStatements(f.sql)) {
-      const m = /^CREATE\s+MATERIALIZED\s+VIEW\s+IF\s+NOT\s+EXISTS\s+(\w+)/i.exec(s);
-      if (m) out.add(m[1]!);
+      const m = CREATE_MV.exec(s);
+      if (m?.[2]) out.add(m[2]);
     }
   }
   return out;
@@ -125,9 +130,15 @@ function materializedViews(files: readonly SqlFile[]): Set<string> {
 /** Every statement that would not survive a second run: [] means the folders are safe to re-run. */
 export function lintSqlFiles(files: readonly SqlFile[]): string[] {
   const replacing = replacingTables(files);
-  const views = materializedViews(files);
+  const targets = viewTargets(files);
+  // the MVs live at this point of the walk, name → TO table, in file then statement order (what a DROP may drop)
+  const live = new Map<string, string | undefined>();
   const problems: string[] = [];
-  for (const f of files) {
+  const ordered = [...files].sort(
+    (a, b) =>
+      Number(a.kind === 'model') - Number(b.kind === 'model') || a.name.localeCompare(b.name),
+  );
+  for (const f of ordered) {
     splitStatements(f.sql).forEach((s, i) => {
       const at = `${f.name} statement ${i + 1}`;
       if (f.kind === 'model') {
@@ -142,19 +153,32 @@ export function lintSqlFiles(files: readonly SqlFile[]): string[] {
           );
         return;
       }
+      const mv = CREATE_MV.exec(s);
+      if (mv) live.set(mv[1]!, mv[2]);
       const drop = DROP_VIEW.exec(s);
       if (drop || /^DROP\s/i.test(s)) {
-        if (!drop || !drop[1] || !views.has(drop[2]!))
+        const name = drop?.[2];
+        const to = name === undefined ? undefined : live.get(name);
+        const replaced =
+          to !== undefined &&
+          [...live].some(([other, otherTo]) => other !== name && otherTo === to);
+        if (!drop || !drop[1] || !live.has(name!) || !replaced)
           problems.push(
-            `${at}: a DROP is allowed only as DROP VIEW IF EXISTS of a materialised view a migration created`,
+            `${at}: a DROP is allowed only as DROP VIEW IF EXISTS of a materialised view created earlier, once another MV writes to its TO table`,
           );
+        else live.delete(name!);
         return;
       }
       const del = DELETE.exec(s);
       if (del || /^DELETE\s/i.test(s)) {
-        if (!del || !replacing.has(del[1]!) || !ZERO_STORE.test(del[2]!.trim()))
+        if (
+          !del ||
+          !replacing.has(del[1]!) ||
+          !targets.has(del[1]!) ||
+          !ZERO_STORE.test(del[2]!.trim())
+        )
           problems.push(
-            `${at}: a DELETE is allowed only as DELETE FROM a ReplacingMergeTree table WHERE store_id = toUUID('00000000-0000-0000-0000-000000000000')`,
+            `${at}: a DELETE is allowed only as DELETE FROM a materialised view's ReplacingMergeTree TO table WHERE store_id = toUUID('00000000-0000-0000-0000-000000000000')`,
           );
         return;
       }

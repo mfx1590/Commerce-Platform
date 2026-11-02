@@ -173,7 +173,7 @@ describe('lintSqlFiles', () => {
       ]),
     ).toEqual([
       '0001_a.sql statement 1: not idempotent (use CREATE … IF NOT EXISTS / ADD COLUMN IF NOT EXISTS)',
-      '0001_a.sql statement 2: a DROP is allowed only as DROP VIEW IF EXISTS of a materialised view a migration created',
+      '0001_a.sql statement 2: a DROP is allowed only as DROP VIEW IF EXISTS of a materialised view created earlier, once another MV writes to its TO table',
       'models/100_v.sql statement 1: a model must be CREATE OR REPLACE VIEW',
     ]);
   });
@@ -184,37 +184,76 @@ describe('lintSqlFiles', () => {
     [
       'CREATE TABLE IF NOT EXISTS r (store_id UUID) ENGINE = ReplacingMergeTree ORDER BY store_id;',
       'CREATE TABLE IF NOT EXISTS m (store_id UUID) ENGINE = MergeTree ORDER BY store_id;',
-      'CREATE MATERIALIZED VIEW IF NOT EXISTS mv_old TO r AS SELECT store_id FROM src;',
+      // the source table, ReplacingMergeTree like raw_events, and no MV's TO table: a DELETE never touches it
+      'CREATE TABLE IF NOT EXISTS raw_events (store_id Nullable(UUID)) ENGINE = ReplacingMergeTree ORDER BY tuple();',
+      'CREATE MATERIALIZED VIEW IF NOT EXISTS mv_old TO r AS SELECT store_id FROM raw_events;',
     ].join('\n'),
   );
   const ZERO = "toUUID('00000000-0000-0000-0000-000000000000')";
+  const REPLACEMENT =
+    'CREATE MATERIALIZED VIEW IF NOT EXISTS mv_new TO r AS SELECT store_id FROM raw_events;';
   // a plain view (a model) is no materialised view: a migration may not drop it
   const plain = model('100_plain.sql', 'CREATE OR REPLACE VIEW plain AS SELECT 1;');
   const lintOne = (sql: string) => lintSqlFiles([base, mig('0002_x.sql', sql), plain]);
 
   it.each([
     [
-      'DROP VIEW IF EXISTS of a materialised view a migration created',
-      'DROP VIEW IF EXISTS mv_old;',
+      'DROP VIEW IF EXISTS of an earlier MV, once its replacement writes to the same TO table',
+      `${REPLACEMENT}\nDROP VIEW IF EXISTS mv_old;`,
     ],
     [
-      'DELETE of the zero-uuid store rows from a ReplacingMergeTree table',
+      'the replacement in an earlier file than the drop',
+      // lintOne puts the SQL in 0002; the replacement goes in 0001b, between base and it
+      null,
+    ],
+    [
+      "DELETE of the zero-uuid store rows from an MV's ReplacingMergeTree TO table",
       `DELETE FROM r WHERE store_id = ${ZERO};`,
     ],
     [
-      'the same, spaced and in lower case',
-      `delete from r where store_id=touuid( '00000000-0000-0000-0000-000000000000' );`,
+      'the same, spaced',
+      "DELETE FROM r WHERE store_id  =  toUUID(  '00000000-0000-0000-0000-000000000000'  );",
     ],
   ])('allows %s', (_, sql) => {
-    expect(lintOne(sql)).toEqual([]);
+    const problems =
+      sql === null
+        ? lintSqlFiles([
+            base,
+            mig('0001b_new.sql', REPLACEMENT),
+            mig('0002_x.sql', 'DROP VIEW IF EXISTS mv_old;'),
+            plain,
+          ])
+        : lintOne(sql);
+    expect(problems).toEqual([]);
   });
 
   it.each([
-    ['DROP VIEW without IF EXISTS', 'DROP VIEW mv_old;', 'DROP'],
-    ['DROP VIEW of a view no migration created as an MV', 'DROP VIEW IF EXISTS plain;', 'DROP'],
+    ['DROP VIEW without IF EXISTS', `${REPLACEMENT}\nDROP VIEW mv_old;`, 'DROP'],
+    ['DROP of an MV with no replacement on its TO table', 'DROP VIEW IF EXISTS mv_old;', 'DROP'],
+    [
+      'DROP before its replacement is created',
+      `DROP VIEW IF EXISTS mv_old;\n${REPLACEMENT}`,
+      'DROP',
+    ],
+    [
+      'DROP of an MV created only LATER',
+      'DROP VIEW IF EXISTS mv_later;\nCREATE MATERIALIZED VIEW IF NOT EXISTS mv_later TO r AS SELECT store_id FROM raw_events;',
+      'DROP',
+    ],
+    ['DROP VIEW of a plain model view', 'DROP VIEW IF EXISTS plain;', 'DROP'],
     ['DROP VIEW of an unknown name', 'DROP VIEW IF EXISTS nope;', 'DROP'],
     ['DROP TABLE', 'DROP TABLE IF EXISTS r;', 'DROP'],
     ['DELETE from a plain MergeTree table', `DELETE FROM m WHERE store_id = ${ZERO};`, 'DELETE'],
+    [
+      "DELETE from raw_events (ReplacingMergeTree, but no MV's TO table: the truth)",
+      `DELETE FROM raw_events WHERE store_id = ${ZERO};`,
+      'DELETE',
+    ],
+    [
+      'DELETE with touuid (the server rejects it)',
+      "DELETE FROM r WHERE store_id = touuid('00000000-0000-0000-0000-000000000000');",
+      'DELETE',
+    ],
     [
       'DELETE of other rows',
       "DELETE FROM r WHERE store_id = toUUID('00000000-0000-4000-8000-000000000031');",
@@ -465,6 +504,7 @@ describe('the drain before a backfill', () => {
         '0002_v2.sql',
         [
           'CREATE MATERIALIZED VIEW IF NOT EXISTS mv_old TO t AS SELECT x FROM src;',
+          'CREATE MATERIALIZED VIEW IF NOT EXISTS mv_new TO t AS SELECT x FROM src;',
           'DROP VIEW IF EXISTS mv_old;',
           "DELETE FROM t WHERE store_id = toUUID('00000000-0000-0000-0000-000000000000');",
         ].join('\n'),

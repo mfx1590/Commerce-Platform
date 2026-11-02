@@ -61,7 +61,11 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   0006 → every order exactly once, only v2 left (25.8 fires an MV whose source is inside a subquery); store-less
   order: 1 zero-uuid row through 0002 → 0 after 0006 → still 0 for a new one. A drop-first negative control could
   not be made deterministic (the lint refuses a pause; the gap is ms) — skipped, said so. Unit 136; gates green.
-  NEXT: Fable review of the PR.
+  PR #692. Fable APPROVE + 3 lint tightenings done: DELETE only from an MV's TO table that is ALSO
+  ReplacingMergeTree (raw_events refused); `toUUID` matched case-sensitively (server rejects touuid); DROP only of
+  an MV created EARLIER (file then statement order) once another MV writes to its TO table (drop-before-replace,
+  drop-of-later, no-replacement all refused); access.test finds an MV's source per statement, subquery-tolerant.
+  Unit 142; no machine needed.
 - #7 FIX (2026-11-02, branch data/phase5-606-products from main abfbc02d): golden/catalogue.ts catalogueFor
   publishes 8 products per store (variants by line order, weights 9:7:5:4:2:1:1:1) in the LIVE golden setup; a
   live test pins #7 to 5 distinct products, units falling; catalogue.test (4). Real run logs each case's queries;

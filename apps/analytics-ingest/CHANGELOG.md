@@ -5,9 +5,10 @@
 - #689: migration 0006 replaces `mv_orders_minute` (0002), whose `store_id IS NOT NULL` read the alias
   `assumeNotNull(store_id)` and so filtered nothing (a store-less order.placed would land under the zero uuid). In
   order: `mv_orders_minute_v2` (the filter in a subquery), then `DROP VIEW IF EXISTS mv_orders_minute`, then the
-  zero-uuid store rows deleted. The idempotency lint allows exactly that much: a DROP only as `DROP VIEW IF EXISTS`
-  of a view a migration created as a materialised view; a DELETE only of the zero-uuid store rows from a
-  ReplacingMergeTree table (tested both ways). `migrate` now drains the running INSERTs before a DELETE too (an
+  zero-uuid store rows deleted. The idempotency lint allows exactly that much (tightened in the #692 review): a DROP
+  only as `DROP VIEW IF EXISTS` of an MV created earlier, once another MV writes to its TO table; a DELETE only of the
+  zero-uuid store rows (`toUUID` as written) from an MV's ReplacingMergeTree TO table, never `raw_events` (tested both
+  ways). `migrate` now drains the running INSERTs before a DELETE too (an
   insert begun before the drop still writes through the old MV). Live: inserts running during 0006 — every order
   exactly once, only the new MV left; a store-less order under the zero uuid through 0002, deleted by 0006, kept
   out after it.
