@@ -88,7 +88,10 @@ export default async function ProductDetailPage({
         <Card>
           <CardHeader title="Details" />
           <CardBody>
+            {/* Keyed by updated_at: after any save (the AI panel's included) the form remounts on
+                the saved values, so a later "Save changes" never writes the old copy back. */}
             <ProductForm
+              key={current.updated_at}
               action={updateProductAction.bind(null, storeId, productId)}
               defaultValues={defaultValues}
               categories={categories.ok ? categories.data.items : []}

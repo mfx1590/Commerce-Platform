@@ -209,11 +209,9 @@ describe('a draft', () => {
     const title = within(region).getByLabelText('Draft Title');
     await user.clear(title);
     await user.type(title, 'Linen tea towel, natural');
-    // Keep title and bullets; drop the description.
-    const descriptionBox = within(region)
-      .getByRole('heading', { name: 'Description' })
-      .closest('div')!.parentElement!;
-    await user.click(within(descriptionBox).getByLabelText('Use this field'));
+    // Nothing is ticked on arrival: keep title and bullets, leave the description out.
+    await user.click(within(region).getByLabelText('Use the drafted title'));
+    await user.click(within(region).getByLabelText('Use the drafted bullets'));
     await user.click(within(region).getByRole('button', { name: 'Save to product' }));
     expect(actions.saveProductCopyAction).toHaveBeenCalledWith(STORE, PRODUCT, {
       title: 'Linen tea towel, natural',
@@ -256,6 +254,7 @@ describe('a draft', () => {
     renderPanel();
     await user.click(screen.getByRole('button', { name: 'Draft with AI' }));
     const region = await screen.findByRole('region', { name: 'AI draft' });
+    await user.click(within(region).getByLabelText('Use the drafted description'));
     await user.click(within(region).getByRole('button', { name: 'Save to product' }));
     expect(await screen.findByText('An SEO title is at most 70 characters.')).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'AI draft' })).toBeInTheDocument();
@@ -267,5 +266,70 @@ describe('the role gate', () => {
     renderPanel({ canDraft: false });
     expect(screen.getByRole('button', { name: 'Draft with AI' })).toBeDisabled();
     expect(screen.getByText(/needs/)).toHaveTextContent(`store_staff on store:${STORE}`);
+  });
+});
+
+describe('review fixes (#675)', () => {
+  const drafted = async (over: Record<string, unknown> = {}) => {
+    actions.draftProductCopyAction.mockResolvedValue({ status: 'success', draft: draft(over) });
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(screen.getByRole('button', { name: 'Draft with AI' }));
+    const region = await screen.findByRole('region', { name: 'AI draft' });
+    return { user, region };
+  };
+
+  it('a draft arrives with NO field ticked, Save waits for a tick, and focus moves to the draft', async () => {
+    const { user, region } = await drafted();
+    for (const name of ['title', 'description', 'bullets']) {
+      expect(within(region).getByLabelText(`Use the drafted ${name}`)).not.toBeChecked();
+    }
+    expect(within(region).getByRole('button', { name: 'Save to product' })).toBeDisabled();
+    expect(within(region).getByRole('heading', { name: /^AI draft \(en-GB\)/ })).toHaveFocus();
+    await user.click(within(region).getByLabelText('Use the drafted title'));
+    expect(within(region).getByRole('button', { name: 'Save to product' })).toBeEnabled();
+  });
+
+  it('Title is a single-line input', async () => {
+    const { region } = await drafted();
+    expect(within(region).getByLabelText('Draft Title').tagName).toBe('INPUT');
+  });
+
+  it('a new draft does not replace edits without asking', async () => {
+    const { user, region } = await drafted();
+    await user.type(within(region).getByLabelText('Draft Title'), ' (mine)');
+    await user.click(screen.getByRole('button', { name: 'Draft with AI' }));
+    const ask = screen.getByRole('alertdialog', { name: 'Replace the edited draft?' });
+    expect(actions.draftProductCopyAction).toHaveBeenCalledTimes(1);
+    await user.click(within(ask).getByRole('button', { name: 'Keep my edits' }));
+    expect(within(region).getByLabelText('Draft Title')).toHaveValue('Linen tea towel (mine)');
+    await user.click(screen.getByRole('button', { name: 'Draft with AI' }));
+    await user.click(screen.getByRole('button', { name: 'Replace with a new draft' }));
+    expect(actions.draftProductCopyAction).toHaveBeenCalledTimes(2);
+  });
+
+  it('the locale note follows the draft’s locale', async () => {
+    await drafted({ locale: 'nl-NL' });
+    expect(screen.getByText(/A nl-NL draft can be/)).toBeInTheDocument();
+  });
+
+  it('Copy is announced', async () => {
+    const { user, region } = await drafted();
+    // After userEvent.setup(), which installs its own clipboard stub.
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    await user.click(within(region).getByRole('button', { name: 'Copy draft Title' }));
+    expect(writeText).toHaveBeenCalledWith('Linen tea towel');
+    expect(await within(region).findByText('Copy draft Title: copied')).toBeInTheDocument();
+  });
+
+  it('after a save, focus moves to the outcome', async () => {
+    actions.saveProductCopyAction.mockResolvedValue({ status: 'success', data: { id: PRODUCT } });
+    const { user, region } = await drafted();
+    await user.click(within(region).getByLabelText('Use the drafted title'));
+    await user.click(within(region).getByRole('button', { name: 'Save to product' }));
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent('Saved title to the product.');
+    expect(status).toHaveFocus();
   });
 });

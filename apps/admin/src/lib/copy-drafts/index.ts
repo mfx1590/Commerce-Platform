@@ -200,12 +200,26 @@ export function editableDraft(
   };
 }
 
-/** Bullets joined into the description as a "- " list — exactly what is saved and shown. */
+/**
+ * The description without a trailing "- " list (the bullets a previous save put there), so a
+ * re-drafted list REPLACES it instead of appending a second one.
+ */
+export function stripTrailingList(description: string): string {
+  const lines = description.trimEnd().split('\n');
+  let end = lines.length;
+  while (end > 0 && /^- /.test(lines[end - 1] ?? '')) end--;
+  if (end === lines.length) return description.trimEnd();
+  return lines.slice(0, end).join('\n').trimEnd();
+}
+
+/** Bullets joined into the description as a "- " list — exactly what is saved and shown. An
+ * existing trailing list is replaced, never doubled. */
 export function withBullets(description: string, bullets: readonly string[]): string {
   const items = bullets.map((b) => b.trim()).filter((b) => b !== '');
   if (items.length === 0) return description;
   const list = items.map((b) => `- ${b}`).join('\n');
-  return description.trim() === '' ? list : `${description.trimEnd()}\n\n${list}`;
+  const base = stripTrailingList(description);
+  return base.trim() === '' ? list : `${base}\n\n${list}`;
 }
 
 /** The PARTIAL `updateProduct` body for the accepted fields only. */

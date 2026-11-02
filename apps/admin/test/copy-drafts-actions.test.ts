@@ -295,3 +295,16 @@ describe('Retry-After', () => {
     expect(parseRetryAfter('Sun, 01 Nov 2026 09:00:20 GMT', now)).toBe(20);
   });
 });
+
+describe('a re-drafted bullet list replaces the old one (#675 review)', () => {
+  it('stripTrailingList removes only a trailing "- " list', () => {
+    expect(lib.stripTrailingList('Text.\n\n- a\n- b')).toBe('Text.');
+    expect(lib.stripTrailingList('- not a tail\nText.')).toBe('- not a tail\nText.');
+    expect(lib.stripTrailingList('Text.')).toBe('Text.');
+  });
+
+  it('saving bullets twice never doubles the list', () => {
+    const once = lib.withBullets('Text.', ['a', 'b']);
+    expect(lib.withBullets(once, ['c'])).toBe('Text.\n\n- c');
+  });
+});

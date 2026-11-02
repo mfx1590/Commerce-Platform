@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { SelectField } from '@/components/form/fields';
 import { ActionRefusal } from '@/components/states/action-refusal';
@@ -72,6 +72,9 @@ function CopyButton({ label, text }: { label: string; text: string }) {
       }}
     >
       {copied ? 'Copied' : 'Copy'}
+      <span aria-live="polite" className="sr-only">
+        {copied ? `${label}: copied` : ''}
+      </span>
     </button>
   );
 }
@@ -134,6 +137,25 @@ export function CopyDraftPanel({
   } | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [waitSeconds, setWaitSeconds] = useState(0);
+  // An edited draft is not replaced without asking.
+  const [dirty, setDirty] = useState(false);
+  const [askReplace, setAskReplace] = useState(false);
+  const draftHeading = useRef<HTMLHeadingElement>(null);
+  const savedStatus = useRef<HTMLParagraphElement>(null);
+
+  // Focus follows the work: to the draft when it arrives, to the outcome after a save.
+  useEffect(() => {
+    if (draft !== null) draftHeading.current?.focus();
+  }, [draft]);
+  useEffect(() => {
+    if (saved !== null) savedStatus.current?.focus();
+  }, [saved]);
+
+  /** Every edit of the draft goes through here, so a later draft asks before replacing it. */
+  const edit = (next: EditableCopy) => {
+    setEdited(next);
+    setDirty(true);
+  };
 
   // ai_rate_limited: the button counts Retry-After down before it works again.
   useEffect(() => {
@@ -150,6 +172,15 @@ export function CopyDraftPanel({
   };
 
   const requestDraft = () => {
+    if (draft !== null && dirty) {
+      setAskReplace(true);
+      return;
+    }
+    runDraft();
+  };
+
+  const runDraft = () => {
+    setAskReplace(false);
     setError(null);
     setRefusal(undefined);
     setSaved(null);
@@ -162,7 +193,9 @@ export function CopyDraftPanel({
       if (result.status === 'success') {
         setDraft(result.draft);
         setEdited(editableDraft(result.draft.draft, current));
-        setAccepted(new Set(result.draft.fields));
+        // Nothing is ticked: the human chooses what to keep.
+        setAccepted(new Set());
+        setDirty(false);
         return;
       }
       if (result.status === 'refused') {
@@ -192,6 +225,7 @@ export function CopyDraftPanel({
         );
         setDraft(null);
         setEdited(null);
+        setDirty(false);
         router.refresh();
         return;
       }
@@ -245,10 +279,10 @@ export function CopyDraftPanel({
           <span className="font-mono">store:{storeId}</span>.
         </p>
       )}
-      {locale !== defaultLocale && (
+      {(draft?.locale ?? locale) !== defaultLocale && (
         <p className="text-muted text-sm">
-          This product holds one copy, in {defaultLocale}. A {locale} draft can be read, edited and
-          copied, but not saved over it — per-locale product copy is{' '}
+          This product holds one copy, in {defaultLocale}. A {draft?.locale ?? locale} draft can be
+          read, edited and copied, but not saved over it — per-locale product copy is{' '}
           <a href={PER_LOCALE_ISSUE} className="text-accent hover:underline">
             #670
           </a>
@@ -256,6 +290,28 @@ export function CopyDraftPanel({
         </p>
       )}
 
+      {askReplace && (
+        <div
+          role="alertdialog"
+          aria-label="Replace the edited draft?"
+          className="border-warning/30 bg-warning/5 space-y-2 rounded-md border px-3 py-2 text-sm"
+        >
+          <p>You edited the current draft. A new draft replaces it and your edits are lost.</p>
+          <div className="flex gap-2">
+            <Button type="button" size="sm" onClick={runDraft}>
+              Replace with a new draft
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => setAskReplace(false)}
+            >
+              Keep my edits
+            </Button>
+          </div>
+        </div>
+      )}
       <ActionRefusal refusal={refusal} message={null} />
       {error !== null && (
         <div
@@ -269,13 +325,16 @@ export function CopyDraftPanel({
         </div>
       )}
       {saved !== null && (
-        <p role="status" className="text-success text-sm">
+        <p ref={savedStatus} tabIndex={-1} role="status" className="text-success text-sm">
           {saved}
         </p>
       )}
 
       {draft !== null && edited !== null && (
         <section aria-label="AI draft" className="space-y-4">
+          <h3 ref={draftHeading} tabIndex={-1} className="text-sm font-semibold">
+            AI draft ({draft.locale}) — tick the fields to keep
+          </h3>
           {draft.brand_voice_source === 'default' && (
             <p role="note" className="text-sm">
               Drafted in a neutral voice: this store has no brand voice yet.{' '}
@@ -297,7 +356,7 @@ export function CopyDraftPanel({
                       setAccepted(toggle(accepted, field, event.currentTarget.checked))
                     }
                   />
-                  Use this field
+                  Use the drafted {COPY_FIELD_LABELS[field].toLowerCase()}
                 </label>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
@@ -332,7 +391,7 @@ export function CopyDraftPanel({
                         value={edited.seo.title}
                         maxLength={70}
                         onChange={(event) =>
-                          setEdited({
+                          edit({
                             ...edited,
                             seo: { ...edited.seo, title: event.currentTarget.value },
                           })
@@ -345,22 +404,30 @@ export function CopyDraftPanel({
                         value={edited.seo.description}
                         maxLength={160}
                         onChange={(event) =>
-                          setEdited({
+                          edit({
                             ...edited,
                             seo: { ...edited.seo, description: event.currentTarget.value },
                           })
                         }
                       />
                     </div>
+                  ) : field === 'title' ? (
+                    <input
+                      aria-label="Draft Title"
+                      className="border-line w-full rounded-md border px-2 py-1 text-sm"
+                      value={edited.title}
+                      maxLength={200}
+                      onChange={(event) => edit({ ...edited, title: event.currentTarget.value })}
+                    />
                   ) : (
                     <textarea
                       aria-label={`Draft ${COPY_FIELD_LABELS[field]}`}
                       className="border-line w-full rounded-md border px-2 py-1 text-sm"
-                      rows={field === 'title' ? 1 : 6}
+                      rows={6}
                       value={asText(field, edited)}
                       onChange={(event) => {
                         const value = event.currentTarget.value;
-                        setEdited(
+                        edit(
                           field === 'bullets'
                             ? { ...edited, bullets: value.split('\n') }
                             : { ...edited, [field]: value },
@@ -400,6 +467,7 @@ export function CopyDraftPanel({
               onClick={() => {
                 setDraft(null);
                 setEdited(null);
+                setDirty(false);
               }}
             >
               Discard draft
