@@ -32,11 +32,14 @@ export function callerFor(p: Principal, s: GoldenStores): AskCaller {
 }
 
 /** The figures a result can back: money as major units with 2 decimals, counts and basis points as integers. */
-function backedValues(result: MetricResult, metrics: readonly MetricId[]): Set<string> {
+export function backedValues(result: MetricResult, metrics: readonly MetricId[]): Set<string> {
   const out = new Set<string>();
   const add = (m: string, v: number | null | undefined) => {
     if (v === null || v === undefined) return;
-    out.add(METRICS[m as MetricId]?.unit === 'minor' ? (v / 100).toFixed(2) : String(v));
+    const unit = METRICS[m as MetricId]?.unit;
+    out.add(unit === 'minor' ? (v / 100).toFixed(2) : String(v));
+    // a rate in basis points is also written as a percentage (2049 bp = 20.49 %)
+    if (unit === 'bp') out.add((v / 100).toFixed(2));
   };
   for (const r of result.rows) for (const m of metrics) add(m, r.values[m]);
   for (const t of result.currency_totals) for (const m of metrics) add(m, t.values[m]);
