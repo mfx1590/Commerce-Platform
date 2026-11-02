@@ -153,6 +153,13 @@ The replay test reads the order's outbox rows (ordered by `occurred_at, id`), fo
 the row — for the happy path and the cancel path. Task 2.5 extends it with `return.*`; task 2.6's whole-lifecycle
 suite reuses it as is.
 
+**`order.placed@2` (#696 gate).** The projection reads neither `version` nor `email_hash` nor `customer_id`, so
+@2 (`email_hash` nullable: an erased customer the outbox replay scrubbed) folds exactly like v1, and the projected
+state carries no identity a null could break or a placeholder could fill. `orders.test.ts` proves it on a real
+placed-and-captured stream with its `order.placed` rewritten to @2 (a hash, a null hash, a null hash and a null
+customer): the projection equals v1's. The @2 schema is a test-only mock (`test/helpers/order-placed-v2.ts`,
+derived from v1; `ajv.getSchema(id) ?? compile`, so the published @2 takes over the day #696 lands).
+
 ## Decisions (ADR-style; the main window moves them to docs/adr)
 
 - **2026-09-20 · An order edit scales the frozen promotion discount pro rata (#230 PR B).**

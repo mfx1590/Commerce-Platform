@@ -2,6 +2,13 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-11-02 · the #696 gate: `order.placed` v1 and v2
+
+- The orders projection (`projection.ts`, the core's only `order.placed` consumer) folds `order.placed@2`
+  (`email_hash` nullable) exactly like v1, a null hash and a null customer included: no crash, no placeholder. No
+  production code changed (the projection reads no identity field); the proof is two tests in `orders.test.ts`
+  over a test-only @2 mock derived from v1 (`test/helpers/order-placed-v2.ts`). `packages/events` untouched.
+
 ### 2026-11-02 · the catalogue re-publish (#634)
 
 - `catalog:republish` (`scripts/catalog-republish.ts`) / `republishCatalogue` (catalog `republish.ts`): every
