@@ -91,6 +91,13 @@ export const STORE_SECTIONS: readonly Section[] = [
     why: 'listOrders — x-permission viewer on store:{storeId}',
   },
   {
+    id: 'bi',
+    label: 'BI',
+    scope: 'store',
+    requires: [VIEWER],
+    why: "queryMetrics — x-permission viewer on store:* (Admin API 0.4.25); the server scopes every statement to the principal's stores (#642, page by window 12 #604)",
+  },
+  {
     id: 'inventory',
     label: 'Inventory',
     scope: 'store',

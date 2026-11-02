@@ -2021,7 +2021,7 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         Error: {
-            /** @description validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, unavailable, expired, internal, ai_disabled, ai_budget_exceeded, ai_rate_limited, ai_refused, ai_unavailable, ai_invalid_draft, ai_tool_limit */
+            /** @description validation_error, unauthorized, forbidden, not_found, conflict, last_live_key, out_of_stock, payment_failed, provider_unsupported, unavailable, expired, internal, method_not_allowed, payload_too_large, ai_disabled, ai_budget_exceeded, ai_rate_limited, ai_refused, ai_unavailable, ai_invalid_draft, ai_tool_limit */
             code: string;
             message: string;
             details?: {

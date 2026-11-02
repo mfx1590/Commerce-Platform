@@ -1063,7 +1063,7 @@ describe('customer exports (contracts 0.4.23, Store API 0.5.8, Admin API 0.4.20,
       ['admin', admin],
     ] as const) {
       expect(text, name).toMatch(
-        /description: '[^']*\bconflict\b[^']*, expired, internal(, ai_[a-z_]+)*'/,
+        /description: '[^']*\bconflict\b[^']*, expired, internal(, [a-z_]+)*'/,
       );
       const start = text.indexOf('\n    Gone:\n');
       expect(start, name).toBeGreaterThan(text.indexOf('\n  responses:\n'));
