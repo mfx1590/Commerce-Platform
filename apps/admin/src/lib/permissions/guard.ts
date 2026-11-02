@@ -14,6 +14,7 @@ import 'server-only';
 
 import { actionError, type ActionResult } from '../forms/action-result';
 import { mapServerError } from '../forms/server-errors';
+import { COPY_DRAFT_PERMISSIONS } from '../copy-drafts';
 import { ORDER_PERMISSIONS } from '../orders/permissions';
 import { loadPrincipal } from '../principal';
 import { ROLES_PERMISSIONS } from '../roles/permissions';
@@ -28,6 +29,7 @@ const OPERATIONS = {
   ...ROLES_PERMISSIONS,
   ...WAREHOUSE_PERMISSIONS,
   ...TAX_PERMISSIONS,
+  ...COPY_DRAFT_PERMISSIONS,
 } satisfies Record<string, PermissionRule>;
 
 export type GuardedOperation = keyof typeof OPERATIONS;

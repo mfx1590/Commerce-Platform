@@ -1,8 +1,13 @@
 // AI copy drafts (#608, CONTRACT CHANGE #664) on a seeded throwaway database and the gateway's DETERMINISTIC FAKE —
 // no network, no key. The product is read on store-scoped clients; the draft is never written to the product.
 import {
+  AiAuditError,
+  AiConfigError,
+  AiLimiterError,
   createAiGateway,
   createFakeTransport,
+  DeniedFieldError,
+  TemplateError,
   createMemoryAuditSink,
   createMemoryLimiter,
   createPgAuditSink,
@@ -11,8 +16,9 @@ import {
 } from '@platform/ai';
 import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AppError } from '../../lib/errors';
+import { toAppError } from './copy-draft';
 import {
   COPY_TEMPLATE,
   DEFAULT_BRAND_VOICE,
@@ -159,15 +165,49 @@ describe('draftProductCopy (#608): a draft, never saved', () => {
     }
   });
 
-  it('no customer data reaches the model', async () => {
+  it('no customer data reaches the model: the rendered <facts> block is exactly the product\u2019s own facts', async () => {
     await owner.query(
       `INSERT INTO customer (id, organization_id, store_id, email, phone, status)
        VALUES ('00000000-0000-4000-8000-00000000c608', $1, $2, 'copy-draft-customer@example.com', '+31612345678', 'registered')`,
       [ORG, A],
     );
+    // a product of brand A with known facts: subtitle, brand, tags, two scalar attributes and one nested (dropped),
+    // no category, one option
+    const product = (
+      await owner.query<{ id: string }>(
+        `SELECT id FROM product WHERE store_id = $1 ORDER BY handle OFFSET 1 LIMIT 1`,
+        [A],
+      )
+    ).rows[0]!.id;
+    await owner.query(
+      `UPDATE product SET subtitle = 'Soft linen', brand_name = 'Brand A', tags = '{kitchen,linen}',
+         category_id = NULL, attributes = '{"material":"linen","size_cm":"50 x 70","care":{"wash":40}}'::jsonb
+       WHERE id = $1`,
+      [product],
+    );
+    await owner.query(`DELETE FROM product_option WHERE product_id = $1`, [product]);
+    await owner.query(
+      `INSERT INTO product_option (organization_id, store_id, product_id, name, values, position)
+       VALUES ($1, $2, $3, 'Size', '{S,M}', 0)`,
+      [ORG, A, product],
+    );
     const { transport } = fake();
-    await draft(['description']);
-    const sent = `${transport.calls[0]!.system}\n${transport.calls[0]!.user}`;
+    await draft(['description'], 'de-DE', product);
+    const user = transport.calls[0]!.user;
+    // jsonb keeps object keys shortest-first, so size_cm comes before material; the nested `care` never goes out
+    expect(user.slice(user.indexOf('<facts>'), user.indexOf('</facts>') + '</facts>'.length)).toBe(
+      [
+        '<facts>',
+        'subtitle: Soft linen',
+        'brand: Brand A',
+        'tags: kitchen, linen',
+        'size_cm: 50 x 70',
+        'material: linen',
+        'Size: S, M',
+        '</facts>',
+      ].join('\n'),
+    );
+    const sent = `${transport.calls[0]!.system}\n${user}`;
     expect(sent).not.toContain('copy-draft-customer@example.com');
     expect(sent).not.toContain('612345678');
   });
@@ -285,5 +325,54 @@ describe('the gateway’s outcomes become typed results the admin can explain (#
     );
     expect(rows.rows).toHaveLength(1);
     expect(JSON.stringify(rows.rows[0])).not.toContain('linen');
+  });
+});
+
+describe('toAppError: the branches no gateway call reaches in the tests above (#672 review)', () => {
+  it('a limiter or audit failure is 503 unavailable; a config, template or denied-field error is 500 internal', () => {
+    for (const err of [new AiLimiterError('RedisError'), new AiAuditError('audit write failed')]) {
+      const mapped = toAppError(err) as AppError;
+      expect(mapped.status).toBe(503);
+      expect(mapped.toBody()).toEqual({
+        code: 'unavailable',
+        message: 'AI drafting is unavailable right now; nothing was sent',
+      });
+    }
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      for (const err of [
+        new AiConfigError('no key'),
+        new TemplateError('unknown template'),
+        new DeniedFieldError(['email']),
+      ]) {
+        const mapped = toAppError(err) as AppError;
+        expect(mapped.status).toBe(500);
+        // the whole body: never the gateway's message (it can name a denied field)
+        expect(mapped.toBody()).toEqual({
+          code: 'internal',
+          message: 'AI drafting is misconfigured',
+        });
+      }
+      // the log names the class only, never the message
+      expect(logged.mock.calls.map((c) => String(c[0]))).toEqual([
+        '[catalog] AI copy draft misconfigured: AiConfigError',
+        '[catalog] AI copy draft misconfigured: TemplateError',
+        '[catalog] AI copy draft misconfigured: DeniedFieldError',
+      ]);
+    } finally {
+      logged.mockRestore();
+    }
+    const other = new Error('not the gateway');
+    expect(toAppError(other)).toBe(other); // anything else is left for the error handler
+  });
+
+  it('a factory that throws while building the gateway is mapped too', async () => {
+    setCopyDraftGatewayFactory(() => {
+      throw new AiLimiterError('ECONNREFUSED');
+    });
+    await expect(draft(['description'])).rejects.toMatchObject({
+      code: 'unavailable',
+      status: 503,
+    });
   });
 });
