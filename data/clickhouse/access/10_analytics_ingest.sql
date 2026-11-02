@@ -7,7 +7,7 @@
 -- column, so the grant is that column only, never ALTER UPDATE on the data. No DDL, no access management, nothing
 -- outside {{database}}: the schema is the migrator's (the admin user), never this one's.
 -- INSERT only into the tables it writes (#648 follow-up): raw_events, customer_erasures, and every materialised
--- view's TO table that an insert into raw_events pushes to (today mv_orders_minute_v2 → orders_minute_events). A new MV
+-- view's TO table that an insert into raw_events pushes to (today mv_orders_minute_v3 → orders_minute_events). A new MV
 -- on raw_events needs its TO table here: access.test.ts derives that list from the migrations and fails otherwise.
 -- Never a mart, ledger_lines (the reconcile job's, as the admin) or _migrations.
 -- Applied by `ch:migrate` on every run (server-level, idempotent): the password is set from the env as a sha256 hash

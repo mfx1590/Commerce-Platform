@@ -1,4 +1,4 @@
-import { createValidator, type EventEnvelopeV1Base } from '@platform/events';
+import { createValidator, EVENT_SCHEMAS, type EventEnvelopeV1Base } from '@platform/events';
 import { describe, expect, it } from 'vitest';
 import { classify, toClickHouseTime } from './rows.js';
 import { toWire } from './testing/fakes.js';
@@ -61,6 +61,23 @@ describe('classify', () => {
       offset: '8',
       event_topic: 'order.placed',
       event_version: 99,
+      error_class: 'UnknownEventError',
+    });
+  });
+
+  it('#696 gate: order.placed@2 before it is published is dead-lettered (replayable), never lost and never a crash', () => {
+    const v2 = mutate(placed, {
+      version: 2,
+      payload: { ...(placed.payload as object), customer_id: null, email_hash: null },
+    });
+    const c = classify(toWire(v2, 12), batch, ctx);
+    if ('order.placed@2' in EVENT_SCHEMAS) {
+      // #696 has landed: @2 is known and the scrubbed order is a row (rows.order-placed-v2.test.ts covers it)
+      expect(c.kind).toBe('row');
+      return;
+    }
+    expect(c.kind === 'dead' && c.letter).toMatchObject({
+      event_version: 2,
       error_class: 'UnknownEventError',
     });
   });

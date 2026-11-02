@@ -388,6 +388,8 @@ describe.runIf(skip === null)('ClickHouse models on the generated month', () => 
     // only, never returned by any operation; erasure.test.ts proves it goes NULL for an erased customer
     const allowed = new Set([
       'stg_order_placed_v1.customer_key',
+      'stg_order_placed_v2.customer_key', // #696
+      'stg_order_placed.customer_key', // v1 UNION ALL v2
       'fct_order.customer_key',
       // counts, not identifiers (#603 new vs returning)
       'mart_customers_daily.new_customers',
@@ -538,7 +540,13 @@ describe.runIf(skip === null)('ClickHouse runner under concurrency', () => {
     const trickle = (async () => {
       for (let i = 2 * third; i < rows.length; i += 25) await sink.insert(rows.slice(i, i + 25));
     })();
-    const r6 = await migrate(admin, open(db), db, files);
+    // up to 0006 (0007 replaces this MV in turn; its own test is below)
+    const r6 = await migrate(
+      admin,
+      open(db),
+      db,
+      files.filter((f) => f.kind !== 'migration' || f.name < '0007'),
+    );
     await Promise.all([slow, trickle]);
     expect(r6.applied).toContain('0006_orders_minute_mv_v2.sql');
     const [r] = await q(
@@ -590,6 +598,114 @@ describe.runIf(skip === null)('ClickHouse runner under concurrency', () => {
     expect(await zero()).toBe(0); // 0006 deleted it
     await sink.insert([storeless('00000000-0000-4000-8000-0000000689a2')]);
     expect(await zero()).toBe(0); // and the new MV keeps one out
+  });
+
+  // #696 gate: order.placed v2 (email_hash nullable) next to v1. classify makes a v2 row the v1 row with version 2
+  // (rows.order-placed-v2.test.ts), so the v2 rows here are exactly that, with the replay's scrub on some of them.
+  it('order.placed v1 AND v2 through 0007 and the models: every order once, a null email_hash unattributed (#696)', async () => {
+    const db = throwawayDatabase();
+    made.push(db);
+    const c = open(db);
+    const files = readSqlFiles();
+    // 0007 runs over a live v1 tile, as on dev
+    await migrate(
+      admin,
+      c,
+      db,
+      files.filter((f) => f.kind !== 'migration' || f.name < '0007'),
+    );
+    const rows = rowsOf(allEvents, '2026-11-01T00:00:00.000Z');
+    const asV2 = new Set(
+      rows.filter((r) => r.topic === 'order.placed').filter((_, i) => i % 3 === 0),
+    );
+    const v1Rows = rows.filter((r) => !asV2.has(r));
+    // every third order arrives as v2: half of those named (hash kept), half scrubbed by the replay (both null)
+    let erased = 0;
+    const v2Rows = [...asV2].map((r, i) => {
+      const payload = JSON.parse(r.payload) as Record<string, unknown>;
+      if (i % 2 === 0) {
+        erased += 1;
+        payload.email_hash = null;
+        payload.customer_id = null;
+      }
+      return { ...r, version: 2, payload: JSON.stringify(payload) };
+    });
+    expect(v2Rows.length).toBeGreaterThan(10);
+    expect(erased).toBeGreaterThan(5);
+    // 0007 LATE (#708 review): the first half of the v2 orders is ingested BEFORE it, where mv_orders_minute_v2 (v1
+    // only) does not see them; 0007's refill must put them in the tile. The rest arrive after it, through v3.
+    const early = v2Rows.slice(0, Math.floor(v2Rows.length / 2));
+    await createRawEventsSink(c).insert([...v1Rows, ...early]);
+    const tileOf = async () =>
+      Number((await q(c, 'SELECT count() n FROM orders_minute_events FINAL'))[0]!.n);
+    expect(await tileOf()).toBe(placed.length - v2Rows.length); // the early v2 orders are missing
+    const r7 = await migrate(admin, open(db), db, files);
+    expect(r7.applied).toEqual(['0007_orders_minute_mv_v3.sql']);
+    expect(await tileOf()).toBe(placed.length - v2Rows.length + early.length); // repaired
+    await createRawEventsSink(c).insert(v2Rows.slice(early.length));
+    // the replay itself: a v1 order republished as v2, scrubbed, under the SAME event_id and a later ingested_at. It
+    // folds with its v1 copy (raw_events is keyed (topic, event_id)): still one order, now unattributed. This test
+    // builds its v2 rows itself (no @2 mock), so it stays when testing/order-placed-v2.ts goes (#708 review)
+    const replayed = v1Rows.find((r) => r.topic === 'order.placed')!;
+    const scrubbed = {
+      ...(JSON.parse(replayed.payload) as Record<string, unknown>),
+      email_hash: null,
+      customer_id: null,
+    };
+    await createRawEventsSink(c).insert([
+      {
+        ...replayed,
+        version: 2,
+        payload: JSON.stringify(scrubbed),
+        ingested_at: '2026-11-01 00:00:01.000',
+      },
+    ]);
+    erased += 1;
+
+    const one = async (query: string) => (await q(c, query))[0]!;
+    // the live tile and the facts: every order exactly once, whatever its version
+    const tile = await one(
+      'SELECT count() n, uniqExact(event_id) u FROM orders_minute_events FINAL',
+    );
+    expect([Number(tile.n), Number(tile.u)]).toEqual([placed.length, placed.length]);
+    const live = await one('SELECT sum(orders) n, sum(total_minor) t FROM live_orders_minute');
+    const total = placed.reduce((sum, o) => sum + o.payload.totals.total_minor, 0);
+    expect([Number(live.n), Number(live.t)]).toEqual([placed.length, total]);
+    const fact = await one(
+      'SELECT count() n, uniqExact(order_id) u, sum(total_minor) t, countIf(customer_key IS NULL) k FROM fct_order',
+    );
+    expect([Number(fact.n), Number(fact.u), Number(fact.t), Number(fact.k)]).toEqual([
+      placed.length,
+      placed.length,
+      total,
+      erased,
+    ]);
+    const lines = await one('SELECT count() n FROM fct_order_line');
+    expect(Number(lines.n)).toBe(placed.reduce((n, o) => n + o.payload.line_items.length, 0));
+    // the scrubbed orders belong to nobody: counted as unknown, never joined to a customer (no join on NULL)
+    const named = new Set(
+      v1Rows
+        .filter((r) => r !== replayed)
+        .concat(v2Rows)
+        .filter((r) => r.topic === 'order.placed')
+        .map((r) => [
+          r.store_id,
+          (JSON.parse(r.payload) as { email_hash: string | null }).email_hash,
+        ])
+        .filter(([, h]) => h !== null)
+        .map(([s, h]) => `${s}:${h}`),
+    );
+    const mart = await one(
+      'SELECT sum(unknown_orders) unknown, sum(new_customers) fresh FROM mart_customers_daily',
+    );
+    expect([Number(mart.unknown), Number(mart.fresh)]).toEqual([erased, named.size]);
+    const views = (
+      await q(
+        admin,
+        `SELECT name FROM system.tables WHERE database = '${db}' AND engine = 'MaterializedView' ORDER BY name`,
+      )
+    ).map((v) => v.name);
+    expect(views).toEqual(['mv_orders_minute_v3']);
   });
 
   it('migration 0005 refills the order rows an earlier 0002 run lost, and only those (#685)', async () => {

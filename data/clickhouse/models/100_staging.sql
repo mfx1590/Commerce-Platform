@@ -28,6 +28,37 @@ SELECT
     parseDateTime64BestEffort(JSONExtractString(payload, 'placed_at'), 3, 'UTC') AS placed_at
 FROM (SELECT * FROM raw_events FINAL WHERE topic = 'order.placed' AND version = 1 AND store_id IS NOT NULL);
 
+-- order.placed v2 (#696): v1 with email_hash nullable, nothing else. A null hash is an erased customer (the outbox
+-- replay scrubs it before republishing); the order and its money are still the ledger's, so it is staged like v1
+-- and its customer_key is NULL: counted in mart_customers_daily.unknown_orders, never joined (no join on NULL).
+CREATE OR REPLACE VIEW stg_order_placed_v2 AS
+SELECT
+    event_id,
+    organization_id,
+    assumeNotNull(store_id)                                                AS store_id,
+    occurred_at,
+    toUUID(JSONExtractString(payload, 'order_id'))                         AS order_id,
+    JSONExtractInt(payload, 'display_id')                                  AS display_id,
+    toUUID(JSONExtractString(payload, 'legal_entity_id'))                  AS legal_entity_id,
+    JSONExtractString(payload, 'currency')                                 AS currency,
+    -- NULL when the replay scrubbed an erased customer (v2's only change) or the ingest did (#623)
+    nullIf(JSONExtractString(payload, 'email_hash'), '')                   AS customer_key,
+    JSONExtractInt(payload, 'totals', 'subtotal_minor')                    AS subtotal_minor,
+    JSONExtractInt(payload, 'totals', 'discount_minor')                    AS discount_minor,
+    JSONExtractInt(payload, 'totals', 'shipping_minor')                    AS shipping_minor,
+    JSONExtractInt(payload, 'totals', 'tax_minor')                         AS tax_minor,
+    JSONExtractInt(payload, 'totals', 'total_minor')                       AS total_minor,
+    JSONExtractArrayRaw(payload, 'line_items')                             AS line_items,
+    parseDateTime64BestEffort(JSONExtractString(payload, 'placed_at'), 3, 'UTC') AS placed_at
+FROM (SELECT * FROM raw_events FINAL WHERE topic = 'order.placed' AND version = 2 AND store_id IS NOT NULL);
+
+-- Every order.placed version the facts read. Each version keeps its own view (one per topic version, above);
+-- a new version is added here, and nothing downstream changes while the columns stay the same.
+CREATE OR REPLACE VIEW stg_order_placed AS
+SELECT * FROM stg_order_placed_v1
+UNION ALL
+SELECT * FROM stg_order_placed_v2;
+
 CREATE OR REPLACE VIEW stg_order_cancelled_v1 AS
 SELECT
     event_id,
