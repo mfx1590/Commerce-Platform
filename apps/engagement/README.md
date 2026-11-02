@@ -599,6 +599,46 @@ timestamp) digests, which a restart forgets and a second instance would not shar
 the ops rate limiter. It is enough here precisely because the stub has no side effect to replay: nothing is
 written and nothing is sent. The day it does something stateful, that guard has to become a table.
 
+## AI reply drafts (#610)
+
+`POST /support/customers/:customerId/reply-draft?store=<code|id>` with `{ question, orderId?, locale? }`
+answers `{ draft, template, model, stopReason, storeCode, orderRef }`. The agent edits it and sends it: **this
+service has no outbound channel to a customer at all**, which is how "nothing is ever sent automatically" is a
+property of the design rather than a promise.
+
+The same gates as the context route, in the same order — staff token, then the store, then `support` on that
+store — and then the per-store switch.
+
+**What is sent to the gateway**, and nothing else: the question, the store code, the brand voice, the locale,
+the order's `display_id`, its three statuses, the placed/shipped/delivered days, the carrier, the formatted
+total, and the newest refund and return. **What is never sent:** the e-mail, the name, any address or phone,
+the tracking number, every uuid, and the `notes` (they are about our own read failures). The projection's type
+cannot carry a denied field, and a test runs `@platform/ai`'s own `findDeniedFields` over it so the type and
+the gateway's runtime guard cannot drift apart.
+
+The customer's question is **untrusted** and goes through unchanged: redaction is the gateway's step (e-mail,
+IBAN, card, address, phone, over the text it hashes for the audit), and a second half-done redaction here
+would only give a false sense of safety. Prompt injection is answered by the template (each value in its own
+tag, tag contents are data) and by the missing outbound channel.
+
+| Variable                                    | Default                   | Meaning                                  |
+| ------------------------------------------- | ------------------------- | ---------------------------------------- |
+| `ENGAGEMENT_SUPPORT_AI_DRAFTS`              | **`1`**                   | drafting on (owner decision 2026-11-01)  |
+| `ENGAGEMENT_SUPPORT_AI_DRAFTS_<STORE_CODE>` | the global                | per store: `1` or `0`                    |
+| `ENGAGEMENT_SUPPORT_BRAND_VOICE`            | `warm, brief and factual` | tone only; never a claim                 |
+| `ENGAGEMENT_SUPPORT_DEFAULT_LOCALE`         | `en-GB`                   | the language when the request names none |
+
+While a store is OFF the route answers **404** and refuses before reading any support data, so nothing about
+that customer is fetched, let alone sent. The context answer carries `ai_drafts: true|false` so a dashboard
+can hide the button rather than discover the 404.
+
+The template is `support-reply-draft@1` in `packages/ai` (window 14's, published by #671). The projection's
+keys ARE its declared variables, proved twice: `main.ts` passes them to a `complete` typed to the published
+registry with **no cast**, so adding a field here without adding it there stops compiling, and a test
+compares the key set against `getTemplate(...).variableNames` so no declared variable is left unset either.
+Money reaches it already formatted (`total`, `refunded`) — the template's first draft wanted minor units and
+a currency, which would have made the model divide by a hundred in text a customer reads.
+
 ## Transports
 
 `AlertTransport { name; send(alert) }` in `src/transport/types.ts` — the seam `apps/notifications` proved for

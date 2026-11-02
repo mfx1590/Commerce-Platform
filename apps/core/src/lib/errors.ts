@@ -36,6 +36,8 @@ export class AppError extends Error {
     readonly details?: Record<string, unknown>,
     /** Overrides the status the code implies (503 `internal` when OpenFGA is unreachable, 502 for the proxy). */
     status?: number,
+    /** Response headers the error carries (`Retry-After` on `ai_rate_limited`, #608). */
+    readonly headers?: Readonly<Record<string, string>>,
   ) {
     super(message);
     this.name = 'AppError';

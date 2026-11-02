@@ -86,6 +86,8 @@ describe('createAnthropicTransport', () => {
     const r = await t.complete(req);
     expect(r).toEqual({
       text: 'A soft linen shirt. Breathes well.',
+      toolUse: [],
+      assistantContent: { transport: 'anthropic', blocks: message().content },
       servedModel: 'claude-sonnet-5-5',
       stopReason: 'end_turn',
       refusalCategory: null,
@@ -166,6 +168,86 @@ describe('createAnthropicTransport', () => {
     expect(JSON.stringify(r)).not.toContain('never kept');
   });
 
+  it('tool use (#669): tools as input_schema, the assistant turn echoed verbatim (thinking included), tool_result blocks', async () => {
+    const seen: Seen[] = [];
+    const answer = [
+      { type: 'thinking', thinking: 'weigh the window', signature: 'sig-words-alpha' },
+      { type: 'text', text: 'Let me look.' },
+      { type: 'tool_use', id: 'toolu_alpha', name: 'query_metrics', input: { metric: 'refunds' } },
+    ];
+    const t = createAnthropicTransport({
+      env: { AI_ANTHROPIC_API_KEY: KEY },
+      fetch: stubFetch({ json: message({ content: answer, stop_reason: 'tool_use' }) }, seen),
+      maxRetries: 0,
+    });
+    const tools = [
+      {
+        name: 'query_metrics',
+        description: 'Runs one typed metric query.',
+        inputSchema: { type: 'object' as const, properties: { metric: { type: 'string' } } },
+      },
+    ];
+    const first = await t.complete({ ...req, tools });
+    expect(first).toMatchObject({
+      text: 'Let me look.',
+      stopReason: 'tool_use',
+      toolUse: [{ id: 'toolu_alpha', name: 'query_metrics', input: { metric: 'refunds' } }],
+      assistantContent: { transport: 'anthropic', blocks: answer },
+    });
+    expect(seen[0]!.body).toMatchObject({
+      tools: [
+        {
+          name: 'query_metrics',
+          description: 'Runs one typed metric query.',
+          input_schema: { type: 'object', properties: { metric: { type: 'string' } } },
+        },
+      ],
+    });
+
+    await t.complete({
+      ...req,
+      tools,
+      turns: [
+        { role: 'assistant', content: first.assistantContent },
+        {
+          role: 'user',
+          toolResults: [{ toolUseId: 'toolu_alpha', content: '{"rows":[]}', isError: false }],
+        },
+      ],
+    });
+    expect(seen[1]!.body.messages).toEqual([
+      { role: 'user', content: 'Product: Linen shirt' },
+      { role: 'assistant', content: answer }, // byte for byte, the signature included
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'toolu_alpha',
+            content: '{"rows":[]}',
+            is_error: false,
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("an assistant turn from another transport (the fake's) is refused, nothing is sent", async () => {
+    const seen: Seen[] = [];
+    const t = createAnthropicTransport({
+      env: { AI_ANTHROPIC_API_KEY: KEY },
+      fetch: stubFetch({ json: message() }, seen),
+      maxRetries: 0,
+    });
+    await expect(
+      t.complete({
+        ...req,
+        turns: [{ role: 'assistant', content: { transport: 'fake', blocks: [] } }],
+      }),
+    ).rejects.toBeInstanceOf(AiConfigError);
+    expect(seen).toHaveLength(0);
+  });
+
   it('an API error becomes AiTransportError with the SDK class name only', async () => {
     const seen: Seen[] = [];
     const t = createAnthropicTransport({
@@ -204,5 +286,50 @@ describe('createFakeTransport', () => {
       outputTokens: 24,
       cacheReadTokens: 0,
     });
+    expect(a.toolUse).toEqual([]);
+  });
+
+  it('replays a script (#669): tool calls with deterministic ids, a step that reads the request, an Error, then the default', async () => {
+    const f = createFakeTransport({
+      script: [
+        { toolUse: [{ name: 'query_metrics', input: { metric: 'refunds' } }] },
+        (r) => ({ text: `seen ${r.turns?.length ?? 0} turns` }),
+        new Error('boom'),
+      ],
+    });
+    const tools = [
+      { name: 'query_metrics', description: 'd', inputSchema: { type: 'object' as const } },
+    ];
+    const s0 = await f.complete({ ...req, tools });
+    expect(s0).toMatchObject({
+      text: '',
+      stopReason: 'tool_use',
+      toolUse: [{ id: 'toolu_fake_0_0', name: 'query_metrics', input: { metric: 'refunds' } }],
+      assistantContent: {
+        transport: 'fake',
+        blocks: [
+          {
+            type: 'tool_use',
+            id: 'toolu_fake_0_0',
+            name: 'query_metrics',
+            input: { metric: 'refunds' },
+          },
+        ],
+      },
+    });
+    const turns = [
+      { role: 'assistant' as const, content: s0.assistantContent },
+      {
+        role: 'user' as const,
+        toolResults: [{ toolUseId: 'toolu_fake_0_0', content: '[]', isError: false }],
+      },
+    ];
+    const s1 = await f.complete({ ...req, tools, turns });
+    expect(s1).toMatchObject({ text: 'seen 2 turns', stopReason: 'end_turn', toolUse: [] });
+    expect(s1.usage.inputTokens).toBeGreaterThan(s0.usage.inputTokens); // the turns count as input
+    await expect(f.complete(req)).rejects.toBeInstanceOf(AiTransportError);
+    expect((await f.complete(req)).text).toMatch(/^\[fake claude-sonnet-5-5\] draft /);
+    expect(f.calls).toHaveLength(4);
+    expect(f.calls[1]).toMatchObject({ tools, turns });
   });
 });

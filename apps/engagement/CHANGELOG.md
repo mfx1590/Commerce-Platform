@@ -1,5 +1,58 @@
 # @platform/engagement
 
+## 0.9.0 — 2026-11-01 (#610, AI support reply drafts)
+
+A reply DRAFT for a support agent, through `packages/ai`'s guarded gateway. ON by default per store (owner
+decision 2026-11-01: "we need everything at start; we can limit later").
+
+- **`POST /support/customers/:customerId/reply-draft`**, behind the same gates as the context route and in the
+  same order. The agent edits and sends; **this service has no outbound channel to a customer**, so "nothing
+  is ever sent automatically" is structural rather than a rule someone has to remember.
+- **A reduced projection, not the support context** (`draft-context.ts`). The context carries an e-mail, a
+  name and every tracking number; `DraftVariables`'s type cannot carry a denied field. Sent: the question,
+  the store code, brand voice, locale, the order's `display_id` and three statuses, the placed/shipped/
+  delivered DAYS, the carrier, formatted money, the newest refund and return. Not sent: the e-mail, the name,
+  any address or phone, the **tracking number** (an identifier at a carrier — the CDP's rule), every uuid,
+  and the `notes`. A test pins the key set and runs `@platform/ai`'s own `findDeniedFields` over the
+  projection, so the type and the runtime guard cannot drift.
+- **Money is formatted here, never by the model.** A model handed `4976` and `EUR` must divide by a hundred
+  and has no way to know JPY does not work that way; `Intl` does. A customer-facing draft is the wrong place
+  for a model to do arithmetic.
+- **The question is untrusted and unchanged.** Redaction is the gateway's step over the text it also hashes
+  for the audit; a second, half-done redaction here would differ from it and give a false sense of safety.
+  Injection is answered by the template (every value in its own tag, tag contents are data) and by the
+  missing outbound channel.
+- **`ENGAGEMENT_SUPPORT_AI_DRAFTS`, default `1`**, per store through `..._<STORE_CODE>` on the consent-mode
+  env contract: one normalisation both ways, an empty value refused, a key naming no store — or two — refused
+  once `warm()` knows the stores. The generic halves of that contract are now `readPerStoreOverrides` and
+  `assertPerStoreOverridesKnown`, so there is still ONE normalisation rather than a second copy (#586's
+  lesson).
+- **While a store is OFF the route refuses before reading any support data** and answers 404 (not 403: whether
+  a store has the feature is not an agent's business). A test asserts the reader and the gateway were never
+  touched. The context answer carries `ai_drafts` so a dashboard hides the button instead of discovering the 404.
+- Gateway errors map to `@platform/contracts` `ERROR_CODES` **by class name** (they cross a package boundary,
+  where `instanceof` fails silently between two copies): `ai_disabled` 503, budget/rate 429 with
+  `Retry-After`, `ai_refused` 422 with its category, `ai_unavailable` 502, limiter/audit/template/config 503
+  `unavailable`, a denied field 500 `internal`. No upstream message ever reaches a caller.
+- **`support-reply-draft@1` is published** (window 14's #671, merged `c5b5ab14`) — with `total` and
+  `refunded` as pre-formatted strings, after this side found that the template's first draft declared
+  `totalMinor` / `currency` / `refundedMinor` while the projection sent formatted money. **Nothing would have
+  caught that**: the `as never` that let this code compile against an unpublished key was exactly what hid
+  it, and it surfaced only because the other side's PR was read before planning the swap. The cast is now
+  gone, so `main.ts` compiling IS the proof that the projection satisfies the template's declared variables,
+  and a test asserts the reverse too (no declared variable left unset).
+- **From the #674 review:** the gateway is resolved BEFORE `buildContext` and inside the mapped path — it
+  was an argument to `buildReplyDraft`, so a missing API key read the customer's whole order history and then
+  answered 500 with no audit row, instead of the documented 503 with nothing read. `ai_drafts` now means
+  READY (the switch AND `AI_ENABLED=1` AND a key present AND the template published), because a flag that is
+  true while every draft answers 503 shows a dashboard a button that cannot work. `locale` is validated to a
+  BCP-47 shape of at most 35 characters, else 400 — it reaches the model as a tag value and `Intl` as a
+  currency locale. And the generic per-store refusals now raise `ConfigRefusedError` rather than
+  `ConsentModeConfigError`: identical behaviour (exit 2, message printed), but a support setting no longer
+  reports a "consent mode" error at 3am.
+- Tests: **540 passing / 9 live skipped** offline (was 491/9), all on a recording gateway port — no test
+  constructs the real gateway, reaches a network, or spends a budget.
+
 ## 0.8.0 — 2026-10-30 (#657, the Fable re-review of #563/#564)
 
 One HIGH privacy finding: an erasure suppressed one profile out of two.

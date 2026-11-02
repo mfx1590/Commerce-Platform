@@ -146,6 +146,8 @@ own without a registry change). The readers keep their forgiving fallbacks — t
 | `fraud.velocity.{max_orders,window_minutes}`                      | integer ≥ 1                     | fraud (window 7)                          |
 | `fraud.country_mismatch`                                          | `review` \| `allow`             | fraud (window 7)                          |
 | `fraud.radar_highest`                                             | `block` \| `review`             | fraud (window 7)                          |
+| `content.brand_voice`                                             | string, 1–500 characters        | catalog AI copy drafts (#608)             |
+| `content.audience`                                                | string, 1–200 characters        | catalog AI copy drafts (#608)             |
 
 A module that starts reading a new key adds its row here and its line in `STORE_SETTINGS_SHAPES` (the test pins
 that every group has its leaves listed).
