@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ChClient } from './clickhouse.js';
 import {
+  InsertsStillRunningError,
   lintSqlFiles,
   migrate,
   MigrationChangedError,
@@ -22,6 +23,11 @@ function fakeServer() {
   let locks: { holder: string; acquired: number; renewed: number }[] = [];
   let now = 1_000;
   const commands: string[] = [];
+  /** system.processes, one answer per poll (the last one repeats; none running by default) */
+  const running: string[][] = [];
+  let polls = 0;
+  /** a single server with no `default` cluster: clusterAllReplicas fails with CLUSTER_DOESNT_EXIST */
+  const topology = { clusterless: false, sources: [] as string[] };
   const byHolder = () => {
     const m = new Map<string, { first: number; last: number }>();
     for (const l of locks) {
@@ -47,7 +53,21 @@ function fakeServer() {
     async query({ query, query_params }) {
       const ttl = Number(query_params?.ttl ?? 0);
       let rows: unknown[];
-      if (query.includes('HAVING max(renewed_at) <='))
+      if (query.includes('system.processes')) {
+        const cluster = query.includes('clusterAllReplicas');
+        topology.sources.push(cluster ? 'cluster' : 'local');
+        if (cluster && topology.clusterless)
+          throw Object.assign(
+            new Error("Requested cluster 'default' not found. (CLUSTER_DOESNT_EXIST)"),
+            {
+              code: '170',
+            },
+          );
+        const ids = running[Math.min(polls, running.length - 1)] ?? [];
+        polls += 1;
+        commands.push(`POLL ${ids.join(',')}`);
+        rows = ids.map((query_id) => ({ host: 'ch-1', query_id }));
+      } else if (query.includes('HAVING max(renewed_at) <='))
         rows = [...byHolder()]
           .filter(([, h]) => h.last <= now - ttl)
           .map(([holder]) => ({ holder }));
@@ -71,6 +91,9 @@ function fakeServer() {
   return {
     client,
     commands,
+    /** the INSERTs system.processes shows, poll by poll */
+    running,
+    topology,
     get locks() {
       return locks;
     },
@@ -97,7 +120,9 @@ const model = (file: string, sql: string): SqlFile => ({
   checksum: `sum-${sql}`,
 });
 const userStatements = (commands: string[]) =>
-  commands.filter((c) => !c.includes('_migrations') && !c.startsWith('CREATE DATABASE'));
+  commands.filter(
+    (c) => !c.includes('_migrations') && !c.startsWith('CREATE DATABASE') && !c.startsWith('POLL'),
+  );
 
 describe('data/clickhouse', () => {
   const files = readSqlFiles();
@@ -292,5 +317,95 @@ describe('migrate', () => {
     await expect(migrate(s.client(), s.client(), 'x; DROP', [])).rejects.toThrow(
       'invalid ClickHouse identifier',
     );
+  });
+});
+
+// #685: a backfill waits for every INSERT running at that moment (an insert that began before the MV and committed
+// after the backfill's read was lost from the MV's table for good — proven on ClickHouse, see models.test).
+describe('the drain before a backfill', () => {
+  const RMT = 'ENGINE = ReplacingMergeTree ORDER BY x';
+  const withBackfill = [
+    mig('0001_t.sql', `CREATE TABLE IF NOT EXISTS t (x UInt8) ${RMT};`),
+    mig(
+      '0002_mv.sql',
+      'CREATE MATERIALIZED VIEW IF NOT EXISTS mv TO t AS SELECT x FROM src;\nINSERT INTO t SELECT x FROM src;',
+    ),
+  ];
+  const fast = { drainPollMs: 1 };
+
+  it('waits until the inserts running before the backfill have finished, then backfills', async () => {
+    const s = fakeServer();
+    s.running.push(['ingest-1', 'ingest-2'], ['ingest-2'], []);
+    await migrate(s.client(), s.client(), 'analytics_test', withBackfill, fast);
+    const at = (c: string) => s.commands.indexOf(c);
+    expect(s.commands.filter((c) => c.startsWith('POLL'))).toEqual([
+      'POLL ingest-1,ingest-2',
+      'POLL ingest-2',
+      'POLL ',
+    ]);
+    expect(at('POLL ')).toBeLessThan(at('INSERT INTO t SELECT x FROM src'));
+    expect(at('CREATE MATERIALIZED VIEW IF NOT EXISTS mv TO t AS SELECT x FROM src')).toBeLessThan(
+      at('POLL ingest-1,ingest-2'),
+    );
+  });
+
+  it('does not wait for an insert that starts later (a busy ingest cannot starve the backfill)', async () => {
+    const s = fakeServer();
+    s.running.push(['before'], ['later-1'], ['later-1', 'later-2']);
+    await migrate(s.client(), s.client(), 'analytics_test', withBackfill, fast);
+    expect(s.commands.filter((c) => c.startsWith('POLL'))).toEqual(['POLL before', 'POLL later-1']);
+    expect(userStatements(s.commands).at(-1)).toBe('INSERT INTO t SELECT x FROM src');
+  });
+
+  it('past the timeout it refuses to backfill, records nothing and releases the lock', async () => {
+    const s = fakeServer();
+    s.running.push(['stuck']);
+    const err = await migrate(s.client(), s.client(), 'analytics_test', withBackfill, {
+      drainPollMs: 1,
+      drainTimeoutMs: 20,
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(InsertsStillRunningError);
+    expect(err).toMatchObject({ database: 'analytics_test', queryIds: ['stuck@ch-1'] });
+    expect(userStatements(s.commands)).not.toContain('INSERT INTO t SELECT x FROM src');
+    expect(s.locks).toEqual([]);
+  });
+
+  // #687 review: system.processes is per server — a multi-replica service must be read on every replica
+  it('reads every replica (clusterAllReplicas) when the server has a default cluster', async () => {
+    const s = fakeServer();
+    s.running.push(['ingest-1'], []);
+    await migrate(s.client(), s.client(), 'analytics_test', withBackfill, fast);
+    expect(s.topology.sources).toEqual(['cluster', 'cluster']);
+  });
+
+  it('on a single server with no default cluster it falls back to the local table, once, and still drains', async () => {
+    const s = fakeServer();
+    s.topology.clusterless = true;
+    s.running.push(['ingest-1'], []);
+    await migrate(s.client(), s.client(), 'analytics_test', withBackfill, fast);
+    expect(s.topology.sources).toEqual(['cluster', 'local', 'local']);
+    expect(s.commands.filter((c) => c.startsWith('POLL'))).toEqual(['POLL ingest-1', 'POLL ']);
+  });
+
+  it('any other error reading the processes is not swallowed: nothing is backfilled', async () => {
+    const s = fakeServer();
+    const c = s.client();
+    const base = c.query.bind(c);
+    c.query = async (p) => {
+      if (p.query.includes('system.processes')) throw new Error('ACCESS_DENIED');
+      return base(p);
+    };
+    await expect(migrate(s.client(), c, 'analytics_test', withBackfill, fast)).rejects.toThrow(
+      'ACCESS_DENIED',
+    );
+    expect(userStatements(s.commands)).not.toContain('INSERT INTO t SELECT x FROM src');
+    expect(s.locks).toEqual([]);
+  });
+
+  it('a file without a backfill never polls', async () => {
+    const s = fakeServer();
+    s.running.push(['ingest-1']);
+    await migrate(s.client(), s.client(), 'analytics_test', [withBackfill[0]!], fast);
+    expect(s.commands.filter((c) => c.startsWith('POLL'))).toEqual([]);
   });
 });

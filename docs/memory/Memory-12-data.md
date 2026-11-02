@@ -52,6 +52,30 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- THIRD REAL-MODEL RUN (2026-11-02, main abfbc02d, @3 + tool descriptions + tightened checker; machine freed):
+  29/30; 54 calls, 184,141 tokens, $0.44. Only #30 ("7 days" restating the question, harmless). #17 now labels
+  its count difference and the checker verifies it. #7 STILL no top 5 — cause is OUR FIXTURE: generateMonth
+  (packages/test-utils event-month.ts:104) gives each line a random variant_id and emits no product events →
+  dim_variant empty → fct_order_line.product_id NULL → a product query returns ONE row; the scripted golden #7
+  only checks ran:1. Proposed: publish product events in the live golden setup (golden.test.ts, mine), pin #7 to
+  ≥5 products, log each case's queries in the real run. Awaiting the manager.
+- #685 (flaky models.test 0002 race, 143 vs 150): NOT just timing — sink is synchronous (async_insert 0), 0002
+  creates the MV then backfills. Suspected real gap: an insert started before the MV exists is not pushed through
+  it, and if it commits after the backfill snapshot the backfill misses it too → rows lost for good; polling
+  would never converge. PROVEN (2026-11-02, machine from manager ten): 8 natural races lost nothing locally, but a
+  forced slow INSERT…SELECT (sleepEachRow, one block) begun before the MV and committed after the backfill lost 86
+  of 150, every run. FIX (branch data/phase5-685): migrate() waits, before every INSERT…SELECT backfill, for the
+  INSERTs running on the db at that moment (system.processes query_kind=Insert, current_database; admin sees all;
+  never waits for later ones; past 10 min InsertsStillRunningError, nothing backfilled) + migration 0005 refills
+  missing event_ids (filter in a subquery: the repo SQL lint caught the assumeNotNull alias shadowing store_id).
+  Tests: drain on the runner double (4); live in-flight case (control without the drain: 64/150), 0005 repair.
+  ingest unit 120, live models+live 17 pass; gates green. Fable review. Then #7 (product events in golden).
+  PR #687. Fable FINDINGS fixed: the drain reads clusterAllReplicas('default', system.processes) (system.processes
+  is per server; ClickHouse Cloud), falling back to the local table ONLY on CLUSTER_DOESNT_EXIST (170), every
+  other error thrown; every INSERT on every replica into any database (current_database filter dropped); ids
+  query_id@host; live test asserts the slow insert was SEEN running. The local server HAS a `default` cluster
+  (system.clusters), so it takes the replica-wide path; the fallback is unit-tested only. Live 17 pass, unit 123.
+  Follow-up filed: #689 (0002 MV alias shadows its own store_id IS NOT NULL — a new migration, not an edit).
 - REAL-MODEL RE-RUN (2026-11-02, on 9e65ecfa = #683 FINAL, bi-qa-answer@2; machine from manager ten, then freed):
   26/30 under the full checker; 55 calls, 166,376 tokens, $0.41 (first run: 55 / 134,608 / $0.35). Fails: #8 dates
   past the logged 240 chars (money figures pass; checker false positive, likely year-less dates); #17 "6" = most
