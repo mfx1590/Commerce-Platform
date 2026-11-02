@@ -208,10 +208,11 @@ after the replay started, and consumers delete what the replay sent. Each replay
 query on `topic = 'customer.erased'`, served like the replay's own per-topic `seq` scan by `outbox_topic_seq_idx`
 (`(topic, seq)`, packages/events migration 0101, #702).
 
-**Not covered here: DLQ replays (#703).** `replayFromDlq` (packages/events) re-runs a consumer's handler on the
-ORIGINAL dead-lettered message fetched from the bus, unchanged. A message that failed before an erasure is then
-handled after it, and can rebuild what the consumer deleted. Until #703 adds a skip hook, a consumer that keeps
-per-customer state checks its own erasure record before a DLQ replay writes.
+**The rules are @platform/events' (#703):** `ERASURE_RULES`, `namesErased` and `actorErased` live in
+packages/events (`src/erasure.ts`, with the schema guard in `test/erasure.test.ts`), because `replayFromDlq`
+applies the same ones to dead letters: it reads `customer.erased` from the BUS (this replay reads the outbox's rows,
+which are never pruned), skips an erased customer's entries, nulls their actor id, and fails closed when it cannot
+read the topic. packages/events README, "Erasure on DLQ replay".
 
 **What skipping `order.placed` costs (manager decision 2026-11-02).** A ledger REBUILT FROM SCRATCH by a replay
 misses the revenue lines of an erased customer's orders, and that order's later `shipment.*` / `refund.*` events

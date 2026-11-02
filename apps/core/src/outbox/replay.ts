@@ -13,10 +13,15 @@
 // order.placed means a ledger rebuilt from scratch misses those orders until order.placed@2 (#696, email_hash
 // nullable) lets the replay send them without the ids; an existing ledger keeps them (idempotent by source_event_id).
 import {
+  actorErased,
   createValidator,
   envelopeToMessage,
+  ERASURE_RULES,
+  erasedSetFrom,
   EVENT_TOPICS,
+  namesErased,
   outboxRowToEnvelope,
+  type ErasedSet,
   type OutboxRow,
   type RelayMessage,
   type Validator,
@@ -57,47 +62,11 @@ export interface ReplayOptions {
 
 type Payload = Record<string, unknown>;
 
-/** Where a topic's payload names a customer: the customer ids and the e-mail hashes it carries. */
-interface ErasureRule {
-  customerIds: (p: Payload) => unknown[];
-  emailHashes: (p: Payload) => unknown[];
-}
-
-const byCustomer = (p: Payload): unknown[] => [p.customer_id];
-const byHash = (p: Payload): unknown[] => [p.email_hash];
-const none = (): unknown[] => [];
-
 /**
- * Every topic whose payload names a customer (#629). A replay skips the rows that name an erased customer of their
- * store. customer.erased is not here: it is the erasure itself, and every consumer needs it.
- * replay-erasure.test.ts fails when a schema with a customer id or an e-mail hash has no entry.
+ * Reads the erased customers from the outbox's customer.erased rows (v1 carries no email_hash; v2 does). The
+ * matching rules (ERASURE_RULES, namesErased, actorErased) live in @platform/events since #703: replayFromDlq
+ * applies the same ones to dead letters.
  */
-export const ERASURE_RULES: Readonly<Record<string, ErasureRule>> = {
-  'order.placed': { customerIds: byCustomer, emailHashes: byHash },
-  'cart.abandoned': { customerIds: byCustomer, emailHashes: byHash },
-  'customer.created': { customerIds: byCustomer, emailHashes: byHash },
-  'customer.updated': { customerIds: byCustomer, emailHashes: byHash },
-  'customer.export_requested': { customerIds: byCustomer, emailHashes: none },
-  'customer.export_ready': { customerIds: byCustomer, emailHashes: none },
-  'review.published': { customerIds: byCustomer, emailHashes: none },
-  'referral.converted': {
-    customerIds: (p) => [p.referrer_customer_id, p.referee_customer_id],
-    emailHashes: none,
-  },
-};
-
-/** The erased customers of one replay, per store. */
-export interface ErasedSet {
-  /** customer.erased rows read (one per erased customer and store). */
-  readonly customers: number;
-  /** `<store>|c:<customer_id>` and `<store>|h:<email_hash>` */
-  readonly keys: ReadonlySet<string>;
-}
-
-const erasedKey = (storeId: string | null, kind: 'c' | 'h', id: unknown): string | null =>
-  typeof id === 'string' && id !== '' ? `${storeId ?? 'organization'}|${kind}:${id}` : null;
-
-/** Reads the erased customers from the outbox's customer.erased rows (v1 carries no email_hash; v2 does). */
 export async function loadErasedSet(client: ScopedClient, storeId?: string): Promise<ErasedSet> {
   const r = await client.query<{
     store_id: string | null;
@@ -108,41 +77,13 @@ export async function loadErasedSet(client: ScopedClient, storeId?: string): Pro
      FROM outbox WHERE topic = 'customer.erased'${storeId ? ' AND store_id = $1' : ''}`,
     storeId ? [storeId] : [],
   );
-  const keys = new Set<string>();
-  for (const row of r.rows) {
-    for (const k of [
-      erasedKey(row.store_id, 'c', row.customer_id),
-      erasedKey(row.store_id, 'h', row.email_hash),
-    ])
-      if (k) keys.add(k);
-  }
-  return { customers: r.rows.length, keys };
-}
-
-/** Whether the envelope's actor is an erased customer of the row's store (#700 review). */
-export function actorErased(
-  storeId: string | null,
-  actor: { type: string; id: string | null } | undefined,
-  erased: ErasedSet,
-): boolean {
-  if (!actor || actor.type !== 'customer') return false;
-  const k = erasedKey(storeId, 'c', actor.id);
-  return k !== null && erased.keys.has(k);
-}
-
-/** Whether a row of `topic` names an erased customer of its own store. */
-export function namesErased(
-  topic: string,
-  storeId: string | null,
-  payload: Payload,
-  erased: ErasedSet,
-): boolean {
-  const rule = ERASURE_RULES[topic];
-  if (!rule || erased.keys.size === 0) return false;
-  return [
-    ...rule.customerIds(payload).map((id) => erasedKey(storeId, 'c', id)),
-    ...rule.emailHashes(payload).map((h) => erasedKey(storeId, 'h', h)),
-  ].some((k) => k !== null && erased.keys.has(k));
+  return erasedSetFrom(
+    r.rows.map((row) => ({
+      storeId: row.store_id,
+      customerId: row.customer_id,
+      emailHash: row.email_hash,
+    })),
+  );
 }
 
 export interface ReplayBatchLine {

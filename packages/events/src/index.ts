@@ -232,10 +232,22 @@ export {
   type ProcessedStore,
 } from './consumer.js';
 export {
+  ErasureSetUnavailableError,
   readDeadLetters,
+  readErasedSet,
   readTopicToEnd,
   replayFromDlq,
   type ReplayOptions,
   type ReplayResult,
   type TopicReaderClient,
 } from './dlq.js';
+// Erasure on replay (#629, #703): shared by the core's outbox replay and replayFromDlq.
+export {
+  actorErased,
+  ERASURE_RULES,
+  erasedSetFrom,
+  namesErased,
+  type ErasedSet,
+  type ErasureRecord,
+  type ErasureRule,
+} from './erasure.js';
