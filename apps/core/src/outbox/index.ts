@@ -26,11 +26,17 @@ export {
 } from './relay';
 
 // Replay from the outbox (#534): apps/core/src/outbox/replay.ts, CLI `pnpm --filter @platform/core outbox:replay`.
+// Erasure-aware since #629: the rows that name an erased customer are skipped (ERASURE_RULES), an erased actor id nulled.
 export {
+  actorErased,
   describeReplay,
+  ERASURE_RULES,
   HEADER_REPLAY,
   HEADER_REPLAYED_AT,
+  loadErasedSet,
+  namesErased,
   replayOutbox,
+  type ErasedSet,
   type ReplayBatchLine,
   type ReplayOptions,
   type ReplaySummary,
