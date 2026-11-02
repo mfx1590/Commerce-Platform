@@ -3,7 +3,7 @@
 // phone numbers, address shapes (a street name with a number, NL/UK postcodes, a US "City, ST 12345" line) and the
 // tracking numbers of the common carriers (UPS 1Z…, DHL 10 digits or JJD…, PostNL 3S…, #671). It does NOT mask names, an
 // e-mail address spelled out in words, other carriers' tracking numbers, or an address in a shape it does not know.
-// Canonical uuids are left as they are (#680): they are ids, and their digit groups would otherwise read as phones.
+// RFC 4122 uuids are left as they are (#680): they are ids, and their digit groups would otherwise read as phones.
 // This is defence in depth: the hard guard is the denylist of customer fields (denylist.ts), which keeps those
 // fields out of a prompt altogether. The patterns lean towards masking; a masked GTIN in product copy costs a little
 // quality, a leaked card number costs much more.
@@ -17,9 +17,11 @@ export interface RedactionResult {
 }
 
 const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
-// a canonical uuid (8-4-4-4-12 hex) is an id, never PII, but its digit groups look like phone, card and tracking runs
-// ("00000000-0000-4000-8000-000000000031" became "[phone]-[phone]", #680). The capture group makes split() keep them.
-const UUID_SPLIT = /(\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b)/i;
+// an RFC 4122 uuid (8-4-4-4-12 hex, version 1–8, variant 8/9/a/b; or the nil uuid) is an id, never PII, but its digit
+// groups look like phone, card and tracking runs ("00000000-0000-4000-8000-000000000031" became "[phone]-[phone]",
+// #680). Bounded by any non-alphanumeric character, so `ord_<uuid>` counts too. The capture group makes split() keep it.
+const UUID_SPLIT =
+  /(?<![0-9A-Za-z])([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|0{8}-0{4}-0{4}-0{4}-0{12})(?![0-9A-Za-z])/i;
 // 13–19 digits, optionally grouped by single spaces or hyphens
 const CARD_CANDIDATE = /\b\d(?:[ -]?\d){12,18}\b/g;
 // UPS 1Z + 16; DHL Express exactly 10 digits (a bare run of 10 — 12/13-digit GTINs and order numbers stay), DHL
@@ -161,17 +163,19 @@ export function redact(input: string): RedactionResult {
   return { text, counts, total };
 }
 
-// one JSON string token. Only for a text that JSON.parse accepted: outside strings valid JSON has no quotes, so this
-// finds every string (keys included) and nothing else.
-const JSON_STRING = /"(?:[^"\\]|\\.)*"/g;
+// one JSON string or number token. Only for a text that JSON.parse accepted: outside strings valid JSON has no quotes,
+// and its only digits are numbers, so this finds every string (keys included) and every number, and nothing else.
+const JSON_TOKEN = /"(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
 
 /**
  * `redact()` for a tool result that is valid JSON (#680 review): each string, value or key, is decoded, redacted and
- * re-encoded; everything else (numbers, booleans, null, the layout) stays byte for byte. A 10-digit figure stays a
- * number instead of becoming `[tracking]`, a big integer keeps its digits, and the result stays valid JSON. A string
+ * re-encoded. A number is left as written unless it is an integer of 13–19 digits that passes the Luhn check, which
+ * becomes the string `"[card]"`. Everything else (other numbers, booleans, null, the layout) stays byte for byte: a
+ * 10-digit figure stays a number instead of becoming `[tracking]` (a tracking number held as a JSON number is
+ * therefore not masked; manager's decision), a big integer keeps its digits, and the result stays valid JSON. A string
  * with nothing to mask keeps its original encoding.
  */
-export function redactJsonStrings(json: string): RedactionResult {
+export function redactJson(json: string): RedactionResult {
   const counts: Record<RedactionKind, number> = {
     email: 0,
     card: 0,
@@ -180,7 +184,12 @@ export function redactJsonStrings(json: string): RedactionResult {
     address: 0,
     tracking: 0,
   };
-  const text = json.replace(JSON_STRING, (token) => {
+  const text = json.replace(JSON_TOKEN, (token) => {
+    if (!token.startsWith('"')) {
+      if (!/^\d{13,19}$/.test(token) || !luhn(token)) return token;
+      counts.card += 1;
+      return '"[card]"';
+    }
     const r = redact(JSON.parse(token) as string);
     if (r.total === 0) return token;
     for (const k of Object.keys(counts) as RedactionKind[]) counts[k] += r.counts[k];

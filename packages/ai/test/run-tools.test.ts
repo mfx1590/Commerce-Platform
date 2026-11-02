@@ -501,6 +501,30 @@ describe('runTools: what goes back to the model', () => {
     expect(s.audit.records[1]!.redactions).toBe(s.audit.records[0]!.redactions + 2);
   });
 
+  it('a JSON result: a Luhn-valid 13–19 digit NUMBER becomes "[card]" (nested or bare); other numbers stay (#681 review)', async () => {
+    // the well-known public test PAN, assembled at runtime so no card-shaped literal sits in git
+    const pan = ['4111', ...Array<string>(3).fill('1111')].join('');
+    const sentFor = async (content: string) => {
+      const s = setup([{ toolUse: [q('a')] }, { text: 'done' }], {}, async () => ({ content }));
+      await s.run();
+      const sent = s.transport.calls[1]!.turns![1] as Extract<AiTurn, { role: 'user' }>;
+      return {
+        text: sent.toolResults[0]!.content,
+        added: s.audit.records[1]!.redactions - s.audit.records[0]!.redactions,
+      };
+    };
+    const nested = await sentFor(
+      `{"rows":[{"meta":{"ref":${pan}},"order_no":1234567890123,"tracking":1234567890,"n":-${pan}.5}]}`,
+    );
+    expect(nested.text).toBe(
+      `{"rows":[{"meta":{"ref":"[card]"},"order_no":1234567890123,"tracking":1234567890,"n":-${pan}.5}]}`,
+    );
+    expect(JSON.parse(nested.text)).toMatchObject({ rows: [{ meta: { ref: '[card]' } }] });
+    expect(nested.added).toBe(1);
+    // a result that is just the number
+    expect(await sentFor(pan)).toEqual({ text: '"[card]"', added: 1 });
+  });
+
   it('free text keeps the whole-text redaction: a bare 10-digit run there is still [tracking]', async () => {
     const s = setup([{ toolUse: [q('a')] }, { text: 'done' }], {}, async () => ({
       content: 'total 1234567890, ask anna@example.org',

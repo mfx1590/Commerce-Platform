@@ -94,6 +94,24 @@ describe('redact', () => {
     expect(redact('ref 0000000-0000-4000-8000-000000000031').counts.phone).toBeGreaterThan(0);
   });
 
+  it('a uuid is RFC 4122 (version 1–8, variant 8/9/a/b) or nil, bounded by any non-alphanumeric (#681 review)', () => {
+    const nil = '00000000-0000-0000-0000-000000000000';
+    const v7 = '01890a5d-ac96-774b-bcce-b302099a8057';
+    for (const kept of [
+      `ord_${v7}`,
+      `id:${nil}`,
+      `"x-${v7}"`,
+      `(${v7.toUpperCase()})`,
+      `${v7}_old`,
+    ])
+      expect(redact(kept), kept).toMatchObject({ text: kept, total: 0 });
+    // 8-4-4-4-12 hex but version 0 or variant c: not a uuid, so its digit runs are judged as before
+    expect(redact('ref 00000000-0000-0000-8000-000000000031').counts.phone).toBeGreaterThan(0);
+    expect(redact('ref 00000000-0000-4000-c000-000000000031').counts.phone).toBeGreaterThan(0);
+    // glued to a letter or digit: not a uuid either
+    expect(redact('x00000000-0000-4000-8000-000000000031').counts.phone).toBeGreaterThan(0);
+  });
+
   it('does NOT mask names, an e-mail spelled out in words, or an unknown carrier’s number (documented residuals)', () => {
     const text = 'Anna de Vries, anna at example dot org, GLS 12345678901234';
     // GLS: 14 digits, fails Luhn → not a card; not phone-shaped → stays
