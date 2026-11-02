@@ -24,11 +24,12 @@ import {
   visibleStoresClientFor,
 } from '../../../http';
 import { AppError } from '../../../lib/errors';
-import { catalogueFor, METRICS } from './catalogue';
+import { catalogueFor } from './catalogue';
 import { renderMetricCsv } from './csv';
 import { executeMetricQuery, type MetricsReader } from './execute';
 import { parseMetricQuery } from './query';
 import { sharedMetricsReader } from './reader';
+import { scopeForQuery } from './scope';
 
 export const METRICS_PATH = '/admin/metrics';
 export const METRICS_QUERY_PATH = '/admin/metrics/query';
@@ -71,31 +72,36 @@ export async function metricsScope(p: StaffPrincipal): Promise<{ id: string; cod
 const forbidden = (message: string, details: Record<string, unknown>) =>
   new AppError('forbidden', message, details);
 
+/**
+ * The x-permission guard of an operation, resolved from the spec per request (cached once found). An operation the
+ * spec does not have FAILS CLOSED: a 503 `unavailable` before anything runs, never an unguarded route. Shared with
+ * BI Q&A's routes (../ask/routes.ts).
+ */
+export function operationGuard(spec: MetricsSpec): (op: string) => RequestHandler {
+  const guards = new Map<string, RequestHandler>();
+  return (op) => (req, res, next) => {
+    let g = guards.get(op);
+    if (!g) {
+      let perm: PermissionSpec;
+      try {
+        perm = spec.permission(op);
+      } catch {
+        next(new AppError('unavailable', `${op} is not in the contract`, { operation: op }));
+        return;
+      }
+      g = requirePermission(perm.relation as never, (r: Request) =>
+        resolveObject(perm.object, r.params),
+      );
+      guards.set(op, g);
+    }
+    g(req, res, next);
+  };
+}
+
 export function metricsAdminRouter(opts: MetricsRouterOptions = {}): Router {
   const spec: MetricsSpec = opts.spec ?? loadSpec('admin-api.yaml');
   const reader = (): MetricsReader => opts.reader ?? sharedMetricsReader();
-  // x-permission is resolved per request (cached once found), and an operation the spec does not have FAILS CLOSED:
-  // a 503 `unavailable` before anything runs, never an unguarded route.
-  const guards = new Map<Operation, RequestHandler>();
-  const guard =
-    (op: Operation): RequestHandler =>
-    (req, res, next) => {
-      let g = guards.get(op);
-      if (!g) {
-        let perm: PermissionSpec;
-        try {
-          perm = spec.permission(op);
-        } catch {
-          next(new AppError('unavailable', `${op} is not in the contract`, { operation: op }));
-          return;
-        }
-        g = requirePermission(perm.relation as never, (r: Request) =>
-          resolveObject(perm.object, r.params),
-        );
-        guards.set(op, g);
-      }
-      g(req, res, next);
-    };
+  const guard: (op: Operation) => RequestHandler = operationGuard(spec);
   const r = Router();
 
   r.get(
@@ -117,24 +123,11 @@ export function metricsAdminRouter(opts: MetricsRouterOptions = {}): Router {
       const p = requirePrincipal(req);
       spec.validateBody('queryMetrics', req.body);
       const q = parseMetricQuery(req.body);
-      const stores = (await metricsScope(p)).map((s) => s.id);
-      if (stores.length === 0)
-        throw forbidden('no visible store', { relation: 'viewer', object: 'store:*' });
-      const inScope = new Set(stores);
-      for (const id of q.filters.store_ids ?? [])
-        if (!inScope.has(id))
-          throw forbidden(`requires viewer on store:${id}`, {
-            relation: 'viewer',
-            object: `store:${id}`,
-          });
-      const finance = q.metrics.filter((m) => METRICS[m].finance);
-      if (finance.length > 0 && !(await can(p, 'finance', 'organization:hq')))
-        throw forbidden(`${finance[0]} requires finance on organization:hq`, {
-          relation: 'finance',
-          object: 'organization:hq',
-          metric: finance[0],
-        });
-      const scope = q.filters.store_ids ?? stores;
+      // the same rules BI Q&A's tool applies (scope.ts): 403 outside the scope, never empty rows
+      const scope = await scopeForQuery(q, {
+        stores: (await metricsScope(p)).map((s) => s.id),
+        finance: () => can(p, 'finance', 'organization:hq'),
+      });
       const result = await executeMetricQuery(reader(), q, scope);
       // text/csv only when the client prefers it over JSON (the default stays JSON); errors stay JSON either way
       if (req.accepts(['application/json', 'text/csv']) === 'text/csv') {

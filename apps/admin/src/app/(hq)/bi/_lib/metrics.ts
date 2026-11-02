@@ -18,6 +18,8 @@ export type MetricQuery = AdminComponents['MetricQuery'];
 export type MetricRow = AdminComponents['MetricRow'];
 export type MetricResult = AdminComponents['MetricResult'];
 export type MetricCatalogue = AdminComponents['MetricCatalogue'];
+/** BI Q&A's answer (#606, Admin API 0.4.27). */
+export type MetricAnswer = AdminComponents['MetricAnswer'];
 
 export interface Window {
   from: string;

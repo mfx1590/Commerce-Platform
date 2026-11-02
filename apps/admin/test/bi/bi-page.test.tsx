@@ -44,6 +44,10 @@ vi.mock('@/components/states/state-panel', async (importOriginal) => ({
     </p>
   ),
 }));
+// the Ask box is a client component (hooks): stubbed here, tested in ask-box.test.tsx
+vi.mock('@/app/(hq)/bi/_components/ask-box', () => ({
+  AskBox: ({ base }: { base: string }) => <p data-testid="ask-stub">ask {base}</p>,
+}));
 vi.mock('@/app/(hq)/bi/_components/live-tiles', () => ({
   LiveTiles: ({ initial, endpoint }: { initial: { rows: unknown[] }; endpoint: string }) => (
     <p data-testid="live-stub">

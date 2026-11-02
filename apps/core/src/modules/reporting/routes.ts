@@ -25,6 +25,7 @@ import {
   storeSalesReport,
   storeStockReport,
 } from './service';
+import { askAdminRouter } from './ask/routes';
 import { metricsAdminRouter } from './metrics';
 
 export const STORE_SALES_REPORT_PATH = '/admin/stores/:storeId/reports/sales';
@@ -104,6 +105,8 @@ export function reportingAdminRouter(): Router {
   // #603: listMetrics / queryMetrics (metrics/routes.ts). Their x-permission resolves per request and fails closed
   // (503) while the operations are not in admin-api.yaml.
   r.use(metricsAdminRouter());
+  // BI Q&A (#606): 503 until the contract (#668), the gateway's tool use (#669) and the feedback table land
+  r.use(askAdminRouter());
 
   return r;
 }
