@@ -88,6 +88,13 @@ const MIGRATION_OK = [
 ];
 const MODEL_OK = /^CREATE\s+OR\s+REPLACE\s+VIEW\s/i;
 const INSERT = /^INSERT\s+INTO\s+(\w+)\s/i;
+// #689: replacing a materialised view (create the new one, then drop the old) and removing rows a buggy one wrote.
+// Both are narrow on purpose: a DROP only of a VIEW, IF EXISTS, that a migration created as a materialised view;
+// a DELETE only of the zero-uuid store rows (what an MV's no-op `store_id IS NOT NULL` let through) from a
+// ReplacingMergeTree table. Both are idempotent: a second run drops nothing and deletes nothing.
+const DROP_VIEW = /^DROP\s+VIEW\s+(IF\s+EXISTS\s+)?(\w+)$/i;
+const DELETE = /^DELETE\s+FROM\s+(\w+)\s+WHERE\s+([\s\S]+)$/i;
+const ZERO_STORE = /^store_id\s*=\s*toUUID\(\s*'00000000-0000-0000-0000-000000000000'\s*\)$/i;
 
 /** Tables created by the migrations with a ReplacingMergeTree engine: the only safe backfill targets. */
 function replacingTables(files: readonly SqlFile[]): Set<string> {
@@ -102,9 +109,23 @@ function replacingTables(files: readonly SqlFile[]): Set<string> {
   return out;
 }
 
+/** Materialised views the migrations create: the only views a migration may drop. */
+function materializedViews(files: readonly SqlFile[]): Set<string> {
+  const out = new Set<string>();
+  for (const f of files) {
+    if (f.kind !== 'migration') continue;
+    for (const s of splitStatements(f.sql)) {
+      const m = /^CREATE\s+MATERIALIZED\s+VIEW\s+IF\s+NOT\s+EXISTS\s+(\w+)/i.exec(s);
+      if (m) out.add(m[1]!);
+    }
+  }
+  return out;
+}
+
 /** Every statement that would not survive a second run: [] means the folders are safe to re-run. */
 export function lintSqlFiles(files: readonly SqlFile[]): string[] {
   const replacing = replacingTables(files);
+  const views = materializedViews(files);
   const problems: string[] = [];
   for (const f of files) {
     splitStatements(f.sql).forEach((s, i) => {
@@ -118,6 +139,22 @@ export function lintSqlFiles(files: readonly SqlFile[]): string[] {
         if (!replacing.has(insert[1]!) || !/\bSELECT\b/i.test(s))
           problems.push(
             `${at}: an INSERT is allowed only as INSERT … SELECT into a ReplacingMergeTree table`,
+          );
+        return;
+      }
+      const drop = DROP_VIEW.exec(s);
+      if (drop || /^DROP\s/i.test(s)) {
+        if (!drop || !drop[1] || !views.has(drop[2]!))
+          problems.push(
+            `${at}: a DROP is allowed only as DROP VIEW IF EXISTS of a materialised view a migration created`,
+          );
+        return;
+      }
+      const del = DELETE.exec(s);
+      if (del || /^DELETE\s/i.test(s)) {
+        if (!del || !replacing.has(del[1]!) || !ZERO_STORE.test(del[2]!.trim()))
+          problems.push(
+            `${at}: a DELETE is allowed only as DELETE FROM a ReplacingMergeTree table WHERE store_id = toUUID('00000000-0000-0000-0000-000000000000')`,
           );
         return;
       }
@@ -358,7 +395,10 @@ export async function migrate(
       }
       if (recorded !== undefined && f.kind === 'migration') throw new MigrationChangedError(f.name);
       for (const statement of splitStatements(f.sql)) {
-        if (INSERT.test(statement)) await waitForRunningInserts(db, database, opts);
+        // a backfill, and a DELETE too (#689): an insert begun before a superseded MV was dropped still writes
+        // through it, so the rows it could add must be in before the DELETE reads
+        if (INSERT.test(statement) || DELETE.test(statement))
+          await waitForRunningInserts(db, database, opts);
         await db.command({ query: statement });
       }
       await db.insert({
