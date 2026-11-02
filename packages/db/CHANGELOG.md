@@ -219,3 +219,4 @@
   identity; single- and multi-store sessions read, insert and update none; no context and another organization see
   none. The two functions' scope and merge cases (condition 3) are window 13's tests in the core customers module.
   Not run in this landing (assembled without a database).
+- Review (#673): `ai_call_audit_org_conversation_idx` is partial (WHERE conversation_id IS NOT NULL); the README states how the core derives feedback ownership.
