@@ -177,7 +177,52 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **Never commit a 64-hex email_hash fixture.** The `sha256` $def needs a real 64-hex value, so a word will not validate — compute it: `createHash('sha256').update('…').digest('hex')`, which is what apps/core does. I had three such literals before catching it; one would have reddened every open PR.
 - `pg` is deliberately NOT a dependency of this app: for a pool type use `Parameters<typeof createTenantClient>[0]`.
 
-## RESUME HERE — 2026-11-01: #610 (AI support reply drafts) built, PR open
+## RESUME HERE — 2026-11-02: #678 (support error codes) built, PR open
+
+**Manager session TEN.** Branch `engagement/phase5-678` from `origin/main` `d6ed17ee`. #610 merged
+(`4c2ca7ab`) — AI support drafts are on main, ON by default per store.
+
+**#678 — my own follow-up, and typing the field found more than my issue had listed.**
+`SupportError.code` is `ErrorCode | PENDING_ERROR_CODES` instead of `string`; the compiler then surfaced
+**`internal_error`** (the contract says `internal`) and **`upstream_unavailable`**, neither of which I had
+inventoried when I filed the issue from a grep. Mapped: `bad_request` → `validation_error`, `upstream_error`
+/ `upstream_unavailable` → `unavailable`, `replayed` → `conflict`; each lost distinction moved to
+`details.reason` rather than vanishing. The two generic HTTP conditions (`method_not_allowed`,
+`payload_too_large`) are **CONTRACT CHANGE #690** with the exact diff — the manager lands it; I may not edit
+`packages/contracts`. One test pins `PENDING_ERROR_CODES`, another asserts its entries are still absent from
+`ERROR_CODES`, **so the day #690 lands that test fails and the fix is to delete the list.**
+
+**THE LESSON:** a grep inventories what I thought to search for; a TYPE inventories what is actually there. I
+filed #678 from a grep and it was incomplete in two places.
+
+**Verified:** 544 passed / 9 live skipped offline; typecheck, lint, prettier, ownership clean. Package 0.9.1.
+
+<!-- Earlier blocks remain accurate for their own tasks. -->
+
+## RESUME (superseded) — #610 merged
+
+**#610 (AI support reply drafts) is on main, ON by default per store**, with `support-reply-draft@1`
+published by window 14's #671 (`c5b5ab14`). PRs: #674 = `4c2ca7ab`. Follow-up **#678** is filed (engagement
+support-server codes outside `ERROR_CODES`) and is NOT assigned to me.
+
+**The two things from this task worth carrying forward:**
+1. **A cast across a boundary somebody else owns is a blind spot, not a convenience.** The `as never` that
+   let this code compile against an unpublished template is exactly what hid #671 declaring
+   `totalMinor`/`currency`/`refundedMinor` while my projection sent pre-formatted `total`/`refunded`. No
+   test, no typecheck and neither CI run could have caught it; reading their PR before planning the swap did.
+   The cast is gone and the contract is now proved twice (the type-level one in `main.ts`, plus a test
+   against `getTemplate(...).variableNames` that holds even if someone reaches for a cast again).
+2. **"Checked before X" is only true if it is SEQUENCED before X.** `gatewayFor(...)` as an argument to
+   `buildReplyDraft` ran after `buildContext`, so a missing API key read the customer's whole order history
+   and then answered 500 — while the README promised 503 with nothing read (#674 item 2). The test asserts
+   the reader's call log is EMPTY, not the status code.
+
+**State:** branch `engagement/phase5-610` merged; working tree holds only this memory note. No machine, no
+background process, nothing scheduled.
+
+<!-- Earlier blocks remain accurate for their own tasks. -->
+
+## RESUME (superseded) — #610 built, PR open
 
 **Manager session TEN.** Branch `engagement/phase5-610`, cut from `origin/main` `94af5d16`. Plan was approved
 before any code (his rule for a task over ~20 calls).

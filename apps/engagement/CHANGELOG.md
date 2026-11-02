@@ -1,5 +1,26 @@
 # @platform/engagement
 
+## 0.9.1 — 2026-11-02 (#678, the support server's error codes)
+
+Every code this service answers is now the contract's, enforced by the compiler.
+
+- **`SupportError.code` is typed `ErrorCode`** (from `@platform/contracts`) instead of `string`, which is the
+  part that lasts: a dashboard switching on `code` can only rely on the contract's list if the compiler holds
+  us to it. **Typing the field immediately found two divergences #678 itself had not listed** —
+  `internal_error`, where the contract says `internal`, and `upstream_unavailable` — which is a fair argument
+  for types over greps.
+- **Mapped onto the contract's names:** `bad_request` → `validation_error` (7 sites), `upstream_error` and
+  `upstream_unavailable` → `unavailable` (5), `replayed` → `conflict` (409, which is exactly what that code
+  is for). Where a mapping lost a distinction it moved to **`details.reason`** rather than disappearing, so a
+  reader can still tell a core that did not answer from one that answered badly; `SupportError` takes those
+  details as a fourth argument now.
+- **One named exception, not a loophole:** `PENDING_ERROR_CODES` holds `method_not_allowed` and
+  `payload_too_large` — two ordinary HTTP conditions that belong in the contract rather than in one service,
+  filed as **CONTRACT CHANGE #690** with the exact diff for the manager to land. A test pins the list's
+  contents and a second asserts every entry is still missing from `ERROR_CODES`, so **the day #690 lands that
+  test fails and the fix is to delete the list** — after which the compiler holds every code to the contract.
+- Tests: **544 passing / 9 live skipped** offline (was 541/9).
+
 ## 0.9.0 — 2026-11-01 (#610, AI support reply drafts)
 
 A reply DRAFT for a support agent, through `packages/ai`'s guarded gateway. ON by default per store (owner

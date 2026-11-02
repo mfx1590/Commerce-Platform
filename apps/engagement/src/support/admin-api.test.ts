@@ -238,7 +238,9 @@ describe('how it maps the core s answers', () => {
       .getCustomer(STORE, CUSTOMER, AGENT)
       .catch((e: unknown) => e)) as SupportError;
     expect(err.status).toBe(502);
-    expect(err.code).toBe('upstream_unavailable');
+    // `unavailable` is the contract's name; the distinction between "did not answer" and "answered badly"
+    // lives in `details.reason` now (#678).
+    expect(err.code).toBe('unavailable');
     expect(err.message).not.toContain('agent-token-in-words');
   });
 

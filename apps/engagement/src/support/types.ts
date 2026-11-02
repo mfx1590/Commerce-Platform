@@ -9,6 +9,8 @@
 // This is a read-only projection of what the core already answers. It exists because a Chatwoot dashboard
 // cannot make six Admin API calls and join them, not because we hold anything the core does not.
 
+import type { ErrorCode } from '@platform/contracts';
+
 /** What the agent is told about the customer. The same fields the Admin API returns, nothing added. */
 export interface SupportCustomer {
   id: string;
@@ -103,9 +105,24 @@ export interface AgentPrincipal {
   authorization: string;
 }
 
+/**
+ * The codes this service answers that `@platform/contracts` does not carry YET (#678): two ordinary HTTP
+ * conditions, filed as CONTRACT CHANGE #690 for the manager to land. The list exists so the divergence is
+ * ONE named, tested thing instead of free strings scattered over three files — and **deleting it is the
+ * whole change here when #690 lands**, after which the compiler holds every code to the contract's list.
+ */
+export const PENDING_ERROR_CODES = ['method_not_allowed', 'payload_too_large'] as const;
+
+/**
+ * Every code this service may answer. Typed rather than `string` (#678, from the #674 review): a dashboard
+ * switching on `code` can only rely on the contract if the compiler holds us to it, and a code invented in
+ * one service is a quiet divergence that becomes an integration surprise later.
+ */
+export type SupportErrorCode = ErrorCode | (typeof PENDING_ERROR_CODES)[number];
+
 export class SupportError extends Error {
   readonly status: number;
-  readonly code: string;
+  readonly code: SupportErrorCode;
   /**
    * Extra, SAFE fields for the body's `details` (#610): a refusal category, a limiter reason. Never an
    * upstream message, a token, or anything a customer typed — the same rule the messages follow.
@@ -113,10 +130,16 @@ export class SupportError extends Error {
   details?: Record<string, unknown>;
   /** Seconds, rendered as `Retry-After` with `ai_rate_limited` (the contract's own shape). */
   retryAfterSeconds?: number;
-  constructor(status: number, code: string, message: string) {
+  constructor(
+    status: number,
+    code: SupportErrorCode,
+    message: string,
+    details?: Record<string, unknown>,
+  ) {
     super(message);
     this.name = 'SupportError';
     this.status = status;
     this.code = code;
+    if (details) this.details = details;
   }
 }

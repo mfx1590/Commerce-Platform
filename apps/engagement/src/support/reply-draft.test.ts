@@ -4,13 +4,14 @@
 // which is the question a privacy review asks. The denylist check is the real one, imported from
 // `@platform/ai` — the projection's type is the first guard, and this is the second.
 
+import { ERROR_CODES } from '@platform/contracts';
 import { findDeniedFields, getTemplate } from '@platform/ai';
 import { describe, expect, it } from 'vitest';
 import { formatMoney, pickOrder, toDraftVariables, type DraftVariables } from './draft-context.js';
 import { TEMPLATE_KEY } from './draft-template.js';
 import { buildReplyDraft, draftErrorFor, MAX_QUESTION_CHARS } from './reply-draft.js';
 import type { SupportContext, SupportOrder } from './types.js';
-import { SupportError } from './types.js';
+import { PENDING_ERROR_CODES, SupportError } from './types.js';
 
 const ORDER_ID = '11111111-1111-4111-8111-111111111111';
 const OLDER_ID = '22222222-2222-4222-8222-222222222222';
@@ -318,5 +319,34 @@ describe('the gateway errors map to the shared codes (#610)', () => {
     const err = draftErrorFor(new Error('kaboom with a token in it'));
     expect([err.status, err.code]).toEqual([500, 'internal']);
     expect(err.message).not.toContain('token');
+  });
+});
+
+describe('every code this service answers is in the contract (#678)', () => {
+  // The compiler already holds `SupportError.code` to `ErrorCode | PENDING_ERROR_CODES`, which is what
+  // actually prevents a new divergence — typing the field is what found two more than the issue listed
+  // (`internal_error`, which the contract calls `internal`, and `upstream_unavailable`).
+  //
+  // This test exists for the exception list itself: it must be able to SHRINK silently when CONTRACT CHANGE
+  // #690 lands, and never grow without someone changing this line.
+  it('the pending list is exactly the two HTTP conditions #690 adds', () => {
+    expect([...PENDING_ERROR_CODES]).toEqual(['method_not_allowed', 'payload_too_large']);
+  });
+
+  it('every pending code is one the contract does not carry yet', () => {
+    // The day #690 lands, this fails and the fix is to delete the list — which is the point.
+    for (const code of PENDING_ERROR_CODES) {
+      expect(ERROR_CODES as readonly string[]).not.toContain(code);
+    }
+  });
+
+  it('a code that lost a distinction keeps it in details.reason', () => {
+    // `upstream_unavailable` and `upstream_error` both became `unavailable`, and `replayed` became
+    // `conflict`. A reader can still tell them apart, which is the condition on which those mappings were
+    // acceptable at all.
+    const err = new SupportError(502, 'unavailable', 'The core did not answer (getCustomer)', {
+      reason: 'upstream_unavailable',
+    });
+    expect([err.code, err.details?.reason]).toEqual(['unavailable', 'upstream_unavailable']);
   });
 });

@@ -863,7 +863,7 @@ describe('POST /webhooks/chatwoot', () => {
     expect((await req('/webhooks/chatwoot', { method: 'POST', headers, body })).status).toBe(202);
     const again = await req('/webhooks/chatwoot', { method: 'POST', headers, body });
     expect(again.status).toBe(409);
-    expect(again.body.code).toBe('replayed');
+    expect(again.body.code).toBe('conflict');
   });
 
   it('accepts the x-hub-signature-256 header too', async () => {

@@ -198,7 +198,8 @@ describe('replay', () => {
       }
     })();
     expect(err?.status).toBe(409);
-    expect(err?.code).toBe('replayed');
+    // 409 + `conflict`, the contract's name for exactly this (#678).
+    expect(err?.code).toBe('conflict');
   });
 
   it('catches a re-send whose body was cosmetically changed', () => {
