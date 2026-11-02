@@ -59,7 +59,9 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   ask tests 90 pass. WAITING: #681 (window 14 uuid guard in redact()) still OPEN → then merge main, add the
   no-"[phone]" + step-0 redactions=0 tests, push, report head. Real-model run was ALREADY done before #681 (#7 no
   top-5 may be the mangled product ids). MANAGER (2026-11-02): items 2–5 ACCEPTED (p1/p2 labels good; the metrics
-  rows carry no title/handle, checked). SEQUENCE: (1) #681 merges → merge main, item-1 tests, push #680, report.
+  rows carry no title/handle, checked). SEQUENCE: (1) DONE 2026-11-02: #681 merged (3734b3ab) → main merged
+  (8fbc94b0), item-1 test (stores line code+id whole, no "[phone]", step 0 redactions 0), README/test notes on the
+  fixed redaction; lint+typecheck green (root, 11.5 min), reporting 175 pass; pushed to #680.
   (2) #682 (bi-qa-answer@2, window 14) merges → small follow-up PR: BI_QA_TEMPLATE → @2, pass `locale` (validated
   with Intl.getCanonicalLocales, fallback en); golden checker parses `(derived: a [qi] op b [qj])` and recomputes
   (one diff/sum of two same-currency figures or two counts, or one ratio; half-up to 2 decimals). (3) ask for the

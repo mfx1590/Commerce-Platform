@@ -87,7 +87,7 @@ describe('askMetrics on the real gateway (packages/ai, fake transport)', () => {
     expect(transport.calls[0]!.user).toContain('brand-a');
     expect(transport.calls[0]!.user).not.toContain('brand-b');
     // the tool's schema carries the real store ids (the enum the model must pick from); the prompt text is redacted,
-    // and packages/ai's redaction currently reads a digit-heavy uuid as phone numbers (reported to window 14)
+    // (a uuid passes packages/ai's redaction whole since #681: see the stores-line test below)
     const schema = JSON.stringify(transport.calls[0]!.tools![0]!.inputSchema);
     expect(schema).toContain(A.id);
     expect(schema).not.toContain(B.id);
@@ -132,7 +132,7 @@ describe('askMetrics on the real gateway (packages/ai, fake transport)', () => {
     expect(sent.rows.map((x) => x.product)).toEqual(['p1', 'p2']);
     expect(sent.rows.every((x) => !('product_id' in x))).toBe(true);
     expect(back.toolResults[0]!.content).not.toContain(P1);
-    expect(r.queries[0]!.result!.rows.map((x) => x.product_id)).toEqual([P1, P2]); // sorted; p1 is the first row's;
+    expect(r.queries[0]!.result!.rows.map((x) => x.product_id)).toEqual([P1, P2]); // sorted; p1 is the first row's
   });
 
   it('rows reach the model by store CODE (a uuid would be mangled by redaction); the caller keeps the ids', async () => {
@@ -149,6 +149,19 @@ describe('askMetrics on the real gateway (packages/ai, fake transport)', () => {
     expect(sent.rows.map((x) => x.store)).toEqual(['brand-a']);
     expect(back.toolResults[0]!.content).not.toContain('[phone]');
     expect(r.queries[0]!.result!.rows.map((x) => x.store_id)).toEqual([digitHeavy.id]);
+  });
+
+  it('the stores line (code + id) reaches the model whole: no "[phone]", step 0 counts no redaction (#681)', async () => {
+    const digitHeavy = { id: '5a1b2c3d-1111-4222-8333-444455556666', code: 'brand-a' };
+    const { transport, audit, gatewayFor } = real([
+      { toolUse: [{ name: 'query_metrics', input: q() }] },
+      { text: 'ok' },
+    ]);
+    await ask(gatewayFor, caller([digitHeavy], false));
+    const user = transport.calls[0]!.user;
+    expect(user).toContain(`brand-a ${digitHeavy.id}`);
+    expect(user).not.toContain('[phone]');
+    expect(audit.records.find((x) => x.step === 0)).toMatchObject({ redactions: 0 });
   });
 
   it('an organization-level principal: the organization budget and audit (storeId null)', async () => {
