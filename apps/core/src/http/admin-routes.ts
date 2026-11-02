@@ -12,6 +12,7 @@ import {
   createCategory,
   createProduct,
   createVariant,
+  draftProductCopy,
   getProduct,
   listCategories,
   listProducts,
@@ -824,6 +825,24 @@ export function adminRouter(opts: AdminRouterOptions = {}): Router {
       const { p, client, storeId } = storeClient(req);
       await archiveProduct(client, storeId, uuidParam(req.params, 'productId'), p.actor);
       res.status(204).end();
+    }),
+  );
+  // #608 (CONTRACT CHANGE #664): an AI draft of the copy — returned, never saved; the human saves with updateProduct
+  r.post(
+    '/admin/stores/:storeId/products/:productId/copy-drafts',
+    permission('draftProductCopy'),
+    body('draftProductCopy'),
+    handle(async (req, res) => {
+      const { p, client, storeId } = storeClient(req);
+      const b = req.body as { locale: string; fields: string[] };
+      res.json(
+        await draftProductCopy(client, storeId, {
+          productId: uuidParam(req.params, 'productId'),
+          locale: b.locale,
+          fields: b.fields,
+          actorId: p.actor.id,
+        }),
+      );
     }),
   );
   r.post(

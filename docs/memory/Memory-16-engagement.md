@@ -177,7 +177,76 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **Never commit a 64-hex email_hash fixture.** The `sha256` $def needs a real 64-hex value, so a word will not validate — compute it: `createHash('sha256').update('…').digest('hex')`, which is what apps/core does. I had three such literals before catching it; one would have reddened every open PR.
 - `pg` is deliberately NOT a dependency of this app: for a pool type use `Parameters<typeof createTenantClient>[0]`.
 
-## RESUME HERE — 2026-10-30: #657 (the erasure HIGH) done, PR open
+## RESUME HERE — 2026-11-01: #610 (AI support reply drafts) built, PR open
+
+**Manager session TEN.** Branch `engagement/phase5-610`, cut from `origin/main` `94af5d16`. Plan was approved
+before any code (his rule for a task over ~20 calls).
+
+**#610 — the first AI feature in this service. ON by default per store** (owner 2026-11-01 reversed the
+default from OFF: "we need everything at start; we can limit later"), the per-store switch kept.
+- **`POST /support/customers/:customerId/reply-draft`**, same gates as the context route, then the switch.
+  The agent edits and sends: **this service has no outbound channel to a customer**, which is how "nothing is
+  sent automatically" is structural instead of a promise.
+- **A REDUCED projection, never the support context** (`draft-context.ts`): the context carries an e-mail, a
+  name and every tracking number, and `DraftVariables`'s type cannot carry a denied field. A test pins the
+  key set and runs `@platform/ai`'s own `findDeniedFields` over it, so my type and their runtime guard cannot
+  drift apart. Tracking number excluded for the CDP's reason: it identifies a parcel at a carrier.
+- **Money formatted here, not by the model** (`Intl` knows JPY has no decimals; a model given `4976` + `EUR`
+  would have to divide by a hundred in a customer-facing sentence).
+- **The question is untrusted and goes through UNCHANGED** — redaction is the gateway's own step over the
+  text it hashes for the audit, and a second half-done redaction here would differ from it.
+- The switch reuses the consent-mode env contract; the generic halves are now `readPerStoreOverrides` +
+  `assertPerStoreOverridesKnown` (ONE normalisation, #586's lesson), used by both settings.
+- Errors map to `ERROR_CODES` **by class NAME**, because they cross a package boundary where `instanceof`
+  fails silently between two copies of a package.
+
+**THE #671 MONEY MISMATCH — caught by reading the other side's PR, not by CI (2026-11-01).** Window 14's
+template v1 declared `totalMinor` / `currency` / `refundedMinor` (the model converts); my projection sends
+`total` / `refunded` pre-formatted with `Intl`. The swap would have broken on the day both PRs merged, and
+**no test or typecheck could have caught it, because the `as never` that let me compile against an
+unpublished key is exactly what hid the gap**. Their own PR note had reached my conclusion and written it
+off as "would need a v2" — but v1 was not published, so it cost a few lines instead. Manager took my
+recommendation: v1 now declares `total` and `refunded` as pre-formatted strings and the prompt copies the
+amounts exactly; my `Intl` projection stays.
+**THE LESSON:** when my code compiles only because of a cast across a boundary somebody else owns, the cast
+is a blind spot, not a convenience — read their side before the swap. And formatting money belongs where the
+currency exponent table is (`Intl`), never in a prompt: JPY is zero-decimal, KWD is three, and "€4,976.00"
+instead of "€49.76" is the kind of error an agent may not catch before sending.
+
+**#674's review was FINDINGS and the medium one was mine twice over:** `gatewayFor(...)` was an ARGUMENT to
+`buildReplyDraft`, so it ran after `buildContext` and outside the error mapping — a missing API key therefore
+read the customer's whole order history and answered 500 with no audit row, while the README promised 503
+with nothing read. Fixed: resolve the gateway first, inside the mapped path, with a test that asserts the
+reader's call log is EMPTY. **The lesson: "checked before X" is only true if it is SEQUENCED before X — an
+argument evaluates where it is written, not where the function says it belongs.** Also from that review:
+`ai_drafts` now means READY (switch AND `AI_ENABLED=1` AND key AND template), `locale` is validated to a
+BCP-47 shape ≤ 35 chars, and the generic per-store refusals raise `ConfigRefusedError` instead of
+`ConsentModeConfigError` (a support setting should not report a consent-mode error). Item 6 (engagement
+codes outside `ERROR_CODES`) is filed as **#678** with options and a recommendation.
+
+**THE SWAP IS DONE (2026-11-02, #671 merged `c5b5ab14`).** `DraftGateway.complete`'s key is `typeof
+TEMPLATE_KEY`, both casts are gone, and `main.ts` compiling is now the proof that `DraftVariables` satisfies
+`TemplateVariables<'support-reply-draft@1'>`; a test compares the key set against
+`getTemplate(...).variableNames` so the reverse holds too (no declared variable left unset). That test is
+the one that would have caught the money mismatch on its own.
+
+**WHAT IS NOT DONE, and why it is not my call:** the feature cannot produce a draft until
+`support-reply-draft@1` exists — **REQUEST #667** to window 14, who own `packages/ai` (a published template
+is frozen). The gateway refuses an unpublished key before rendering or sending, so the route answers 503
+`unavailable`; one `as never` in `main.ts` is the whole cost and comes out when it lands.
+
+**Three things I flagged with the PR:** `AiConfigError` → 503 `unavailable` rather than 500 (a missing API
+key is an operator's problem, and the manager's table did not cover that class); `apps/engagement` has **no
+Dockerfile** so adding the `@platform/ai` dependency needed no COPY line (worth re-checking if an image is
+ever added); and I edited `pnpm-lock.yaml` by hand (3 lines) because a full `pnpm install` re-resolved
+unrelated Medusa peer hashes — `--frozen-lockfile` accepts the surgical version.
+
+**Verified:** 535 passed / 9 live skipped offline; typecheck, lint, prettier, ownership clean. Package 0.9.0.
+No test constructs the real gateway, reaches a network or spends a budget.
+
+<!-- Earlier blocks remain accurate for their own tasks. -->
+
+## RESUME (superseded) — #657, the erasure HIGH
 
 **Manager session TEN.** Branch `engagement/phase5-erasure-ids`, cut `--no-track` from main `5eb002a`.
 **#610 (support reply drafts, default OFF) is still my wave-3 task.**
@@ -208,9 +277,13 @@ CHANGELOG; the manager adds a launch-checklist line. Linking the two profiles on
 decision — do not take it in passing.
 
 **Two things left open on purpose, both the manager's to schedule:**
-1. the hash-only erasure still THROWS, although his own argument for entry (ii) would allow
-   `{ userId: <hash> }` there too. I kept the throw because he decided the both-known case only, and raised
-   the inconsistency rather than resolving it myself;
+1. ~~the hash-only erasure still THROWS…~~ **ANSWERED (manager, 2026-10-30): KEEP THE THROW**, and for a
+   better reason than mine. A guest-only erasure needs a REQUEST ROUTE and a way to verify the person owns
+   the address before the adapter should accept one; allowing `{ userId: <hash> }` now would make a path
+   look ready that has no front door. Written on #657 and carried on the launch checklist. The code comment
+   still says only "the first question a guest-erasure path must answer" — **fold this reason into
+   `rudderstack.ts`'s comment with the next engagement commit** (not pushed on #660's head, which was
+   queueing);
 2. his nit, recorded not fixed: the suppressed flush fires on every 60 s tick during an ONGOING burst;
    flushing only when the window closes would be better.
 

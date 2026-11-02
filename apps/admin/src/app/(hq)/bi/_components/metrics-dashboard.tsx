@@ -32,6 +32,7 @@ import {
   type ReportWindow,
   type StoreRef,
 } from '../_lib/report';
+import { AskBox } from './ask-box';
 import { LiveTiles } from './live-tiles';
 import { SeriesChart, type ChartSeries } from './series-chart';
 
@@ -70,6 +71,7 @@ export async function MetricsDashboard({
         description={`From the analytics store, ${window.from} to ${window.to} (UTC, end exclusive). One currency at a time.`}
       />
       <CardBody className="space-y-6">
+        <AskBox base={base} labels={labels} />
         {live.ok ? (
           <LiveTiles initial={live.data} endpoint={`${base}/live`} labels={labels} />
         ) : (

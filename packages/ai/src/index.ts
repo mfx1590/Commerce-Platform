@@ -1,11 +1,17 @@
 // Public API of @platform/ai — the guarded Claude gateway (D8, #605). Nothing outside this package imports src/*.
 export {
   createAiGateway,
+  DEFAULT_MAX_TOOL_CALLS,
   estimateInputTokens,
+  MAX_TOOL_CALLS_CAP,
   NO_INPUT_SHA256,
+  nextUtcMonth,
   type AiDraft,
   type AiGateway,
   type AiGatewayOptions,
+  type AiToolResult,
+  type AiToolRun,
+  type AiToolRunOptions,
 } from './gateway.js';
 export {
   costMicroUsd,
@@ -42,6 +48,9 @@ export {
   limitsFromEnv,
   minuteKey,
   monthKey,
+  orgLimitsFromEnv,
+  scopeKey,
+  type LimitScope,
   type Limits,
   type RedisLimiter,
   type RedisLimiterOptions,
@@ -63,11 +72,20 @@ export {
   createFakeTransport,
   errorClassOf,
   FALLBACK_BETA,
+  type AiAssistantContent,
   type AiRequest,
   type AiResponse,
+  type AiTool,
+  type AiToolCall,
+  type AiToolResultBlock,
   type AiTransport,
+  type AiTurn,
   type AnthropicTransportOptions,
+  type FakeScriptStep,
+  type FakeStep,
   type FakeTransport,
+  type FakeTransportOptions,
+  type JsonSchemaObject,
 } from './transport.js';
 export {
   AiAuditError,
@@ -78,7 +96,9 @@ export {
   AiLimiterError,
   AiRateLimitedError,
   AiRefusedError,
+  AiToolLoopError,
   AiTransportError,
   DeniedFieldError,
   TemplateError,
+  type BudgetScope,
 } from './errors.js';

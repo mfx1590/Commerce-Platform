@@ -52,6 +52,39 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- #606 BI Q&A (manager ten, 2026-11-01; owner: ON from the start, per-store switch default ON; DPA confirmation is a
+  launch-checklist line). Branch data/phase5-606 (local, cut --no-track from origin/main 3f7394b; first push needs an
+  explicit upstream). PLAN SENT, NO CODE until the manager answers. Facts found: packages/ai = text completion only
+  (AiRequest {model, system, user, maxTokens, effort, fallbacks}; purposes drafting/classification; audit + budget are
+  per STORE); the core does not import @platform/ai yet (#608 / #664 by window 1 will); #664's AI error codes
+  (ai_disabled 503, ai_budget_exceeded / ai_rate_limited 429, ai_refused 422, ai_unavailable 502) are NOT in the
+  contract yet — my CONTRACT CHANGE reuses them, so it lands after #664. store.settings is free-form
+  (additionalProperties) → the switch is `settings.ai.bi_qa` (absent = on), documented, no schema change.
+  Plan = REQUEST (window 14: tool-use loop in the gateway), CONTRACT CHANGE (askMetrics + askFeedback), a db REQUEST
+  (feedback table; org-level audit rows), then the build in reporting/ask + admin (hq)/bi and (store)/bi.
+  APPROVED (manager ten 2026-11-01): (a) org-scope budget/audit (db change = manager: ai_call_audit.store_id nullable +
+  org RLS, + conversation_id / step / tool_names, + ai_qa_feedback); ai_tool_limit 422; feedback no free text.
+  FILED: CONTRACT CHANGE #668 (exact diff on 0.4.26; checked on a scratch copy: only the version pins + op count
+  138→140 fail), REQUEST #669 (runTools; + a comment: cite the server's `ref`, not call order). BUILT (pushed,
+  upstream set): b52825b3 core (tool + askMetrics + GatewayLike stand-in + scripted fake; scope.ts shared with
+  queryMetrics), efcefaf3 routes (fail closed; bi_qa from store.settings; Retry-After), b233deb2 golden set (30, a
+  checker proven non-vacuous), 3de74d4f admin (Ask box, editable queries, thumbs, route handlers). Core reporting/ask
+  62 pass (+1 live skipped); admin 936. WAITING: the machine for the live golden run (asked); #668 / #669 / the db
+  landing; then swap GatewayLike → createAiGateway, drop the ai_tool_limit cast, wire the pg FeedbackStore, PR.
+  ON #673 (manager: #668 + db 0206 = ai_call_audit org scope/conversation/step/tool_names + ai_qa_feedback, store_nullable
+  RLS, append-only): merged into data/phase5-606; the ai_tool_limit cast dropped; admin calls typed (adminCall); the
+  Postgres FeedbackStore through the CALLER's tenant client (RLS: an HQ conversation is invisible to a store principal,
+  even one named as its actor → 404, tested). Core ask 65 pass. FINDING: askMetrics 200 has no example → Prism makes
+  "string" currencies, breaks its own pattern, validating mock = 500; the example is drafted and proven (14/14 with it)
+  — landed in #673 as 23f9c077; merged, the Prism test un-skipped (BI contract 14/14). PR #677 "Refs #606" open;
+  live golden 30/30 on the generated month (a classify-arity bug in the live setup found and fixed first).
+  #677 REVIEW (Fable, FINDINGS; tenancy holds; manager 2026-11-02) fixed locally: (1) budget/audit scope by PRINCIPAL
+  (AskCaller.organizationScope = hasOrganizationAccess): HQ → storeId null even for one store; a store principal with
+  several stores names exactly one, else 400 validation_error reason store_required (before anything is read/sent);
+  (2) biQaSwitches: CASE WHEN jsonb_typeof = boolean — a non-boolean counts as ON; (3) the golden check covers EVERY
+  numeric token + a stray-figure vacuity case; (4) stale README lines. ask 71 pass. Push AFTER #673 merges (merge main).
+  Gotchas: the compiled rows' store column is `out_store` (not out_store_id); the contracts tests pin the version
+  and the op count, and require `'403': { $ref: Forbidden }` on every admin op.
 - #648 DONE: PR #652 MERGED (3d586fe). FOLLOW-UPS (manager ten, 2026-10-30): branch data/phase5-ch-followups, code commit
   46b8bc0; head = this memory commit; ONE PR "Refs #648" (#648 is closed), Opus review. (1) README handover = pull
   (or recreate), then ch:migrate AT ONCE — CORRECTION: the Docker Desktop file share PROPAGATES a deletion into the

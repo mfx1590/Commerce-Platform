@@ -96,3 +96,29 @@ describe('the metrics API (#604): every query the dashboards send is a valid bod
     expect(res.ok).toBe(false);
   });
 });
+
+describe('BI Q&A (#606, Admin API 0.4.27): the wrappers reach the paths the contract documents', () => {
+  it('askMetrics: Prism validates the body and answers a MetricAnswer', async () => {
+    const res = await bi.askMetrics({
+      question: 'bookings in October?',
+      from: '2026-10-01',
+      to: '2026-11-01',
+    });
+    expect(res.ok, JSON.stringify(res)).toBe(true);
+    if (res.ok) {
+      expect(typeof res.data.answer).toBe('string');
+      expect(Array.isArray(res.data.queries)).toBe(true);
+    }
+  });
+
+  it('askMetricsFeedback: up/down to the conversation path answers 204', async () => {
+    const res = await bi.askMetricsFeedback('00000000-0000-4000-8000-00000000c606', 'up');
+    expect(res.ok, JSON.stringify(res)).toBe(true);
+    if (res.ok) expect(res.status).toBe(204);
+  });
+
+  it('a body outside the spec is refused by the mock', async () => {
+    const res = await bi.askMetrics({ question: '' });
+    expect(res.ok).toBe(false);
+  });
+});

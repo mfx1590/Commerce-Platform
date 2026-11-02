@@ -91,7 +91,7 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
         - #677 (window 12, BI Q&A apps): Fable FINDINGS (org scope by principal). Live golden run 30/30 on real ClickHouse. After #676.
         - #674 (window 16, support drafts): Fable FINDINGS fixed at 0f2df9a6; the `as never` swap is now unblocked by #671.
         - #670: per-locale product copy (later). #678: engagement codes outside ERROR_CODES.
-      - **TODO:** back up and migrate the shared dev DB to 0206 after #673 merges.
+      - **#673 MERGED 11-02 (10028658).** The shared dev DB is migrated to 0206 after the backup platform-before-0206-20261102.dump: one policy per table, FORCE RLS on. Queue running: #674, then #672. Next: #676 (window 14 merging main), #677 (window 12), #675 (window 4, mock e2e on the machine).
     - Window 14's model is unconfirmed: ask the owner before #605.
   - **MERGED 10-29:** #621 (#607 recommendations, 518cc4c, tagged **contracts-v0.4.29**; the shared dev DB migrated with 0204 after the backup `platform-before-0204-20261029.dump`), #631 (#623 ClickHouse erasure, 0d31c6d), #636 (#603 CONTRACT, 77ed790, tagged **contracts-v0.4.30**: Admin API 0.4.25 listMetrics/queryMetrics, live metrics, CSV via Accept, `unavailable`, the core error map, and the `(store)/[storeId]/bi/**` ownership row → window 12). Earlier: #630, #626, #628 (10-27). Wave 1 and the wave-2 contracts are DONE.
   - **OPEN / IN FLIGHT:**
