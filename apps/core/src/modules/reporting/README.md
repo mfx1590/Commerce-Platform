@@ -102,6 +102,11 @@ the Redis limiter, `ai_call_audit`, the Anthropic transport resolved only when a
   - Every call goes through the SAME `parseMetricQuery` → `scopeForQuery` (`metrics/scope.ts`, shared with `queryMetrics`) → `executeMetricQuery`.
   - A call outside the scope, or not a valid query, becomes a tool error: the analytics store is never read, and the model sees the refusal.
   - Each result carries a `ref` (`q1`, `q2` …) that the answer cites. At most 200 rows go back to the model, each naming its store by CODE (`store: "brand-a"`) and its product by a label stable within that result (`product: "p1"`, in row order; no `product_id` — the model ranks and compares, it has no use for the id) — readable, and safe from redaction: packages/ai redacts what is sent, and before #681 its phone pattern ate digit runs inside a uuid (since #681 a uuid passes whole, tested on the stores line); the real ids are in the tool schema's enum (not redacted) and in the caller's full, capped result.
+- **The template** is `bi-qa-answer@2` (#682, from the first real-model run): the answer in the question's language,
+  else the admin's `locale` — the request's `Accept-Language` (the admin forwards the browser's), first tag only,
+  canonical through `Intl.getCanonicalLocales` (`canonicalLocale`), `en` when missing or invalid, so the header
+  cannot carry text into the prompt; no figure computed beyond ONE labelled `(derived: a [qi] − b [qj])` difference
+  or sum, or ratio; top-N by the identifying dimension.
 - **The answer** (`MetricAnswer`): the text, every query that parsed (its result or its error), a chart hint (the first day-grain query), `excluded_store_ids`, the model and the template.
 - **Gateway errors** map to the contract (`gateway.ts`): `ai_disabled` 503, `ai_budget_exceeded` / `ai_rate_limited` 429 (+ `Retry-After`), `ai_refused` / `ai_tool_limit` 422, `ai_unavailable` 502, `unavailable` 503.
 - **Feedback** (`feedback.ts`): up or down from the asker only (a 404 for anyone else, so ids are not confirmed). No free text; append-only, and the newest rating counts. Stored in `ai_qa_feedback` through the CALLER's tenant client, so `store_nullable` RLS scopes it: an organization conversation (store NULL) is invisible to a store principal.
@@ -111,4 +116,7 @@ Tests:
 
 - `ask/ask.test.ts` (22): the five store-B cases (body 403 before the model; the tool refused with the analytics store untouched; scope [A] only; no finance for an analyst; injected SQL has no path), the per-store switch, the budget scope, the error map, the window and the chart hint.
 - `ask/routes.test.ts` (8): over HTTP with dev tokens and a seeded database: 401, store B, the organization budget for an analyst, a store switched off, Retry-After, feedback by the asker only, fail closed.
+- `ask/golden/real-model.ts`: the opt-in real-model checker also RECOMPUTES each labelled derived figure
+  (`checkDerived`): both inputs in the results they cite, one currency for a sum or difference, the value exact in
+  hundredths, a ratio half-up to 2 decimals (#23 of the first run, 8,091.80 for 8,090.80, now fails).
 - `ask/golden/` (32): the **golden set of 30 questions** with recorded tool calls (`cases.ts`), each held to its results by `run.ts`: refused calls refused, every figure in the answer backed by the result it cites, citations resolve, no other store's row. A test proves the checks are not vacuous. Unit on a fake reader; **live** on the generated month in ClickHouse (opt-in like the other live tests). A real-model run replays the same questions once the owner's key exists.

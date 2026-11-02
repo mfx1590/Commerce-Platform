@@ -51,6 +51,88 @@ export function figuresOf(text: string): string[] {
   return [...clean.matchAll(/\d+(?:\.\d+)?/g)].map((m) => m[0]);
 }
 
+/** a figure is backed when a result holds it: as written, with 2 decimals, or as the same number */
+function isBacked(f: string, backed: ReadonlySet<string>): boolean {
+  return (
+    backed.has(f) ||
+    backed.has(Number(f).toFixed(2)) ||
+    [...backed].some((b) => Number(b) === Number(f))
+  );
+}
+
+/** one figure as written (either decimal notation, a leading − or -) → its value */
+function valueOf(written: string): number {
+  const f = figuresOf(written)[0];
+  if (f === undefined) return NaN;
+  return /^\s*[−-]/.test(written) ? -Number(f) : Number(f);
+}
+
+const NUM = '[−-]?\\d[\\d.,]*\\d|[−-]?\\d';
+const CUR = '(?:\\s*([A-Z]{3}))?';
+/**
+ * bi-qa-answer@2's ONE labelled derived figure: `x CUR (derived: a CUR [qi] − b CUR [qj])` (+ for a sum) or
+ * `x (derived: a [qi] / b [qj])` for a ratio.
+ */
+const DERIVED = new RegExp(
+  `(${NUM})${CUR}\\s*\\(derived:\\s*(${NUM})${CUR}\\s*\\[q(\\d+)\\]\\s*([−+/-])\\s*(${NUM})${CUR}\\s*\\[q(\\d+)\\]\\s*\\)`,
+  'g',
+);
+
+/**
+ * Checks every labelled derived figure: each input must be in the result it cites, a sum or difference needs one
+ * currency, and the stated value must be the recomputed one — sums and differences exactly (in hundredths, i.e.
+ * minor units), a ratio rounded half-up to 2 decimals. Returns the problems and the text with each derived span
+ * blanked, so the every-figure check does not read a correct derived value (in no result by design) as unbacked.
+ */
+export function checkDerived(
+  text: string,
+  backedFor: (ref: number) => ReadonlySet<string> | undefined,
+): { problems: string[]; rest: string } {
+  const problems: string[] = [];
+  const rest = text.replace(
+    DERIVED,
+    (
+      span,
+      x: string,
+      cx: string | undefined,
+      a: string,
+      ca: string | undefined,
+      qi: string,
+      op: string,
+      b: string,
+      cb: string | undefined,
+      qj: string,
+    ) => {
+      for (const [f, q] of [
+        [a, qi],
+        [b, qj],
+      ] as const) {
+        const backed = backedFor(Number(q));
+        const v = Math.abs(valueOf(f));
+        if (!backed || !isBacked(String(v), backed))
+          problems.push(`derived input ${f} is not in [q${q}]`);
+      }
+      const [vx, va, vb] = [valueOf(x), valueOf(a), valueOf(b)];
+      if (op === '/') {
+        const ratio = vb === 0 ? NaN : Math.floor((va / vb) * 100 + 0.5 + 1e-9) / 100;
+        if (Number.isNaN(ratio) || Math.round(vx * 100) !== Math.round(ratio * 100))
+          problems.push(
+            `derived ${x} ≠ ${a} / ${b} (${Number.isNaN(ratio) ? 'undefined' : ratio.toFixed(2)})`,
+          );
+      } else {
+        const currencies = new Set([cx, ca, cb].filter((c) => c !== undefined));
+        if (currencies.size > 1)
+          problems.push(`derived ${x} mixes currencies: ${[...currencies].join(', ')}`);
+        const cents = Math.round(va * 100) + (op === '+' ? 1 : -1) * Math.round(vb * 100);
+        if (Math.round(vx * 100) !== cents)
+          problems.push(`derived ${x} ≠ ${a} ${op} ${b} (${(cents / 100).toFixed(2)})`);
+      }
+      return ' '.repeat(span.length);
+    },
+  );
+  return { problems, rest };
+}
+
 export async function runRealCase(
   c: GoldenCase,
   env: GoldenEnv,
@@ -104,16 +186,16 @@ export async function runRealCase(
   for (const m of answer.answer.matchAll(/\[q(\d+)\]/g))
     if (!answer.queries[Number(m[1]) - 1]?.result) out.problems.push(`[q${m[1]}] cites no result`);
   const backed = new Set(ran.flatMap((x) => [...backedValues(x.result!, x.query.metrics)]));
+  // a labelled derived figure (bi-qa-answer@2) is recomputed from the two results it cites
+  const derived = checkDerived(answer.answer, (ref) => {
+    const x = answer.queries[ref - 1];
+    return x?.result ? backedValues(x.result, x.query.metrics) : undefined;
+  });
+  out.problems.push(...derived.problems);
   // integers also match a money figure written without decimals, and small integers the question itself names
   const asked = new Set(figuresOf(c.question));
-  for (const f of figuresOf(answer.answer)) {
-    const ok =
-      backed.has(f) ||
-      backed.has(Number(f).toFixed(2)) ||
-      asked.has(f) ||
-      [...backed].some((b) => Number(b) === Number(f));
-    if (!ok) out.problems.push(`${f} is in no result`);
-  }
+  for (const f of figuresOf(derived.rest))
+    if (!isBacked(f, backed) && !asked.has(f)) out.problems.push(`${f} is in no result`);
   out.problems = [...new Set(out.problems)];
   return out;
 }

@@ -52,6 +52,15 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- #606 v2 FOLLOW-UP (2026-11-02, manager ten; #680 MERGED a150e0fb, #606 closed, #682 bi-qa-answer@2 on main).
+  Branch data/phase5-606-v2 (cut --no-track from origin/main a150e0fb). BI_QA_TEMPLATE = @2; `locale` = the
+  request's Accept-Language first tag via Intl.getCanonicalLocales (canonicalLocale in ask.ts), else en — no staff
+  locale exists (staff_user has none; askMetrics body is additionalProperties:false), so the admin's (hq)/bi/_api.ts
+  forwards the browser's Accept-Language through adminCall headers. Golden checker: checkDerived recomputes
+  `x (derived: a [qi] op b [qj])` (− - + exact in hundredths, one currency; / half-up 2 dp), inputs must be in the
+  cited result; #23 (8,091.80) fails, 8,090.80 passes. Core reporting 194 pass, admin bi 81, root lint+typecheck
+  green. NEXT: PR up → manager (number + head, then checks) → Opus review → ask for the machine → ONE real-model
+  re-run (~$0.35), report the same numbers as the first run (calls, tokens, $, strict/date-aware/substantive).
 - #680 REVIEW FINDINGS (2026-11-02, manager ten; Fable review = findings, no block). Done locally on
   data/phase5-606-gateway: product_id dropped from rows sent to the model (p1, p2 … labels; caller keeps ids; README);
   AiConfigError / TemplateError / DeniedFieldError → AppError internal "BI Q&A is misconfigured"; Anthropic transport

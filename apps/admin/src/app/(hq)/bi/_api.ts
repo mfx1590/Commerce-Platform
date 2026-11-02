@@ -8,6 +8,8 @@
 
 import 'server-only';
 
+import { headers } from 'next/headers';
+
 import type { operations } from '@platform/contracts/admin';
 import { adminCall } from '@/lib/api/admin';
 import { buildPath, type AdminResponse, type ApiResult } from '@/lib/api/admin-client';
@@ -49,12 +51,20 @@ export type MetricsCsv =
  */
 /**
  * `askMetrics` (#606, Admin API 0.4.27): BI Q&A. The server decides everything (scope, the per-store switch, the AI
- * budget); this forwards the caller's question with their token.
+ * budget); this forwards the caller's question with their token, and the browser's Accept-Language: the admin's
+ * locale, the answer's language when the question's own cannot be told (bi-qa-answer@2; the core keeps only a
+ * valid first tag, else `en`).
  */
 export async function askMetrics(
   body: AdminRequestBody<'askMetrics'>,
 ): Promise<ApiResult<AdminResponse<'askMetrics'>>> {
-  return adminCall<'askMetrics'>({ path: '/admin/metrics/ask', method: 'POST', body });
+  const acceptLanguage = (await headers()).get('accept-language');
+  return adminCall<'askMetrics'>({
+    path: '/admin/metrics/ask',
+    method: 'POST',
+    body,
+    ...(acceptLanguage ? { headers: { 'accept-language': acceptLanguage } } : {}),
+  });
 }
 
 /** `askMetricsFeedback` (Admin API 0.4.27): thumbs up/down, the asker only (204; 404 for anyone else). */
