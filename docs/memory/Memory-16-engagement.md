@@ -220,7 +220,7 @@ in the entry's `$comment`.
 **Verified:** 552 passed / 9 live skipped offline, 561/561 with the broker up; lint, typecheck (29/29),
 prettier, ownership clean. Package **0.9.3**.
 
-**#705 review = FINDINGS, production claim upheld; fixed in `PENDING_SHA`:**
+**#705 review = FINDINGS, production claim upheld; fixed in `76bbe365`:**
 1. **(must, and the reviewer was right)** my mock carried the REAL @2 `$id`, and `createValidator()` compiles
    every schema in `EVENT_SCHEMAS` — so the day #696 lands, `ajv.compile(mock)` throws *already exists* and
    all five v2 tests fail on the very change meant to make them pass. Now `ajv.getSchema(id) ?? compile(mock)`,
