@@ -71,7 +71,7 @@ describe('askMetrics on the real gateway (packages/ai, fake transport)', () => {
     ]);
     const r = await ask(gatewayFor, caller([A], false));
     expect(r.answer).toBe('Bookings were €123.00 [q1].');
-    expect(r.template).toEqual({ id: 'bi-qa-answer', version: 2 });
+    expect(r.template).toEqual({ id: 'bi-qa-answer', version: 3 });
     expect(
       audit.records.map((x) => [x.storeId, x.purpose, x.step, x.toolNames, x.outcome]),
     ).toEqual([

@@ -101,8 +101,9 @@ the Redis limiter, `ai_call_audit`, the Anthropic transport resolved only when a
 - **One tool, `query_metrics`** (`tool.ts`): a `MetricQuery` schema narrowed to the caller's metrics and stores.
   - Every call goes through the SAME `parseMetricQuery` → `scopeForQuery` (`metrics/scope.ts`, shared with `queryMetrics`) → `executeMetricQuery`.
   - A call outside the scope, or not a valid query, becomes a tool error: the analytics store is never read, and the model sees the refusal.
+  - The description says which of the caller's metrics take a dimension beyond `store` (`dimensionsLine`), and `dimensions` / `order_by` / `limit` carry one-line descriptions (a product dimension, grain total, order_by and limit give a top N). Kept short: the description goes with every step. Added after the 2026-11-02 re-run, where #7 never asked for products although the schema offered them.
   - Each result carries a `ref` (`q1`, `q2` …) that the answer cites. At most 200 rows go back to the model, each naming its store by CODE (`store: "brand-a"`) and its product by a label stable within that result (`product: "p1"`, in row order; no `product_id` — the model ranks and compares, it has no use for the id) — readable, and safe from redaction: packages/ai redacts what is sent, and before #681 its phone pattern ate digit runs inside a uuid (since #681 a uuid passes whole, tested on the stores line); the real ids are in the tool schema's enum (not redacted) and in the caller's full, capped result.
-- **The template** is `bi-qa-answer@2` (#682, from the first real-model run): the answer in the question's language,
+- **The template** is `bi-qa-answer@3` (#684: @2 of #682 plus every number not copied from a result labelled, a count difference too): the answer in the question's language,
   else the admin's `locale` — the request's `Accept-Language` (the admin forwards the browser's), first tag only (at
   most 35 characters), rebuilt from its language, script and region (`Intl.Locale`, `canonicalLocale`; extension
   and private-use subtags dropped), `en` when missing or invalid, so the header cannot carry text into the prompt; no figure computed beyond ONE labelled `(derived: a [qi] − b [qj])` difference
@@ -122,5 +123,9 @@ Tests:
   (a written label must agree); a sum or difference of two amounts in one currency or two counts, exact in
   hundredths; a ratio half-up to 2 decimals on integer hundredths (BigInt, sign explicit); at most 2 decimals on
   every figure; each number parsed on its own (1.250.000,00 · 1,234). #23 of the first run (8,091.80 for 8,090.80)
-  now fails.
+  now fails. Not figures: the case's OWN store ids (any other uuid is reported), and a year-less date — two
+  two-digit parts that are a valid month and day (09-28, 28/09), standing alone (never inside a decimal: 12.10-12.50
+  stays two figures) and not followed by a count word, a currency code or arithmetic (10-20 orders, 10/12 stores,
+  10-12 EUR, 31-12 = 19 stay figures). The gap left, pinned in a test: a bare pair that is also a date ("10-12 of
+  them") reads as a date. The run logs each answer WHOLE (dev data only), so a failure's cause can be read.
 - `ask/golden/` (32): the **golden set of 30 questions** with recorded tool calls (`cases.ts`), each held to its results by `run.ts`: refused calls refused, every figure in the answer backed by the result it cites, citations resolve, no other store's row. A test proves the checks are not vacuous. Unit on a fake reader; **live** on the generated month in ClickHouse (opt-in like the other live tests). A real-model run replays the same questions once the owner's key exists.

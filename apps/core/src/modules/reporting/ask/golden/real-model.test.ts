@@ -18,8 +18,52 @@ describe('figuresOf', () => {
     // #683 review: each number on its own — German thousands with and without decimals
     ['Umsatz 1.250.000,00 EUR aus 1.234 Bestellungen [q1].', ['1250000.00', '1234']],
     ['Revenue 1,250,000.00 EUR from 1,234 orders [q1].', ['1250000.00', '1234']],
+    // the re-run of 2026-11-02: #8 wrote week starts without a year
+    ['Week of 09-28: 1,946.30; 10-26 to 10-31: 2,001.10 [q1]', ['1946.30', '2001.10']],
+    ['Semana del 28/09: 1.946,30 EUR [q1]', ['1946.30']],
+    ['Weeks 09-28 and 10-05 [q1].', []],
+    // not dates: a count range, two-digit pairs that are no month and day
+    [
+      'Between 5-10 orders a day, 13-14 refunds, 45-60 units [q1].',
+      ['5', '10', '13', '14', '45', '60'],
+    ],
+    // #686 review: never inside a decimal — a wrong range must stay checkable
+    ['Prices ran 12.10-12.50 EUR [q1].', ['12.10', '12.50']],
+    ['AOV 12,10/12,50 EUR [q1].', ['12.10', '12.50']],
+    // #686 review: a pair followed by a count word, a currency or arithmetic is a quantity
+    ['10-20 orders a day [q1].', ['10', '20']],
+    ['10/12 stores reported [q1].', ['10', '12']],
+    ['Between 10-12 EUR per order [q1].', ['10', '12']],
+    ['31-12 = 19 more [q1].', ['31', '12', '19']],
   ])('%j → %j', (text, figures) => {
     expect(figuresOf(text)).toEqual(figures);
+  });
+
+  it('the gap left, pinned: a bare pair that is also a date reads as a date', () => {
+    expect(figuresOf('We saw 10-12 of them [q1].')).toEqual([]);
+  });
+
+  // #686 review: only the case's own store ids are not figures — a foreign or invented uuid is reported
+  const OWN = '00000000-0000-4000-8000-000000000031';
+  it.each([
+    [
+      'its own store id (#18 quoted it from <stores>)',
+      `I only have brand-a (store ${OWN}), 42 orders [q1].`,
+      ['42'],
+    ],
+    ['in upper case', `store ${OWN.toUpperCase()}: 42 orders [q1].`, ['42']],
+    [
+      'another store id',
+      'store 00000000-0000-4000-8000-000000000032 had 42 orders [q1].',
+      ['00000000', '0000', '4000', '8000', '000000000032', '42'],
+    ],
+    [
+      'an invented id',
+      'product 5a1b2c3d-1111-4222-8333-444455556666 sold 42 [q1].',
+      ['5', '1', '2', '3', '1111', '4222', '8333', '444455556666', '42'],
+    ],
+  ])('uuids: %s', (_, text, figures) => {
+    expect(figuresOf(text, [OWN])).toEqual(figures);
   });
 
   it('a wrong derived figure is still a figure, so the check catches it (#23 of the real run: 8091.80 ≠ 8090.80)', () => {
@@ -27,7 +71,7 @@ describe('figuresOf', () => {
   });
 });
 
-// bi-qa-answer@2's labelled derived figure, recomputed from the results it cites (#23: bookings [q1] − net [q2]).
+// bi-qa-answer@2 / @3's labelled derived figure, recomputed from the results it cites (#23: bookings [q1] − net [q2]).
 // The checker is the net for wrong figures (#683 review): every case below that should fail must fail.
 describe('checkDerived', () => {
   const money = (currency: string, minor: number): ResultValue => ({

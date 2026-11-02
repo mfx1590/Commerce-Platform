@@ -7,6 +7,7 @@
 //   (v) injected SQL has no path (the input is not a MetricQuery: a tool error, nothing executed).
 import { describe, expect, it } from 'vitest';
 import { AppError } from '../../../lib/errors';
+import { METRIC_IDS, METRICS } from '../metrics/catalogue';
 import type { MetricsReader } from '../metrics/execute';
 import {
   askMetrics,
@@ -172,6 +173,36 @@ describe('the scope (#606 acceptance: a store-A principal asking about store B)'
     expect(tool.description).toContain('brand-a');
     expect(tool.description).not.toContain('brand-b');
   });
+
+  // #7 of the 2026-11-02 run: product, order_by and limit were offered but never explained. Pinned, and short (the
+  // description goes with every step): the caller's own metrics only — no finance metric reaches an analyst.
+  it.each([
+    [false, 'also refund_reason: refunds_minor; product: units, product_net_minor.'],
+    [
+      true,
+      'also refund_reason: refunds_minor; product: units, product_net_minor; provider: captured_minor, fee_minor.',
+    ],
+  ])('the tool says which metric takes which dimension (finance %s)', (finance, line) => {
+    const tool = queryMetricsTool({ stores: [A], finance, window: { from: 'a', to: 'b' } });
+    expect(tool.description).toContain(`Every metric takes the store dimension; ${line}`);
+    const props = tool.inputSchema.properties as Record<string, { description?: string }>;
+    expect(props.dimensions!.description).toBe(
+      'One row per value of each: product = one row per product (the way to rank products)',
+    );
+    expect(props.order_by!.description).toBe(
+      'Sorts the rows; with a dimension, grain total and limit it gives a top or bottom N',
+    );
+    expect(props.limit!.description).toBe('Rows to return: N for a top N');
+  });
+
+  it('an analyst’s tool names no finance metric anywhere — description, enums or descriptions (#686 review)', () => {
+    const finance = METRIC_IDS.filter((m) => METRICS[m].finance);
+    expect(finance.length).toBeGreaterThan(0); // the check is not vacuous
+    const whole = JSON.stringify(
+      queryMetricsTool({ stores: [A], finance: false, window: { from: 'a', to: 'b' } }),
+    );
+    for (const m of finance) expect(whole).not.toContain(m);
+  });
 });
 
 describe('the per-store switch and the budget scope', () => {
@@ -202,7 +233,7 @@ describe('the per-store switch and the budget scope', () => {
     const { deps, runs } = setup([answer('Nothing to look up.')]);
     await askMetrics(deps, caller([A, B], false, false), { question: 'x', store_ids: [A.id] });
     expect(runs[0]!.scope).toEqual({ organizationId: ORG, storeId: A.id, actorId: ACTOR });
-    expect(runs[0]!.key).toBe('bi-qa-answer@2');
+    expect(runs[0]!.key).toBe('bi-qa-answer@3');
     expect(runs[0]!.toolNames).toEqual(['query_metrics']);
     expect(runs[0]!.variables).toMatchObject({
       question: 'x',
@@ -212,7 +243,7 @@ describe('the per-store switch and the budget scope', () => {
     });
   });
 
-  it("the admin's locale reaches the template canonical (bi-qa-answer@2)", async () => {
+  it("the admin's locale reaches the template canonical (bi-qa-answer@2 and @3)", async () => {
     const { deps, runs } = setup([answer('Nichts.')]);
     await askMetrics(
       deps,

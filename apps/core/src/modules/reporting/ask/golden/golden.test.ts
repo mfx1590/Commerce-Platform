@@ -205,11 +205,12 @@ describe.runIf(skip === null)('golden set on the generated month (ClickHouse)', 
       const tokens = audit.records.reduce((n, r) => n + r.inputTokens + r.outputTokens, 0);
       const costMicroUsd = audit.records.reduce((n, r) => n + r.costMicroUsd, 0);
       const passed = outcomes.filter((o) => o.problems.length === 0).length;
+      // the WHOLE answer (dev data only): the 2026-11-02 re-run cut it at 240 characters and lost #8's and #17's causes
       for (const o of outcomes)
         console.info(
           `[bi-qa real] #${o.id} ${o.problems.length === 0 ? 'PASS' : 'FAIL'} ran=${o.ran} refused=${o.refused}` +
             `${o.error ? ` error=${o.error}` : ''}${o.problems.length ? ` problems=${JSON.stringify(o.problems)}` : ''}` +
-            ` answer=${JSON.stringify((o.answer ?? '').slice(0, 240))}`,
+            ` answer=${JSON.stringify(o.answer ?? '')}`,
         );
       console.info(
         `[bi-qa real] SUMMARY ${JSON.stringify({ passed, of: outcomes.length, model_calls: calls, audit_rows: audit.records.length, tokens, cost_usd: costMicroUsd / 1e6, outcomes_by_kind: audit.records.reduce<Record<string, number>>((m, r) => ({ ...m, [r.outcome]: (m[r.outcome] ?? 0) + 1 }), {}) })}`,

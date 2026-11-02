@@ -31,12 +31,30 @@ const MONTH = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\.
  * years, and days of the month next to a month name ("Oct 3", "3 Oct", "1–31 October", "Oct 1, 2 and 3:" — a real
  * model writes dates in prose; the first real-model run, 2026-11-02, flagged 13 correct answers on dates alone).
  * Thousands separators (1,234.56) are dropped; a decimal comma (1.234,56 — an answer in another language) is read.
+ * Nor is the id of one of the case's OWN stores (`ownIds`; #18 quoted one from <stores>) — any other uuid stays,
+ * so a foreign or invented id is reported (#686 review). Nor is a year-less date: two two-digit parts that are a
+ * valid month and day either way round (09-28, 28/09 — the re-run of 2026-11-02, #8), standing alone (not inside a
+ * decimal: 12.10-12.50 stays two figures) and not followed by a count word, a currency or arithmetic (10-20 orders,
+ * 10/12 stores, 10-12 EUR, 31-12 = 19 stay figures). The gap left: a bare pair that is also a date ("10-12 of them")
+ * reads as a date — pinned in real-model.test.
  */
-export function figuresOf(text: string): string[] {
+export function figuresOf(text: string, ownIds: readonly string[] = []): string[] {
+  const own = new Set(ownIds.map((id) => id.toLowerCase()));
   let clean = text
     .replace(/\[q\d+\]/g, ' ')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, (id) =>
+      own.has(id.toLowerCase()) ? ' ' : id,
+    )
     .replace(/\b\d{4}-\d{2}-\d{2}(?:T[\d:.]+Z?)?\b/g, ' ')
-    .replace(/\b(?:19|20)\d{2}\b/g, ' ');
+    .replace(/\b(?:19|20)\d{2}\b/g, ' ')
+    .replace(
+      /(?<![\d.,])(\d{2})[-/](\d{2})(?![.,]?\d)/g,
+      (span: string, a: string, b: string, at: number, all: string) =>
+        (isMonthDay(Number(a), Number(b)) || isMonthDay(Number(b), Number(a))) &&
+        !notADateAfter(all.slice(at + span.length))
+          ? ' '
+          : span,
+    );
   // a day list or range attached to a month: "Oct 1, 2 and 3", "1–31 October", "Week of 28 Sep"
   clean = clean
     .replace(
@@ -51,6 +69,16 @@ export function figuresOf(text: string): string[] {
     return n ? [n.dec ? `${n.int}.${n.dec}` : n.int] : m[0].split(/[.,]/);
   });
 }
+
+/** what makes a two-digit pair a quantity, not a date: a count word, a currency code, or arithmetic right after it */
+const COUNT_WORD_AFTER =
+  /^\s*(?:orders?|units?|refunds?|customers?|stores?|products?|days?|items?|weeks?|times)\b/i;
+const CURRENCY_OR_ARITHMETIC_AFTER = /^\s*(?:[A-Z]{3}\b|[=+×*/−-])/; // case-sensitive: "and" is no currency
+const notADateAfter = (rest: string) =>
+  COUNT_WORD_AFTER.test(rest) || CURRENCY_OR_ARITHMETIC_AFTER.test(rest);
+
+const isMonthDay = (month: number, day: number) =>
+  month >= 1 && month <= 12 && day >= 1 && day <= 31;
 
 /** a number as written: digits with `.` / `,` inside, never at an end (a sentence's full stop is not part of it) */
 const NUMBER = /\d[\d.,]*\d|\d/g;
@@ -144,7 +172,7 @@ const what = (v: ResultValue) => (v.unit === 'money' ? `${v.currency ?? '?'} mon
 const NUM = '[−-]?(?:\\d[\\d.,]*\\d|\\d)';
 const CUR = '(?:\\s*([A-Z]{3}))?';
 /**
- * bi-qa-answer@2's ONE labelled derived figure: `x CUR (derived: a CUR [qi] − b CUR [qj])` (+ for a sum) or
+ * bi-qa-answer@2 / @3's ONE labelled derived figure: `x CUR (derived: a CUR [qi] − b CUR [qj])` (+ for a sum) or
  * `x (derived: a [qi] / b [qj])` for a ratio.
  */
 const DERIVED = new RegExp(
@@ -294,7 +322,7 @@ export async function runRealCase(
   for (const m of answer.answer.matchAll(/\[q(\d+)\]/g))
     if (!answer.queries[Number(m[1]) - 1]?.result) out.problems.push(`[q${m[1]}] cites no result`);
   const backed = new Set(ran.flatMap((x) => [...backedValues(x.result!, x.query.metrics)]));
-  // a labelled derived figure (bi-qa-answer@2) is recomputed from the two results it cites
+  // a labelled derived figure (bi-qa-answer@2 / @3) is recomputed from the two results it cites
   const derived = checkDerived(answer.answer, (ref) => {
     const x = answer.queries[ref - 1];
     return x?.result ? resultValues(x.result, x.query.metrics) : undefined;
@@ -302,7 +330,11 @@ export async function runRealCase(
   out.problems.push(...derived.problems);
   // integers also match a money figure written without decimals, and small integers the question itself names
   const asked = new Set(figuresOf(c.question));
-  for (const f of figuresOf(derived.rest))
+  // the asker's own store ids are what <stores> lists; any other uuid in the answer is reported
+  for (const f of figuresOf(
+    derived.rest,
+    caller.stores.map((s) => s.id),
+  ))
     if (!isBacked(f, backed) && !asked.has(f)) out.problems.push(`${f} is in no result`);
   out.problems = [...new Set(out.problems)];
   return out;
