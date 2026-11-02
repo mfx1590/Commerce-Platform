@@ -2,6 +2,7 @@
 export {
   buildEvent,
   eventActor,
+  FOREVER_TOPIC_PREFIXES,
   InvalidEventError,
   withEvents,
   type BuildEventInput,

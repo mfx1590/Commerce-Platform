@@ -39,6 +39,11 @@ await client.transaction(async (tx) => {
   `toOutboxRow`. `published_at` stays `NULL` for the relay; `seq` orders them.
 - `InvalidEventError` (`topic`, `errors[]`) — thrown for a failing envelope; message
   `invalid event <topic>: <path> <problem>; …`.
+- **No customer actor id on a forever topic (#707).** `withEvents` also refuses an event whose topic the bus keeps
+  forever (`FOREVER_TOPIC_PREFIXES`: `stock.`, `stock_item.`) and whose actor is `{ type: customer, id: <uuid> }`: the
+  broker's copy would keep the id after the customer's erasure. `{ type: customer, id: null }` (every Store API request
+  before sign-in) and staff / system actors pass. The prefixes are a constant here, never read from
+  `infra/redpanda/topics.policy.json` at runtime; `outbox.test.ts` fails when the two differ.
 - `eventActor(actor)` — maps our audit `Actor` to the envelope `actor`.
 
 ## Guarantees (tested in `outbox.test.ts`)

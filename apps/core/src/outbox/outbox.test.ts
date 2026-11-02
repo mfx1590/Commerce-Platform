@@ -3,7 +3,10 @@ import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createProduct, publishProduct } from '../modules/catalog';
 import { createStore } from '../modules/registry';
-import { buildEvent, InvalidEventError, withEvents } from './index';
+import { readFileSync } from 'node:fs';
+import type { TopicPolicy } from '@platform/events';
+import { buildEvent, FOREVER_TOPIC_PREFIXES, InvalidEventError, withEvents } from './index';
+import { POLICY_PATH } from './relay-cli';
 
 const ORG = '30000000-0000-4000-8000-000000000001';
 const LE = '30000000-0000-4000-8000-000000000011';
@@ -150,5 +153,79 @@ describe('withEvents', () => {
     );
     expect(row.rows[0]!.headers).toEqual({ actor: { type: 'system', id: null }, trace: {} });
     expect(row.rows[0]!.payload).toMatchObject({ store_id: storeId, code: 'brand-x' });
+  });
+});
+
+describe('no customer actor id on a forever topic (#707)', () => {
+  const ORG7 = '33000000-0000-4000-8000-000000000071';
+  const STORE7 = '33000000-0000-4000-8000-000000000072';
+  const CUSTOMER = '33000000-0000-4000-8000-000000000073';
+  const inserts: string[] = [];
+  const tx = {
+    query: async (_sql: string, params?: unknown[]) => {
+      inserts.push(String(params?.[3])); // the topic column
+      return { rows: [], rowCount: 1 };
+    },
+  } as unknown as Parameters<typeof withEvents>[0];
+  const stockMoved = (actor: { type: 'customer' | 'staff' | 'system'; id: string | null }) =>
+    buildEvent({
+      topic: 'stock.moved',
+      organizationId: ORG7,
+      storeId: null,
+      aggregateType: 'stock_movement',
+      aggregateId: crypto.randomUUID(),
+      actor,
+      payload: {
+        stock_movement_id: crypto.randomUUID(),
+        stock_item_id: crypto.randomUUID(),
+        sku: 'TEE-M-RED',
+        warehouse_id: crypto.randomUUID(),
+        delta: -1,
+        reason: 'sale',
+        reference_type: null,
+        reference_id: null,
+        on_hand_after: 4,
+        reserved_after: 0,
+      },
+    });
+
+  it("the core's forever prefixes are the policy's (infra/redpanda/topics.policy.json)", () => {
+    const policy = JSON.parse(readFileSync(POLICY_PATH, 'utf8')) as TopicPolicy;
+    expect([...FOREVER_TOPIC_PREFIXES].sort()).toEqual([...policy.retention.forever].sort());
+  });
+
+  it('rejects a customer actor WITH an id on a forever topic before any insert; null ids, staff and 30-day topics pass', async () => {
+    inserts.length = 0;
+    const bad = await stockMoved({ type: 'customer', id: CUSTOMER });
+    const ok = await stockMoved({ type: 'staff', id: CUSTOMER });
+    await expect(withEvents(tx, [ok, bad])).rejects.toThrow(InvalidEventError);
+    await expect(withEvents(tx, [bad])).rejects.toThrow(
+      /customer id on a topic the bus keeps forever/,
+    );
+    expect(inserts).toEqual([]); // the whole batch is refused, like any invalid event
+
+    await withEvents(tx, [ok, await stockMoved({ type: 'customer', id: null })]);
+    // a signed-in checkout's payment.authorized is a 30-day topic since #707: its customer actor is fine
+    await withEvents(tx, [
+      await buildEvent({
+        topic: 'payment.authorized',
+        organizationId: ORG7,
+        storeId: STORE7,
+        aggregateType: 'payment',
+        aggregateId: crypto.randomUUID(),
+        actor: { type: 'customer', id: CUSTOMER },
+        payload: {
+          payment_id: crypto.randomUUID(),
+          order_id: crypto.randomUUID(),
+          legal_entity_id: crypto.randomUUID(),
+          provider: 'manual',
+          provider_payment_id: null,
+          amount_minor: 1999,
+          currency: 'EUR',
+          authorized_at: new Date().toISOString(),
+        },
+      }),
+    ]);
+    expect(inserts).toEqual(['stock.moved', 'stock.moved', 'payment.authorized']);
   });
 });
