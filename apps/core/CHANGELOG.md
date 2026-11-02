@@ -2,6 +2,14 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-11-02 · the catalogue re-publish (#634)
+
+- `catalog:republish` (`scripts/catalog-republish.ts`) / `republishCatalogue` (catalog `republish.ts`): every
+  PUBLISHED product that never went through the bus is announced as `product.published` (current state) through the
+  outbox, so `dim_variant` (and every other consumer) sees a seeded catalogue. Idempotent (skips products with a
+  `product.published` outbox row), `--force`, `--dry-run`, `--store`, `--batch`. `publishProduct` and the re-publish
+  share one payload builder, `productPublishedEvent`.
+
 ### 2026-11-02 · copy drafts: review follow-ups (#672 review, Refs #608)
 
 - `draftProductCopy` builds the gateway inside the error mapping, so an error constructing the limiter, the audit

@@ -38,6 +38,9 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   and need no OpenFGA. Store API: `X-Publishable-Key: pk_brand-a_dev_00000000000000000000`; with
   `CORE_STORE_API_FALLBACK=1` + `CORE_STORE_API_FALLBACK_URL=http://localhost:4010` (explicit opt-in, refused in production) every Store API path the core does not
   implement is proxied to the Prism mock.
+- `pnpm --filter @platform/core catalog:republish [--store <code>] [--force] [--dry-run]` — announces a catalogue that
+  never went through the bus as `product.published` through the outbox (#634; idempotent; a shared-data write on a
+  shared database: the manager runs it).
 - `pnpm --filter @platform/core build` — `medusa build` → `.medusa/server`; `pnpm --filter @platform/core start`.
 - Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/core` before finishing any task. Running the
   package scripts directly (`pnpm --filter @platform/core typecheck|test`) needs the workspace packages built first
