@@ -2,6 +2,8 @@
 
 ## 0.8.1 — unreleased (#648 follow-ups)
 
+- README: a rebuild from the bus is bounded by its retention — `order.*`, `customer.*` and, since #707, `payment.*`,
+  `refund.*`, `shipment.*`, `return.*` keep 30 days; older history comes only from the core's outbox replay.
 - #696 gate (order.placed@2, `email_hash` nullable): the ingest and the models accept v1 AND v2. Before #696 lands,
   @2 is dead-lettered as an unknown version (replayable, never lost); after it, @2 is classified like v1 and a null
   `email_hash` / `customer_id` stays null in `raw_events` (no placeholder; the erasure scrub passes over it). The

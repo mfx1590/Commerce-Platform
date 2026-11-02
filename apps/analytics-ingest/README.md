@@ -14,6 +14,9 @@ Redpanda (every topic of @platform/events, from the beginning)
                                        commit the partition offset only when BOTH are acknowledged
 ```
 
+- **A rebuild from the bus is bounded by its retention.** `order.*` and `customer.*` (#629) and, since #707,
+  `payment.*`, `refund.*`, `shipment.*` and `return.*` keep 30 days: a fresh group reading from the beginning gets
+  their older history only through the core's outbox replay (`pnpm --filter @platform/core outbox:replay`).
 - **Exactly once in effect.** Offsets are committed only after ClickHouse acknowledged the insert (no async
   insert) and the dead letters are on `dlq.<group>` (acks = all). A crash in between redelivers the batch; its rows
   come in again with the same `(topic, event_id)` and `raw_events` (ReplacingMergeTree, version `ingested_at`)
