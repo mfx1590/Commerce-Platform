@@ -59,6 +59,8 @@ describe('checkDerived', () => {
     4: [money('EUR', -50_000)], // a real negative (net after refunds)
     5: [count(1), count(8)],
     6: [money('EUR', 125_000_000), money('EUR', 123_400)],
+    7: [count(95), count(190)],
+    8: [count(83), count(96)],
   };
   const check = (text: string) => checkDerived(text, (ref) => results[ref]);
 
@@ -173,6 +175,24 @@ describe('checkDerived', () => {
       ['a derived figure not in the form "x (derived: a [qi] op b [qj])"'],
     ],
   ])('%s', (_, text, problems) => {
+    expect(check(text).problems).toEqual(problems);
+  });
+
+  // the template's own examples, word for word (#684 review), so the template and the checker cannot drift apart
+  it.each([
+    ['a count difference, then the noun', '12 (derived: 95 [q7] − 83 [q8]) more orders', []],
+    ['a ratio, then "times as many"', '1.98 (derived: 190 [q7] / 96 [q8]) times as many', []],
+    [
+      'the same ratio with a wrong value (190 / 96 = 1.979… → 1.98)',
+      '1.97 (derived: 190 [q7] / 96 [q8]) times as many',
+      ['derived 1.97 ≠ 190 / 96 (1.98)'],
+    ],
+    [
+      'the noun between the figure and its label',
+      '12 more orders (derived: 95 [q7] − 83 [q8])',
+      ['a derived figure not in the form "x (derived: a [qi] op b [qj])"'],
+    ],
+  ])('template form: %s', (_, text, problems) => {
     expect(check(text).problems).toEqual(problems);
   });
 });
