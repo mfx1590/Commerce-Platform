@@ -52,6 +52,25 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- #696 GATE (2026-11-02, manager ten; branch data/phase5-696-gate from origin/main; pattern #705, window 16).
+  FINDING: every CH reader of order.placed filtered `version = 1` (stg_order_placed_v1 → fct_order/fct_order_line/
+  all marts; 0006's mv_orders_minute_v2) — once @2 lands, v2 orders would silently vanish from BI. Ingest itself was
+  fine (KNOWN = EVENT_SCHEMAS → @2 dead-lettered until published; null hash already NULL customer_key → unknown_orders).
+  Done: stg_order_placed_v2 + union view stg_order_placed (facts read it); migration 0007 mv_orders_minute_v3
+  (`version IN (1, 2)`, new first then DROP v2; no backfill/DELETE — no v2 row can exist before #696);
+  testing/order-placed-v2.ts (derived mock, `ajv.getSchema(id) ?? compile`, `withEventSchemasV2` adds @2 only if
+  absent); rows.order-placed-v2.test.ts (vi.mock wraps EVENT_SCHEMAS + createValidator so generateMonth works);
+  rows.test pins @2 dead-lettered today; models.test live v1+v2 through 0007 (the 0006 test now migrates < 0007).
+  Unit 148, lint/typecheck clean. Plan APPROVED by manager ten (Fable review, data correctness). Live 54/54 (models
+  16, live 4, erasure+access 34) incl. a same-event_id replay; machine freed. Commit d7cb1ab5. **0007 must be applied
+  on dev AND prod BEFORE #696 merges** (manager added it to #696's gate).
+  PR #708 (head 599fce03). Fable APPROVE; folded in: 0007 SELF-HEALING (3rd statement = 0005-form v2 refill, NOT IN
+  guard); live test ingests half the v2 BEFORE 0007 → missing → 0007 → repaired; stale MV names fixed (README live
+  row, access/10, 500_live); same-event_id test noted as mock-independent. Unit 148. NEXT: machine → live re-run →
+  push ONE head → report.
+  Note for review: raw_events is keyed (topic, event_id), version NOT in the key — a replay that republishes the SAME
+  event_id as v2 folds with the v1 copy under FINAL (later ingested_at wins; the version filter applies after
+  FINAL), so stg v1/v2 never both see it; the tile's key is event_id, fct_order is LIMIT 1 BY order_id.
 - #689 (2026-11-02; #687 MERGED d0bd4fb2, #688 MERGED 9fe4991d; plan approved by manager ten: drop in the SAME
   migration, cleanup AS a migration). Branch data/phase5-689. Migration 0006: mv_orders_minute_v2 (filter in a
   subquery) FIRST, then DROP VIEW IF EXISTS mv_orders_minute, then DELETE the zero-uuid store rows. Lint allows
@@ -65,7 +84,8 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   ReplacingMergeTree (raw_events refused); `toUUID` matched case-sensitively (server rejects touuid); DROP only of
   an MV created EARLIER (file then statement order) once another MV writes to its TO table (drop-before-replace,
   drop-of-later, no-replacement all refused); access.test finds an MV's source per statement, subquery-tolerant.
-  Unit 142; no machine needed.
+  Unit 142; no machine needed. DONE: #692 MERGED 1f86863d (#689 closed); manager ran ch:migrate on dev — 0006
+  applied (v2 MV, old MV dropped, zero-uuid cleanup), access users re-applied. #606 / #685 / #689 all closed. IDLE.
 - #7 FIX (2026-11-02, branch data/phase5-606-products from main abfbc02d): golden/catalogue.ts catalogueFor
   publishes 8 products per store (variants by line order, weights 9:7:5:4:2:1:1:1) in the LIVE golden setup; a
   live test pins #7 to 5 distinct products, units falling; catalogue.test (4). Real run logs each case's queries;

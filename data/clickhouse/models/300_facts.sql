@@ -1,6 +1,7 @@
 -- Facts (#601). One row per business key; money in Int64 minor units beside its currency.
 
--- fct_order: one row per order (the first order.placed of an order, should a producer ever emit two).
+-- fct_order: one row per order (the first order.placed of an order, should a producer ever emit two), from every
+-- order.placed version (stg_order_placed: v1 and v2, #696).
 -- order_status is the latest of placed / cancelled (a cancellation after a partial shipment still cancels).
 CREATE OR REPLACE VIEW fct_order AS
 SELECT
@@ -20,7 +21,7 @@ SELECT
     CAST(if(order_id IN (SELECT order_id FROM stg_order_cancelled_v1), 'cancelled', 'placed')
          AS LowCardinality(String))                          AS order_status,
     event_id                                                 AS source_event_id
-FROM stg_order_placed_v1
+FROM stg_order_placed
 ORDER BY occurred_at, event_id
 LIMIT 1 BY order_id;
 
@@ -69,7 +70,7 @@ FROM
         o.placed_at                                                      AS placed_at,
         f.order_status                                                   AS order_status,
         o.event_id                                                       AS source_event_id
-    FROM stg_order_placed_v1 AS o
+    FROM stg_order_placed AS o
     INNER JOIN fct_order AS f ON f.source_event_id = o.event_id
     ARRAY JOIN o.line_items AS li
 ) AS l

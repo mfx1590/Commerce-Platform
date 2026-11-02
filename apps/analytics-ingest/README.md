@@ -112,6 +112,10 @@ Flags: `--once`, `--group <id>`, `--topic-prefix <p>` (tests and gates; applies 
 
 - `rows.test.ts`: the row mapping; unknown version, unknown topic, schema failure and undecodable message all go
   to the DLQ; dead letters carry exactly the SDK fields (no payload); every topic@version is accepted.
+- `rows.order-placed-v2.test.ts` (#696 gate): with a test-only `order.placed@2` mock derived from v1
+  (`testing/order-placed-v2.ts`; it steps aside once the real @2 is published), v2 is classified like v1, a null
+  `email_hash` and `customer_id` stay null, the erasure scrub passes over them, and an invalid v2 is still
+  dead-lettered. `rows.test.ts` pins today's behaviour: @2 before it is published is dead-lettered.
 - `batcher.test.ts`: size flush, time flush, resolve only after the ack, a failed insert rejects only its callers,
   inserts in order.
 - `ingest.test.ts`: commit after the ack; no commit when the insert or the DLQ fails; a replay of the same batch
