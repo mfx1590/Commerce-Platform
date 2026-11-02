@@ -179,6 +179,55 @@ unreachable registry) exits 1. It is for tests on a shared broker — window 15'
 `outbox:replay --after-seq <seq>` replays only the rows after that `seq` (compared as bigint). A replay that stops on
 a failed send names its resume point: `… (last_seq 12345; resume with --after-seq 12345)`.
 
+### Erasure (#629)
+
+The outbox keeps every payload, so without a guard a replay would hand an erased customer's `customer_id` and
+`email_hash` back to the bus, after the bus itself let them go (every topic carrying them is in the 30-day class
+since #694, infra/redpanda/README.md). Before it sends, every replay, whatever the topic, reads the erased customers
+from the outbox's own `customer.erased` rows (published or not; v1 has no `email_hash`, v2 has) and matches PER
+STORE, by customer id or e-mail hash, so an erased customer's guest orders in that store match too, and the same
+person in another store does not:
+
+- **Skipped:** every row that names an erased customer in `order.placed`, `customer.created`, `customer.updated`,
+  `customer.export_requested`, `customer.export_ready`, `cart.abandoned`, `review.published` and
+  `referral.converted` (either party). Nothing is sent for the row.
+- **Actor id nulled, on every topic:** a signed-in checkout stamps the customer as the envelope `actor` of
+  `payment.authorized`, `order.confirmed` and others (`store-routes.ts` `completeCart`), and the relay rebuilds the
+  actor from the outbox headers. When `actor.type` is `customer` and the id is an erased customer of that store, the
+  row is sent with `actor: { type: 'customer', id: null }` (envelope v1 allows a null id) and is otherwise unchanged
+  (review of #700).
+- **Payload kept:** `customer.erased` itself, the instruction every consumer acts on. Its actor id is nulled like
+  any other when the customer erased themself.
+
+The summary adds `erased_customers` (`customer.erased` rows in scope; also on `--dry-run`), `erased_skipped` per
+event type (`{ "order.placed": 2 }`; `{}` for a topic outside `ERASURE_RULES`) and `erased_actors`.
+`replay-erasure.test.ts` walks every schema recursively (properties, array items, `oneOf`/`anyOf`/`allOf`) for
+`customer_id`, `*_customer_id`, `email_hash`, `identity_id` and `requested_by`, and fails when such a topic has no
+rule. A customer erased while a replay runs is not in that replay's set: their `customer.erased` row is relayed
+after the replay started, and consumers delete what the replay sent. Each replay reads the erased set with one
+query on `topic = 'customer.erased'`, a sequential scan until the `(topic, seq)` index lands (CONTRACT CHANGE #702;
+the same index serves the replay's own per-topic scans).
+
+**Not covered here: DLQ replays (#703).** `replayFromDlq` (packages/events) re-runs a consumer's handler on the
+ORIGINAL dead-lettered message fetched from the bus, unchanged. A message that failed before an erasure is then
+handled after it, and can rebuild what the consumer deleted. Until #703 adds a skip hook, a consumer that keeps
+per-customer state checks its own erasure record before a DLQ replay writes.
+
+**What skipping `order.placed` costs (manager decision 2026-11-02).** A ledger REBUILT FROM SCRATCH by a replay
+misses the revenue lines of an erased customer's orders, and that order's later `shipment.*` / `refund.*` events
+park in accounting (`accounting_parked_event`) with no order to post against. That holds until `order.placed@2`
+(#696, `email_hash` nullable; deferred, it needs five consumer windows first) lets the replay send those orders
+without the ids. The EXISTING ledger keeps them: accounting posted each order when it was first delivered and is
+idempotent by `source_event_id` (UNIQUE (`source_event_id`, `account_code`)), so a replay into it changes nothing.
+Rebuild the ledger from scratch only with this gap in mind; the outbox still holds the orders.
+
+## Pruning (not built)
+
+The outbox is never pruned today. **If pruning is ever added, `customer.erased` rows are exempt**: they are the
+durable record of who was erased. The replay's erased set reads them (#629), and window 12's ClickHouse HMAC key
+rotation replays them (`outbox:replay --topic customer.erased`, #623). Pruning any other topic also removes what
+a replay can rebuild, so that is a retention decision for the manager, not a cleanup job.
+
 ```bash
 pnpm --filter @platform/core outbox:relay --once --topic-prefix gate-abc123. --throwaway-db --no-registry
 pnpm --filter @platform/core outbox:replay --topic order.placed --topic-prefix gate-abc123. --after-seq 12345

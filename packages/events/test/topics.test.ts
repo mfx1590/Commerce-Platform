@@ -17,6 +17,7 @@ import {
   partitionKey,
   planTopics,
   RETENTION_MS,
+  SEGMENT_MS,
   retentionClassOf,
   type TopicPolicy,
 } from '../src/index.js';
@@ -33,8 +34,10 @@ describe('topics.policy.json', () => {
     }
   });
 
-  it('ledger-relevant topics are kept forever, the rest 30 days (ADR 0003)', () => {
-    expect(retentionClassOf('order.placed', policy)).toBe('forever');
+  it('ledger-relevant topics without customer ids are kept forever, the rest 30 days (ADR 0003, #629)', () => {
+    // order.* carries customer_id / email_hash, so it is bounded like every such topic; the outbox replays it (#534)
+    expect(retentionClassOf('order.placed', policy)).toBe('days_30');
+    expect(retentionClassOf('order.cancelled', policy)).toBe('days_30');
     expect(retentionClassOf('payment.captured', policy)).toBe('forever');
     expect(retentionClassOf('refund.issued', policy)).toBe('forever');
     expect(retentionClassOf('shipment.shipped', policy)).toBe('forever');
@@ -44,6 +47,7 @@ describe('topics.policy.json', () => {
     expect(retentionClassOf('cart.abandoned', policy)).toBe('days_30');
     expect(RETENTION_MS.forever).toBe('-1');
     expect(RETENTION_MS.days_30).toBe(String(30 * 24 * 60 * 60 * 1000));
+    expect(SEGMENT_MS).toEqual({ days_30: String(24 * 60 * 60 * 1000) });
   });
 
   it('a topic with no class, or two classes, throws', () => {
@@ -65,10 +69,16 @@ describe('topics.policy.json', () => {
 
 describe('the known consumer groups (#561)', () => {
   // the group ids the apps export on main: accounting LEDGER_GROUP, engagement OPS_GROUP_ID / CDP_GROUP_ID /
-  // CRM_GROUP_ID. packages/events cannot import apps, so the names are pinned here and listed in the README.
-  const GROUPS = ['accounting.ledger', 'engagement.ops', 'engagement.cdp', 'engagement.crm'];
+  // CRM_GROUP_ID, analytics-ingest analytics.raw (#615). packages/events cannot import apps, so the names are pinned here and listed in the README.
+  const GROUPS = [
+    'accounting.ledger',
+    'engagement.ops',
+    'engagement.cdp',
+    'engagement.crm',
+    'analytics.raw',
+  ];
 
-  it('the policy lists exactly the four groups, so create-topics makes their DLQs with the environment numbers', () => {
+  it('the policy lists exactly the five groups, so create-topics makes their DLQs with the environment numbers', () => {
     expect(policy.dlq.consumer_groups).toEqual(GROUPS);
   });
 
@@ -96,10 +106,15 @@ describe('planTopics', () => {
       source: 'order.placed',
       partitions: 1,
       replication: 1,
-      configs: { 'cleanup.policy': 'delete', 'retention.ms': '-1' },
+      configs: {
+        'cleanup.policy': 'delete',
+        'retention.ms': RETENTION_MS.days_30,
+        'segment.ms': SEGMENT_MS.days_30,
+      },
     });
-    const published = plan.find((s) => s.name === 'product.published')!;
-    expect(published.configs['retention.ms']).toBe(RETENTION_MS.days_30);
+    const captured = plan.find((s) => s.name === 'payment.captured')!;
+    // a forever topic gets no segment.ms: the broker default roll is enough when nothing is deleted
+    expect(captured.configs).toEqual({ 'cleanup.policy': 'delete', 'retention.ms': '-1' });
   });
 
   it('production adds min.insync.replicas to every topic', () => {
@@ -265,21 +280,27 @@ describe.runIf(brokerDown === null)(
         resources: [
           {
             type: 2,
-            name: `${prefix}order.placed`,
-            configNames: ['retention.ms', 'cleanup.policy'],
+            name: `${prefix}stock.moved`,
+            configNames: ['retention.ms', 'cleanup.policy', 'segment.ms'],
           },
           {
             type: 2,
             name: `${prefix}product.published`,
-            configNames: ['retention.ms', 'cleanup.policy'],
+            configNames: ['retention.ms', 'cleanup.policy', 'segment.ms'],
           },
           { type: 2, name: `${prefix}dlq.probe`, configNames: ['retention.ms', 'cleanup.policy'] },
         ],
       });
       const cfg = (i: number) =>
         Object.fromEntries(resources[i]!.configEntries.map((c) => [c.configName, c.configValue]));
-      expect(cfg(0)).toEqual({ 'retention.ms': '-1', 'cleanup.policy': 'delete' });
-      expect(cfg(1)).toEqual({ 'retention.ms': RETENTION_MS.days_30, 'cleanup.policy': 'delete' });
+      // segment.ms is managed only where it is set: the forever topic keeps the broker default
+      expect(cfg(0)['retention.ms']).toBe('-1');
+      expect(cfg(0)['cleanup.policy']).toBe('delete');
+      expect(cfg(1)).toEqual({
+        'retention.ms': RETENTION_MS.days_30,
+        'cleanup.policy': 'delete',
+        'segment.ms': SEGMENT_MS.days_30,
+      });
       expect(cfg(2)).toEqual({ 'retention.ms': '-1', 'cleanup.policy': 'compact' });
     }, 60_000);
 

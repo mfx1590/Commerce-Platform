@@ -692,8 +692,10 @@ describe('POST /support/customers/:customerId/reply-draft (#610)', () => {
         })
       ).status,
     ).toBe(400);
-    expect((await ask({})).status).toBe(400);
-    expect((await ask({ question: '   ' })).status).toBe(400);
+    // 400 AND the contract's code, at each of the route's own validation sites (#695 review).
+    expect([(await ask({})).status, (await ask({})).body.code]).toEqual([400, 'validation_error']);
+    const blank = await ask({ question: '   ' });
+    expect([blank.status, blank.body.code]).toEqual([400, 'validation_error']);
     // A malformed order id is a 404, like every other path id: malformed and absent must look the same.
     expect((await ask({ question: 'x', orderId: 'not-a-uuid' })).status).toBe(404);
     expect(d.completed).toEqual([]);
@@ -762,6 +764,71 @@ describe('POST /support/customers/:customerId/reply-draft (#610)', () => {
     base = await listen(server);
     const r = await ask({ question: 'Where is my parcel?' });
     expect([r.status, r.body.code]).toEqual([503, 'ai_disabled']);
+  });
+});
+
+describe("the codes on the wire are the contract's (#678, #695 review)", () => {
+  // The mapping was asserted unit by unit; this is what a client actually receives, which is the thing a
+  // dashboard switches on. Status codes are unchanged throughout — only the `code` strings moved.
+  const ctx = `/support/customers/${CUSTOMER}/context?store=brand-a`;
+
+  it('a missing store parameter is 400 validation_error (was bad_request)', async () => {
+    const r = await req(`/support/customers/${CUSTOMER}/context`, {
+      headers: { authorization: AGENT_TOKEN },
+    });
+    expect([r.status, r.body.code]).toEqual([400, 'validation_error']);
+  });
+
+  it('a wrong verb is 405 method_not_allowed', async () => {
+    const r = await req(ctx, { method: 'POST', headers: { authorization: AGENT_TOKEN } });
+    expect([r.status, r.body.code]).toEqual([405, 'method_not_allowed']);
+  });
+
+  it('an oversized body refuses with payload_too_large — in the LOG LINE, which is where it is visible', async () => {
+    // KNOWN LIMIT, and the reason this one is asserted differently from the others: `readBody` destroys the
+    // request socket the moment the cap is passed, so the 413 body is written to a connection the client has
+    // already lost — `fetch` raises instead of returning a response (the webhook describe's own 413 test
+    // catches exactly that). The refusal still goes through `fail()`, so the CODE is observable there, and
+    // that is the thing #678 is about. Flagged with the PR: a client cannot read this code today.
+    await new Promise<void>((done) => server.close(() => done()));
+    const auth = createAgentAuth({
+      client: hq,
+      fga,
+      devTokens: true,
+      env: {} as NodeJS.ProcessEnv,
+    });
+    server = createSupportServer({
+      hq,
+      auth,
+      reader: fakeReader(),
+      chatwoot: createChatwootReceiver({ secret: SECRET, now: () => NOW }),
+      maxBodyBytes: 64,
+      log: (l) => lines.push(l),
+    });
+    base = await listen(server);
+    lines.length = 0;
+
+    const body = JSON.stringify({ padding: 'x'.repeat(200) });
+    await req('/webhooks/chatwoot', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body,
+    }).catch(() => undefined);
+    expect(lines.find((l) => l.event === 'refused')).toMatchObject({
+      status: 413,
+      code: 'payload_too_large',
+      route: '/webhooks/chatwoot',
+    });
+  });
+
+  it('an unknown route is 404 not_found AND is logged like every other refusal (#695 review)', async () => {
+    lines.length = 0;
+    const r = await req('/support/nothing-here', { headers: { authorization: AGENT_TOKEN } });
+    expect([r.status, r.body.code]).toEqual([404, 'not_found']);
+    const refused = lines.find((l) => l.event === 'refused');
+    expect(refused).toMatchObject({ status: 404, code: 'not_found', route: 'unknown' });
+    // The requested PATH is never in the line: a path is caller input and could carry an address.
+    expect(JSON.stringify(lines)).not.toContain('nothing-here');
   });
 });
 
@@ -863,7 +930,10 @@ describe('POST /webhooks/chatwoot', () => {
     expect((await req('/webhooks/chatwoot', { method: 'POST', headers, body })).status).toBe(202);
     const again = await req('/webhooks/chatwoot', { method: 'POST', headers, body });
     expect(again.status).toBe(409);
-    expect(again.body.code).toBe('replayed');
+    expect(again.body.code).toBe('conflict');
+    // `replayed` was the code until #678; it is the REASON now, so a client still learns which conflict this
+    // is (#695 review, asserted here at the real site rather than on a constructed error).
+    expect(again.body.details).toEqual({ reason: 'replayed' });
   });
 
   it('accepts the x-hub-signature-256 header too', async () => {

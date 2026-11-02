@@ -15,6 +15,8 @@ const STATUS: Record<ErrorCode, number> = {
   unavailable: 503,
   payment_failed: 402,
   internal: 500,
+  method_not_allowed: 405,
+  payload_too_large: 413,
   ai_disabled: 503,
   ai_budget_exceeded: 429,
   ai_rate_limited: 429,

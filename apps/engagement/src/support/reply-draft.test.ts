@@ -4,6 +4,7 @@
 // which is the question a privacy review asks. The denylist check is the real one, imported from
 // `@platform/ai` — the projection's type is the first guard, and this is the second.
 
+import { ERROR_CODES } from '@platform/contracts';
 import { findDeniedFields, getTemplate } from '@platform/ai';
 import { describe, expect, it } from 'vitest';
 import { formatMoney, pickOrder, toDraftVariables, type DraftVariables } from './draft-context.js';
@@ -318,5 +319,28 @@ describe('the gateway errors map to the shared codes (#610)', () => {
     const err = draftErrorFor(new Error('kaboom with a token in it'));
     expect([err.status, err.code]).toEqual([500, 'internal']);
     expect(err.message).not.toContain('token');
+  });
+});
+
+describe('every code this service answers is in the contract (#678)', () => {
+  // The compiler holds `SupportError.code` to `ErrorCode`, which is what actually prevents a divergence —
+  // typing the field is what found two more than the issue listed (`internal_error`, which the contract
+  // calls `internal`, and `upstream_unavailable`). The two tests that pinned the interim
+  // `PENDING_ERROR_CODES` list went red the day CONTRACT CHANGE #690 landed, exactly as designed, and went
+  // with it.
+  it('the two codes #690 added are in the contract, so no exception list is needed', () => {
+    for (const code of ['method_not_allowed', 'payload_too_large']) {
+      expect(ERROR_CODES as readonly string[]).toContain(code);
+    }
+  });
+
+  it('a code that lost a distinction keeps it in details.reason', () => {
+    // `upstream_unavailable` and `upstream_error` both became `unavailable`, and `replayed` became
+    // `conflict`. A reader can still tell them apart, which is the condition on which those mappings were
+    // acceptable at all.
+    const err = new SupportError(502, 'unavailable', 'The core did not answer (getCustomer)', {
+      reason: 'upstream_unavailable',
+    });
+    expect([err.code, err.details?.reason]).toEqual(['unavailable', 'upstream_unavailable']);
   });
 });

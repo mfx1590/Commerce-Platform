@@ -6,8 +6,9 @@
     "production": { "partitions": 12, "replication": 3, "min_insync_replicas": 2 }
   },
   "retention": {
-    "forever": ["order.", "payment.", "refund.", "shipment.", "return.", "stock.", "stock_item."],
+    "forever": ["payment.", "refund.", "shipment.", "return.", "stock.", "stock_item."],
     "days_30": [
+      "order.",
       "store.",
       "product.",
       "customer.",
@@ -22,6 +23,12 @@
   },
   "dlq": {
     "prefix": "dlq.",
-    "consumer_groups": ["accounting.ledger", "engagement.ops", "engagement.cdp", "engagement.crm"]
+    "consumer_groups": [
+      "accounting.ledger",
+      "engagement.ops",
+      "engagement.cdp",
+      "engagement.crm",
+      "analytics.raw"
+    ]
   }
 }

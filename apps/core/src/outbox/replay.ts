@@ -3,6 +3,15 @@
 // consumer: the message carries the same outbox_id, so a group that handled the rows dedupes them, and a fresh
 // group rebuilds from them. Nothing here writes to the database: published_at, attempts and last_error stay as
 // the relay left them. Two extra headers mark a replayed message: `replay: 1` and `replayed_at`.
+//
+// Erasure (#629): the outbox keeps every payload, so a replay would hand an erased customer's ids back to the bus.
+// Before it sends, the replay reads the erased customers from the outbox's own customer.erased rows (published or
+// not; they are never pruned) and, per store, SKIPS every row of a topic that names one: order.placed, customer.*,
+// cart.abandoned, review.published, referral.converted. On EVERY topic it also nulls the envelope actor's id when
+// the actor is an erased customer of that store (a signed-in checkout stamps the customer as the actor of
+// payment.authorized, order.confirmed, …; v1 allows a null id). customer.erased keeps its payload. Skipping
+// order.placed means a ledger rebuilt from scratch misses those orders until order.placed@2 (#696, email_hash
+// nullable) lets the replay send them without the ids; an existing ledger keeps them (idempotent by source_event_id).
 import {
   createValidator,
   envelopeToMessage,
@@ -46,6 +55,96 @@ export interface ReplayOptions {
   now?: () => Date;
 }
 
+type Payload = Record<string, unknown>;
+
+/** Where a topic's payload names a customer: the customer ids and the e-mail hashes it carries. */
+interface ErasureRule {
+  customerIds: (p: Payload) => unknown[];
+  emailHashes: (p: Payload) => unknown[];
+}
+
+const byCustomer = (p: Payload): unknown[] => [p.customer_id];
+const byHash = (p: Payload): unknown[] => [p.email_hash];
+const none = (): unknown[] => [];
+
+/**
+ * Every topic whose payload names a customer (#629). A replay skips the rows that name an erased customer of their
+ * store. customer.erased is not here: it is the erasure itself, and every consumer needs it.
+ * replay-erasure.test.ts fails when a schema with a customer id or an e-mail hash has no entry.
+ */
+export const ERASURE_RULES: Readonly<Record<string, ErasureRule>> = {
+  'order.placed': { customerIds: byCustomer, emailHashes: byHash },
+  'cart.abandoned': { customerIds: byCustomer, emailHashes: byHash },
+  'customer.created': { customerIds: byCustomer, emailHashes: byHash },
+  'customer.updated': { customerIds: byCustomer, emailHashes: byHash },
+  'customer.export_requested': { customerIds: byCustomer, emailHashes: none },
+  'customer.export_ready': { customerIds: byCustomer, emailHashes: none },
+  'review.published': { customerIds: byCustomer, emailHashes: none },
+  'referral.converted': {
+    customerIds: (p) => [p.referrer_customer_id, p.referee_customer_id],
+    emailHashes: none,
+  },
+};
+
+/** The erased customers of one replay, per store. */
+export interface ErasedSet {
+  /** customer.erased rows read (one per erased customer and store). */
+  readonly customers: number;
+  /** `<store>|c:<customer_id>` and `<store>|h:<email_hash>` */
+  readonly keys: ReadonlySet<string>;
+}
+
+const erasedKey = (storeId: string | null, kind: 'c' | 'h', id: unknown): string | null =>
+  typeof id === 'string' && id !== '' ? `${storeId ?? 'organization'}|${kind}:${id}` : null;
+
+/** Reads the erased customers from the outbox's customer.erased rows (v1 carries no email_hash; v2 does). */
+export async function loadErasedSet(client: ScopedClient, storeId?: string): Promise<ErasedSet> {
+  const r = await client.query<{
+    store_id: string | null;
+    customer_id: string | null;
+    email_hash: string | null;
+  }>(
+    `SELECT store_id, payload->>'customer_id' AS customer_id, payload->>'email_hash' AS email_hash
+     FROM outbox WHERE topic = 'customer.erased'${storeId ? ' AND store_id = $1' : ''}`,
+    storeId ? [storeId] : [],
+  );
+  const keys = new Set<string>();
+  for (const row of r.rows) {
+    for (const k of [
+      erasedKey(row.store_id, 'c', row.customer_id),
+      erasedKey(row.store_id, 'h', row.email_hash),
+    ])
+      if (k) keys.add(k);
+  }
+  return { customers: r.rows.length, keys };
+}
+
+/** Whether the envelope's actor is an erased customer of the row's store (#700 review). */
+export function actorErased(
+  storeId: string | null,
+  actor: { type: string; id: string | null } | undefined,
+  erased: ErasedSet,
+): boolean {
+  if (!actor || actor.type !== 'customer') return false;
+  const k = erasedKey(storeId, 'c', actor.id);
+  return k !== null && erased.keys.has(k);
+}
+
+/** Whether a row of `topic` names an erased customer of its own store. */
+export function namesErased(
+  topic: string,
+  storeId: string | null,
+  payload: Payload,
+  erased: ErasedSet,
+): boolean {
+  const rule = ERASURE_RULES[topic];
+  if (!rule || erased.keys.size === 0) return false;
+  return [
+    ...rule.customerIds(payload).map((id) => erasedKey(storeId, 'c', id)),
+    ...rule.emailHashes(payload).map((h) => erasedKey(storeId, 'h', h)),
+  ].some((k) => k !== null && erased.keys.has(k));
+}
+
 export interface ReplayBatchLine {
   replay: 'outbox';
   organization_id: string;
@@ -68,6 +167,12 @@ export interface ReplaySummary {
   per_store: Record<string, number>;
   oldest_occurred_at: string | null;
   newest_occurred_at: string | null;
+  /** customer.erased rows in scope (#629), read for every topic. */
+  erased_customers: number;
+  /** Sent rows whose actor id was nulled because the actor is an erased customer. */
+  erased_actors: number;
+  /** Rows not sent because they name an erased customer, per event type (`{ "order.placed": 2 }`); empty for a topic that names no customer. */
+  erased_skipped: Record<string, number>;
   duration_ms: number;
 }
 
@@ -156,12 +261,18 @@ export async function replayOutbox(
   const publishTimeoutMs = opts.publishTimeoutMs ?? 15_000;
   const log = opts.log ?? ((line: ReplayBatchLine) => console.info(JSON.stringify(line)));
   const described = await describeReplay(client, opts);
+  const rule = ERASURE_RULES[opts.topic];
+  // every topic needs the erased set: any envelope's actor can be a customer
+  const erased = await loadErasedSet(client, opts.storeId);
   const summary: ReplaySummary = {
     replay: 'outbox',
     organization_id: opts.organizationId,
     topic: opts.topic,
     dry_run: opts.dryRun === true,
     ...described,
+    erased_customers: erased.customers,
+    erased_actors: 0,
+    erased_skipped: rule ? { [opts.topic]: 0 } : {},
     published: 0,
     batches: 0,
     duration_ms: 0,
@@ -187,22 +298,36 @@ export async function replayOutbox(
     ).rows;
     if (rows.length === 0) break;
     const replayedAt = now().toISOString();
-    const messages: RelayMessage[] = rows.map((row) => {
-      const envelope = outboxRowToEnvelope(row);
+    const messages: RelayMessage[] = [];
+    let skipped = 0;
+    let actors = 0;
+    for (const row of rows) {
+      let envelope = outboxRowToEnvelope(row);
       const check = v.validateEnvelope(envelope);
       if (!check.ok)
         throw new Error(`outbox row ${row.id} no longer validates: ${check.errors.join('; ')}`);
+      if (namesErased(row.topic, row.store_id, envelope.payload as Payload, erased)) {
+        skipped += 1;
+        continue;
+      }
+      if (actorErased(row.store_id, envelope.actor, erased)) {
+        envelope = { ...envelope, actor: { type: 'customer', id: null } };
+        actors += 1;
+      }
       const m = envelopeToMessage(envelope, REPLAY_PRODUCER, {
         schemaId: opts.schemaIds?.[`${row.topic}@${row.version}`],
       });
       m.headers[HEADER_REPLAY] = '1';
       m.headers[HEADER_REPLAYED_AT] = replayedAt;
-      return m;
-    });
+      messages.push(m);
+    }
     let timer: NodeJS.Timeout | undefined;
     try {
       await Promise.race([
-        publisher.send(`${prefix}${opts.topic}`, messages),
+        // a batch whose every row was skipped sends nothing; the resume point still moves past it
+        messages.length > 0
+          ? publisher.send(`${prefix}${opts.topic}`, messages)
+          : Promise.resolve(),
         new Promise<never>((_, reject) => {
           timer = setTimeout(
             () => reject(new RelayPublishTimeout(opts.topic, publishTimeoutMs)),
@@ -218,7 +343,10 @@ export async function replayOutbox(
       clearTimeout(timer);
     }
     lastSeq = rows[rows.length - 1]!.seq;
-    summary.published += rows.length;
+    summary.published += messages.length;
+    summary.erased_actors += actors;
+    if (rule)
+      summary.erased_skipped[opts.topic] = (summary.erased_skipped[opts.topic] ?? 0) + skipped;
     summary.batches += 1;
     log({
       replay: 'outbox',

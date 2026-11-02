@@ -92,13 +92,35 @@ follows a delete can be refused for a moment: `ensureTopics` retries the refused
 producer with `acks=all` then needs two replicas to acknowledge, so one broker can be lost without losing an
 acknowledged event.
 
-**Retention, two classes (ADR 0003 item 3).** `forever` (`retention.ms=-1`) for everything accounting and
-inventory derive from: `order.*`, `payment.*`, `refund.*`, `shipment.*`, `return.*`, `stock.*`,
-`stock_item.*`. `days_30` (`retention.ms=2592000000`) for the rest: `store.*`, `product.*`, `customer.*`,
-`fulfillment.*`, `campaign.*`, `feed.*`, `attribution.*`, `referral.*`, `review.*`, `cart.*`. The bus is not
-the archive: the outbox table is the source of truth and the replay CLI (#534) republishes from it, so a
-30-day topic is a delivery window, not a history. `customer.erased` sits in the 30-day class on purpose: a
-consumer that was down for a month re-syncs from the outbox replay, which carries it.
+**Retention, two classes (ADR 0003 item 3, #629).** `forever` (`retention.ms=-1`) for what accounting and
+inventory derive from and that carries no customer id: `payment.*`, `refund.*`, `shipment.*`, `return.*`,
+`stock.*`, `stock_item.*`. `days_30` (`retention.ms=2592000000`, `segment.ms=86400000`) for the rest:
+`order.*`, `store.*`, `product.*`, `customer.*`, `fulfillment.*`, `campaign.*`, `feed.*`, `attribution.*`,
+`referral.*`, `review.*`, `cart.*`. The bus is not the archive: the outbox table is the source of truth and the
+replay CLI (#534) republishes from it, so a 30-day topic is a delivery window, not a history. `customer.erased`
+sits in the 30-day class on purpose: a consumer that was down for a month re-syncs from the outbox replay, which
+carries it.
+
+**Erasure bounds the bus (#629).** Every topic that carries `customer_id` or `email_hash` (`order.placed`,
+`customer.*`, `cart.abandoned`, `referral.converted`, `review.published`) is in the 30-day class, so an erased
+customer's ids leave the bus within 31 days. Redpanda deletes whole closed segments only and rolls a segment
+every 14 days by default (`segment.ms=1209600000`, which made the bound 44 days), so the 30-day class rolls
+daily. `order.*` was `forever` until #629; the ledger rebuilds from the outbox replay like every other consumer.
+Compaction cannot do this job:
+the message key is the store, not the customer. The DLQs stay forever but carry no payload (ids, offsets, the
+error class), so they hold no customer id.
+
+**Rebuilding a consumer now needs the outbox replay first (#699 review).** A fresh group that reads every topic from
+the beginning gets all of `payment.*`, `refund.*` and `shipment.*` (forever) but only 30 days of `order.*`. The
+accounting ledger would then park every older payment or shipment, waiting for an `order.placed` that never comes.
+So run `outbox:replay --topic order.placed` and `--topic order.cancelled` (and the other `order.*` the consumer
+reads) before, or together with, the fresh group. The same applies to a new `analytics.raw` group and to an
+engagement `--drain`: from the bus alone they see 30 days of orders, not history.
+
+**Until the erasure-aware replay lands (#700), do not run a full `order.placed` replay for a store that has
+erasures:** today's replay republishes those orders unscrubbed. **DLQ replay of `order.*`:** `replayFromDlq`
+re-fetches the original by offset, so an `order.*` dead letter older than 30 days reports `missing`. Recover it with
+`outbox:replay --topic <t> --from/--to` instead.
 
 **Cleanup policy `delete`** on every event topic (never `compact`: compaction would drop earlier events of
 the same key, and our key is the store).
@@ -109,7 +131,7 @@ class, the topic, the outbox id and the attempt count — never the payload (no 
 operators read). Compacted so the _latest_ failure per event is what remains, and a successful replay
 writes a tombstone (null value) for that key, which compaction removes: the DLQ is the live list of what
 is still failing. One DLQ per group because retries and replays are a per-consumer decision. The script
-creates the DLQs for the groups listed in `topics.policy.json` (since #561: `accounting.ledger`, `engagement.ops`, `engagement.cdp`, `engagement.crm`) and the consumer SDK (#533)
+creates the DLQs for the groups listed in `topics.policy.json` (since #561: `accounting.ledger`, `engagement.ops`, `engagement.cdp`, `engagement.crm`; since #615: `analytics.raw`, the ClickHouse ingest) and the consumer SDK (#533)
 creates its own group's DLQ on first start with the same `dlqTopicName`/`ensureTopics` helpers, so a new
 consumer needs no infra change.
 
