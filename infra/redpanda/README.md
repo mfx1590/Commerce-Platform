@@ -121,14 +121,16 @@ error class), so they hold no customer id.
 report rebuilds from is in the 30-day class, so a fresh group that reads from the beginning sees 30 days of
 history, not all of it. Rebuild from the outbox: `outbox:replay` every topic the consumer reads, the orders FIRST.
 For accounting (`LEDGER_TOPICS`): `--topic order.placed`, `--topic order.cancelled`, then `payment.captured`,
-`refund.issued`, `shipment.shipped`, before or together with the fresh group (a payment or shipment that arrives
-before its order is parked and posted once the order arrives, so the order of the last three does not matter). The
+`refund.issued`, `shipment.shipped`, before or together with the fresh group. Accounting PARKS a
+`shipment.shipped`, an `order.cancelled` and a `refund.issued` whose reason is not `cancellation` until its
+`order.placed` arrives, then posts them in `occurred_at` order; a `payment.captured` (and a cancellation refund)
+posts on its own. So after the orders, the order of the last three does not matter. The
 same applies to a new `analytics.raw` group and to an engagement `--drain`: from the bus alone they see 30 days.
 
-**Until the erasure-aware replay lands (#700), do not run a full `order.placed` replay for a store that has
-erasures:** today's replay republishes those orders unscrubbed. **DLQ replay of `order.*`:** `replayFromDlq`
-re-fetches the original by offset, so an `order.*` dead letter older than 30 days reports `missing`. Recover it with
-`outbox:replay --topic <t> --from/--to` instead.
+**DLQ replay of a 30-day topic:** `replayFromDlq` re-fetches the original by offset, so a dead letter of ANY
+30-day topic (`order.*`, and since #707 `payment.*`, `refund.*`, `shipment.*` and `return.*` too) whose
+original is older than its retention reports `missing`. Recover it with `outbox:replay --topic <t> --from/--to`
+instead; the outbox replay is erasure-aware (#700).
 
 **DLQ replay reads `customer.erased` first (#703).** `replayFromDlq` builds its erased set from this topic and
 refuses to run without it, so `customer.erased` must exist wherever a group replays (`topics:create` makes it).

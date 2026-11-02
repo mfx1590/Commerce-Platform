@@ -2,6 +2,16 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-11-03 · no customer actor id on a forever topic (#707, window 14)
+
+- `withEvents` (`src/outbox`) refuses, with `InvalidEventError` and before any insert, an event whose topic the bus
+  keeps FOREVER and whose envelope actor is a customer WITH an id: the broker's copy would keep the id after the
+  customer's erasure. `{ type: customer, id: null }` (a Store API request before sign-in) and staff / system actors
+  pass. New export `FOREVER_TOPIC_PREFIXES` (`stock.`, `stock_item.`), a constant that `outbox.test.ts` pins to
+  `infra/redpanda/topics.policy.json` (the core never reads that file at runtime). With #707, `payment.*`,
+  `refund.*`, `shipment.*` and `return.*` are 30-day topics, so a signed-in checkout's `payment.authorized` (the
+  customer as actor) is unaffected; no producer writes a customer actor on `stock.*` today.
+
 ### 2026-11-02 · the #696 gate: `order.placed` v1 and v2
 
 - The orders projection (`projection.ts`, the core's only `order.placed` consumer) folds `order.placed@2`
