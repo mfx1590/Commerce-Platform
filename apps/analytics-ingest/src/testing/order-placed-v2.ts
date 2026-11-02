@@ -11,7 +11,8 @@
 //     @2, and `withOrderPlacedV2` asks the validator for the v2 `$id` first (`ajv.getSchema(id) ?? compile`), so
 //     the day #696 lands, the published schema validates the fixtures and the mock is never compiled.
 //
-// When #696 lands this file goes away; the tests keep their assertions.
+// When #696 lands this file goes away; the tests keep their assertions. models.test.ts's live v1 + v2 test (the
+// same-event_id replay included) never used it and stays as it is.
 //
 // The derivation takes the real schemas as arguments, with no import from @platform/events, so a test's
 // `vi.mock('@platform/events')` factory can call it on the ORIGINAL module without importing itself.

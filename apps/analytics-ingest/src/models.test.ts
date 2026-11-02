@@ -619,9 +619,6 @@ describe.runIf(skip === null)('ClickHouse runner under concurrency', () => {
       rows.filter((r) => r.topic === 'order.placed').filter((_, i) => i % 3 === 0),
     );
     const v1Rows = rows.filter((r) => !asV2.has(r));
-    await createRawEventsSink(c).insert(v1Rows);
-    const r7 = await migrate(admin, open(db), db, files);
-    expect(r7.applied).toEqual(['0007_orders_minute_mv_v3.sql']);
     // every third order arrives as v2: half of those named (hash kept), half scrubbed by the replay (both null)
     let erased = 0;
     const v2Rows = [...asV2].map((r, i) => {
@@ -635,9 +632,20 @@ describe.runIf(skip === null)('ClickHouse runner under concurrency', () => {
     });
     expect(v2Rows.length).toBeGreaterThan(10);
     expect(erased).toBeGreaterThan(5);
-    await createRawEventsSink(c).insert(v2Rows);
+    // 0007 LATE (#708 review): the first half of the v2 orders is ingested BEFORE it, where mv_orders_minute_v2 (v1
+    // only) does not see them; 0007's refill must put them in the tile. The rest arrive after it, through v3.
+    const early = v2Rows.slice(0, Math.floor(v2Rows.length / 2));
+    await createRawEventsSink(c).insert([...v1Rows, ...early]);
+    const tileOf = async () =>
+      Number((await q(c, 'SELECT count() n FROM orders_minute_events FINAL'))[0]!.n);
+    expect(await tileOf()).toBe(placed.length - v2Rows.length); // the early v2 orders are missing
+    const r7 = await migrate(admin, open(db), db, files);
+    expect(r7.applied).toEqual(['0007_orders_minute_mv_v3.sql']);
+    expect(await tileOf()).toBe(placed.length - v2Rows.length + early.length); // repaired
+    await createRawEventsSink(c).insert(v2Rows.slice(early.length));
     // the replay itself: a v1 order republished as v2, scrubbed, under the SAME event_id and a later ingested_at. It
-    // folds with its v1 copy (raw_events is keyed (topic, event_id)): still one order, now unattributed
+    // folds with its v1 copy (raw_events is keyed (topic, event_id)): still one order, now unattributed. This test
+    // builds its v2 rows itself (no @2 mock), so it stays when testing/order-placed-v2.ts goes (#708 review)
     const replayed = v1Rows.find((r) => r.topic === 'order.placed')!;
     const scrubbed = {
       ...(JSON.parse(replayed.payload) as Record<string, unknown>),

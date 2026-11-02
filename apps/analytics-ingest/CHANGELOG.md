@@ -7,10 +7,12 @@
   `email_hash` / `customer_id` stays null in `raw_events` (no placeholder; the erasure scrub passes over it). The
   models read only v1 until now: `stg_order_placed_v2` and the union `stg_order_placed` (what `fct_order` and
   `fct_order_line` read), and migration 0007 swaps the live tile's MV for `mv_orders_minute_v3` (`version IN (1, 2)`,
-  0006's order: new MV first, old dropped; no backfill, since no v2 row exists before #696). A null key is NULL
+  0006's order: new MV first, old dropped; then, as 0005 does for v1, the v2 orders already in `raw_events` copied in,
+  only missing event_ids — a no-op in the intended order, a repair if 0007 is applied late, #708 review). A null key is NULL
   `customer_key`: counted in `unknown_orders`, never joined. **0007 must be applied before #696 merges.** Tests: a
   derived, test-only @2 mock (`testing/order-placed-v2.ts`, `ajv.getSchema(id) ?? compile`, so the published @2 wins
-  once it exists); live, v1 and v2 through 0007 and the models (every order once, scrubbed ones unattributed).
+  once it exists); live, v1 and v2 through 0007 and the models (every order once, scrubbed ones unattributed; v2 ingested before
+  0007 repaired in the tile; a same-event_id replay folds).
 - #689: migration 0006 replaces `mv_orders_minute` (0002), whose `store_id IS NOT NULL` read the alias
   `assumeNotNull(store_id)` and so filtered nothing (a store-less order.placed would land under the zero uuid). In
   order: `mv_orders_minute_v2` (the filter in a subquery), then `DROP VIEW IF EXISTS mv_orders_minute`, then the
