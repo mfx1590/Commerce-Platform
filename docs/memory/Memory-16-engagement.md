@@ -185,7 +185,7 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **Never commit a 64-hex email_hash fixture.** The `sha256` $def needs a real 64-hex value, so a word will not validate — compute it: `createHash('sha256').update('…').digest('hex')`, which is what apps/core does. I had three such literals before catching it; one would have reddened every open PR.
 - `pg` is deliberately NOT a dependency of this app: for a pool type use `Parameters<typeof createTenantClient>[0]`.
 
-## RESUME HERE — 2026-11-02: #696 gate (order.placed@2) — engagement's half is BUILT, PR opening
+## RESUME HERE — 2026-11-02: #696 gate DONE, PR #705 merged (53d4e78e); IDLE
 
 **Manager session TEN.** Branch `engagement/phase5-696-gate` from `origin/main` `fd7fc8c2`, carrying the two
 memory commits that could not be pushed to the merged #695 branch (cherry-picked as `639ec71c`, `942ebf3d`).
@@ -242,6 +242,22 @@ prettier, ownership clean. Package **0.9.3**.
 
 **Verified after the fixes:** 553 passed / 9 live skipped offline, 562/562 with the broker up; lint,
 typecheck, prettier, ownership clean; `pnpm build` clean.
+
+**MERGED 2026-11-02 18:23Z: merge commit `53d4e78e`, merged head `a3b2257e`** (verified on GitHub, not taken
+from the note) — the queue again put one `Merge remote-tracking branch 'origin/main'` commit on top of my
+`17799526`, same as #695. **Status: IDLE.**
+
+**Worth knowing, and not mine to decide:** it merged while `live auth + end-to-end (Keycloak, OpenFGA,
+Playwright)` was still IN_PROGRESS on the PR — so "every check finished" was never true for #705, and that
+job is evidently not a required one for the queue. My own evidence for this branch is the local run (562/562
+with the broker up) plus the other checks. If a gate ever needs that job's verdict, it has to be asked for
+explicitly; the manager was told.
+
+**The two memory commits for the NEXT branch** (local-only again, the branch is merged): `76bbe365`'s memory
+follow-up and this one. Cherry-pick them onto the first branch off `origin/main`, as #695's pair were. Also
+still to carry forward into this file from the manager, 2026-11-02: the `~20-call` budget rule is about
+BUILDING — reading to answer "does it already work?" may run past it provided the count is reported — and
+"it already works, and here's the proof" is a valid outcome of a build task.
 
 **Budget note:** this ran past the ~20-call guide, all of it reading (five source files plus the SDK's
 version handling) rather than writing, because the answer to "does it already work?" is only worth having if
