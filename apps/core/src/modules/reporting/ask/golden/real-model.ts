@@ -10,6 +10,7 @@ import { METRICS, type MetricId } from '../../metrics/catalogue';
 import type { MetricResult, MetricsReader } from '../../metrics/execute';
 import { askMetrics, type MetricAnswer } from '../ask';
 import type { GatewayFactory } from '../gateway';
+import { MODEL_ROWS } from '../tool';
 import type { GoldenCase, GoldenEnv } from './cases';
 import { backedValues, callerFor, type GoldenStores } from './run';
 
@@ -21,6 +22,16 @@ export interface RealOutcome {
   ran: number;
   refused: number;
   answer?: string;
+  /** what the model asked for, in order (the report shows WHY an answer is what it is: #7 of the second run) */
+  queries?: {
+    metrics: string[];
+    dimensions: string[];
+    grain: string;
+    order_by?: { metric: string; direction: string };
+    limit: number;
+    rows?: number;
+    error?: string;
+  }[];
   error?: string;
 }
 
@@ -38,10 +49,18 @@ const MONTH = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\.
  * 10/12 stores, 10-12 EUR, 31-12 = 19 stay figures). The gap left: a bare pair that is also a date ("10-12 of them")
  * reads as a date — pinned in real-model.test.
  */
-export function figuresOf(text: string, ownIds: readonly string[] = []): string[] {
+export function figuresOf(
+  text: string,
+  ownIds: readonly string[] = [],
+  labels: readonly string[] = [],
+): string[] {
   const own = new Set(ownIds.map((id) => id.toLowerCase()));
-  let clean = text
+  const known = new Set(labels);
+  // a list's own numbering and the item labels the results gave (p1, p2 … — tool.ts) are not figures (the
+  // targeted #7 run of 2026-11-02 flagged both); a label no result gave stays, and runRealCase reports it
+  let clean = stripEnumeration(text)
     .replace(/\[q\d+\]/g, ' ')
+    .replace(/\bp\d+\b/g, (label) => (known.has(label) ? ' ' : label))
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, (id) =>
       own.has(id.toLowerCase()) ? ' ' : id,
     )
@@ -68,6 +87,36 @@ export function figuresOf(text: string, ownIds: readonly string[] = []): string[
     const n = splitNumber(m[0]);
     return n ? [n.dec ? `${n.int}.${n.dec}` : n.int] : m[0].split(/[.,]/);
   });
+}
+
+const LIST_ITEM = /^([ \t]*)(\d{1,2})[.)](?=[ \t]+\S)/gm;
+
+/**
+ * Drops a REAL enumeration's numbers: line-leading "1." / "1)" with content after it on the same line, in a run that
+ * counts 1, 2, 3 … (at least two items). Anything else stays a figure (#688 review): "Total orders:\n17." and
+ * "[q1] 12. orders" are counts, and a run that skips ("1. 2. 5.") keeps the 5. Runs on the raw text, first.
+ */
+function stripEnumeration(text: string): string {
+  const items = [...text.matchAll(LIST_ITEM)];
+  const strip = new Set<number>();
+  let run: RegExpMatchArray[] = [];
+  const flush = () => {
+    if (run.length >= 2) for (const m of run) strip.add(m.index!);
+    run = [];
+  };
+  for (const m of items) {
+    const n = Number(m[2]);
+    const previous = run.at(-1);
+    if (n === 1) {
+      flush();
+      run = [m];
+    } else if (previous && n === Number(previous[2]) + 1) run.push(m);
+    else flush();
+  }
+  flush();
+  return text.replace(LIST_ITEM, (span: string, lead: string, _n: string, at: number) =>
+    strip.has(at) ? lead : span,
+  );
 }
 
 /** what makes a two-digit pair a quantity, not a date: a count word, a currency code, or arithmetic right after it */
@@ -269,6 +318,71 @@ export function checkDerived(
   return { problems, rest: text.replace(DERIVED, (span) => ' '.repeat(span.length)) };
 }
 
+/**
+ * The labels the model saw for products — p1, p2 … per result, in row order over the rows sent (tool.ts) — each
+ * with the figures of its own rows. A label repeats across results (q1's p1 and q2's p1 may differ); its figures
+ * are the union, so a figure of either passes.
+ */
+export function itemLabels(
+  ran: readonly { query: { metrics: readonly MetricId[] }; result?: MetricResult | undefined }[],
+): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const x of ran) {
+    if (!x.result) continue;
+    const order = new Map<string, string>();
+    for (const row of x.result.rows.slice(0, MODEL_ROWS)) {
+      if (row.product_id === null) continue;
+      if (!order.has(row.product_id)) order.set(row.product_id, `p${order.size + 1}`);
+      const label = order.get(row.product_id)!;
+      const figures = out.get(label) ?? new Set<string>();
+      for (const v of backedValues(
+        { ...x.result, rows: [row], currency_totals: [] },
+        x.query.metrics,
+      ))
+        figures.add(v);
+      out.set(label, figures);
+    }
+  }
+  return out;
+}
+
+/** An item label no result gave, and "pN: X" where X is not one of pN's own figures (a swapped ranking). */
+export function labelProblems(
+  text: string,
+  labels: ReadonlyMap<string, ReadonlySet<string>>,
+): string[] {
+  const problems: string[] = [];
+  for (const m of text.matchAll(/\bp\d+\b/g))
+    if (!labels.has(m[0])) problems.push(`${m[0]} is no item of any result`);
+  for (const m of text.matchAll(/\b(p\d+)\b\s*[:=–-]\s*([−-]?(?:\d[\d.,]*\d|\d))/g)) {
+    const own = labels.get(m[1]!);
+    const f = figuresOf(m[2]!)[0];
+    if (own && f !== undefined && !isBacked(f, own))
+      problems.push(`${m[1]}: ${m[2]} is not ${m[1]}'s figure`);
+  }
+  return [...new Set(problems)];
+}
+
+/**
+ * The cases a real-model run asks: all of them, or the ids in `raw` ("7" or "7,17"). Anything that is not exactly a
+ * list of known ids — blank, a typo, an id not in the set — throws before any call, so a targeted run can never
+ * pass on zero cases (#688 review).
+ */
+export function selectCases<C extends { id: number }>(
+  raw: string | undefined,
+  all: readonly C[],
+): C[] {
+  if (raw === undefined) return [...all];
+  const parts = raw.split(',').map((s) => s.trim());
+  const bad = parts.filter((p) => !/^\d+$/.test(p) || !all.some((c) => c.id === Number(p)));
+  if (bad.length > 0 || parts.length === 0)
+    throw new Error(
+      `AI_REAL_MODEL_CASES=${JSON.stringify(raw)}: not golden case ids (${bad.map((b) => JSON.stringify(b)).join(', ')})`,
+    );
+  const ids = new Set(parts.map(Number));
+  return all.filter((c) => ids.has(c.id));
+}
+
 export async function runRealCase(
   c: GoldenCase,
   env: GoldenEnv,
@@ -305,6 +419,15 @@ export async function runRealCase(
   if ('error' in c.expect && c.expect.error === 'forbidden')
     out.problems.push('expected the scope to refuse before the model, got an answer');
   out.answer = answer.answer;
+  out.queries = answer.queries.map(({ query, result, error }) => ({
+    metrics: [...query.metrics],
+    dimensions: [...query.dimensions],
+    grain: query.grain,
+    ...(query.order_by ? { order_by: query.order_by } : {}),
+    limit: query.limit,
+    ...(result ? { rows: result.rows.length } : {}),
+    ...(error ? { error: error.code } : {}),
+  }));
   const ran = answer.queries.filter((x) => x.result !== undefined);
   out.ran = ran.length;
   out.refused = answer.queries.length - ran.length;
@@ -328,12 +451,17 @@ export async function runRealCase(
     return x?.result ? resultValues(x.result, x.query.metrics) : undefined;
   });
   out.problems.push(...derived.problems);
+  // the item labels the results gave the model, with each label's own figures (#688 review): an invented pN is
+  // reported, and "pN: X" must be one of pN's figures — a swapped ranking fails
+  const labels = itemLabels(ran);
+  out.problems.push(...labelProblems(answer.answer, labels));
   // integers also match a money figure written without decimals, and small integers the question itself names
   const asked = new Set(figuresOf(c.question));
   // the asker's own store ids are what <stores> lists; any other uuid in the answer is reported
   for (const f of figuresOf(
     derived.rest,
     caller.stores.map((s) => s.id),
+    [...labels.keys()],
   ))
     if (!isBacked(f, backed) && !asked.has(f)) out.problems.push(`${f} is in no result`);
   out.problems = [...new Set(out.problems)];
