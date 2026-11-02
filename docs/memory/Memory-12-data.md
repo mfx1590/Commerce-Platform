@@ -52,6 +52,20 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- #689 (2026-11-02; #687 MERGED d0bd4fb2, #688 MERGED 9fe4991d; plan approved by manager ten: drop in the SAME
+  migration, cleanup AS a migration). Branch data/phase5-689. Migration 0006: mv_orders_minute_v2 (filter in a
+  subquery) FIRST, then DROP VIEW IF EXISTS mv_orders_minute, then DELETE the zero-uuid store rows. Lint allows
+  exactly that (DROP only VIEW IF EXISTS of a migration-created MV; DELETE only zero-uuid store rows from a
+  ReplacingMergeTree table) — 3 allowed / 9 refused tests. The #687 drain also runs before a DELETE (an insert
+  begun before the drop still writes through the old MV). Live 19/19 (ClickHouse 25.8): inserts running during
+  0006 → every order exactly once, only v2 left (25.8 fires an MV whose source is inside a subquery); store-less
+  order: 1 zero-uuid row through 0002 → 0 after 0006 → still 0 for a new one. A drop-first negative control could
+  not be made deterministic (the lint refuses a pause; the gap is ms) — skipped, said so. Unit 136; gates green.
+  PR #692. Fable APPROVE + 3 lint tightenings done: DELETE only from an MV's TO table that is ALSO
+  ReplacingMergeTree (raw_events refused); `toUUID` matched case-sensitively (server rejects touuid); DROP only of
+  an MV created EARLIER (file then statement order) once another MV writes to its TO table (drop-before-replace,
+  drop-of-later, no-replacement all refused); access.test finds an MV's source per statement, subquery-tolerant.
+  Unit 142; no machine needed.
 - #7 FIX (2026-11-02, branch data/phase5-606-products from main abfbc02d): golden/catalogue.ts catalogueFor
   publishes 8 products per store (variants by line order, weights 9:7:5:4:2:1:1:1) in the LIVE golden setup; a
   live test pins #7 to 5 distinct products, units falling; catalogue.test (4). Real run logs each case's queries;

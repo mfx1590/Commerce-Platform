@@ -140,3 +140,5 @@
 - `infra/redpanda/topics.policy.json` lists the four consumer groups on main — `accounting.ledger`, `engagement.ops`, `engagement.cdp`, `engagement.crm` (#561) — so `create-topics.mjs` makes their `dlq.<group>` topics with the environment's numbers (12 × 3 in production) ahead of the first start. `test/topics.test.ts` pins the four names (this package cannot import the apps' constants).
 
 - #615: the pinned consumer-group list in `test/topics.test.ts` (and the README) gains `analytics.raw`, so the policy lists five groups.
+
+- #629 / CONTRACT CHANGE #694: `order.*` moves to the 30-day retention class (it carries customer_id / email_hash; the outbox is the replay source). New export `SEGMENT_MS` (`days_30`: 1 day): planTopics sets `segment.ms` on 30-day topics, so a record lives at most about 31 days (the broker default roll of 14 days would allow 44).

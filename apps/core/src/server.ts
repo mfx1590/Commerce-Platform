@@ -24,6 +24,7 @@ import {
   hqRbacAdapter,
   KeycloakStaffTokenVerifier,
   moduleAdminRouters,
+  moduleStoreRouters,
   moduleWebhookRouters,
   mountStoreRoutes,
   requestIdMiddleware,
@@ -76,6 +77,12 @@ export interface CoreMiddlewareOptions {
    * chains. createServer() passes `moduleWebhookRouters()`; the default is NONE, same rule as `moduleRouters`.
    */
   webhookRouters?: express.Router[];
+  /**
+   * Store API routers of other windows' modules (#624), mounted after `mountStoreRoutes` and BEFORE the
+   * fallback proxy. createServer() passes `moduleStoreRouters()`; the default is NONE, same rule as
+   * `moduleRouters`, so a module's own tests mount their own router.
+   */
+  storeRouters?: express.Router[];
   /**
    * Test seam for the customers-realm token verifier (src/http/customer-routes.ts). Code only: no environment
    * variable or configuration reaches it, createServer() never passes it, and it is refused in production.
@@ -182,6 +189,9 @@ export function mountCoreMiddleware(
   // /store/products, /store/products/{handle}) answer here, ahead of Medusa's own routes of the same paths and
   // of its publishable-key gate — our tenant middleware is the contract's key check.
   mountStoreRoutes(app, customerTokenVerifier);
+  // Store API routers other modules export (src/http/module-routers.ts). Before the fallback proxy, which is a
+  // catch-all on /store: a router mounted after it would never be reached.
+  for (const router of opts.storeRouters ?? []) app.use(router);
   // Integration 1 (non-production): every other /store/* request goes verbatim to the Prism mock instead of
   // Medusa. Without the variable it falls through to Medusa as before.
   if (opts.storeApiFallbackUrl) {
@@ -238,6 +248,7 @@ export async function createServer(opts: CreateServerOptions = {}): Promise<Core
   if (opts.staffTokenVerifier) {
     mountCoreMiddleware(app, opts.staffTokenVerifier, {
       moduleRouters: moduleAdminRouters(),
+      storeRouters: moduleStoreRouters(),
       webhookRouters: moduleWebhookRouters(),
       ...(storeApiFallbackUrl ? { storeApiFallbackUrl } : {}),
     });
@@ -247,6 +258,7 @@ export async function createServer(opts: CreateServerOptions = {}): Promise<Core
       fga: auth.fga,
       onRoleChange: auth.onRoleChange,
       moduleRouters: moduleAdminRouters(),
+      storeRouters: moduleStoreRouters(),
       webhookRouters: moduleWebhookRouters(),
       ...(storeApiFallbackUrl ? { storeApiFallbackUrl } : {}),
     });

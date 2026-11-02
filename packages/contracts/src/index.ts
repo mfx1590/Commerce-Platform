@@ -1,5 +1,5 @@
 // Public API of @platform/contracts. Types live in './store', './admin' and './accounting' (generated from openapi/*.yaml).
-export const CONTRACTS_VERSION = '0.4.32' as const;
+export const CONTRACTS_VERSION = '0.4.33' as const;
 
 /** Header names every client and the core agree on. */
 export const HEADERS = {
@@ -31,6 +31,8 @@ export const ERROR_CODES = [
   'unavailable',
   'expired',
   'internal',
+  'method_not_allowed',
+  'payload_too_large',
   'ai_disabled',
   'ai_budget_exceeded',
   'ai_rate_limited',

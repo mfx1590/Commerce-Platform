@@ -56,3 +56,11 @@ succeed while the publish fails (or the reverse), and the ledger never reconcile
 - **CDC (Debezium) on business tables**: leaks schema details to consumers; harder to version; needs Kafka Connect.
 - **Kafka (MSK/Confluent)**: fine later; Redpanda is simpler to run locally and managed (decision 5).
 - **Avro**: good, but JSON Schema keeps one format across API, events and TypeScript generation.
+
+## Amendment 2026-11-02 (#629, CONTRACT CHANGE #694)
+
+Topics that carry customer identifiers (`customer_id`, `email_hash`) are kept for 30 days, `order.*` included, with a
+1-day segment roll so a record lives at most about 31 days. The outbox, not the bus, is the replay source (#534), so the
+bus only needs a delivery window, and an erased customer leaves the bus within the erasure response period.
+Topics without customer ids (`payment.*`, `refund.*`, `shipment.*`, `return.*`, `stock.*`) stay forever. Replays will skip
+erased customers (#700); scrubbing `order.placed` needs `order.placed@2` (#696, deferred).
