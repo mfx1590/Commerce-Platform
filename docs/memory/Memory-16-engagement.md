@@ -224,11 +224,11 @@ BCP-47 shape ≤ 35 chars, and the generic per-store refusals raise `ConfigRefus
 `ConsentModeConfigError` (a support setting should not report a consent-mode error). Item 6 (engagement
 codes outside `ERROR_CODES`) is filed as **#678** with options and a recommendation.
 
-**THE SWAP, when #671 merges** (two edits, then typecheck is the proof):
-1. `reply-draft.ts`: narrow `DraftGateway.complete`'s first parameter from `string` to `typeof TEMPLATE_KEY`;
-2. `main.ts`: delete `as never` and `as unknown as never` in `buildDraftGatewayFactory`.
-Then `tsc` proves the projection's keys equal the template's declared variables — which is the check that
-was missing above.
+**THE SWAP IS DONE (2026-11-02, #671 merged `c5b5ab14`).** `DraftGateway.complete`'s key is `typeof
+TEMPLATE_KEY`, both casts are gone, and `main.ts` compiling is now the proof that `DraftVariables` satisfies
+`TemplateVariables<'support-reply-draft@1'>`; a test compares the key set against
+`getTemplate(...).variableNames` so the reverse holds too (no declared variable left unset). That test is
+the one that would have caught the money mismatch on its own.
 
 **WHAT IS NOT DONE, and why it is not my call:** the feature cannot produce a draft until
 `support-reply-draft@1` exists — **REQUEST #667** to window 14, who own `packages/ai` (a published template

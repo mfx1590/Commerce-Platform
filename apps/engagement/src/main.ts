@@ -145,13 +145,11 @@ export function buildDraftGatewayFactory(
     });
     return {
       model: ai.model,
-      // THE ONE CAST IN THIS SERVICE'S AI PATH, and the reason is bounded: `complete` is typed to the
-      // published template registry, and `support-reply-draft@1` is window 14's to publish (REQUEST #667).
-      // Until it lands the gateway raises `TemplateError` before rendering or sending anything, which the
-      // route answers as 503 `unavailable` — configured, not ready. When the template lands this cast comes
-      // out and nothing else changes.
+      // NO CAST (#671 landed, #674 item 1): `complete` is typed to the published registry, so this line is
+      // the proof that `DraftVariables` IS `support-reply-draft@1`'s declared variable set — add a field to
+      // the projection without adding it to the template and this stops compiling.
       complete: (key, variables) =>
-        ai.complete(key as never, variables as unknown as never).then((d) => ({
+        ai.complete(key, variables).then((d) => ({
           text: d.text,
           stopReason: d.stopReason,
           servedModel: d.servedModel,

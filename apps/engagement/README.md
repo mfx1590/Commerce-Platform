@@ -632,10 +632,12 @@ While a store is OFF the route answers **404** and refuses before reading any su
 that customer is fetched, let alone sent. The context answer carries `ai_drafts: true|false` so a dashboard
 can hide the button rather than discover the 404.
 
-**It cannot produce a draft until `support-reply-draft@1` exists** (REQUEST #667, window 14 owns
-`packages/ai`): the gateway refuses an unpublished template before rendering anything, and the route answers
-503 `unavailable`. Everything else — the projection, the switch, the gates, the error mapping — is built and
-tested now.
+The template is `support-reply-draft@1` in `packages/ai` (window 14's, published by #671). The projection's
+keys ARE its declared variables, proved twice: `main.ts` passes them to a `complete` typed to the published
+registry with **no cast**, so adding a field here without adding it there stops compiling, and a test
+compares the key set against `getTemplate(...).variableNames` so no declared variable is left unset either.
+Money reaches it already formatted (`total`, `refunded`) — the template's first draft wanted minor units and
+a currency, which would have made the model divide by a hundred in text a customer reads.
 
 ## Transports
 

@@ -34,10 +34,13 @@ decision 2026-11-01: "we need everything at start; we can limit later").
   where `instanceof` fails silently between two copies): `ai_disabled` 503, budget/rate 429 with
   `Retry-After`, `ai_refused` 422 with its category, `ai_unavailable` 502, limiter/audit/template/config 503
   `unavailable`, a denied field 500 `internal`. No upstream message ever reaches a caller.
-- **It cannot draft until `support-reply-draft@1` is published** (REQUEST #667; `packages/ai` is window 14's,
-  and a published template is frozen). The gateway refuses an unpublished key before rendering or sending,
-  and the route answers 503 `unavailable`. One `as never` in `main.ts` is the whole cost, and it comes out
-  when the template lands.
+- **`support-reply-draft@1` is published** (window 14's #671, merged `c5b5ab14`) — with `total` and
+  `refunded` as pre-formatted strings, after this side found that the template's first draft declared
+  `totalMinor` / `currency` / `refundedMinor` while the projection sent formatted money. **Nothing would have
+  caught that**: the `as never` that let this code compile against an unpublished key was exactly what hid
+  it, and it surfaced only because the other side's PR was read before planning the swap. The cast is now
+  gone, so `main.ts` compiling IS the proof that the projection satisfies the template's declared variables,
+  and a test asserts the reverse too (no declared variable left unset).
 - **From the #674 review:** the gateway is resolved BEFORE `buildContext` and inside the mapped path — it
   was an argument to `buildReplyDraft`, so a missing API key read the customer's whole order history and then
   answered 500 with no audit row, instead of the documented 503 with nothing read. `ai_drafts` now means

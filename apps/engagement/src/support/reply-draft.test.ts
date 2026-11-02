@@ -4,7 +4,7 @@
 // which is the question a privacy review asks. The denylist check is the real one, imported from
 // `@platform/ai` — the projection's type is the first guard, and this is the second.
 
-import { findDeniedFields } from '@platform/ai';
+import { findDeniedFields, getTemplate } from '@platform/ai';
 import { describe, expect, it } from 'vitest';
 import { formatMoney, pickOrder, toDraftVariables, type DraftVariables } from './draft-context.js';
 import { TEMPLATE_KEY } from './draft-template.js';
@@ -116,6 +116,19 @@ describe('the draft context carries no personal data (#610)', () => {
         'total',
       ].sort(),
     );
+  });
+
+  it('IS the template declared variable set, both ways (#674 item 1)', () => {
+    // The cross-window contract, asserted rather than assumed. `main.ts` compiling without a cast already
+    // proves the projection satisfies `TemplateVariables<'support-reply-draft@1'>`; this proves the reverse
+    // too — no declared variable is left unset, which would render as a missing fact instead of failing.
+    //
+    // It is also the test that would have caught #671's `totalMinor` / `currency` / `refundedMinor` against
+    // my `total` / `refunded`, which nothing caught until someone read the other side's PR.
+    const declared = [...getTemplate(TEMPLATE_KEY).variableNames].sort();
+    expect(Object.keys(vars()!).sort()).toEqual(declared);
+    expect(declared).toContain('total');
+    expect(declared).not.toContain('totalMinor');
   });
 
   it('passes the gateway denylist, checked with the gateway own check', () => {

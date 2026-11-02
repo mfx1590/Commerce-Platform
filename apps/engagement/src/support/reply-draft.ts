@@ -15,11 +15,19 @@ import { toDraftVariables, type DraftVariables } from './draft-context.js';
 import type { SupportContext } from './types.js';
 import { SupportError } from './types.js';
 
-/** What this route needs from the AI gateway, and nothing more. */
+/**
+ * What this route needs from the AI gateway, and nothing more.
+ *
+ * The key is the LITERAL rather than `string` (#674 item 1): with `support-reply-draft@1` published, the one
+ * implementation in `main.ts` passes this straight to `complete<K extends TemplateKey>`, so the typechecker
+ * now proves that the projection's keys are the template's declared variables. While the template was
+ * unpublished a cast stood here instead — and that cast was exactly what hid the `totalMinor` mismatch until
+ * someone read the other side's PR.
+ */
 export interface DraftGateway {
   readonly model: string;
   complete(
-    templateKey: string,
+    templateKey: typeof TEMPLATE_KEY,
     variables: DraftVariables,
   ): Promise<{ text: string; stopReason: string | null; servedModel: string }>;
 }
