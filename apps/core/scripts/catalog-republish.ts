@@ -5,7 +5,7 @@
 import path from 'node:path';
 import { SEED_IDS } from '@platform/db';
 import { closePool, initDb, organizationClient } from '../src/lib/db';
-import { republishCatalogue } from '../src/modules/catalog';
+import { REPUBLISH_BATCH, republishCatalogue } from '../src/modules/catalog';
 
 function args(argv: string[]) {
   const stores: string[] = [];
@@ -41,15 +41,26 @@ async function main(): Promise<void> {
     if (unknown.length) throw new Error(`unknown store code(s): ${unknown.join(', ')}`);
     storeIds = r.rows.map((s) => s.id);
   }
+  if (opts.batch !== undefined && opts.batch > REPUBLISH_BATCH.max) {
+    console.warn(
+      `catalog:republish: --batch ${opts.batch} is above the maximum; using ${REPUBLISH_BATCH.max}`,
+    );
+  }
   const result = await republishCatalogue(client, {
     storeIds,
     force: opts.force,
     dryRun: opts.dryRun,
     batch: opts.batch,
   });
+  if (result.stores.length === 0)
+    console.info('catalog:republish: 0 stores in scope; nothing to do');
   for (const s of result.stores) {
+    const verb = result.dry_run ? 'would announce' : 'announced';
     console.info(
-      `catalog:republish ${result.dry_run ? '(dry run) ' : ''}store ${s.store_id}: ${s.published} announced, ${s.skipped} already on the bus`,
+      `catalog:republish store ${s.store_id}: ${verb} ${s.published}, ${s.skipped} already on the bus` +
+        (s.missing_published_at
+          ? `, ${s.missing_published_at} published without published_at (left out)`
+          : ''),
     );
   }
   await closePool();

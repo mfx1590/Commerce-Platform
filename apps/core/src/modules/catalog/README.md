@@ -95,6 +95,10 @@ transactions of `--batch` products (default 200); the relay delivers it. No row 
   `dim_variant` keeps the latest event per (store, variant) (`argMax(product_id, occurred_at)`); window 9's search
   sync re-reads the touched products from the database and upserts them (a re-index, the only cost);
   recommendations read through `dim_variant`.
+- **Run `--force` per store (`--store <code>`) and off-peak:** every re-announced product is a search re-index and a
+  relay delivery. A published product without `published_at` cannot be a valid event: it is left out and reported
+  (`missing_published_at`), never an abort. The skip check uses the outbox's aggregate index and is repeated inside each
+  batch's transaction, so a product published while the command runs is not announced twice.
 - A deliberate command, never automatic. On a shared database it is a shared-data write: the manager runs it (backup
   first).
 

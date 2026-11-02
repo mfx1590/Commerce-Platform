@@ -3,7 +3,7 @@
 import { createValidator } from '@platform/events';
 import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createProduct, publishProduct, republishCatalogue } from './index';
 
 const ORG = SEED_IDS.organization;
@@ -53,7 +53,12 @@ describe('republishCatalogue (#634)', () => {
     const dry = await republishCatalogue(hq, { dryRun: true });
     expect(dry.dry_run).toBe(true);
     const a = dry.stores.find((s) => s.store_id === A)!;
-    expect(a).toEqual({ store_id: A, published: await publishedCount(A), skipped: 0 });
+    expect(a).toEqual({
+      store_id: A,
+      published: await publishedCount(A),
+      skipped: 0,
+      missing_published_at: 0,
+    });
     expect(await publishedEvents()).toHaveLength(0);
     const store = createTenantClient(db.app, { organizationId: ORG, storeIds: [A] });
     await expect(republishCatalogue(store)).rejects.toMatchObject({ code: 'forbidden' });
@@ -62,7 +67,9 @@ describe('republishCatalogue (#634)', () => {
   it('one store first: one valid product.published per published product, current state, the store’s envelope', async () => {
     const res = await republishCatalogue(hq, { storeIds: [A], batch: 2 }); // small batches: several transactions
     const expected = await publishedCount(A);
-    expect(res.stores).toEqual([{ store_id: A, published: expected, skipped: 0 }]);
+    expect(res.stores).toEqual([
+      { store_id: A, published: expected, skipped: 0, missing_published_at: 0 },
+    ]);
     const events = await publishedEvents();
     expect(events).toHaveLength(expected);
     expect(events.every((e) => e.store_id === A)).toBe(true); // brand B untouched
@@ -70,6 +77,31 @@ describe('republishCatalogue (#634)', () => {
     for (const e of events) {
       expect(validator.validatePayload('product.published', 1, e.payload).ok).toBe(true);
       expect(e.payload.product_id).toBe(e.aggregate_id);
+      const row = (
+        await owner.query<{
+          handle: string;
+          title: string;
+          category_id: string | null;
+          published_at: Date;
+        }>(`SELECT handle, title, category_id, published_at FROM product WHERE id = $1`, [
+          e.aggregate_id,
+        ])
+      ).rows[0]!;
+      expect(e.payload).toMatchObject({
+        handle: row.handle,
+        title: row.title,
+        category_id: row.category_id,
+        published_at: row.published_at.toISOString(),
+      });
+      const skus = await owner.query<{ id: string; sku: string; title: string }>(
+        `SELECT id, sku, title FROM product_variant WHERE product_id = $1 ORDER BY id`,
+        [e.aggregate_id],
+      );
+      expect(
+        [...(e.payload.variants as { variant_id: string; sku: string; title: string }[])].sort(
+          (x, y) => (x.variant_id < y.variant_id ? -1 : 1),
+        ),
+      ).toEqual(skus.rows.map((v) => ({ variant_id: v.id, sku: v.sku, title: v.title })));
       // the payload is the product's current state: its variants as they are in the database
       const variants = await owner.query<{ id: string }>(
         `SELECT id FROM product_variant WHERE product_id = $1 ORDER BY id`,
@@ -85,11 +117,17 @@ describe('republishCatalogue (#634)', () => {
     const before = (await publishedEvents()).length;
     const res = await republishCatalogue(hq);
     const b = res.stores.find((s) => s.store_id === B)!;
-    expect(b).toEqual({ store_id: B, published: await publishedCount(B), skipped: 0 });
+    expect(b).toEqual({
+      store_id: B,
+      published: await publishedCount(B),
+      skipped: 0,
+      missing_published_at: 0,
+    });
     expect(res.stores.find((s) => s.store_id === A)).toEqual({
       store_id: A,
       published: 0,
       skipped: await publishedCount(A),
+      missing_published_at: 0,
     });
     const after = (await publishedEvents()).length;
     expect(after - before).toBe(res.stores.reduce((n, s) => n + s.published, 0));
@@ -110,7 +148,69 @@ describe('republishCatalogue (#634)', () => {
   it('force re-announces every published product of the stores in scope', async () => {
     const before = (await publishedEvents(B)).length;
     const res = await republishCatalogue(hq, { storeIds: [B], force: true });
-    expect(res.stores).toEqual([{ store_id: B, published: await publishedCount(B), skipped: 0 }]);
+    expect(res.stores).toEqual([
+      { store_id: B, published: await publishedCount(B), skipped: 0, missing_published_at: 0 },
+    ]);
     expect((await publishedEvents(B)).length - before).toBe(await publishedCount(B));
+  });
+});
+
+describe('republishCatalogue: archived, a missing published_at, a failed batch (#704 review)', () => {
+  const C = SEED_IDS.stores.brandC;
+  // brand C was announced by the run above: start each case from a catalogue that never went through the bus
+  beforeEach(async () => {
+    await owner.query(`DELETE FROM outbox WHERE topic = 'product.published' AND store_id = $1`, [
+      C,
+    ]);
+  });
+
+  it('archived products are never announced; a published product without published_at is reported, not an abort', async () => {
+    const ids = (
+      await owner.query<{ id: string }>(
+        `SELECT id FROM product WHERE store_id = $1 AND status = 'published' ORDER BY handle LIMIT 2`,
+        [C],
+      )
+    ).rows.map((r) => r.id);
+    await owner.query(`UPDATE product SET status = 'archived' WHERE id = $1`, [ids[0]]);
+    await owner.query(`UPDATE product SET published_at = NULL WHERE id = $1`, [ids[1]]);
+    const res = await republishCatalogue(hq, { storeIds: [C], dryRun: true });
+    const published = await publishedCount(C);
+    expect(res.stores).toEqual([
+      { store_id: C, published: published - 1, skipped: 0, missing_published_at: 1 },
+    ]);
+    await owner.query(`UPDATE product SET published_at = now() WHERE id = $1`, [ids[1]]);
+  });
+
+  it('a batch that fails writes nothing and stops the run; earlier batches stay; a rerun finishes the rest', async () => {
+    const products = (
+      await owner.query<{ id: string; handle: string }>(
+        `SELECT id, handle FROM product WHERE store_id = $1 AND status = 'published' ORDER BY handle, id`,
+        [C],
+      )
+    ).rows;
+    const failing = products[2]!; // batch 1 → the third batch fails
+    await owner.query(`
+      CREATE FUNCTION test_fail_outbox() RETURNS trigger LANGUAGE plpgsql AS $f$
+      BEGIN
+        IF NEW.payload->>'product_id' = '${failing.id}' THEN RAISE EXCEPTION 'injected outbox failure'; END IF;
+        RETURN NEW;
+      END $f$;
+      CREATE TRIGGER test_fail_outbox BEFORE INSERT ON outbox FOR EACH ROW EXECUTE FUNCTION test_fail_outbox();`);
+    try {
+      await expect(republishCatalogue(hq, { storeIds: [C], batch: 1 })).rejects.toThrow(/injected/);
+      // the two batches before it committed; the failing one and everything after it wrote nothing
+      expect((await publishedEvents(C)).map((e) => e.aggregate_id).sort()).toEqual(
+        [products[0]!.id, products[1]!.id].sort(),
+      );
+    } finally {
+      await owner.query(
+        `DROP TRIGGER test_fail_outbox ON outbox; DROP FUNCTION test_fail_outbox();`,
+      );
+    }
+    const rest = await republishCatalogue(hq, { storeIds: [C], batch: 1 });
+    expect(rest.stores[0]).toMatchObject({ published: products.length - 2, skipped: 2 });
+    expect(new Set((await publishedEvents(C)).map((e) => e.aggregate_id)).size).toBe(
+      products.length,
+    );
   });
 });
