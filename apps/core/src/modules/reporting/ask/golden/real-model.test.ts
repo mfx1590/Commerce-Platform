@@ -39,6 +39,17 @@ describe('figuresOf', () => {
     expect(figuresOf(text)).toEqual(figures);
   });
 
+  it("#7's answer in the targeted run (2026-11-02): the list numbering and the p1… labels are not figures", () => {
+    const answer =
+      'These are the top 5 products by units for brand-a, from 2026-10-01 to 2026-11-01:\n\n' +
+      '1. p1: 168 units [q1]\n2. p2: 128 units [q1]\n3. p3: 86 units [q1]\n4. p4: 84 units [q1]\n5. p5: 38 units [q1]';
+    expect(figuresOf(answer)).toEqual(['5', '168', '128', '86', '84', '38']);
+    // a figure that merely follows a label or a list number is still read — and a wrong one still fails
+    expect(figuresOf('1. p1: 169 units [q1]')).toEqual(['169']);
+    // a number mid-sentence is no list item
+    expect(figuresOf('We sold 12. Then 3. [q1]')).toEqual(['12', '3']);
+  });
+
   it('the gap left, pinned: a bare pair that is also a date reads as a date', () => {
     expect(figuresOf('We saw 10-12 of them [q1].')).toEqual([]);
   });

@@ -7,6 +7,7 @@ import { METRIC_IDS } from '../../metrics/catalogue';
 import type { MetricsReader } from '../../metrics/execute';
 import { GOLDEN, type GoldenEnv } from './cases';
 import type { GatewayFactory } from '../gateway';
+import { catalogueFor } from './catalogue';
 import { runRealCase, type RealOutcome } from './real-model';
 import { runGoldenCase, type GoldenStores } from './run';
 
@@ -105,7 +106,7 @@ describe.runIf(skip === null)('golden set on the generated month (ClickHouse)', 
 
   beforeAll(async () => {
     const ingest = await import('@platform/analytics-ingest');
-    const { generateMonth, STORE_A, STORE_B } = await import('@platform/test-utils');
+    const { generateMonth, ORG, STORE_A, STORE_B } = await import('@platform/test-utils');
     const { createValidator } = await import('@platform/events');
     const admin = ingest.createChClient({ ...CH, database: 'default' }, 'default');
     const ch = ingest.createChClient({ ...CH, database: db }, db);
@@ -121,7 +122,7 @@ describe.runIf(skip === null)('golden set on the generated month (ClickHouse)', 
       seed: 6060,
     });
     const validator = createValidator();
-    const rows = month.events.map((e, i) => {
+    const rows = [...catalogueFor(month.events, ORG), ...month.events].map((e, i) => {
       // the same wire message as metrics-live.test (message, batch, context)
       const c = ingest.classify(
         {
@@ -157,6 +158,22 @@ describe.runIf(skip === null)('golden set on the generated month (ClickHouse)', 
 
   afterAll(async () => {
     await close();
+  });
+
+  // #7 of the 2026-11-02 runs: generateMonth publishes no products, so every line's product was NULL and "top 5
+  // products" had one combined row to rank. The setup now publishes PRODUCTS_PER_STORE products per store with
+  // skewed volumes (catalogueFor); the scripted #7 must rank five distinct products, highest first.
+  it('#7 "Top 5 products by units?" ranks five distinct products, highest first (products are published)', async () => {
+    const seven = GOLDEN.find((c) => c.id === 7)!;
+    const { problems, answer } = await runGoldenCase(seven, env, stores, reader);
+    expect(problems).toEqual([]);
+    const rows = answer!.queries[0]!.result!.rows;
+    const products = rows.map((r) => r.product_id);
+    expect(products.every((p) => p !== null)).toBe(true);
+    expect(new Set(products).size).toBe(5);
+    const units = rows.map((r) => r.values.units ?? 0);
+    expect(units).toEqual([...units].sort((a, b) => b - a));
+    expect(units[0]!).toBeGreaterThan(units[4]!); // skewed: a real ranking, not a tie
   });
 
   it('all 30 questions: queries valid or refused as expected, every figure backed by its result, no other store', async () => {
@@ -198,7 +215,9 @@ describe.runIf(skip === null)('golden set on the generated month (ClickHouse)', 
           orgLimits: limits,
         });
       const outcomes: RealOutcome[] = [];
-      for (const c of GOLDEN) {
+      // AI_REAL_MODEL_CASES=7 (or 7,17): a targeted run of those cases only, a couple of calls instead of ~55
+      const only = process.env.AI_REAL_MODEL_CASES?.split(',').map((s) => Number(s.trim()));
+      for (const c of GOLDEN.filter((g) => !only || only.includes(g.id))) {
         const before = calls;
         outcomes.push(await runRealCase(c, env, stores, reader, gatewayFor, () => calls - before));
       }
@@ -210,7 +229,7 @@ describe.runIf(skip === null)('golden set on the generated month (ClickHouse)', 
         console.info(
           `[bi-qa real] #${o.id} ${o.problems.length === 0 ? 'PASS' : 'FAIL'} ran=${o.ran} refused=${o.refused}` +
             `${o.error ? ` error=${o.error}` : ''}${o.problems.length ? ` problems=${JSON.stringify(o.problems)}` : ''}` +
-            ` answer=${JSON.stringify(o.answer ?? '')}`,
+            ` queries=${JSON.stringify(o.queries ?? [])} answer=${JSON.stringify(o.answer ?? '')}`,
         );
       console.info(
         `[bi-qa real] SUMMARY ${JSON.stringify({ passed, of: outcomes.length, model_calls: calls, audit_rows: audit.records.length, tokens, cost_usd: costMicroUsd / 1e6, outcomes_by_kind: audit.records.reduce<Record<string, number>>((m, r) => ({ ...m, [r.outcome]: (m[r.outcome] ?? 0) + 1 }), {}) })}`,

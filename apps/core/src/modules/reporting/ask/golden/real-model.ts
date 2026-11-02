@@ -21,6 +21,16 @@ export interface RealOutcome {
   ran: number;
   refused: number;
   answer?: string;
+  /** what the model asked for, in order (the report shows WHY an answer is what it is: #7 of the second run) */
+  queries?: {
+    metrics: string[];
+    dimensions: string[];
+    grain: string;
+    order_by?: { metric: string; direction: string };
+    limit: number;
+    rows?: number;
+    error?: string;
+  }[];
   error?: string;
 }
 
@@ -42,6 +52,10 @@ export function figuresOf(text: string, ownIds: readonly string[] = []): string[
   const own = new Set(ownIds.map((id) => id.toLowerCase()));
   let clean = text
     .replace(/\[q\d+\]/g, ' ')
+    // the item labels the tool gives (p1, p2 … — rows name products so, tool.ts) and a list's own numbering
+    // ("1. p1: 168 units") are not figures: the targeted #7 run of 2026-11-02 flagged both
+    .replace(/\bp\d+\b/g, ' ')
+    .replace(/^(\s*)\d{1,2}[.)](?=\s)/gm, '$1')
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, (id) =>
       own.has(id.toLowerCase()) ? ' ' : id,
     )
@@ -305,6 +319,15 @@ export async function runRealCase(
   if ('error' in c.expect && c.expect.error === 'forbidden')
     out.problems.push('expected the scope to refuse before the model, got an answer');
   out.answer = answer.answer;
+  out.queries = answer.queries.map(({ query, result, error }) => ({
+    metrics: [...query.metrics],
+    dimensions: [...query.dimensions],
+    grain: query.grain,
+    ...(query.order_by ? { order_by: query.order_by } : {}),
+    limit: query.limit,
+    ...(result ? { rows: result.rows.length } : {}),
+    ...(error ? { error: error.code } : {}),
+  }));
   const ran = answer.queries.filter((x) => x.result !== undefined);
   out.ran = ran.length;
   out.refused = answer.queries.length - ran.length;

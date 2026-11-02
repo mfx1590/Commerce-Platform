@@ -52,6 +52,14 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- #7 FIX (2026-11-02, branch data/phase5-606-products from main abfbc02d): golden/catalogue.ts catalogueFor
+  publishes 8 products per store (variants by line order, weights 9:7:5:4:2:1:1:1) in the LIVE golden setup; a
+  live test pins #7 to 5 distinct products, units falling; catalogue.test (4). Real run logs each case's queries;
+  AI_REAL_MODEL_CASES=7 targets cases. Targeted real run (#7 only): the model asked units × product, total,
+  order_by units desc, limit 5 → 5 rows, answered p1 168 / p2 128 / p3 86 / p4 84 / p5 38 [q1]; 2 calls, 6,724
+  tokens, $0.016. Marked FAIL only by the checker reading the list numbering / p1… labels as figures → figuresOf
+  now skips `p\d+` labels and a line-leading "1." (tested on that exact answer). Reporting 242 pass. Machine freed.
+  (#685 is PR #687 on data/phase5-685 — its memory notes live on that branch until it merges.)
 - REAL-MODEL RE-RUN (2026-11-02, on 9e65ecfa = #683 FINAL, bi-qa-answer@2; machine from manager ten, then freed):
   26/30 under the full checker; 55 calls, 166,376 tokens, $0.41 (first run: 55 / 134,608 / $0.35). Fails: #8 dates
   past the logged 240 chars (money figures pass; checker false positive, likely year-less dates); #17 "6" = most
