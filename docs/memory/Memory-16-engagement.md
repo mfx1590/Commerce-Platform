@@ -1,3 +1,11 @@
+**What "ask for the machine" actually covers (manager ten, 2026-11-02 — standing OK, and it CORRECTS the
+note I wrote earlier today):** measurement runs, and anything that loads the shared stack heavily or for a
+long time. A suite that only creates and deletes its own prefixed, self-cleaning topics — which is what
+`ops/consumer.test.ts` and `cdp/consumer.test.ts` do — does **not** need it, so `pnpm test --filter
+@platform/engagement` with the broker up is fine to run unasked. The rule is about CONTENTION on the stack,
+not about the word "live". A drain, a full end-to-end measurement or a long-running consumer still needs the
+machine.
+
 # Memory 16 — CRM, CDP, ops alerts & support
 Window: 16 · Key: `engagement` · Branch prefix: `engagement/` · Model: Sonnet
 Last updated: 2026-11-02 (window 16, #678 / PR #695 review items) · Contracts: contracts-v0.4.26, events-v1 = 2abe310 · Last commit: see Done/In progress · Merged: #553 via #563 (7c41d82) · Status: 16.1 delivered (PR #562, head a2e9abc, pushed); 16.2 BUILT and green locally (166/166 with the broker up, twice); pushes HELD until the manager confirms #562 merged
@@ -225,6 +233,10 @@ red on the merge exactly as designed and went with it, and one test stays in the
 codes ARE in the contract now. Six sites, not the two the review item named (`types.ts`, the test file's
 import/tests/comment, package CLAUDE.md, README, CHANGELOG 0.9.2, version bump). 547 passed / 9 live skipped
 offline, 556/556 with the broker up; lint, typecheck, prettier, ownership clean. Package **0.9.2**.
+
+**`2f125563` is FINAL** (manager ten, 2026-11-02): re-checked and queued after the current run. **No further
+push to this branch** — every push restarts CI and the review. Anything else that comes up waits for a new
+branch off main after #695 merges.
 
 **Manager's answers (2026-11-02):** the 413 limit stays recorded in the README, **no issue** — "the webhook
 bodies are small, and the cap is a guard, not a flow". The live-suite slip: noted, no harm, the memory note
