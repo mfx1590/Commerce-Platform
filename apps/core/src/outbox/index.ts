@@ -26,12 +26,20 @@ export {
 } from './relay';
 
 // Replay from the outbox (#534): apps/core/src/outbox/replay.ts, CLI `pnpm --filter @platform/core outbox:replay`.
+// Erasure-aware since #629: an erased customer's rows are skipped, their order.placed scrubbed (order.placed@2).
 export {
   describeReplay,
+  ERASURE_RULES,
+  HEADER_ERASED,
   HEADER_REPLAY,
   HEADER_REPLAYED_AT,
+  loadErasedSet,
+  namesErased,
+  ReplayErasureUnsupported,
   replayOutbox,
+  type ErasedSet,
   type ReplayBatchLine,
+  type ReplayContract,
   type ReplayOptions,
   type ReplaySummary,
 } from './replay';
