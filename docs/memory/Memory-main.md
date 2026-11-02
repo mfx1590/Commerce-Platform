@@ -26,6 +26,7 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
     - #685 was a REAL ClickHouse lost-row bug, fixed by #687 (drain via clusterAllReplicas + 0005 refill). #689 fixed by #692 (0006 MV v2). ch:migrate is applied on dev through 0006.
     - #629: #699 (order.* 30 days + SEGMENT_MS) and #700 (erasure-aware replay; actor nulling).
     - #634 (catalog:republish, #704; the dev run filled dim_variant 2836), #624 (#698), #642 (#693), #678 (#695), #690 (#697).
+  - **UPDATE 11-03 ~00:30:** #706 (#702), #709, #708 (0007 applied on dev) and #710 (#703) are all MERGED. NOTHING is in flight; all windows are idle. The in-flight list below is history.
   - **IN FLIGHT at handover:**
     - Merge queue bmj31t1yu: #706 (integration/phase5-702, the outbox (topic,seq) index; reviewed, docs fixed), then #709 (window 1, core's #696 gate; APPROVE).
     - #703 (window 14, DLQ replay erasure): built at c1b768ba on events/phase5-703, which sits on cd8cd3d4 (#702). AFTER #706 merges, cherry-pick c1b768ba onto a new integration/phase5-703 from main, open the PR, Fable review, queue. The packages/events diff is on issue #703.
