@@ -142,9 +142,9 @@ package yet.
   personal data and the agent's permission is only true at the moment the core says so.
 - A support log line carries ids, the store code and counts — never a name, address, e-mail or tracking number.
 - **Every code the support server answers is an `ErrorCode` from `@platform/contracts`** (#678), enforced by
-  the type on `SupportError`, with ONE named exception: `PENDING_ERROR_CODES` = the two HTTP conditions
-  CONTRACT CHANGE #690 adds. **Deleting that list is the whole change when #690 lands.** Never widen the
-  field back to `string`: typing it is what found `internal_error` (the contract says `internal`) and
+  the type on `SupportError`, with **no exceptions** since CONTRACT CHANGE #690 landed `method_not_allowed`
+  and `payload_too_large` (the interim `PENDING_ERROR_CODES` list is gone, which was the plan). Never widen
+  the field back to `string`: typing it is what found `internal_error` (the contract says `internal`) and
   `upstream_unavailable`, neither of which the issue had listed. Where a mapping loses a distinction —
   `upstream_error` / `upstream_unavailable` both became `unavailable`, `replayed` became `conflict` — the
   distinction moves to `details.reason` rather than disappearing.

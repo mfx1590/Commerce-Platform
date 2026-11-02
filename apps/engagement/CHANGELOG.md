@@ -1,5 +1,15 @@
 # @platform/engagement
 
+## 0.9.2 — 2026-11-02 (CONTRACT CHANGE #690 landed)
+
+- **`PENDING_ERROR_CODES` is deleted.** `method_not_allowed` and `payload_too_large` are in
+  `@platform/contracts` `ERROR_CODES` now (#690), so `SupportError.code` is plain `ErrorCode` and the
+  compiler holds every code this service answers to the contract's list, with nothing beside it. The two
+  tests that pinned the interim list went red when #690 merged, which is what they were for. One test stays
+  in their place, asserting both codes ARE in `ERROR_CODES` now — so the service's dependence on #690 is
+  still stated somewhere a reader will see it.
+- Tests: **547 passing / 9 live skipped** offline, 556/556 with the broker up (was 548/9).
+
 ## 0.9.1 — 2026-11-02 (#678, the support server's error codes)
 
 Every code this service answers is now the contract's, enforced by the compiler.

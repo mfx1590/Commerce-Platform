@@ -11,7 +11,7 @@ import { formatMoney, pickOrder, toDraftVariables, type DraftVariables } from '.
 import { TEMPLATE_KEY } from './draft-template.js';
 import { buildReplyDraft, draftErrorFor, MAX_QUESTION_CHARS } from './reply-draft.js';
 import type { SupportContext, SupportOrder } from './types.js';
-import { PENDING_ERROR_CODES, SupportError } from './types.js';
+import { SupportError } from './types.js';
 
 const ORDER_ID = '11111111-1111-4111-8111-111111111111';
 const OLDER_ID = '22222222-2222-4222-8222-222222222222';
@@ -323,20 +323,14 @@ describe('the gateway errors map to the shared codes (#610)', () => {
 });
 
 describe('every code this service answers is in the contract (#678)', () => {
-  // The compiler already holds `SupportError.code` to `ErrorCode | PENDING_ERROR_CODES`, which is what
-  // actually prevents a new divergence — typing the field is what found two more than the issue listed
-  // (`internal_error`, which the contract calls `internal`, and `upstream_unavailable`).
-  //
-  // This test exists for the exception list itself: it must be able to SHRINK silently when CONTRACT CHANGE
-  // #690 lands, and never grow without someone changing this line.
-  it('the pending list is exactly the two HTTP conditions #690 adds', () => {
-    expect([...PENDING_ERROR_CODES]).toEqual(['method_not_allowed', 'payload_too_large']);
-  });
-
-  it('every pending code is one the contract does not carry yet', () => {
-    // The day #690 lands, this fails and the fix is to delete the list — which is the point.
-    for (const code of PENDING_ERROR_CODES) {
-      expect(ERROR_CODES as readonly string[]).not.toContain(code);
+  // The compiler holds `SupportError.code` to `ErrorCode`, which is what actually prevents a divergence —
+  // typing the field is what found two more than the issue listed (`internal_error`, which the contract
+  // calls `internal`, and `upstream_unavailable`). The two tests that pinned the interim
+  // `PENDING_ERROR_CODES` list went red the day CONTRACT CHANGE #690 landed, exactly as designed, and went
+  // with it.
+  it('the two codes #690 added are in the contract, so no exception list is needed', () => {
+    for (const code of ['method_not_allowed', 'payload_too_large']) {
+      expect(ERROR_CODES as readonly string[]).toContain(code);
     }
   });
 

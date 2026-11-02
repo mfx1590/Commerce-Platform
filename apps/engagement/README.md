@@ -548,10 +548,9 @@ Three mappings lost a distinction, so each one moved to **`details.reason`** rat
 | `upstream_error` / `upstream_unavailable` | 502 `unavailable`      | the old code, so a core that did not answer is still tellable from a bad answer |
 | `replayed`                                | 409 `conflict`         | `replayed`                                                                      |
 
-One named exception, `PENDING_ERROR_CODES`: `method_not_allowed` and `payload_too_large`, two ordinary HTTP
-conditions the contract does not carry yet, filed as **CONTRACT CHANGE #690** with the exact diff. A test
-pins the list and a second asserts every entry is still absent from `ERROR_CODES`, so the day #690 lands that
-test fails and the fix is to delete the list.
+There is no exception list any more: `method_not_allowed` and `payload_too_large`, the two ordinary HTTP
+conditions this service answered off-contract, went into `ERROR_CODES` with **CONTRACT CHANGE #690**. The
+interim `PENDING_ERROR_CODES` had two tests whose job was to go red the day that landed, and they did.
 
 Every refusal goes through one `fail()`, the unknown-route 404 included (it was the one answer built by hand,
 so it had no log line). Its log line names the route as `unknown` rather than the path asked for: a path is

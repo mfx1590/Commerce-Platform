@@ -106,19 +106,15 @@ export interface AgentPrincipal {
 }
 
 /**
- * The codes this service answers that `@platform/contracts` does not carry YET (#678): two ordinary HTTP
- * conditions, filed as CONTRACT CHANGE #690 for the manager to land. The list exists so the divergence is
- * ONE named, tested thing instead of free strings scattered over three files — and **deleting it is the
- * whole change here when #690 lands**, after which the compiler holds every code to the contract's list.
+ * Every code this service may answer: the contract's list and nothing else, since CONTRACT CHANGE #690
+ * landed `method_not_allowed` and `payload_too_large` (the `PENDING_ERROR_CODES` exception existed only
+ * until then, and deleting it was the whole change).
+ *
+ * Typed rather than `string` (#678, from the #674 review): a dashboard switching on `code` can only rely on
+ * the contract if the compiler holds us to it, and a code invented in one service is a quiet divergence that
+ * becomes an integration surprise later.
  */
-export const PENDING_ERROR_CODES = ['method_not_allowed', 'payload_too_large'] as const;
-
-/**
- * Every code this service may answer. Typed rather than `string` (#678, from the #674 review): a dashboard
- * switching on `code` can only rely on the contract if the compiler holds us to it, and a code invented in
- * one service is a quiet divergence that becomes an integration surprise later.
- */
-export type SupportErrorCode = ErrorCode | (typeof PENDING_ERROR_CODES)[number];
+export type SupportErrorCode = ErrorCode;
 
 export class SupportError extends Error {
   readonly status: number;
