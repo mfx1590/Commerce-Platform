@@ -267,6 +267,18 @@ a vanished order or customer row is still reported as such. And **CRM sync is un
 consent-gated in every mode, because putting a name and an e-mail into a third-party CRM is a different act
 from counting an order. A test asserts the mode cannot reach it.
 
+**A null `email_hash` is an erased customer, not a guest** (`order.placed@2`, CONTRACT CHANGE #696). The
+outbox replay scrubs an erased customer before republishing, so `customer_id` and `email_hash` both become
+null while the order itself still has to reach the ledger. Here that means: no `anonymousId` (a null hash is
+never a guest profile), and with no `customer_id` either, the event is **dropped as `no_identity`** — counted
+in the consumer's `dropped` and logged with its reason, in `analytics` mode as well as `strict`. A placeholder
+hash was refused at the contract level for exactly this reason: it would become a junk anonymous profile that
+nobody can delete. Nothing in the mapping reads the hash — it is not one of the tracked properties — so a v2
+event with a customer is byte-identical to v1, which a test asserts. The CRM is unaffected: it takes the
+contact's e-mail from the Admin API and resolves the customer from the order row, never from the payload's
+hash. Until window 14 publishes the schema, `src/testing/order-placed-v2.ts` mocks it — derived from the real
+v1 schema rather than copied — and the SDK skips a v2 message, which is what the manager's gate relies on.
+
 A guest is only trackable where an identity exists: of the six mapped commerce topics only `order.placed`
 carries an `email_hash`, so a guest's _Order Completed_ reaches the CDP while their later _Order Shipped_ does
 not. `data/cdp/README.md` records that asymmetry; closing it by reading the order's raw e-mail was refused

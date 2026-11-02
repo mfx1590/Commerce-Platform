@@ -1,5 +1,29 @@
 # @platform/engagement
 
+## 0.9.3 — 2026-11-02 (#696 gate: `order.placed@2`, a nullable `email_hash`)
+
+This service's half of the gate on CONTRACT CHANGE #696. **No production code changed, and that is the
+finding** — the three paths the issue names were already null-safe, so the work was proving it rather than
+patching it, and the proof is what the gate actually asks for.
+
+- **The CDP:** `email_hash` is read through a `typeof` check, not a cast, so a null arrives as `null`; the
+  gate then yields `{ userId, anonymousId: null }` for a named customer and **no identity at all** when
+  `customer_id` is null too, which is a drop with reason `no_identity` — counted and logged with the consent
+  mode, in `analytics` as well as `strict`. The mapper never reads the hash (it is not a tracked property),
+  so a v2 event with a customer is byte-identical to v1; a test asserts that equality rather than listing the
+  properties again.
+- **The CRM:** unaffected by construction. `order.placed` is an order-scoped topic there, so the customer
+  comes from the order row and the contact's e-mail from the Admin API — the payload's hash is never read. A
+  scrubbed order is skipped as `no_identity` with no PII fetched.
+- **The support context** reads the Admin API, not events: nothing to change.
+- **`src/testing/order-placed-v2.ts`** mocks the @2 schema for tests only, **derived** from the real
+  `order.placed@1` rather than hand-copied — the issue's diff as code, so the mock cannot describe a version
+  that no longer exists. A v2 fixture is built from an already-validated v1 envelope, so no test duplicates
+  the payload. One test pins the mock itself: v1 refuses the null, @2 accepts it, @2 still accepts a hash,
+  and the SDK does not know @2 yet (which is the premise the gate rests on — that line goes green on its own
+  the day #696 lands). `packages/events` is untouched.
+- Tests: **552 passing / 9 live skipped** offline (was 547/9).
+
 ## 0.9.2 — 2026-11-02 (CONTRACT CHANGE #690 landed)
 
 - **`PENDING_ERROR_CODES` is deleted.** `method_not_allowed` and `payload_too_large` are in

@@ -33,6 +33,7 @@ import { MemoryCrmAdapter } from './adapter/memory.js';
 import { CRM_GROUP_ID, createCrmConsumer, handleCrmEvent, type CrmLogLine } from './consumer.js';
 import { CrmError, type AdminCustomer } from './types.js';
 import type { CustomerReader } from './admin-api.js';
+import { toOrderPlacedV2 } from '../testing/order-placed-v2.js';
 
 const ORG = SEED_IDS.organization;
 const STORE_A = SEED_IDS.stores.brandA;
@@ -432,6 +433,33 @@ describe('handleCrmEvent — consent', () => {
     const orderId = await makeOrder(null);
     const r = await handleCrmEvent(orderPlaced(orderId, null), 'out-9', deps());
     expect(r).toEqual({ action: 'skipped', reason: 'no_identity' });
+    expect(reads).toEqual([]);
+  });
+
+  it('order.placed@2 with a null email_hash upserts exactly as v1: the customer comes from the ORDER row (#696)', async () => {
+    // The CRM never reads `email_hash` — the contact's e-mail comes from the Admin API — so the only
+    // question #696 raises here is whether a v2 event is handled at all rather than falling through.
+    const id = await makeCustomer(true);
+    const orderId = await makeOrder(id);
+    const r = await handleCrmEvent(
+      toOrderPlacedV2(orderPlaced(orderId, id), { emailHash: null }),
+      'out-696a',
+      deps(),
+    );
+    expect(r.action).toBe('upserted');
+    expect(adapter.get(id)?.ordersCount).toBe(1);
+  });
+
+  it('a SCRUBBED order.placed@2 — null hash and null customer — is skipped as no_identity, and no PII is fetched (#696)', async () => {
+    const orderId = await makeOrder(null);
+    const r = await handleCrmEvent(
+      toOrderPlacedV2(orderPlaced(orderId, null), { emailHash: null, customerId: null }),
+      'out-696b',
+      deps(),
+    );
+    expect(r).toEqual({ action: 'skipped', reason: 'no_identity' });
+    // No contact by hash, and nothing invented: there is nobody to be a contact.
+    expect(adapter.contacts.size).toBe(0);
     expect(reads).toEqual([]);
   });
 
