@@ -18,6 +18,18 @@ describe('figuresOf', () => {
     // #683 review: each number on its own — German thousands with and without decimals
     ['Umsatz 1.250.000,00 EUR aus 1.234 Bestellungen [q1].', ['1250000.00', '1234']],
     ['Revenue 1,250,000.00 EUR from 1,234 orders [q1].', ['1250000.00', '1234']],
+    // the re-run of 2026-11-02: #18 quoted a store id, #8 wrote week starts without a year
+    [
+      'I only have data for brand-a (store 00000000-0000-4000-8000-000000000031), 42 orders [q1].',
+      ['42'],
+    ],
+    ['Week of 09-28: 1,946.30; 10-26 to 10-31: 2,001.10 [q1]', ['1946.30', '2001.10']],
+    ['Semana del 28/09: 1.946,30 EUR [q1]', ['1946.30']],
+    // not dates: a count range, two-digit pairs that are no month and day
+    [
+      'Between 5-10 orders a day, 13-14 refunds, 45-60 units [q1].',
+      ['5', '10', '13', '14', '45', '60'],
+    ],
   ])('%j → %j', (text, figures) => {
     expect(figuresOf(text)).toEqual(figures);
   });

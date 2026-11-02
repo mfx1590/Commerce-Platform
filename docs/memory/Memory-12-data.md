@@ -52,6 +52,21 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- REAL-MODEL RE-RUN (2026-11-02, on 9e65ecfa = #683 FINAL, bi-qa-answer@2; machine from manager ten, then freed):
+  26/30 under the full checker; 55 calls, 166,376 tokens, $0.41 (first run: 55 / 134,608 / $0.35). Fails: #8 dates
+  past the logged 240 chars (money figures pass; checker false positive, likely year-less dates); #17 "6" = most
+  likely an UNLABELLED 83−77 order difference (template breach, value right); #18 the model echoed the store uuid
+  from <stores> (checker false positive: strip uuids in figuresOf); #30 "7 days" restating the question (harmless).
+  #7 PASSES the check but still no top-5 (one combined row; ignored @2's top-N hint) → window 14. #23 no longer
+  derives; #26 now English.
+- CHECKER PR (manager ten 2026-11-02): branch data/phase5-606-checker cut LOCALLY from 9e65ecfa (#683 FINAL,
+  still in the merge queue) — push only after #683 merges + main merged. (a) figuresOf strips uuids and year-less
+  dates of two 2-digit parts that are a valid month/day either way (09-28, 28/09; "5-10", "13-14" stay figures;
+  "10-12" would read as a date — noted in README). (b) golden.test logs the WHOLE answer. (c) #7 investigated: the
+  tool OFFERED product + order_by + limit (units takes product; the scripted query runs live) but explained none →
+  dimensionsLine in the tool description (caller's metrics only, ~25 tokens) + one-line schema descriptions for
+  dimensions / order_by / limit, pinned in ask.test. Manager routes #17 (unlabelled count difference) to window 14
+  as bi-qa-answer@3; once both are on main, ONE more re-run decides #7. Reporting 221 pass; gates green.
 - #606 v2 FOLLOW-UP (2026-11-02, manager ten; #680 MERGED a150e0fb, #606 closed, #682 bi-qa-answer@2 on main).
   Branch data/phase5-606-v2 (cut --no-track from origin/main a150e0fb). BI_QA_TEMPLATE = @2; `locale` = the
   request's Accept-Language first tag via Intl.getCanonicalLocales (canonicalLocale in ask.ts), else en — no staff

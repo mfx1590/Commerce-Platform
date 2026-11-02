@@ -31,12 +31,19 @@ const MONTH = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\.
  * years, and days of the month next to a month name ("Oct 3", "3 Oct", "1–31 October", "Oct 1, 2 and 3:" — a real
  * model writes dates in prose; the first real-model run, 2026-11-02, flagged 13 correct answers on dates alone).
  * Thousands separators (1,234.56) are dropped; a decimal comma (1.234,56 — an answer in another language) is read.
+ * Nor are uuids (a store's id quoted from <stores>) or a year-less date of two two-digit parts that is a valid month
+ * and day either way round (09-28, 28/09, 10/31 — the re-run of 2026-11-02, #18 and #8); "5-10" or "13-14" stay
+ * figures, so nothing that could be a count is waved through.
  */
 export function figuresOf(text: string): string[] {
   let clean = text
     .replace(/\[q\d+\]/g, ' ')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, ' ')
     .replace(/\b\d{4}-\d{2}-\d{2}(?:T[\d:.]+Z?)?\b/g, ' ')
-    .replace(/\b(?:19|20)\d{2}\b/g, ' ');
+    .replace(/\b(?:19|20)\d{2}\b/g, ' ')
+    .replace(/\b(\d{2})[-/](\d{2})\b/g, (span, a: string, b: string) =>
+      isMonthDay(Number(a), Number(b)) || isMonthDay(Number(b), Number(a)) ? ' ' : span,
+    );
   // a day list or range attached to a month: "Oct 1, 2 and 3", "1–31 October", "Week of 28 Sep"
   clean = clean
     .replace(
@@ -51,6 +58,9 @@ export function figuresOf(text: string): string[] {
     return n ? [n.dec ? `${n.int}.${n.dec}` : n.int] : m[0].split(/[.,]/);
   });
 }
+
+const isMonthDay = (month: number, day: number) =>
+  month >= 1 && month <= 12 && day >= 1 && day <= 31;
 
 /** a number as written: digits with `.` / `,` inside, never at an end (a sentence's full stop is not part of it) */
 const NUMBER = /\d[\d.,]*\d|\d/g;

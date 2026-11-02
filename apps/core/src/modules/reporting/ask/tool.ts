@@ -11,6 +11,7 @@ import {
   METRIC_IDS,
   METRICS,
   REFUND_REASONS,
+  type MetricId,
 } from '../metrics/catalogue';
 import { executeMetricQuery, type MetricResult, type MetricsReader } from '../metrics/execute';
 import { parseMetricQuery, type MetricQuery } from '../metrics/query';
@@ -59,6 +60,8 @@ export function queryMetricsTool(scope: ToolScope): AiTool {
         maxItems: LIMITS.max_dimensions,
         uniqueItems: true,
         items: { type: 'string', enum: [...DIMENSIONS] },
+        description:
+          'One row per value of each: product = one row per product (the way to rank products)',
       },
       grain: { type: 'string', enum: [...GRAINS] },
       from: { type: 'string', format: 'date', description: 'UTC date, inclusive' },
@@ -101,12 +104,19 @@ export function queryMetricsTool(scope: ToolScope): AiTool {
         type: 'object',
         additionalProperties: false,
         required: ['metric'],
+        description:
+          'Sorts the rows; with a dimension, grain total and limit it gives a top or bottom N',
         properties: {
           metric: { type: 'string', enum: metrics },
           direction: { type: 'string', enum: ['desc', 'asc'] },
         },
       },
-      limit: { type: 'integer', minimum: 1, maximum: LIMITS.max_rows },
+      limit: {
+        type: 'integer',
+        minimum: 1,
+        maximum: LIMITS.max_rows,
+        description: 'Rows to return: N for a top N',
+      },
     },
   };
   const stores = scope.stores.map((s) => `${s.code} = ${s.id}`).join(', ');
@@ -115,10 +125,24 @@ export function queryMetricsTool(scope: ToolScope): AiTool {
     description:
       `Runs one typed metrics query over the analytics store and returns its rows and per-currency totals. ` +
       `Stores you may ask about: ${stores}. The question's window is ${scope.window.from} to ${scope.window.to} ` +
-      `(UTC, end exclusive) unless the question names another. Money is integer minor units per currency and is ` +
-      `never added across currencies. Each result carries a "ref" (q1, q2 …): cite figures by it.`,
+      `(UTC, end exclusive) unless the question names another. ${dimensionsLine(metrics)} Money is integer minor ` +
+      `units per currency and is never added across currencies. Each result carries a "ref" (q1, q2 …): cite ` +
+      `figures by it.`,
     inputSchema,
   };
+}
+
+/**
+ * Which of the caller's metrics accept a dimension beyond `store` (#7 of the 2026-11-02 real-model run: the tool
+ * offered `product` but never said which metric takes it). Short on purpose — this text goes with every step.
+ */
+export function dimensionsLine(metrics: readonly MetricId[]): string {
+  const by = new Map<string, MetricId[]>();
+  for (const m of metrics)
+    for (const d of METRICS[m].dimensions) if (d !== 'store') by.set(d, [...(by.get(d) ?? []), m]);
+  if (by.size === 0) return 'Every metric takes the store dimension only.';
+  const parts = [...by].map(([d, ms]) => `${d}: ${ms.join(', ')}`);
+  return `Every metric takes the store dimension; also ${parts.join('; ')}.`;
 }
 
 const errorOf = (e: AppError) => ({

@@ -172,6 +172,27 @@ describe('the scope (#606 acceptance: a store-A principal asking about store B)'
     expect(tool.description).toContain('brand-a');
     expect(tool.description).not.toContain('brand-b');
   });
+
+  // #7 of the 2026-11-02 run: product, order_by and limit were offered but never explained. Pinned, and short (the
+  // description goes with every step): the caller's own metrics only — no finance metric reaches an analyst.
+  it.each([
+    [false, 'also refund_reason: refunds_minor; product: units, product_net_minor.'],
+    [
+      true,
+      'also refund_reason: refunds_minor; product: units, product_net_minor; provider: captured_minor, fee_minor.',
+    ],
+  ])('the tool says which metric takes which dimension (finance %s)', (finance, line) => {
+    const tool = queryMetricsTool({ stores: [A], finance, window: { from: 'a', to: 'b' } });
+    expect(tool.description).toContain(`Every metric takes the store dimension; ${line}`);
+    const props = tool.inputSchema.properties as Record<string, { description?: string }>;
+    expect(props.dimensions!.description).toBe(
+      'One row per value of each: product = one row per product (the way to rank products)',
+    );
+    expect(props.order_by!.description).toBe(
+      'Sorts the rows; with a dimension, grain total and limit it gives a top or bottom N',
+    );
+    expect(props.limit!.description).toBe('Rows to return: N for a top N');
+  });
 });
 
 describe('the per-store switch and the budget scope', () => {
