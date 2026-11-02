@@ -10,6 +10,7 @@ schemas/common/v1.json        shared $defs (uuid, timestamp, currency, country, 
 schemas/envelope/v1.json      the message envelope; payload validated per topic/version
 schemas/<topic>/v<N>.json     one file per event version, additionalProperties: false
 migrations/0100_outbox.sql    outbox table + RLS, applied by packages/db
+migrations/0101_outbox_topic_seq.sql  (topic, seq) index for the replay scans (#702)
 scripts/generate.mjs          -> src/generated/{schemas,types}.ts
 ```
 
@@ -34,6 +35,26 @@ scripts/generate.mjs          -> src/generated/{schemas,types}.ts
 | referral       | `referral.converted` (0.2.0)                                                                                                                                                             |
 | review         | `review.published` (0.2.0)                                                                                                                                                               |
 | cart           | `cart.abandoned` (0.2.0, emitted by the core's abandoned-cart job)                                                                                                                       |
+
+## The outbox's indexes
+
+| Index                    | Columns                               | Serves                                                                                                                            |
+| ------------------------ | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `outbox_unpublished_idx` | `(seq) WHERE published_at IS NULL`    | the relay's unpublished scan (0100)                                                                                               |
+| `outbox_aggregate_idx`   | `(aggregate_type, aggregate_id, seq)` | an aggregate's history (0100)                                                                                                     |
+| `outbox_topic_seq_idx`   | `(topic, seq)`                        | `outbox:replay`: one topic in `seq` order, and the erased set (`topic = 'customer.erased'`) every replay reads first (0101, #702) |
+
+**Production: build a new outbox index `CONCURRENTLY` first.** The packages/db runner applies each migration in a
+transaction, where `CREATE INDEX CONCURRENTLY` is not allowed, so 0101 is a plain `CREATE INDEX`. That holds a SHARE
+lock on `outbox` for the whole build, and every producer's INSERT (every state change in the core) waits behind it.
+On a database whose outbox is already large, run this by hand before `pnpm db:migrate`:
+
+```sql
+CREATE INDEX CONCURRENTLY IF NOT EXISTS outbox_topic_seq_idx ON outbox (topic, seq);
+-- a failed CONCURRENTLY build leaves an INVALID index: DROP INDEX CONCURRENTLY outbox_topic_seq_idx; and run it again
+```
+
+The migration says `IF NOT EXISTS`, so it is then a no-op that only records itself in `schema_migrations`.
 
 ## Producing an event (apps/core)
 
