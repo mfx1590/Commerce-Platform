@@ -518,3 +518,7 @@
   `x-permission`, the closed bodies, `question` 1..500, the feedback without free text, the statuses and
   `MetricAnswer`. Store API (0.5.9), Accounting API and events are unchanged.
 - Review (#673): organization scope for askMetrics is decided by the principal (an org-level relation); a store-level caller with several stores names exactly one (400 `store_required`). Feedback ownership comes from the conversation's step-0 audit row. `queries` lists every call that parsed, and `[qN]` indexes into it.
+
+## 0.4.33 — 2026-11-02 (CONTRACT CHANGE #690, window 16)
+
+- `ERROR_CODES` gains `method_not_allowed` (405) and `payload_too_large` (413), and the Admin `Error.code` description lists them. Additive: these are the strings the engagement support server already sends. The core STATUS map gains both. Admin API version unchanged (description only).
