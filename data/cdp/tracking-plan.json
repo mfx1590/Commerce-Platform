@@ -4,7 +4,7 @@
   "updated": "2026-10-24",
   "owner": "window 16 (engagement)",
   "identity": {
-    "$comment": "How a CDP identity is resolved, in this order. `customer_id` is our own id and the only stable key; email_hash is a fallback that cannot be reversed and is never the upsert key for a known customer.",
+    "$comment": "How a CDP identity is resolved, in this order. `customer_id` is our own id and the only stable key; email_hash is a fallback that cannot be reversed and is never the upsert key for a known customer. Since order.placed@2 (CONTRACT CHANGE #696) email_hash may be null, which means the customer was erased and the outbox replay scrubbed the payload: there is then no anonymousId, and with customer_id also null the event is dropped as no_identity rather than tracked under a placeholder.",
     "rule": "customer_id when known, else email_hash",
     "userId": "customer_id",
     "anonymousId": "email_hash",
@@ -84,7 +84,7 @@
         "store_code"
       ],
       "consent_gated": true,
-      "$comment": "Named for RudderStack's e-commerce spec. Line items are reduced to counts: the per-line titles and SKUs are not needed for a CDP audience and every property we send is one more thing to justify."
+      "$comment": "Named for RudderStack's e-commerce spec. Line items are reduced to counts: the per-line titles and SKUs are not needed for a CDP audience and every property we send is one more thing to justify. `version` stays 1 until order.placed@2 is published (#696): the mapping reads no field that differs between them — email_hash is not one of the properties — so v2 maps identically, and the version here records the schema this entry was written against, not a version gate."
     },
     {
       "topic": "order.cancelled",

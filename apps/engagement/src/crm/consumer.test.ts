@@ -33,6 +33,7 @@ import { MemoryCrmAdapter } from './adapter/memory.js';
 import { CRM_GROUP_ID, createCrmConsumer, handleCrmEvent, type CrmLogLine } from './consumer.js';
 import { CrmError, type AdminCustomer } from './types.js';
 import type { CustomerReader } from './admin-api.js';
+import { toOrderPlacedV2 } from '../testing/order-placed-v2.js';
 
 const ORG = SEED_IDS.organization;
 const STORE_A = SEED_IDS.stores.brandA;
@@ -433,6 +434,61 @@ describe('handleCrmEvent — consent', () => {
     const r = await handleCrmEvent(orderPlaced(orderId, null), 'out-9', deps());
     expect(r).toEqual({ action: 'skipped', reason: 'no_identity' });
     expect(reads).toEqual([]);
+  });
+
+  it('order.placed@2 with a null email_hash upserts exactly as v1: the customer comes from the ORDER row (#696)', async () => {
+    // The CRM never reads `email_hash` — the contact's e-mail comes from the Admin API — so the only
+    // question #696 raises here is whether a v2 event is handled at all rather than falling through.
+    const id = await makeCustomer(true);
+    const orderId = await makeOrder(id);
+    const r = await handleCrmEvent(
+      toOrderPlacedV2(orderPlaced(orderId, id), { emailHash: null }),
+      'out-696a',
+      deps(),
+    );
+    expect(r.action).toBe('upserted');
+    expect(adapter.get(id)?.ordersCount).toBe(1);
+  });
+
+  it('a scrubbed order.placed@2 for a GUEST order — no customer on the order either — is skipped as no_identity (#696)', async () => {
+    // The payload is scrubbed AND the order itself never had a customer. Reworded after the #705 review,
+    // which was right that this is the guest case rather than the erasure case: the CRM reads the ORDER ROW,
+    // so a scrubbed payload alone tells it nothing.
+    const orderId = await makeOrder(null);
+    const r = await handleCrmEvent(
+      toOrderPlacedV2(orderPlaced(orderId, null), { emailHash: null, customerId: null }),
+      'out-696b',
+      deps(),
+    );
+    expect(r).toEqual({ action: 'skipped', reason: 'no_identity' });
+    // No contact by hash, and nothing invented: there is nobody to be a contact.
+    expect(adapter.contacts.size).toBe(0);
+    expect(reads).toEqual([]);
+  });
+
+  it('the REAL replay case: a scrubbed order.placed@2 whose ORDER still names an ERASED customer is skipped as customer_erased, with no PII read (#696, #705 review)', async () => {
+    // This is what the replay actually produces, and the case the first version of these tests missed:
+    // erasure KEEPS the orders, linked by `customer_id` (apps/core gdpr.ts — retained under the
+    // legal-obligation exception), and scrubs only the payload. So the CRM, which resolves an order-scoped
+    // event from the order row, still finds the person — and must refuse them because they are erased, not
+    // because it cannot find them. The reason matters: `no_identity` would say "a guest bought something",
+    // `customer_erased` says "we were told to forget this person", and an operator reading the log needs the
+    // second one.
+    const id = await makeCustomer(true);
+    const orderId = await makeOrder(id);
+    await db.owner.query(`UPDATE customer SET status = 'erased' WHERE id = $1`, [id]);
+
+    const r = await handleCrmEvent(
+      toOrderPlacedV2(orderPlaced(orderId, id), { emailHash: null, customerId: null }),
+      'out-696c',
+      deps(),
+    );
+
+    expect(r).toEqual({ action: 'skipped', reason: 'customer_erased' });
+    // Refused BEFORE the Admin API call, so an erased person's name and e-mail are never fetched — the
+    // erasure told us to delete our copies, and re-reading them to decide would undo it.
+    expect(reads).toEqual([]);
+    expect(adapter.contacts.size).toBe(0);
   });
 
   it('skips an unmapped topic', async () => {
