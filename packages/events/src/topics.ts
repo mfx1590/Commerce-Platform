@@ -78,6 +78,13 @@ export const RETENTION_MS: Record<RetentionClass, string> = {
   forever: '-1',
   days_30: String(30 * DAY_MS),
 };
+/**
+ * Redpanda deletes whole closed segments only, so a quiet topic whose active segment never fills would keep its
+ * records past retention.ms. A daily roll bounds a 30-day record at 31 days (#629: the bus window after an erasure).
+ */
+export const SEGMENT_MS: Partial<Record<RetentionClass, string>> = {
+  days_30: String(DAY_MS),
+};
 
 /** Kafka's own rule for topic names. */
 const TOPIC_NAME = /^[a-zA-Z0-9._-]{1,249}$/;
@@ -150,18 +157,23 @@ export function planTopics(policy: TopicPolicy, opts: PlanOptions = {}): TopicSp
     ? { 'min.insync.replicas': String(env.min_insync_replicas) }
     : {};
 
-  const specs: TopicSpec[] = topics.map((topic) => ({
-    name: `${prefix}${topic}`,
-    kind: 'event',
-    source: topic,
-    partitions: env.partitions,
-    replication: env.replication,
-    configs: {
-      ...base,
-      'cleanup.policy': 'delete',
-      'retention.ms': RETENTION_MS[retentionClassOf(topic, policy)],
-    },
-  }));
+  const specs: TopicSpec[] = topics.map((topic) => {
+    const retention = retentionClassOf(topic, policy);
+    const segmentMs = SEGMENT_MS[retention];
+    return {
+      name: `${prefix}${topic}`,
+      kind: 'event',
+      source: topic,
+      partitions: env.partitions,
+      replication: env.replication,
+      configs: {
+        ...base,
+        'cleanup.policy': 'delete',
+        'retention.ms': RETENTION_MS[retention],
+        ...(segmentMs ? { 'segment.ms': segmentMs } : {}),
+      },
+    };
+  });
 
   const groups = [...new Set([...policy.dlq.consumer_groups, ...(opts.consumerGroups ?? [])])];
   for (const groupId of groups) {
