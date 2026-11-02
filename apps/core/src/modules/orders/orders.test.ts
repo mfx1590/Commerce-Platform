@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createOrganizationClient, createTenantClient, SEED_IDS, seed } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
+import { createValidator } from '@platform/events';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { addLineItem, createCart, updateCart } from '../cart';
 import {
@@ -39,6 +40,11 @@ import {
   transition,
   transitionTableMarkdown,
 } from './index';
+import {
+  orderPlacedV2IsPublished,
+  toOrderPlacedV2,
+  validatesAsOrderPlacedV2,
+} from '../../../test/helpers/order-placed-v2';
 
 const ORG = SEED_IDS.organization;
 const A = SEED_IDS.stores.brandA;
@@ -767,5 +773,50 @@ describe("#191's object shape (#214)", () => {
         setFulfillmentStatus({ tx, orderId: order.id, status: 'returned', actor }),
       ),
     ).rejects.toMatchObject({ code: 'conflict' });
+  });
+});
+
+describe('order.placed@2 (#696 gate): the projection folds v1 and v2 alike', () => {
+  const validator = createValidator();
+
+  it('the test-only @2 mock is v1 with email_hash nullable: v1 refuses null, @2 takes null or a hash, never a raw email', async () => {
+    const placed = (await stream((await placeOrder()).id))[0]!;
+    expect(placed.topic).toBe('order.placed');
+    expect(validator.validatePayload('order.placed', 1, placed.payload).ok).toBe(true);
+    const erased = { ...placed.payload, customer_id: null, email_hash: null };
+    expect(validator.validatePayload('order.placed', 1, erased).ok).toBe(false);
+    expect(validatesAsOrderPlacedV2(erased)).toBe(true);
+    expect(validatesAsOrderPlacedV2(placed.payload)).toBe(true);
+    expect(validatesAsOrderPlacedV2({ ...placed.payload, email_hash: 'x@example.com' })).toBe(
+      false,
+    );
+    // the premise of the gate: until #696 lands, @2 is unknown to the published validator
+    expect(validator.validatePayload('order.placed', 2, placed.payload).ok).toBe(
+      orderPlacedV2IsPublished(),
+    );
+  });
+
+  it('a real stream whose order.placed is @2 (a hash, a null hash, a null hash AND a null customer) projects exactly like v1: no crash, no placeholder', async () => {
+    const order = await placeOrder();
+    await markPaymentCaptured(a, order.id, actor);
+    const v1 = await stream(order.id);
+    expect(v1[0]!.topic).toBe('order.placed');
+    const asV1 = projectOrder(v1)!;
+    // what the projection keeps carries no identity at all: nothing for a null to break, nothing to fill in
+    expect(Object.keys(asV1)).not.toContain('email_hash');
+    expect(Object.keys(asV1)).not.toContain('customer_id');
+
+    const cases: { emailHash: string | null; customerId?: string | null }[] = [
+      { emailHash: v1[0]!.payload.email_hash as string },
+      { emailHash: null },
+      { emailHash: null, customerId: null },
+    ];
+    for (const over of cases) {
+      const v2 = v1.map((e, i) =>
+        i === 0 ? { topic: e.topic, version: 2, payload: toOrderPlacedV2(e.payload, over) } : e,
+      );
+      expect(v2[0]!.payload.email_hash).toBe(over.emailHash);
+      expect(projectOrder(v2)).toEqual(asV1);
+    }
   });
 });
