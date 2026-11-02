@@ -16,6 +16,7 @@ import {
   makeEvent,
   planTopics,
   readDeadLetters,
+  readErasedSet,
   readTopicToEnd,
   replayFromDlq,
   type ConsumerLogLine,
@@ -68,6 +69,7 @@ describe('readTopicToEnd on a compacted topic (fake client)', () => {
   const fakeClient = (
     offsetsByPartition: Record<number, string[]>,
     highs: Record<number, [string, string]>,
+    valueOf: (offset: string) => Buffer = (offset) => Buffer.from(offset),
   ) => {
     const client: TopicReaderClient = {
       admin: () => ({
@@ -87,7 +89,7 @@ describe('readTopicToEnd on a compacted topic (fake client)', () => {
                 partition: Number(p),
                 message: {
                   key: Buffer.from('k'),
-                  value: Buffer.from(offset),
+                  value: valueOf(offset),
                   headers: {},
                   offset,
                   timestamp: '0',
@@ -130,6 +132,87 @@ describe('readTopicToEnd on a compacted topic (fake client)', () => {
     expect(read.map((m) => m.offset)).toEqual(['0', '1']);
     expect(Date.now() - started).toBeGreaterThanOrEqual(190);
     expect(Date.now() - started).toBeLessThan(3_000);
+  });
+
+  it('strict: a partition short of high − 1 is never done by silence; the timeout names it (#710 review)', async () => {
+    const started = Date.now();
+    await expect(
+      readTopicToEnd(
+        fakeClient({ 0: ['0', '1'] }, { 0: ['0', '5'] }),
+        'customer.erased',
+        'g',
+        800,
+        {
+          idleMs: 100,
+          strict: true,
+        },
+      ),
+    ).rejects.toThrow(/partition\(s\) still short of their high watermark: 0/);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(790); // the idle rule would have ended it at ~100 ms
+    // strict still finishes at high − 1
+    const read = await readTopicToEnd(
+      fakeClient({ 0: ['0', '1', '2'] }, { 0: ['0', '3'] }),
+      'customer.erased',
+      'g',
+      2_000,
+      { strict: true },
+    );
+    expect(read.map((m) => m.offset)).toEqual(['0', '1', '2']);
+  });
+
+  it('readErasedSet fails closed: a stalled partition or an undecodable message throws ErasureSetUnavailableError with the cause, never part of the set', async () => {
+    const erasure = (customerId: string) =>
+      Buffer.from(
+        JSON.stringify(
+          makeEvent({
+            topic: 'customer.erased',
+            organizationId: ORG,
+            storeId: STORE,
+            aggregateType: 'customer',
+            aggregateId: customerId,
+            payload: {
+              customer_id: customerId,
+              identity_id: null,
+              email_hash: 'c3'.repeat(32),
+              erased_at: new Date().toISOString(),
+            },
+          }),
+        ),
+      );
+    const ids = ['33000000-0000-4000-8000-0000000000d1', '33000000-0000-4000-8000-0000000000d2'];
+    // two erasures delivered, high − 1 (a third) stalls: the idle rule would have returned a set of two
+    const stalled = readErasedSet({
+      kafka: fakeClient({ 0: ['0', '1'] }, { 0: ['0', '3'] }, (o) => erasure(ids[Number(o)]!)),
+      groupId: 'g',
+      timeoutMs: 3_000, // longer than the idle rule's 1.5 s: without strict the read would END with two
+    });
+    await expect(stalled).rejects.toBeInstanceOf(ErasureSetUnavailableError);
+    const err = await stalled.catch((e: Error) => e);
+    expect(err.message).toMatch(
+      /cannot read customer\.erased.*still short of their high watermark: 0/,
+    );
+    expect((err as Error & { cause: unknown }).cause).toBeInstanceOf(Error);
+
+    // an undecodable message: named by its offset, the value never quoted
+    const garbled = await readErasedSet({
+      kafka: fakeClient({ 0: ['0'] }, { 0: ['0', '1'] }, () =>
+        Buffer.from('{"customer_id": "not json'),
+      ),
+      groupId: 'g',
+      timeoutMs: 600,
+    }).catch((e: Error) => e);
+    expect(garbled).toBeInstanceOf(ErasureSetUnavailableError);
+    expect(garbled.message).toMatch(/offset 0 does not decode/);
+    expect(garbled.message).not.toContain('customer_id');
+
+    // complete: the set
+    const ok = await readErasedSet({
+      kafka: fakeClient({ 0: ['0', '1'] }, { 0: ['0', '2'] }, (o) => erasure(ids[Number(o)]!)),
+      groupId: 'g',
+      timeoutMs: 2_000,
+    });
+    expect(ok.customers).toBe(2);
+    expect(ok.keys.has(`${STORE}|c:${ids[1]}`)).toBe(true);
   });
 
   it('times out naming a partition that never delivered anything', async () => {
@@ -707,7 +790,7 @@ describe.runIf(brokerDown === null)(
       const LE = '33000000-0000-4000-8000-0000000000c3';
       const uuid = () => crypto.randomUUID();
       const customer = (id: string) => ({ type: 'customer' as const, id });
-      const orderPlaced = (customerId: string) => {
+      const orderPlaced = (customerId: string | null) => {
         const orderId = uuid();
         return makeEvent({
           topic: 'order.placed',
@@ -715,7 +798,7 @@ describe.runIf(brokerDown === null)(
           storeId: STORE,
           aggregateType: 'order',
           aggregateId: orderId,
-          actor: customer(customerId),
+          actor: customerId ? customer(customerId) : { type: 'system', id: null },
           payload: {
             order_id: orderId,
             display_id: 1,
@@ -769,6 +852,7 @@ describe.runIf(brokerDown === null)(
         });
       };
       const orderX = orderPlaced(X); // skipped: the payload names X
+      const guestOrderX = orderPlaced(null); // X's guest order: no customer id, skipped by the e-mail hash alone
       const payX = paymentAuthorized(X); // replayed, actor id nulled
       const payY = paymentAuthorized(Y); // replayed as it is
       const payHook = paymentAuthorized(Y); // the consumer's own record says skip
@@ -787,7 +871,7 @@ describe.runIf(brokerDown === null)(
       );
       await admin.disconnect();
 
-      // all five fail BEFORE the erasure
+      // all six fail BEFORE the erasure
       const c = track(
         createConsumer({
           groupId: 'erasure',
@@ -806,12 +890,15 @@ describe.runIf(brokerDown === null)(
         }),
       );
       await c.start();
-      await publisher.send(`${prefix}order.placed`, [envelopeToMessage(orderX, 'test')]);
+      await publisher.send(
+        `${prefix}order.placed`,
+        [orderX, guestOrderX].map((e) => envelopeToMessage(e, 'test')),
+      );
       await publisher.send(
         `${prefix}payment.authorized`,
         [payX, payY, payHook, payHookDown].map((e) => envelopeToMessage(e, 'test')),
       );
-      await until(() => c.stats.dead_lettered === 5, 30_000, 'five dead letters');
+      await until(() => c.stats.dead_lettered === 6, 30_000, 'six dead letters');
       await c.stop();
 
       // then X is erased
@@ -854,10 +941,11 @@ describe.runIf(brokerDown === null)(
         [...a].sort((p, q) =>
           String(p.outbox_id ?? p.id).localeCompare(String(q.outbox_id ?? q.id)),
         );
-      expect(r.entries).toBe(5);
+      expect(r.entries).toBe(6);
       expect(byId(r.skipped)).toEqual(
         byId([
           { outbox_id: orderX.event_id, reason: 'erased' },
+          { outbox_id: guestOrderX.event_id, reason: 'erased' },
           { outbox_id: payHook.event_id, reason: 'skip_hook' },
         ]),
       );
