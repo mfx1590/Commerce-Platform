@@ -14,7 +14,10 @@ import type { MetricId } from '../metrics/catalogue';
 import { aiErrorToAppError, type AiToolRun, type GatewayFactory } from './gateway';
 import { queryMetricsHandler, queryMetricsTool, type ExecutedQuery } from './tool';
 
-export const BI_QA_TEMPLATE = 'bi-qa-answer@1' as const;
+// v2 (#682, from the first real-model run): the answer's language, ONE labelled derived figure, top-N by dimension
+export const BI_QA_TEMPLATE = 'bi-qa-answer@2' as const;
+/** The answer's language when the question's own cannot be told, and the fallback for a missing or bad locale. */
+export const DEFAULT_LOCALE = 'en';
 /** Tool calls one question may make (the gateway enforces it; #669 caps it at 8). */
 export const MAX_TOOL_CALLS = 5;
 const DEFAULT_WINDOW_DAYS = 30;
@@ -37,6 +40,28 @@ export interface AskCaller {
   finance: boolean;
   /** an organization-level principal (hasOrganizationAccess): the only one who asks over several stores */
   organizationScope: boolean;
+  /** the admin's locale as the client sent it (an Accept-Language value); canonicalised, `en` when unusable */
+  locale?: string | undefined;
+}
+
+/** a language tag longer than this is not a locale anyone sends (language-script-region is at most 12) */
+const MAX_LOCALE_LENGTH = 35;
+
+/**
+ * The first language tag of an Accept-Language value, rebuilt from its language, script and region only
+ * (`en-gb` → `en-GB`, `de-u-nu-arab` → `de`), else `en`. Extension and private-use subtags (`en-x-…`) are dropped
+ * (#683 review: they pass words through), so no text from the header reaches the prompt.
+ */
+export function canonicalLocale(raw: string | undefined): string {
+  const first = raw?.split(',')[0]?.split(';')[0]?.trim();
+  if (!first || first === '*' || first.length > MAX_LOCALE_LENGTH) return DEFAULT_LOCALE;
+  try {
+    const l = new Intl.Locale(first);
+    const tag = [l.language, l.script, l.region].filter((s) => s !== undefined).join('-');
+    return Intl.getCanonicalLocales(tag)[0] ?? DEFAULT_LOCALE;
+  } catch {
+    return DEFAULT_LOCALE;
+  }
 }
 
 export interface AskDeps {
@@ -137,9 +162,10 @@ export async function askMetrics(
       BI_QA_TEMPLATE,
       {
         question: input.question,
+        locale: canonicalLocale(caller.locale),
         today: day(now.getTime()),
         window: `${window.from}..${window.to}`,
-        // the template's format: code and id, one per line (bi-qa-answer@1)
+        // the template's format: code and id, one per line (bi-qa-answer@1 and @2)
         stores: on.map((s) => `${s.code} ${s.id}`).join('\n'),
         currencyNote:
           'Amounts are integer minor units per currency; never add different currencies together.',

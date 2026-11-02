@@ -153,9 +153,27 @@ describe('BI Q&A handlers (#606)', () => {
     const hq = await hqAsk(post({ question: '  bookings?  ', from: '2026-10-01', to: 'nonsense' }));
     expect(hq.status).toBe(200);
     expect(await hq.json()).toEqual({ answer: 'ok' });
-    expect(api.askMetrics).toHaveBeenLastCalledWith({ question: 'bookings?', from: '2026-10-01' });
+    expect(api.askMetrics).toHaveBeenLastCalledWith(
+      { question: 'bookings?', from: '2026-10-01' },
+      null,
+    );
     await storeAsk(post({ question: 'bookings?' }), { params: Promise.resolve({ storeId: A }) });
-    expect(api.askMetrics).toHaveBeenLastCalledWith({ question: 'bookings?', store_ids: [A] });
+    expect(api.askMetrics).toHaveBeenLastCalledWith(
+      { question: 'bookings?', store_ids: [A] },
+      null,
+    );
+  });
+
+  it("the browser's Accept-Language goes to the wrapper from the request itself (bi-qa-answer@2)", async () => {
+    api.askMetrics.mockResolvedValue({ ok: true, status: 200, data: { answer: 'ok' } });
+    await hqAsk(
+      new Request('http://x/bi/ask', {
+        method: 'POST',
+        headers: { 'accept-language': 'de-DE,de;q=0.9' },
+        body: JSON.stringify({ question: 'Umsatz?' }),
+      }),
+    );
+    expect(api.askMetrics).toHaveBeenLastCalledWith({ question: 'Umsatz?' }, 'de-DE,de;q=0.9');
   });
 
   it('an empty or over-long question is a 400 and nothing is sent', async () => {

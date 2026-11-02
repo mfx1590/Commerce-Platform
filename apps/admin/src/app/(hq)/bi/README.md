@@ -84,6 +84,8 @@ follows the store (fixed order by code), never its rank; a ninth store gets no n
 - A question goes to `<base>/ask`. The route handler forwards it to `askMetrics`; the store view adds its store as `store_ids`.
 - It shows the answer, a chart when the server names one (`chart`), and every query behind the answer as **editable JSON**. "Run" sends the edited query to `<base>/query`, which is `queryMetrics` with no AI, narrowed and scoped like the dashboard.
 - Thumbs up/down go to `<base>/ask/<conversationId>/feedback` (the asker only).
+- `askMetrics` (`_api.ts`) forwards the browser's `Accept-Language`: the admin's locale, the answer's language when
+  the question's own cannot be told (`bi-qa-answer@2`; the core keeps a valid first tag, else `en`).
 - Each refusal is one sentence (`askErrorText`): switched off for the store, outside your stores, too many questions, too many look-ups, reworded, not available. Never a partial answer.
 - The calls are typed from the generated contract (Admin API 0.4.27: `askMetrics`, `askMetricsFeedback` in `_api.ts`; `MetricAnswer` in `_lib/metrics.ts`).
 - A store principal with several stores asks from their store view (which always sends its store); asking HQ-wide is for organization-level principals (the server answers 400 `store_required` otherwise).

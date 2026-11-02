@@ -52,6 +52,19 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- #606 v2 FOLLOW-UP (2026-11-02, manager ten; #680 MERGED a150e0fb, #606 closed, #682 bi-qa-answer@2 on main).
+  Branch data/phase5-606-v2 (cut --no-track from origin/main a150e0fb). BI_QA_TEMPLATE = @2; `locale` = the
+  request's Accept-Language first tag via Intl.getCanonicalLocales (canonicalLocale in ask.ts), else en — no staff
+  locale exists (staff_user has none; askMetrics body is additionalProperties:false), so the admin's (hq)/bi/_api.ts
+  forwards the browser's Accept-Language through adminCall headers. Golden checker: checkDerived recomputes
+  `x (derived: a [qi] op b [qj])` (− - + exact in hundredths, one currency; / half-up 2 dp), inputs must be in the
+  cited result; #23 (8,091.80) fails, 8,090.80 passes. Core reporting 194 pass, admin bi 81, root lint+typecheck
+  green. PR #683 (6f039d8f). Opus review FINDINGS 1–6 fixed in-PR: checkDerived takes SIGNED inputs, currency +
+  unit from the cited result (resultValues, labels must agree), ≤2 decimals, ratio on BigInt hundredths half-up
+  with explicit sign, per-number parsing (splitNumber: 1.250.000,00 · 1,234), ONE derived span per answer;
+  canonicalLocale = Intl.Locale language-script-region only, ≤35 chars. Reporting 215 pass; gates green.
+  NEXT: push → manager (head, then checks) → ask for the machine → ONE real-model
+  re-run (~$0.35), report the same numbers as the first run (calls, tokens, $, strict/date-aware/substantive).
 - #680 REVIEW FINDINGS (2026-11-02, manager ten; Fable review = findings, no block). Done locally on
   data/phase5-606-gateway: product_id dropped from rows sent to the model (p1, p2 … labels; caller keeps ids; README);
   AiConfigError / TemplateError / DeniedFieldError → AppError internal "BI Q&A is misconfigured"; Anthropic transport
@@ -432,6 +445,9 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   files, the manager routes it to window 1 — not mine.
 
 ## Gotchas learned
+- (2026-11-02, #683 queue) Never call `next/headers` (headers()/cookies()) inside a (hq)/bi/_api.ts wrapper:
+  test-contract/bi calls the wrappers outside a request scope (Next E251). Read request data in the route handler
+  and pass it in. Run `pnpm --filter @platform/admin test:contract` (bi file) after touching _api.ts.
 - ClickHouse ALIAS SHADOWING (bit three times in Phase 5): an output alias with a column's name (`toString(x) AS x`,
   `coalesce(sum(f),0) AS f`) replaces the column in WHERE / GROUP BY / other expressions of the same SELECT. Never
   alias a column to its own name; select raw columns (JSON renders UUID/DateTime64 as strings) or use out_* names.

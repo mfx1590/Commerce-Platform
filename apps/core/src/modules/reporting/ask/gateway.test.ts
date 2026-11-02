@@ -71,7 +71,7 @@ describe('askMetrics on the real gateway (packages/ai, fake transport)', () => {
     ]);
     const r = await ask(gatewayFor, caller([A], false));
     expect(r.answer).toBe('Bookings were €123.00 [q1].');
-    expect(r.template).toEqual({ id: 'bi-qa-answer', version: 1 });
+    expect(r.template).toEqual({ id: 'bi-qa-answer', version: 2 });
     expect(
       audit.records.map((x) => [x.storeId, x.purpose, x.step, x.toolNames, x.outcome]),
     ).toEqual([
@@ -85,6 +85,7 @@ describe('askMetrics on the real gateway (packages/ai, fake transport)', () => {
     // the model got the one narrowed tool and the store, and the tool result came back to it
     expect(transport.calls[0]!.tools!.map((t) => t.name)).toEqual(['query_metrics']);
     expect(transport.calls[0]!.user).toContain('brand-a');
+    expect(transport.calls[0]!.user).toContain('<locale>en</locale>'); // @2: no locale sent → en
     expect(transport.calls[0]!.user).not.toContain('brand-b');
     // the tool's schema carries the real store ids (the enum the model must pick from); the prompt text is redacted,
     // (a uuid passes packages/ai's redaction whole since #681: see the stores-line test below)

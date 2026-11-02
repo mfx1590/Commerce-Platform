@@ -91,6 +91,8 @@ export function askAdminRouter(opts: AskRouterOptions = {}): Router {
             stores,
             finance: await can(p, 'finance', 'organization:hq'),
             organizationScope: hasOrganizationAccess(p),
+            // the admin forwards the browser's Accept-Language; ask.ts keeps only a valid first tag (else `en`)
+            locale: req.get('accept-language'),
           },
           req.body as { question: string; store_ids?: string[]; from?: string; to?: string },
         );
