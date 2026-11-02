@@ -15,7 +15,7 @@ import {
 const KEY = 'bi-qa-answer@2';
 
 const vars: TemplateVariables<typeof KEY> = {
-  question: 'Which five products had the most refunds last month?',
+  question: 'Which five products sold the most units last month?',
   locale: 'nl-NL',
   today: '2026-11-02',
   window: '2026-10-03..2026-11-03',
@@ -48,36 +48,41 @@ describe('bi-qa-answer@2', () => {
     const { system } = getTemplate(KEY);
     for (const s of [
       'answer in the language the <question> is written in',
-      'not the language of store names, product titles or other values in the results',
+      'not the language of store names, item labels or other values in the results',
       "Only when the question's language cannot be told",
       'answer in the language of <locale>',
     ])
       expect(system).toContain(s);
   });
 
-  it('computes no figure except ONE labelled derived one that shows its inputs; asks the tool first', () => {
+  it('computes no figure except ONE difference or sum of two, or ONE ratio, labelled with its inputs (manager decision)', () => {
     const { system } = getTemplate(KEY);
     for (const s of [
       'Never compute a figure that is not in a result',
       'first ask query_metrics for it',
-      'ONE simple difference, sum or average of figures from results in the same currency',
-      'label it "derived" and show its inputs with their refs',
-      '(derived: 4,000.00 [q1] − 2,750.00 [q2])',
+      'ONE derived figure, and only one of these',
+      'the difference or the sum of exactly two figures (two amounts in the same currency, or two counts)',
+      'the ratio of two figures rounded half-up to 2 decimals',
+      'Nothing else: no averages, no sums of more than two figures, no chains of steps',
+      'Label it "derived" and show its two inputs with their refs in exactly this form',
+      '"1,250.00 EUR (derived: 4,000.00 [q1] − 2,750.00 [q2])"',
+      '"0.43 (derived: 1,250 [q1] / 2,900 [q2])"',
       'Do the arithmetic on the integer minor units',
     ])
       expect(system).toContain(s);
-    // the example is right, so it teaches no wrong sum
-    expect(400_000 - 275_000).toBe(125_000);
-    expect(system).toContain('"1,250.00 EUR (derived:');
+    expect(system).not.toContain('average of figures');
   });
 
-  it('top/most/least: the dimension that names the items, order_by on the metric, a limit; never one combined row', () => {
+  it('top/most/least: the identifying dimension at grain total, order_by and a limit; one currency per query for money', () => {
     const { system } = getTemplate(KEY);
     for (const s of [
       'For a top, most, least, best or worst question',
-      'ask for the dimension that names the items (for example product or store)',
-      'with order_by on the metric (desc for top and most, asc for least) and a limit',
+      'ask for the dimension that identifies the items (for example product or store)',
+      'with grain total, order_by on the metric (desc for top and most, asc for least) and a limit',
+      'For a money metric, rank one currency per query (filters.currencies with that one currency)',
+      'report the ranking per currency; never merge rankings across currencies',
       'Never answer a ranking from a single combined row',
+      'Report the item labels as given in the rows; never invent names',
     ])
       expect(system).toContain(s);
   });
@@ -108,7 +113,7 @@ describe('bi-qa-answer@2', () => {
         '<window>2026-10-03..2026-11-03</window>\n' +
         '<stores>\nbrand-a, brand-b\n</stores>\n' +
         '<currency_note>Amounts are integer minor units per currency; never add different currencies together.</currency_note>\n' +
-        '<question>\nWhich five products had the most refunds last month?\n</question>',
+        '<question>\nWhich five products sold the most units last month?\n</question>',
     );
     const injected = renderTemplate(t, {
       ...vars,
@@ -135,15 +140,18 @@ describe('bi-qa-answer@2', () => {
             {
               name: 'query_metrics',
               input: {
-                metrics: ['refunds'],
+                metrics: ['units'],
                 dimensions: ['product'],
-                order_by: { metric: 'refunds', direction: 'desc' },
+                grain: 'total',
+                from: '2026-10-01',
+                to: '2026-11-01',
+                order_by: { metric: 'units', direction: 'desc' },
                 limit: 5,
               },
             },
           ],
         },
-        { text: 'De vijf producten met de meeste terugbetalingen: … [q1]' },
+        { text: 'The five products that sold the most units: … [q1]' },
       ],
     });
     const audit = createMemoryAuditSink();
