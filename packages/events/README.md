@@ -206,7 +206,8 @@ handle. Group timeouts: session 10 s, heartbeat 3 s (sent between retry attempts
 The groups on main, listed in `infra/redpanda/topics.policy.json` so their dead-letter topics exist with the
 environment's numbers before the first start: `accounting.ledger` (apps/accounting `LEDGER_GROUP`),
 `engagement.ops`, `engagement.cdp`, `engagement.crm` (apps/engagement `OPS_GROUP_ID`, `CDP_GROUP_ID`,
-`CRM_GROUP_ID`). A new group belongs in that list in the PR that adds it.
+`CRM_GROUP_ID`), `analytics.raw` (apps/analytics-ingest `DEFAULT_GROUP`, #615). A new group belongs in that list in
+the PR that adds it.
 
 `consumer.stop()` stops reading, lets the batch in flight finish and then disconnects the producer. A message that is
 mid-retry when you stop gives up at its next attempt: it is not dead-lettered and its offset is not committed, so
