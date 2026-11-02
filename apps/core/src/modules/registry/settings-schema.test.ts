@@ -69,6 +69,20 @@ describe('store settings shape (#413)', () => {
     });
   });
 
+  it('content.brand_voice (1–500) and content.audience (1–200) for AI copy drafts (#608)', () => {
+    expect(
+      settingsProblems({ content: { brand_voice: 'Warm, short.', audience: 'home cooks' } }),
+    ).toEqual({});
+    expect(settingsProblems({ content: { brand_voice: ' ', audience: 'x'.repeat(201) } })).toEqual({
+      'content.brand_voice': 'string of 1–500 characters',
+      'content.audience': 'string of 1–200 characters',
+    });
+    expect(settingsProblems({ content: { brand_voice: 'x'.repeat(501) } })).toEqual({
+      'content.brand_voice': 'string of 1–500 characters',
+    });
+    expect(settingsProblems({ content: 'warm' })).toEqual({ content: 'object' });
+  });
+
   it('a non-object settings value is one problem', () => {
     expect(settingsProblems('nope')).toEqual({ settings: 'object' });
     expect(settingsProblems([])).toEqual({ settings: 'object' });

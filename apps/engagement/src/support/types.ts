@@ -106,6 +106,13 @@ export interface AgentPrincipal {
 export class SupportError extends Error {
   readonly status: number;
   readonly code: string;
+  /**
+   * Extra, SAFE fields for the body's `details` (#610): a refusal category, a limiter reason. Never an
+   * upstream message, a token, or anything a customer typed — the same rule the messages follow.
+   */
+  details?: Record<string, unknown>;
+  /** Seconds, rendered as `Retry-After` with `ai_rate_limited` (the contract's own shape). */
+  retryAfterSeconds?: number;
   constructor(status: number, code: string, message: string) {
     super(message);
     this.name = 'SupportError';

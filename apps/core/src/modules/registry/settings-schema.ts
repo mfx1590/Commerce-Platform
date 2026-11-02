@@ -50,6 +50,12 @@ const countryCodeMap: Check = (v) =>
     ? null
     : 'object of ISO-3166-1 alpha-2 country → warehouse code';
 const derived: Check = () => 'derived by the server (never stored)';
+const textOfLength =
+  (min: number, max: number): Check =>
+  (v) =>
+    typeof v === 'string' && v.trim().length >= min && v.length <= max
+      ? null
+      : `string of ${min}–${max} characters`;
 
 /**
  * Every `store.settings` path the core reads, with its shape. Dotted paths; an intermediate object is checked
@@ -92,6 +98,10 @@ export const STORE_SETTINGS_SHAPES: Readonly<Record<string, Check>> = {
   'fraud.velocity.window_minutes': positiveInt,
   'fraud.country_mismatch': oneOf('review', 'allow'),
   'fraud.radar_highest': oneOf('block', 'review'),
+  // AI copy drafts (#608, CONTRACT CHANGE #664 decision 2): the brand voice and audience the drafting template gets
+  content: object,
+  'content.brand_voice': textOfLength(1, 500),
+  'content.audience': textOfLength(1, 200),
 };
 
 function valueAt(settings: Record<string, unknown>, path: string): unknown {

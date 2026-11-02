@@ -2,6 +2,18 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-10-31 · AI product copy drafts (#608, P5.9; CONTRACT CHANGE #664, Admin API 0.4.26)
+
+- `POST /admin/stores/{storeId}/products/{productId}/copy-drafts` (`draftProductCopy`, store_staff): a draft of
+  `title` / `description` / `bullets` / `seo` in one enabled locale through the guarded AI gateway (`@platform/ai`,
+  purpose `drafting`, Redis limiter, `ai_call_audit` sink) — returned with the model and template id, NEVER written
+  to the product. Input: the product's own facts, `store.settings.content.brand_voice` / `.audience` (new settings
+  shapes, 422 when wrong) and the locale; no customer data. The gateway's errors map to `ai_disabled` 503,
+  `ai_budget_exceeded` / `ai_rate_limited` 429 (+ `Retry-After`), `ai_refused` 422, `ai_unavailable` /
+  `ai_invalid_draft` 502, `unavailable` 503, `internal` 500. `AppError` can carry response headers. Template
+  `product-copy-draft@2` (window 14, #665: strict JSON; a `max_tokens` cut-off is `ai_invalid_draft` `truncated`);
+  tests on the deterministic fake only.
+
 ### 2026-10-23 · listOrders filters by customer (CONTRACT CHANGE #569, contracts 0.4.27)
 
 - `GET /admin/stores/{storeId}/orders?customer_id=<uuid>` (Admin API 0.4.24): only that customer's orders,
