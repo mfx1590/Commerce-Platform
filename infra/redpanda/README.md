@@ -110,6 +110,18 @@ Compaction cannot do this job:
 the message key is the store, not the customer. The DLQs stay forever but carry no payload (ids, offsets, the
 error class), so they hold no customer id.
 
+**Rebuilding a consumer now needs the outbox replay first (#699 review).** A fresh group that reads every topic from
+the beginning gets all of `payment.*`, `refund.*` and `shipment.*` (forever) but only 30 days of `order.*`. The
+accounting ledger would then park every older payment or shipment, waiting for an `order.placed` that never comes.
+So run `outbox:replay --topic order.placed` and `--topic order.cancelled` (and the other `order.*` the consumer
+reads) before, or together with, the fresh group. The same applies to a new `analytics.raw` group and to an
+engagement `--drain`: from the bus alone they see 30 days of orders, not history.
+
+**Until the erasure-aware replay lands (#700), do not run a full `order.placed` replay for a store that has
+erasures:** today's replay republishes those orders unscrubbed. **DLQ replay of `order.*`:** `replayFromDlq`
+re-fetches the original by offset, so an `order.*` dead letter older than 30 days reports `missing`. Recover it with
+`outbox:replay --topic <t> --from/--to` instead.
+
 **Cleanup policy `delete`** on every event topic (never `compact`: compaction would drop earlier events of
 the same key, and our key is the store).
 

@@ -62,5 +62,5 @@ succeed while the publish fails (or the reverse), and the ledger never reconcile
 Topics that carry customer identifiers (`customer_id`, `email_hash`) are kept for 30 days, `order.*` included, with a
 1-day segment roll so a record lives at most about 31 days. The outbox, not the bus, is the replay source (#534), so the
 bus only needs a delivery window, and an erased customer leaves the bus within the erasure response period.
-Topics without customer ids (`payment.*`, `refund.*`, `shipment.*`, `return.*`, `stock.*`) stay forever. Replays skip
-erased customers; scrubbing `order.placed` needs `order.placed@2` (#696, deferred).
+Topics without customer ids (`payment.*`, `refund.*`, `shipment.*`, `return.*`, `stock.*`) stay forever. Replays will skip
+erased customers (#700); scrubbing `order.placed` needs `order.placed@2` (#696, deferred).
