@@ -298,6 +298,33 @@ async function loadAggregate(
 const variantSummaries = (a: ProductAggregate) =>
   a.variants.map((v) => ({ variant_id: v.id, sku: v.sku, title: v.title }));
 
+/**
+ * `product.published` v1 for a product's CURRENT state — the one builder for `publishProduct` and the catalogue
+ * re-publish (#634), so a re-announcement carries exactly what a publish would.
+ */
+export function productPublishedEvent(
+  organizationId: string,
+  a: ProductAggregate,
+  actor: Actor,
+): Promise<EventEnvelope> {
+  return buildEvent({
+    topic: 'product.published',
+    organizationId,
+    storeId: a.product.store_id,
+    aggregateType: 'product',
+    aggregateId: a.product.id,
+    actor: eventActor(actor),
+    payload: {
+      product_id: a.product.id,
+      handle: a.product.handle,
+      title: a.product.title,
+      category_id: a.product.category_id,
+      variants: variantSummaries(a),
+      published_at: toAdminProduct(a).published_at!,
+    },
+  });
+}
+
 async function emitProductUpdated(
   tx: Queryable,
   organizationId: string,
@@ -625,24 +652,7 @@ export async function publishProduct(
       before: { status: current.status },
       after: { status: 'published', published_at: product.published_at },
     });
-    await withEvents(tx, [
-      await buildEvent({
-        topic: 'product.published',
-        organizationId,
-        storeId,
-        aggregateType: 'product',
-        aggregateId: productId,
-        actor: eventActor(actor),
-        payload: {
-          product_id: productId,
-          handle: a.product.handle,
-          title: a.product.title,
-          category_id: a.product.category_id,
-          variants: variantSummaries(a),
-          published_at: product.published_at!,
-        },
-      }),
-    ]);
+    await withEvents(tx, [await productPublishedEvent(organizationId, a, actor)]);
     return product;
   });
 }

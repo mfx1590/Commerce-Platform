@@ -15,7 +15,8 @@
     "outbox:replay": "tsx src/outbox/replay-cli.ts",
     "clean": "rm -rf .medusa dist .turbo",
     "lint": "eslint . --max-warnings 0",
-    "bootstrap": "tsx scripts/bootstrap.ts"
+    "bootstrap": "tsx scripts/bootstrap.ts",
+    "catalog:republish": "tsx scripts/catalog-republish.ts"
   },
   "dependencies": {
     "@clickhouse/client": "1.24.1",
