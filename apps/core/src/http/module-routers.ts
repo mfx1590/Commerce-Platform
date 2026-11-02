@@ -26,6 +26,7 @@ import {
   mediaRouter,
   merchandisingRouter,
   PgRulesRepository,
+  recommendationsRouter,
   type IndexClient,
   type StoreIndexTarget,
 } from '../modules/search';
@@ -66,6 +67,19 @@ export function moduleAdminRouters(): Router[] {
   // /admin/hq/reports/{sales,finance} (analyst on organization:hq) (#479 / REQUEST #494). It reads the four
   // x-permissions from admin-api.yaml when it is built and throws if one is missing.
   routers.push(reportingAdminRouter());
+  return routers;
+}
+
+/**
+ * Store API routers other windows' modules export (#624). Mounted inside the `/store` chain, after window 1's own
+ * Store API routes (`mountStoreRoutes`) and BEFORE the fallback proxy, which is a catch-all on `/store`: a router
+ * mounted after it would never run. They get `req.tenant` from the publishable-key middleware and carry no
+ * `x-permission` (the Store API has none). Same opt-in rule as the admin routers: the server passes this list.
+ */
+export function moduleStoreRouters(): Router[] {
+  const routers: Router[] = [];
+  // window 9 — recommendations: GET /store/recommendations (Store API 0.5.9 listProductRecommendations, #607)
+  routers.push(recommendationsRouter());
   return routers;
 }
 
