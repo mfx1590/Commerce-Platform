@@ -92,11 +92,11 @@ follows a delete can be refused for a moment: `ensureTopics` retries the refused
 producer with `acks=all` then needs two replicas to acknowledge, so one broker can be lost without losing an
 acknowledged event.
 
-**Retention, two classes (ADR 0003 item 3, #629).** `forever` (`retention.ms=-1`) for what accounting and
-inventory derive from and that carries no customer id: `payment.*`, `refund.*`, `shipment.*`, `return.*`,
-`stock.*`, `stock_item.*`. `days_30` (`retention.ms=2592000000`, `segment.ms=86400000`) for the rest:
-`order.*`, `store.*`, `product.*`, `customer.*`, `fulfillment.*`, `campaign.*`, `feed.*`, `attribution.*`,
-`referral.*`, `review.*`, `cart.*`. The bus is not the archive: the outbox table is the source of truth and the
+**Retention, two classes (ADR 0003 item 3, #629, #707).** `forever` (`retention.ms=-1`) only for the inventory
+ledger, which names no customer in its payload or its actor: `stock.*`, `stock_item.*`. `days_30`
+(`retention.ms=2592000000`, `segment.ms=86400000`) for everything else: `order.*`, `payment.*`, `refund.*`,
+`shipment.*`, `return.*`, `store.*`, `product.*`, `customer.*`, `fulfillment.*`, `campaign.*`, `feed.*`,
+`attribution.*`, `referral.*`, `review.*`, `cart.*`. The bus is not the archive: the outbox table is the source of truth and the
 replay CLI (#534) republishes from it, so a 30-day topic is a delivery window, not a history. `customer.erased`
 sits in the 30-day class on purpose: a consumer that was down for a month re-syncs from the outbox replay, which
 carries it.
@@ -106,26 +106,36 @@ carries it.
 customer's ids leave the bus within 31 days. Redpanda deletes whole closed segments only and rolls a segment
 every 14 days by default (`segment.ms=1209600000`, which made the bound 44 days), so the 30-day class rolls
 daily. `order.*` was `forever` until #629; the ledger rebuilds from the outbox replay like every other consumer.
+
+**The ENVELOPE ACTOR counts too (#707).** A signed-in checkout stamps the customer as the actor of every event it
+writes, `payment.authorized` included, so `payment.*` moved to the 30-day class with `refund.*`, `shipment.*` and
+`return.*` (the next customer-facing flow, a Store API return or cancellation, would do the same there). Only
+`stock.*` / `stock_item.*` stay forever, and the core enforces it: `withEvents` (apps/core/src/outbox) rejects an
+event on a forever topic whose actor is a customer with an id (`InvalidEventError`), and a test pins the core's
+list of forever prefixes to this file.
 Compaction cannot do this job:
 the message key is the store, not the customer. The DLQs stay forever but carry no payload (ids, offsets, the
 error class), so they hold no customer id.
 
-**Rebuilding a consumer now needs the outbox replay first (#699 review).** A fresh group that reads every topic from
-the beginning gets all of `payment.*`, `refund.*` and `shipment.*` (forever) but only 30 days of `order.*`. The
-accounting ledger would then park every older payment or shipment, waiting for an `order.placed` that never comes.
-So run `outbox:replay --topic order.placed` and `--topic order.cancelled` (and the other `order.*` the consumer
-reads) before, or together with, the fresh group. The same applies to a new `analytics.raw` group and to an
-engagement `--drain`: from the bus alone they see 30 days of orders, not history.
+**Rebuilding a consumer needs the outbox replay (#699 review, #707).** Since #707 every topic a ledger or a
+report rebuilds from is in the 30-day class, so a fresh group that reads from the beginning sees 30 days of
+history, not all of it. Rebuild from the outbox: `outbox:replay` every topic the consumer reads, the orders FIRST.
+For accounting (`LEDGER_TOPICS`): `--topic order.placed`, `--topic order.cancelled`, then `payment.captured`,
+`refund.issued`, `shipment.shipped`, before or together with the fresh group. Accounting PARKS a
+`shipment.shipped`, an `order.cancelled` and a `refund.issued` whose reason is not `cancellation` until its
+`order.placed` arrives, then posts them in `occurred_at` order; a `payment.captured` (and a cancellation refund)
+posts on its own. So after the orders, the order of the last three does not matter. The
+same applies to a new `analytics.raw` group and to an engagement `--drain`: from the bus alone they see 30 days.
 
-**Until the erasure-aware replay lands (#700), do not run a full `order.placed` replay for a store that has
-erasures:** today's replay republishes those orders unscrubbed. **DLQ replay of `order.*`:** `replayFromDlq`
-re-fetches the original by offset, so an `order.*` dead letter older than 30 days reports `missing`. Recover it with
-`outbox:replay --topic <t> --from/--to` instead.
+**DLQ replay of a 30-day topic:** `replayFromDlq` re-fetches the original by offset, so a dead letter of ANY
+30-day topic (`order.*`, and since #707 `payment.*`, `refund.*`, `shipment.*` and `return.*` too) whose
+original is older than its retention reports `missing`. Recover it with `outbox:replay --topic <t> --from/--to`
+instead; the outbox replay is erasure-aware (#700).
 
 **DLQ replay reads `customer.erased` first (#703).** `replayFromDlq` builds its erased set from this topic and
 refuses to run without it, so `customer.erased` must exist wherever a group replays (`topics:create` makes it).
-It knows the erasures of the last ~31 days (30-day class, daily roll), the same window as the 30-day originals it
-guards; an actor on a forever topic can outlive it (#707). packages/events README, "Erasure on DLQ replay".
+It knows the erasures of the last ~31 days (30-day class, daily roll), the same window as the originals it guards:
+since #707 every topic that can carry a customer, in the payload or as the actor, is a 30-day topic. packages/events README, "Erasure on DLQ replay".
 
 **Cleanup policy `delete`** on every event topic (never `compact`: compaction would drop earlier events of
 the same key, and our key is the store).

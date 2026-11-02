@@ -6,9 +6,13 @@
     "production": { "partitions": 12, "replication": 3, "min_insync_replicas": 2 }
   },
   "retention": {
-    "forever": ["payment.", "refund.", "shipment.", "return.", "stock.", "stock_item."],
+    "forever": ["stock.", "stock_item."],
     "days_30": [
       "order.",
+      "payment.",
+      "refund.",
+      "shipment.",
+      "return.",
       "store.",
       "product.",
       "customer.",
