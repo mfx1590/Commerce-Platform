@@ -185,7 +185,7 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **Never commit a 64-hex email_hash fixture.** The `sha256` $def needs a real 64-hex value, so a word will not validate — compute it: `createHash('sha256').update('…').digest('hex')`, which is what apps/core does. I had three such literals before catching it; one would have reddened every open PR.
 - `pg` is deliberately NOT a dependency of this app: for a pool type use `Parameters<typeof createTenantClient>[0]`.
 
-## RESUME HERE — 2026-11-03: the 30-day retention docs note (small PR, merges after #712)
+## RESUME HERE — 2026-11-03: docs note MERGED (PR #713 = 3ff0acdc); IDLE
 
 **Manager session ten**, docs only. Branch `engagement/phase5-712-docs` off `origin/main`, carrying #705's
 stranded memory commit (cherry-picked).
@@ -205,7 +205,14 @@ CLAUDE.md beside the fresh-group rule. Package **0.9.4**.
 `apps/core/package.json` really does expose `outbox:replay`. The PR body says it must merge after #712, since
 until then the README would describe a retention the broker does not have.
 
-**Also worth knowing from #707's own notes:** the `order.*` retention change from #699 was apparently NEVER
+**MERGED, and in the right order** (verified on GitHub and against `origin/main`, not taken from the note):
+#712 at 22:41Z (`967c1d84`), then **#713 at 23:10Z (`3ff0acdc`)** — so the README never described a retention
+the policy did not have. `origin/main:infra/redpanda/topics.policy.json` now has `retention.forever` =
+`['stock.', 'stock_item.']` only, with `order.`, `customer.`, `payment.`, `refund.`, `shipment.`, `return.`
+all in `days_30`. The manager has applied it on the dev broker, so the caveat below is now HISTORY rather
+than a live warning — a local drain should see the 30-day window too. **Status: IDLE.**
+
+**The caveat that applied until the dev broker was updated, from #707's own notes:** the `order.*` retention change from #699 was apparently NEVER
 APPLIED on the local broker, so a local drain may still see more than 30 days. The manager applies
 `topics:create` on dev after #712 merges — do not read a local drain as proof of production retention.
 
