@@ -16,7 +16,7 @@ import {
 } from './access.js';
 import { createChClient, createChReader, type ChClient } from './clickhouse.js';
 import { loadConfig } from './config.js';
-import { migrate, readSqlFiles } from './migrations.js';
+import { migrate, readSqlFiles, splitStatements } from './migrations.js';
 import { clickHouseSkipReason, throwawayDatabase } from './testing/clickhouse-gate.js';
 
 const file = (name: string, sql: string, user = 'u_test'): AccessFile => ({
@@ -52,11 +52,15 @@ describe('data/clickhouse/access', () => {
   it('every materialised view on raw_events has its TO table in the INSERT grants (a new MV cannot be forgotten)', () => {
     const migrations = readSqlFiles().filter((f) => f.kind === 'migration');
     const targets = new Set<string>();
+    // per statement, and the source may sit in a subquery (0006, #692 review: `FROM (SELECT … FROM raw_events) AS
+    // r`): any FROM of the MV's own statement counts, never one of a later statement
     for (const f of migrations)
-      for (const m of f.sql.matchAll(
-        /CREATE MATERIALIZED VIEW IF NOT EXISTS \w+ TO (\w+) AS[\s\S]*?\bFROM (\w+)/g,
-      ))
-        if (m[2] === 'raw_events') targets.add(m[1]!);
+      for (const s of splitStatements(f.sql)) {
+        const mv =
+          /^CREATE\s+MATERIALIZED\s+VIEW\s+IF\s+NOT\s+EXISTS\s+\w+\s+TO\s+(\w+)\s+AS\b/i.exec(s);
+        if (mv && [...s.matchAll(/\bFROM\s+(\w+)/gi)].some((from) => from[1] === 'raw_events'))
+          targets.add(mv[1]!);
+      }
     expect([...targets]).toEqual(['orders_minute_events']);
     const inserts = new Set(
       [...files[0]!.sql.matchAll(/^GRANT INSERT ON \{\{database\}\}\.(\w+) TO/gm)].map((m) => m[1]),

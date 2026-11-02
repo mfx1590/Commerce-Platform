@@ -2,6 +2,16 @@
 
 ## 0.8.1 — unreleased (#648 follow-ups)
 
+- #689: migration 0006 replaces `mv_orders_minute` (0002), whose `store_id IS NOT NULL` read the alias
+  `assumeNotNull(store_id)` and so filtered nothing (a store-less order.placed would land under the zero uuid). In
+  order: `mv_orders_minute_v2` (the filter in a subquery), then `DROP VIEW IF EXISTS mv_orders_minute`, then the
+  zero-uuid store rows deleted. The idempotency lint allows exactly that much (tightened in the #692 review): a DROP
+  only as `DROP VIEW IF EXISTS` of an MV created earlier, once another MV writes to its TO table; a DELETE only of the
+  zero-uuid store rows (`toUUID` as written) from an MV's ReplacingMergeTree TO table, never `raw_events` (tested both
+  ways). `migrate` now drains the running INSERTs before a DELETE too (an
+  insert begun before the drop still writes through the old MV). Live: inserts running during 0006 — every order
+  exactly once, only the new MV left; a store-less order under the zero uuid through 0002, deleted by 0006, kept
+  out after it.
 - #685, a lost-row bug, not a flaky test: an insert that began before 0002's materialised view and committed after its
   backfill had read `raw_events` reached neither, and its order.placed rows were missing from `orders_minute_events`
   for good (86 of 150 in a forced run; 143 of 150 on CI). `migrate` now waits, before every backfill, for every

@@ -65,10 +65,16 @@ describe('topics.policy.json', () => {
 
 describe('the known consumer groups (#561)', () => {
   // the group ids the apps export on main: accounting LEDGER_GROUP, engagement OPS_GROUP_ID / CDP_GROUP_ID /
-  // CRM_GROUP_ID. packages/events cannot import apps, so the names are pinned here and listed in the README.
-  const GROUPS = ['accounting.ledger', 'engagement.ops', 'engagement.cdp', 'engagement.crm'];
+  // CRM_GROUP_ID, analytics-ingest analytics.raw (#615). packages/events cannot import apps, so the names are pinned here and listed in the README.
+  const GROUPS = [
+    'accounting.ledger',
+    'engagement.ops',
+    'engagement.cdp',
+    'engagement.crm',
+    'analytics.raw',
+  ];
 
-  it('the policy lists exactly the four groups, so create-topics makes their DLQs with the environment numbers', () => {
+  it('the policy lists exactly the five groups, so create-topics makes their DLQs with the environment numbers', () => {
     expect(policy.dlq.consumer_groups).toEqual(GROUPS);
   });
 

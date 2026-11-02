@@ -8,7 +8,7 @@ Owner: window 4 (admin) implements; main window owns this brief. Applies from ad
 
 The product is called Medusa, so the admin's navigation **is** Medusa. The left rail shows her head; her serpents are the sections. Each serpent's head carries one label at its tip. Hover lifts a serpent and lights its gold eye; the active section's serpent stays lifted. **A section the user is not allowed to see never grows a serpent** — the rail is the permission model made visible (the existing nav is already permission-driven from `GET /admin/me`; nothing changes server-side).
 
-Scope switch (Store · HQ) at the top of the rail swaps the serpent set: Store = Catalog, Orders, Customers (support), Promotions, Marketing, Settings (store_admin); HQ = Stores, Users & roles (owner), Finance (finance), Warehouses (operations), Marketing (analyst).
+Scope switch (Store · HQ) at the top of the rail swaps the serpent set: Store = Catalog, Orders, BI (viewer, #642), Inventory, Customers (support), Promotions, Marketing, Content, Settings (store_admin) — the source of truth is apps/admin/src/lib/nav/sections.ts; HQ = Stores, Warehouses (operations), Finance (finance), BI (analyst), Marketing (analyst), Users & roles (owner), Onboarding.
 
 ## Tokens (dark, committed — no light theme for the admin)
 

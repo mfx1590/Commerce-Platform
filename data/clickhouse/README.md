@@ -15,6 +15,11 @@ idempotent, so a file that failed halfway can simply run again. A test lints bot
 
 - `CREATE … IF NOT EXISTS` and `ALTER TABLE … ADD COLUMN IF NOT EXISTS` in migrations;
 - `INSERT … SELECT` into a ReplacingMergeTree table (a backfill whose copies fold);
+- `DROP VIEW IF EXISTS` of a materialised view created EARLIER (an earlier file or statement), and only once
+  another, later-created MV already writes to its TO table (replacing an MV: the new one first, #689); and
+  `DELETE FROM` a table that is a materialised view's TO table AND ReplacingMergeTree (never `raw_events`) `WHERE
+store_id = toUUID('00000000-0000-0000-0000-000000000000')` exactly, `toUUID` as written (the rows a no-op NULL
+  filter let through) — nothing wider;
 - `CREATE OR REPLACE VIEW` in models.
 
 `_migrations_lock` keeps two runners apart: the oldest LIVE claim wins and the other refuses. A running migration
@@ -132,7 +137,9 @@ groups by currency).
 
 ### Live tiles
 
-`mv_orders_minute` sees every insert into `raw_events`, redeliveries included, so it does not aggregate. It writes
+`mv_orders_minute_v2` (migration 0006, #689; it replaced 0002's `mv_orders_minute`, whose `store_id IS NOT NULL` read
+the alias `assumeNotNull(store_id)` and so filtered nothing — the new one filters in a subquery, and 0006 deleted any
+zero-uuid store rows) sees every insert into `raw_events`, redeliveries included, so it does not aggregate. It writes
 one row per order.placed event into `orders_minute_events`, a ReplacingMergeTree ordered by
 `(store_id, currency, minute, event_id)`, where copies of an event fold. `live_orders_minute` aggregates at read
 time over FINAL: `uniqExact(order_id)` (never the approximate `uniq`) and `sum(total_minor)` per currency. It counts

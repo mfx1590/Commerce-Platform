@@ -501,6 +501,97 @@ describe.runIf(skip === null)('ClickHouse runner under concurrency', () => {
     expect(Number(t!.n)).toBe(placed.length);
   });
 
+  // #689: 0006 swaps the MV (new one first, then the old one dropped) while inserts run — no gap, no double count
+  it('migration 0006 replaces the orders MV while inserts run: every order exactly once, the old MV gone (#689)', async () => {
+    const db = throwawayDatabase();
+    made.push(db);
+    const c = open(db);
+    const files = readSqlFiles();
+    await migrate(
+      admin,
+      c,
+      db,
+      files.filter((f) => f.kind === 'migration' && f.name < '0006'),
+    );
+    const rows = rowsOf(allEvents, '2026-11-01T00:00:00.000Z');
+    const third = Math.floor(rows.length / 3);
+    await createRawEventsSink(c).insert(rows.slice(0, third));
+    // one slow insert begun BEFORE 0006 (it keeps the old MV it began with) …
+    await c.command({ query: 'CREATE TABLE stage AS raw_events' });
+    await createRawEventsSink(c, 'stage').insert(rows.slice(third, 2 * third));
+    const slow = c.command({
+      query: `INSERT INTO raw_events SELECT * FROM stage WHERE sleepEachRow(${(2.5 / third).toFixed(4)}) = 0`,
+      clickhouse_settings: { max_threads: 1 },
+    });
+    let seen = false;
+    for (let i = 0; i < 50 && !seen; i++) {
+      const [p] = await q(
+        admin,
+        `SELECT count() n FROM system.processes WHERE query_kind = 'Insert' AND current_database = '${db}'`,
+      );
+      seen = Number(p!.n) > 0;
+      if (!seen) await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(seen).toBe(true);
+    // … and small inserts that keep arriving WHILE 0006 swaps the views
+    const sink = createRawEventsSink(c);
+    const trickle = (async () => {
+      for (let i = 2 * third; i < rows.length; i += 25) await sink.insert(rows.slice(i, i + 25));
+    })();
+    const r6 = await migrate(admin, open(db), db, files);
+    await Promise.all([slow, trickle]);
+    expect(r6.applied).toContain('0006_orders_minute_mv_v2.sql');
+    const [r] = await q(
+      c,
+      'SELECT count() n, uniqExact(event_id) u FROM orders_minute_events FINAL',
+    );
+    expect(Number(r!.n)).toBe(placed.length);
+    expect(Number(r!.u)).toBe(placed.length);
+    const [t] = await q(c, 'SELECT sum(orders) n FROM live_orders_minute');
+    expect(Number(t!.n)).toBe(placed.length);
+    const views = (
+      await q(
+        admin,
+        `SELECT name FROM system.tables WHERE database = '${db}' AND engine = 'MaterializedView' ORDER BY name`,
+      )
+    ).map((v) => v.name);
+    expect(views).toEqual(['mv_orders_minute_v2']);
+  });
+
+  it('a store-less order.placed: under the zero uuid through 0002, deleted by 0006, and kept out after it (#689)', async () => {
+    const db = throwawayDatabase();
+    made.push(db);
+    const c = open(db);
+    const files = readSqlFiles();
+    await migrate(
+      admin,
+      c,
+      db,
+      files.filter((f) => f.kind === 'migration' && f.name < '0006'),
+    );
+    const sink = createRawEventsSink(c);
+    const [one] = rowsOf(
+      [placed[0]! as unknown as EventEnvelopeV1Base],
+      '2026-11-01T00:00:00.000Z',
+    );
+    const storeless = (eventId: string) => ({ ...one!, event_id: eventId, store_id: null });
+    const zero = async () =>
+      Number(
+        (
+          await q(
+            c,
+            "SELECT count() n FROM orders_minute_events FINAL WHERE store_id = toUUID('00000000-0000-0000-0000-000000000000')",
+          )
+        )[0]!.n,
+      );
+    await sink.insert([storeless('00000000-0000-4000-8000-0000000689a1')]);
+    expect(await zero()).toBe(1); // 0002's no-op filter let it through
+    await migrate(admin, c, db, files);
+    expect(await zero()).toBe(0); // 0006 deleted it
+    await sink.insert([storeless('00000000-0000-4000-8000-0000000689a2')]);
+    expect(await zero()).toBe(0); // and the new MV keeps one out
+  });
+
   it('migration 0005 refills the order rows an earlier 0002 run lost, and only those (#685)', async () => {
     const db = throwawayDatabase();
     made.push(db);
