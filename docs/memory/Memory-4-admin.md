@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-11-01 · Contracts: Admin API 0.4.26 on main · Branch: `admin/phase5-608` · Manager: "Manager session ten" (local_3c029c3c…; report there) · Status: #608 — PR #675 review fixes pushed; mock e2e green; waiting for checks / the manager
+Last updated: 2026-11-01 · Contracts: Admin API 0.4.26 on main · Branch: `admin/phase5-608` · Manager: "Manager session ten" (local_3c029c3c…; report there) · Status: IDLE — #675 MERGED ae4fbffd (#608 done)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -597,6 +597,9 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   pins the label, 1 s proves re-enable) and the label is awaited (the alert can render while the
   transition still says "Drafting…"). Mock e2e on the committed yaml: copy-draft + store-admin 19/19.
   Machine freed; ONE head pushed (this record); report to the manager.
+  **#675 MERGED = ae4fbffd (2026-11-02)** after the re-check OK (final head 6c927fec, queued after
+  #677). #608 done end to end. IDLE until the manager sends a task. (This note is a local commit,
+  pushed with the next task's first push.)
 - **#518 — Integration 3 G1 (tracking #517), 2026-10-20.** Manager is now **"Manager session
   seven"** (local_484d7727-b945-48ba-bb27-0366bd2bbdcc); report there. Merged main 78db5ce (Admin
   API 0.4.22, contracts-v0.4.25), install + build; `fga:seed` run (reused store 01M4ZT6H…, new
