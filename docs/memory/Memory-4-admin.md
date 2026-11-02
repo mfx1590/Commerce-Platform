@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-11-01 · Contracts: Admin API 0.4.26 on main · Branch: `admin/phase5-608` · Manager: "Manager session ten" (local_3c029c3c…; report there) · Status: IDLE — #675 MERGED ae4fbffd (#608 done)
+Last updated: 2026-11-01 · Contracts: Admin API 0.4.26 on main · Branch: `admin/phase5-608` · Manager: "Manager session ten" (local_3c029c3c…; report there) · Status: #642 — PR up (see In progress); #675 MERGED ae4fbffd
 
 ## Identity (does not change)
 Owned paths (write):
@@ -557,6 +557,10 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#642 — store-view rail entry for BI (2026-11-02, Manager session ten).** Branch admin/phase5-642 from
+  main d6ed17ee. `STORE_SECTIONS` + `bi` after Orders, VIEWER (queryMetrics viewer on store:*); the
+  page is window 12's (#604) and they wrap it in StoreSectionGuard id="bi" after this lands. Tests:
+  navigation / role-access lists + rail.spec (e2e not run locally; CI runs it). Gate 1002/1002. PR next.
 - **#608 — AI product copy drafts, the admin editor (P5.9), 2026-11-01.** Manager is now **"Manager
   session ten"** (local_3c029c3c-f2f4-4f0a-882d-a79c0d74d28f); report there. Branch admin/phase5-608
   from origin/main 423a50d3 (Admin API 0.4.26: draftProductCopy store_staff, ProductCopyDraft; 422
