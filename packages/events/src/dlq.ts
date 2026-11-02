@@ -75,15 +75,22 @@ export interface TopicReaderClient {
  * gone (the last record was a tombstone that compaction removed after a segment roll), so a partition that stays
  * silent for `idleMs` after its last message is done too. A partition that never delivers anything only ends by
  * the overall timeout, which names it.
+ *
+ * `{ strict: true }` drops the idle fallback: a partition is done only at `high − 1`, otherwise the timeout names it.
+ * For an uncompacted topic, where `high − 1` always arrives, and for every read that must FAIL CLOSED: a stall that
+ * the idle rule took for the end would return part of the topic as if it were all of it (#710 review: the
+ * customer.erased read of readErasedSet).
  */
 export async function readTopicToEnd(
   kafka: TopicReaderClient,
   topic: string,
   groupId: string,
   timeoutMs: number,
-  /** A partition that received a message and then nothing for this long is done (its last record may have been a tombstone compaction removed). */
-  idleMs = 1_500,
+  /** A number = `idleMs`: a partition that received a message and then nothing for this long is done (its last record may have been a tombstone compaction removed). `strict`: no idle fallback. */
+  idle: number | { idleMs?: number; strict?: boolean } = 1_500,
 ): Promise<KafkaMessage[]> {
+  const idleMs = typeof idle === 'number' ? idle : (idle.idleMs ?? 1_500);
+  const strict = typeof idle === 'object' && idle.strict === true;
   const admin = kafka.admin();
   await admin.connect();
   const lastOffset = new Map<number, number>(); // partition → high − 1, for the partitions that have messages
@@ -126,7 +133,7 @@ export async function readTopicToEnd(
           };
           if (Number(message.offset) >= (lastOffset.get(partition) ?? -1)) {
             done();
-          } else {
+          } else if (!strict) {
             // high − 1 may never arrive (a compacted tombstone was the last record): idle after the last message = done
             clearTimeout(idleTimers.get(partition));
             idleTimers.set(partition, setTimeout(done, idleMs));
@@ -231,7 +238,14 @@ async function fetchOriginals(
 /** customer.erased could not be read: the DLQ replay refuses to run any handler without it (#703). */
 export class ErasureSetUnavailableError extends Error {
   constructor(topic: string, cause: unknown) {
-    super(`cannot read ${topic}, so no dead letter was replayed: ${errorClassOf(cause)}`);
+    // the cause's message is ours (readTopicToEnd's timeout, a decode failure by offset) or the broker's: topic and
+    // partition names, offsets, never a payload
+    super(
+      `cannot read ${topic}, so no dead letter was replayed: ${errorClassOf(cause)}${
+        cause instanceof Error && cause.message ? `: ${cause.message}` : ''
+      }`,
+      { cause },
+    );
     this.name = 'ErasureSetUnavailableError';
   }
 }
@@ -248,15 +262,27 @@ export async function readErasedSet(opts: {
 }): Promise<ErasedSet> {
   const topic = `${opts.topicPrefix ?? ''}customer.erased`;
   try {
+    // strict: customer.erased is not compacted, so high − 1 always arrives; a stall must time out, never end the read
     const messages = await readTopicToEnd(
       opts.kafka,
       topic,
       opts.groupId,
       opts.timeoutMs ?? 15_000,
+      {
+        strict: true,
+      },
     );
     return erasedSetFrom(
       messages.map((m) => {
-        const { envelope } = decodeMessage({ key: m.key, value: m.value, headers: m.headers });
+        let envelope;
+        try {
+          ({ envelope } = decodeMessage({ key: m.key, value: m.value, headers: m.headers }));
+        } catch (err) {
+          // by offset and class only: a parser message can quote the value
+          throw new Error(
+            `the message at offset ${m.offset} does not decode (${errorClassOf(err)})`,
+          );
+        }
         const payload = envelope.payload as Record<string, unknown>;
         return {
           storeId: envelope.store_id,
