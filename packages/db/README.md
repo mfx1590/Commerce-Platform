@@ -159,3 +159,8 @@ thumbs `up` / `down` per conversation and asker, no free text; append-only, the 
 are RLS kind `store_nullable`: a store row for any session that can access the store, a NULL-store row for an
 organization-scope session (`createOrganizationClient`) of that organization only — a store-scoped client neither reads
 nor inserts one.
+
+Organization scope is decided by the principal (an organization-level relation), never by how many stores a
+question covers. `ai_qa_feedback` has no foreign key to the audit (one audit row per step). The core MUST derive
+`organization_id`, `store_id` and ownership from the conversation's step-0 audit row (`actor_id` = the caller), in
+the scope the question was asked in, before inserting. An audit row with no actor (a job) can never be rated.

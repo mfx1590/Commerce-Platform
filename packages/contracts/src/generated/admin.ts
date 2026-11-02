@@ -1985,7 +1985,7 @@ export interface paths {
         put?: never;
         /**
          * Answer a question about the metrics with AI tool use over queryMetrics — no SQL, the caller's scope only
-         * @description Runs the AI gateway (purpose `analysis`, template `bi-qa-answer`) with ONE tool, `query_metrics`, whose input is a `MetricQuery` narrowed to the caller: the metric enum is the caller's catalogue (`listMetrics`; finance metrics only with `finance` on `organization:hq`) and `filters.store_ids` may name only the caller's stores. Every tool call is validated, scoped and executed exactly as `queryMetrics` (the server adds the caller's store scope to every statement); a call outside the scope is returned to the model as a tool error and never reaches the analytics store. A store whose `settings.ai.bi_qa` is `false` is left out of the scope (it is listed in `excluded_store_ids` — only stores the caller may see are ever listed); absent means ON. The question is redacted before it is sent; what is sent to the model provider is store aggregates. A store question is charged to that store's AI budget; a question over several stores (HQ) to the organization's. One `ai_call_audit` row per model step (no content). POST: every call costs tokens and is audited. 403 (`forbidden`), before anything is sent to the model: a `store_ids` entry outside the caller's scope (`details: { relation, object }`), or every store in scope has BI Q&A switched off (`details: { reason: bi_qa_off }`).
+         * @description Runs the AI gateway (purpose `analysis`, template `bi-qa-answer`) with ONE tool, `query_metrics`, whose input is a `MetricQuery` narrowed to the caller: the metric enum is the caller's catalogue (`listMetrics`; finance metrics only with `finance` on `organization:hq`) and `filters.store_ids` may name only the caller's stores. Every tool call is validated, scoped and executed exactly as `queryMetrics` (the server adds the caller's store scope to every statement); a call outside the scope is returned to the model as a tool error and never reaches the analytics store. A store whose `settings.ai.bi_qa` is `false` is left out of the scope (it is listed in `excluded_store_ids` — only stores the caller may see are ever listed); absent means ON. The question is redacted before it is sent; what is sent to the model provider is store aggregates. A store question is charged to that store's AI budget. Organization scope is decided by the PRINCIPAL, never by how many stores a question covers: only a caller with an organization-level relation (e.g. `viewer` or `finance` on `organization:hq`) asks in organization scope (the organization's budget, audit rows with no store). A store-level caller with several stores in scope must name exactly ONE in `store_ids` (400 `validation_error`, `details.reason: store_required`, otherwise). One `ai_call_audit` row per model step (no content). POST: every call costs tokens and is audited. 403 (`forbidden`), before anything is sent to the model: a `store_ids` entry outside the caller's scope (`details: { relation, object }`), or every store in scope has BI Q&A switched off (`details: { reason: bi_qa_off }`).
          */
         post: operations["askMetrics"];
         delete?: never;
@@ -2007,7 +2007,7 @@ export interface paths {
         put?: never;
         /**
          * Thumbs up or down on an answer — the asker only, no free text
-         * @description Stored with the conversation (`ai_qa_feedback`); a later rating replaces the earlier one. No comment field: free text could carry personal data. A conversation the caller did not ask is a 404 (never a 403, so ids are not confirmed).
+         * @description Stored with the conversation (`ai_qa_feedback`); a later rating replaces the earlier one. No comment field: free text could carry personal data. A conversation the caller did not ask is a 404 (never a 403, so ids are not confirmed). The rating takes its organization, store and ownership from the conversation's own audit rows (the asker is the `actor_id` of step 0), read in the same scope the question was asked in.
          */
         post: operations["askMetricsFeedback"];
         delete?: never;
@@ -3698,7 +3698,7 @@ export interface components {
             conversation_id: string;
             /** @description The model's answer, from the query results only; it cites queries as [q1], [q2] … (1-based into `queries`). */
             answer: string;
-            /** @description Every query the model ran, in order — valid ones with their result, refused ones with the error. */
+            /** @description Every tool call that parsed as a `MetricQuery`, in order: run ones with their result, refused ones (out of scope, invalid window, …) with the error. A call that did not parse is answered to the model as a tool error and is not listed. Each result carries a server-assigned `ref` (`q1`, `q2`, …); `[qN]` in `answer` is the 1-based index into this list. */
             queries: {
                 query: components["schemas"]["MetricQuery"];
                 /** @description Present when the query ran; capped like queryMetrics (`truncated` carried through). */
