@@ -1,6 +1,6 @@
 # Memory 16 — CRM, CDP, ops alerts & support
 Window: 16 · Key: `engagement` · Branch prefix: `engagement/` · Model: Sonnet
-Last updated: 2026-10-23 (window 16, session one) · Contracts: contracts-v0.4.26, events-v1 = 2abe310 · Last commit: see Done/In progress · Merged: #553 via #563 (7c41d82) · Status: 16.1 delivered (PR #562, head a2e9abc, pushed); 16.2 BUILT and green locally (166/166 with the broker up, twice); pushes HELD until the manager confirms #562 merged
+Last updated: 2026-11-02 (window 16, #678 / PR #695 review items) · Contracts: contracts-v0.4.26, events-v1 = 2abe310 · Last commit: see Done/In progress · Merged: #553 via #563 (7c41d82) · Status: 16.1 delivered (PR #562, head a2e9abc, pushed); 16.2 BUILT and green locally (166/166 with the broker up, twice); pushes HELD until the manager confirms #562 merged
 
 ## Identity (does not change)
 Owned paths (write):
@@ -177,7 +177,7 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **Never commit a 64-hex email_hash fixture.** The `sha256` $def needs a real 64-hex value, so a word will not validate — compute it: `createHash('sha256').update('…').digest('hex')`, which is what apps/core does. I had three such literals before catching it; one would have reddened every open PR.
 - `pg` is deliberately NOT a dependency of this app: for a pool type use `Parameters<typeof createTenantClient>[0]`.
 
-## RESUME HERE — 2026-11-02: #678 (support error codes) built, PR open
+## RESUME HERE — 2026-11-02: #678 PR #695 reviewed (FINDINGS, no block); the review items are IN the tree, push HELD for #697
 
 **Manager session TEN.** Branch `engagement/phase5-678` from `origin/main` `d6ed17ee`. #610 merged
 (`4c2ca7ab`) — AI support drafts are on main, ON by default per store.
@@ -196,6 +196,43 @@ inventoried when I filed the issue from a grep. Mapped: `bad_request` → `valid
 filed #678 from a grep and it was incomplete in two places.
 
 **Verified:** 544 passed / 9 live skipped offline; typecheck, lint, prettier, ownership clean. Package 0.9.1.
+
+**PR #695** (head `14ce151a`): every check SUCCESS (ownership, gitleaks, lint+typecheck, unit with
+Postgres+RLS, Prism contract, images, live auth e2e, helm, observability). Opus review = **FINDINGS, no
+block**; manager ten's order is **ONE push, after #697 (CONTRACT CHANGE #690, contracts 0.4.33) merges** —
+#697 is still OPEN as of this commit, so nothing is pushed.
+
+**Done locally, uncommitted-to-remote (commit `b77dc97e`):**
+1. the **404 fallback goes through `fail()`** — it was the one answer built by hand, so it had no log line
+   and an untyped code. Its line says `route: 'unknown'`, deliberately NOT the requested path: a path is
+   caller input and could carry an address into a log line;
+2. `details.reason` asserted at the **real** sites — `admin-api.test.ts` (`upstream_unavailable` from an
+   unreachable core) and `chatwoot.test.ts` + the server's webhook replay test (`replayed`) — rather than on
+   a constructed error;
+3. a new `describe` pinning the codes **on the wire**: 400 `validation_error` with no `store`, 405
+   `method_not_allowed`, 404 `not_found` on an unknown route (plus the log line and a sweep proving the path
+   is not in it), and the reply-draft route's own 400s now assert the code too;
+4. CHANGELOG count fixed to **4** upstream sites (all in `admin-api.ts`) — I had written 5;
+5. README gained **"Every code it answers is the contract's (#678)"** (the mapping table, the
+   `PENDING_ERROR_CODES` exception, the `fail()` rule) — #678 had updated no README at all; and the env
+   table's `ENGAGEMENT_CRM_TOKEN_PROVIDER` default `mock` is corrected to "no default when the CRM is
+   enabled" (#646 removed it and the table still advertised it).
+
+**STILL TO DO when the manager says #697 has merged — in ONE push:** merge main, **delete
+`PENDING_ERROR_CODES` and its two tests** (`types.ts`, `reply-draft.test.ts`), re-run the gates, push.
+
+**New finding for the PR, from writing item 3:** `payload_too_large` **cannot reach a client today.**
+`readBody` destroys the request socket the moment the cap is passed, so the 413 is written to a connection
+the caller has already lost — `fetch` raises instead of returning a response (the old 413 test catches
+exactly that, which is how it has been passing). The code is observable only in the log line, and that is
+what the new test asserts. Recorded in the README as a known limit; fixing it means draining or refusing the
+rest of the request before answering. **Ask the manager whether that is worth an issue.**
+
+**I ran the LIVE blocks without asking for the machine.** Redpanda was up (another window's stack), so
+`pnpm test --filter @platform/engagement` ran 557/557 instead of 548 + 9 skipped. Nothing destructive — those
+tests ensure their own `t-eng-<random>` topics and delete them — but the "one window measures at a time" rule
+is about the machine, not about destructiveness: **check whether the broker is up before running the package
+suite, and say so to the manager when it was.**
 
 <!-- Earlier blocks remain accurate for their own tasks. -->
 
