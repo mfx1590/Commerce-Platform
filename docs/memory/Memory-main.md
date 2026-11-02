@@ -17,6 +17,35 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
 - Solo operator on Claude Max 5x: ONE build window active at a time, Reviewer session for merges, strongest model only for main window + events/accounting
 
 ## Current status
+- **2026-11-02 ~21:15 local: HANDOVER TO MANAGER SESSION ELEVEN (session ten at about 80% context). READ THIS FIRST; it supersedes the bullets below where they differ.** Phase 5, wave 3 DONE; follow-ups running.
+  - **Owner standing orders:** "continue until you hit the limit" (11-02). "The manager decides" next tasks (11-02). AI features are ON by default (11-01). Stop at 80% of the 5h limit; at 85% weekly hand out no new tasks and tell the owner (weekly 75% at handover).
+  - **Done in session ten:**
+    - #606 BI Q&A, #608 product copy drafts and #610 support drafts are all merged.
+    - The packages/ai gateway: runTools, org scope, redact (uuid guard, JSON tokens), templates product-copy-draft@2, support-reply-draft@1, bi-qa-answer@1/2/3.
+    - Real-model BI runs: 13/30, 26/30, 29/30; targeted #7 top-5 OK (about $1.20 total).
+    - #685 was a REAL ClickHouse lost-row bug, fixed by #687 (drain via clusterAllReplicas + 0005 refill). #689 fixed by #692 (0006 MV v2). ch:migrate is applied on dev through 0006.
+    - #629: #699 (order.* 30 days + SEGMENT_MS) and #700 (erasure-aware replay; actor nulling).
+    - #634 (catalog:republish, #704; the dev run filled dim_variant 2836), #624 (#698), #642 (#693), #678 (#695), #690 (#697).
+  - **IN FLIGHT at handover:**
+    - Merge queue bmj31t1yu: #706 (integration/phase5-702, the outbox (topic,seq) index; reviewed, docs fixed), then #709 (window 1, core's #696 gate; APPROVE).
+    - #703 (window 14, DLQ replay erasure): built at c1b768ba on events/phase5-703, which sits on cd8cd3d4 (#702). AFTER #706 merges, cherry-pick c1b768ba onto a new integration/phase5-703 from main, open the PR, Fable review, queue. The packages/events diff is on issue #703.
+    - #708 (window 12, ClickHouse side of the #696 gate, 0007 MV v3): Fable APPROVE. Window 12 is folding in the self-healing v2 backfill in 0007, the stale MV names and a live re-run (machine) → re-check, queue. After the merge: ch:migrate on dev (0007).
+  - **Open follow-ups:**
+    - #696 order.placed@2, DEFERRED. Gate: engagement done (#705), core #709, ingest #708. Still needed: accounting (window 15), notifications render-data (window 17); both are inactive and their models are unconfirmed, so ask the owner. Then packages/events @2, with every consumer deployed no later than core.
+    - #707 (forever-topic actor ids → days_30, later wave). #701 (accounting README, window 15). #670 (per-locale product copy). #629 stays open until these land.
+  - **Sessions:**
+    - window 1 `local_36325de4-62eb-4684-9746-d2f45c26c7dc` (Opus);
+    - window 4 `local_7caabd48-5c1b-4d9c-8971-18a758b773fa` (Opus, idle);
+    - window 12 `local_90c118d5-d25f-4149-a041-f7f319a357b7` (Opus);
+    - window 14 `local_47d82451-cf22-43d5-a207-6c1fcbf6c648` (Opus 5.5);
+    - window 16 `local_f0321a20-e439-4787-94ad-66cc44062e86` (Sonnet, idle).
+  - **Gotchas learned:**
+    - A queue run whose log shows only "===" usually hit a non-lockfile conflict (rerun with bash -x).
+    - A no-push requeue re-reads the old failed run: use gh run rerun --failed.
+    - The "live auth + e2e" job is not required, so the queue merges before it finishes; watch main.
+    - The dev ingest needs ANALYTICS_ERASURE_KEY (dev value in .env.example).
+    - Self-cleaning live test suites don't need the machine.
+    - Never start merge-queue.sh with `&` (it did happen once).
 - **2026-10-29 ~12:40 local: HANDOVER TO MANAGER SESSION TEN (session nine at 77% context). READ THIS FIRST; it supersedes the bullets below where they differ.** Phase 5, end of wave 2.
   - **SESSION TEN UPDATE 2026-10-30:**
     - **#643 MERGED** (e1e1d3d; #604 closed). Opus review BLOCK at a04470e: CSV of every table, a store-admin write e2e, latency not measured, no perf evidence. The manager re-checked the fixes at 0c4ba2d by hand: MERGE.

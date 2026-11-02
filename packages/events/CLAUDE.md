@@ -25,7 +25,7 @@ changes via `CONTRACT CHANGE:` issue. Adding a field = new file `v<N+1>.json`, n
 - `pnpm --filter @platform/events generate` — regenerates `src/generated/{schemas,types}.ts` (committed; CI checks they are current)
 - `pnpm --filter @platform/events test` — Vitest: every schema compiles, sample envelopes validate, PII/float/extra-field guards
 - `pnpm --filter @platform/events build | typecheck`
-- `pnpm db:migrate` applies `migrations/0100_outbox.sql` together with packages/db migrations.
+- `pnpm db:migrate` applies `migrations/0100_outbox.sql` and `0101_outbox_topic_seq.sql` (#702) together with packages/db migrations; on a large production outbox build 0101 `CONCURRENTLY` first (README, "The outbox's indexes").
 - `pnpm --filter @platform/events schemas:register [-- --dry-run]` — registers every schema in the registry idempotently (`infra/redpanda/register-schemas.mjs`; `SCHEMA_REGISTRY_URL`, default 127.0.0.1:18081); `schemas:lock` — accepts a compatible change or a new version into `schemas/published.lock.json` (refuses a breaking one). `test/schema-compat.test.ts` fails when a published version changed; `test/registry.test.ts` has a live block that skips with a printed reason when the registry is down.
 - `pnpm --filter @platform/events topics:create [-- --env ci --dry-run]` — creates every topic on the broker idempotently (`infra/redpanda/create-topics.mjs`; `KAFKA_BROKERS`, default 127.0.0.1:19092). `test/topics.test.ts` has a live block that skips with a printed reason when the broker is down.
 

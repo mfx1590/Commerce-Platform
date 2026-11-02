@@ -142,3 +142,5 @@
 - #615: the pinned consumer-group list in `test/topics.test.ts` (and the README) gains `analytics.raw`, so the policy lists five groups.
 
 - #629 / CONTRACT CHANGE #694: `order.*` moves to the 30-day retention class (it carries customer_id / email_hash; the outbox is the replay source). New export `SEGMENT_MS` (`days_30`: 1 day): planTopics sets `segment.ms` on 30-day topics, so a record lives at most about 31 days (the broker default roll of 14 days would allow 44).
+
+- #702 (window 14): `migrations/0101_outbox_topic_seq.sql`, index `outbox_topic_seq_idx ON outbox (topic, seq)` for the outbox replay's per-topic `seq` scan and its erased-set read (`topic = 'customer.erased'`, #629); both were sequential scans of the whole outbox. A plain `CREATE INDEX IF NOT EXISTS` (the runner wraps each migration in a transaction); the README's "The outbox's indexes" gives the `CONCURRENTLY` command to run first on a large production outbox.
