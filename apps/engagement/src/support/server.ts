@@ -131,9 +131,7 @@ function fail(
   route: string,
 ): void {
   const e =
-    err instanceof SupportError
-      ? err
-      : new SupportError(500, 'internal_error', 'Something went wrong');
+    err instanceof SupportError ? err : new SupportError(500, 'internal', 'Something went wrong');
   log?.({
     service: 'engagement',
     module: 'support',
@@ -168,7 +166,9 @@ async function readBody(req: IncomingMessage, max: number): Promise<string> {
       chunks.push(c);
     });
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', () => reject(new SupportError(400, 'bad_request', 'Body could not be read')));
+    req.on('error', () =>
+      reject(new SupportError(400, 'validation_error', 'Body could not be read')),
+    );
   });
 }
 
@@ -216,7 +216,7 @@ export function createSupportServer(opts: SupportServerOptions): Server {
 
           const storeRef = url.searchParams.get('store');
           if (!storeRef)
-            throw new SupportError(400, 'bad_request', 'The `store` parameter is required');
+            throw new SupportError(400, 'validation_error', 'The `store` parameter is required');
           const store = await storeOf(storeRef);
 
           // 2. WHAT — `support` on this store, server-side, before a single read.
@@ -265,7 +265,7 @@ export function createSupportServer(opts: SupportServerOptions): Server {
           const principal = await opts.auth.authenticate(req.headers.authorization);
           const storeRef = url.searchParams.get('store');
           if (!storeRef)
-            throw new SupportError(400, 'bad_request', 'The `store` parameter is required');
+            throw new SupportError(400, 'validation_error', 'The `store` parameter is required');
           const store = await storeOf(storeRef);
           await opts.auth.requireSupport(principal, store.id);
 
@@ -395,7 +395,10 @@ export function createSupportServer(opts: SupportServerOptions): Server {
         return;
       }
 
-      send(res, 404, { code: 'not_found', message: 'No such route' });
+      // Through `fail()` like every other refusal (#695 review): it was the one answer with no log line,
+      // and a typed code. `route: 'unknown'` rather than the requested path — a path is caller input and
+      // could carry an address or an e-mail into a log line, which is the one thing these lines never do.
+      fail(res, new SupportError(404, 'not_found', 'No such route'), opts.log, 'unknown');
     })();
   });
 }

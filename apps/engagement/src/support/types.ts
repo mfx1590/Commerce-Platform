@@ -9,6 +9,8 @@
 // This is a read-only projection of what the core already answers. It exists because a Chatwoot dashboard
 // cannot make six Admin API calls and join them, not because we hold anything the core does not.
 
+import type { ErrorCode } from '@platform/contracts';
+
 /** What the agent is told about the customer. The same fields the Admin API returns, nothing added. */
 export interface SupportCustomer {
   id: string;
@@ -103,9 +105,20 @@ export interface AgentPrincipal {
   authorization: string;
 }
 
+/**
+ * Every code this service may answer: the contract's list and nothing else, since CONTRACT CHANGE #690
+ * landed `method_not_allowed` and `payload_too_large` (the `PENDING_ERROR_CODES` exception existed only
+ * until then, and deleting it was the whole change).
+ *
+ * Typed rather than `string` (#678, from the #674 review): a dashboard switching on `code` can only rely on
+ * the contract if the compiler holds us to it, and a code invented in one service is a quiet divergence that
+ * becomes an integration surprise later.
+ */
+export type SupportErrorCode = ErrorCode;
+
 export class SupportError extends Error {
   readonly status: number;
-  readonly code: string;
+  readonly code: SupportErrorCode;
   /**
    * Extra, SAFE fields for the body's `details` (#610): a refusal category, a limiter reason. Never an
    * upstream message, a token, or anything a customer typed — the same rule the messages follow.
@@ -113,10 +126,16 @@ export class SupportError extends Error {
   details?: Record<string, unknown>;
   /** Seconds, rendered as `Retry-After` with `ai_rate_limited` (the contract's own shape). */
   retryAfterSeconds?: number;
-  constructor(status: number, code: string, message: string) {
+  constructor(
+    status: number,
+    code: SupportErrorCode,
+    message: string,
+    details?: Record<string, unknown>,
+  ) {
     super(message);
     this.name = 'SupportError';
     this.status = status;
     this.code = code;
+    if (details) this.details = details;
   }
 }

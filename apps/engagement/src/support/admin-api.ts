@@ -96,7 +96,11 @@ export function createSupportReader(opts: SupportReaderOptions): SupportReader {
         headers: { authorization, accept: 'application/json' },
       });
     } catch {
-      throw new SupportError(502, 'upstream_unavailable', `The core did not answer (${what})`);
+      throw new SupportError(502, 'unavailable', `The core did not answer (${what})`, {
+        // `unavailable` is the contract's name; the distinction this used to carry in the CODE lives here
+        // now, so a reader can still tell a dead core from one that answered badly (#678).
+        reason: 'upstream_unavailable',
+      });
     }
     if (res.status === 404) return null;
     if (res.status === 401 || res.status === 403) {
@@ -110,12 +114,16 @@ export function createSupportReader(opts: SupportReaderOptions): SupportReader {
     }
     if (!res.ok) {
       // Never the body: it is full of personal data.
-      throw new SupportError(502, 'upstream_error', `The core answered ${res.status} (${what})`);
+      throw new SupportError(502, 'unavailable', `The core answered ${res.status} (${what})`, {
+        reason: 'upstream_error',
+      });
     }
     try {
       return await res.json();
     } catch {
-      throw new SupportError(502, 'upstream_error', `The core's answer was unreadable (${what})`);
+      throw new SupportError(502, 'unavailable', `The core's answer was unreadable (${what})`, {
+        reason: 'upstream_error',
+      });
     }
   }
 
@@ -130,7 +138,9 @@ export function createSupportReader(opts: SupportReaderOptions): SupportReader {
       // The contract returns `Customer` directly.
       const c = body as RawCustomer;
       if (!c || typeof c.id !== 'string' || typeof c.email !== 'string') {
-        throw new SupportError(502, 'upstream_error', 'Unexpected customer shape');
+        throw new SupportError(502, 'unavailable', 'Unexpected customer shape', {
+          reason: 'upstream_error',
+        });
       }
       return c;
     },

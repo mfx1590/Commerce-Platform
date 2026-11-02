@@ -13,7 +13,7 @@
 import { TEMPLATE_KEY } from './draft-template.js';
 import { toDraftVariables, type DraftVariables } from './draft-context.js';
 import type { SupportContext } from './types.js';
-import { SupportError } from './types.js';
+import { SupportError, type SupportErrorCode } from './types.js';
 
 /**
  * What this route needs from the AI gateway, and nothing more.
@@ -67,7 +67,7 @@ export const MAX_QUESTION_CHARS = 4000;
  *     the agent did nothing to cause it and can do nothing about it;
  *   * an unknown template is 503 `unavailable` too: the feature is configured but not ready (REQUEST #667).
  */
-const BY_CLASS: Record<string, { status: number; code: string }> = {
+const BY_CLASS: Record<string, { status: number; code: SupportErrorCode }> = {
   AiDisabledError: { status: 503, code: 'ai_disabled' },
   AiBudgetExceededError: { status: 429, code: 'ai_budget_exceeded' },
   AiRateLimitedError: { status: 429, code: 'ai_rate_limited' },
@@ -101,7 +101,7 @@ export function draftErrorFor(err: unknown): SupportError {
   return out;
 }
 
-function messageFor(code: string): string {
+function messageFor(code: SupportErrorCode): string {
   switch (code) {
     case 'ai_disabled':
       return 'Drafting is switched off';

@@ -100,7 +100,7 @@ reads and writes none of it.
 | `ENGAGEMENT_CDP_CONSENT_MODE_<STORE>` | the global         | per-store override, e.g. `..._BRAND_A=strict` — one region made strict, no code change                                                                             |
 | `ENGAGEMENT_CRM_ENABLED`              | `0`                | `1` starts the CRM consumer (off until a CRM and #565 exist)                                                                                                       |
 | `ENGAGEMENT_CRM_ADAPTER`              | `memory`           | `memory` or `twenty`; **`memory` is refused in production when enabled**                                                                                           |
-| `ENGAGEMENT_CRM_TOKEN_PROVIDER`       | `mock`             | `mock` or `client_credentials`; **`mock` is refused in production**                                                                                                |
+| `ENGAGEMENT_CRM_TOKEN_PROVIDER`       | —                  | `mock` or `client_credentials`; **no default when the CRM is enabled** (#646); **`mock` is refused in production**                                                 |
 | `TWENTY_BASE_URL`                     | —                  | Twenty's REST base, e.g. `https://crm.example/rest`                                                                                                                |
 | `TWENTY_API_KEY`                      | —                  | the Twenty key, **environment only**, never logged                                                                                                                 |
 | `TWENTY_EXTERNAL_ID_FIELD`            | `externalId`       | the custom person field holding OUR customer id (the upsert key)                                                                                                   |
@@ -532,6 +532,34 @@ The first version of this file guessed those shapes and got two wrong: it read `
 orders and an empty currency, and the tests could not catch it because they drove a hand-written fake
 (#573 review). Every fixture in the support tests is now typed from the contract's own schemas, so the next
 such drift is a **compile** error rather than a silent empty answer.
+
+### Every code it answers is the contract's (#678)
+
+`SupportError.code` is typed `ErrorCode` from `@platform/contracts`, not `string`, so a code this service
+invents is a compile error. That matters because a dashboard switching on `code` can only rely on the shared
+list if the compiler holds us to it — and typing the field immediately found two codes that were not on it:
+`internal_error` (the contract says `internal`) and `upstream_unavailable`.
+
+Three mappings lost a distinction, so each one moved to **`details.reason`** rather than disappearing:
+
+| Was                                       | Answers                | `details.reason`                                                                |
+| ----------------------------------------- | ---------------------- | ------------------------------------------------------------------------------- |
+| `bad_request` (7 sites)                   | 400 `validation_error` | —                                                                               |
+| `upstream_error` / `upstream_unavailable` | 502 `unavailable`      | the old code, so a core that did not answer is still tellable from a bad answer |
+| `replayed`                                | 409 `conflict`         | `replayed`                                                                      |
+
+There is no exception list any more: `method_not_allowed` and `payload_too_large`, the two ordinary HTTP
+conditions this service answered off-contract, went into `ERROR_CODES` with **CONTRACT CHANGE #690**. The
+interim `PENDING_ERROR_CODES` had two tests whose job was to go red the day that landed, and they did.
+
+Every refusal goes through one `fail()`, the unknown-route 404 included (it was the one answer built by hand,
+so it had no log line). Its log line names the route as `unknown` rather than the path asked for: a path is
+caller input, and these lines never carry caller text.
+
+**Known limit:** an oversized body is refused with `payload_too_large`, but the cap is enforced while the
+body is still arriving and the socket is destroyed at that moment, so a client usually sees a dropped
+connection rather than the 413. The code is in the log line; making it reach the caller means draining or
+refusing the rest of the request first.
 
 ### Ids in paths
 
