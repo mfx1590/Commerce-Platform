@@ -205,8 +205,8 @@ event type (`{ "order.placed": 2 }`; `{}` for a topic outside `ERASURE_RULES`) a
 `customer_id`, `*_customer_id`, `email_hash`, `identity_id` and `requested_by`, and fails when such a topic has no
 rule. A customer erased while a replay runs is not in that replay's set: their `customer.erased` row is relayed
 after the replay started, and consumers delete what the replay sent. Each replay reads the erased set with one
-query on `topic = 'customer.erased'`, a sequential scan until the `(topic, seq)` index lands (CONTRACT CHANGE #702;
-the same index serves the replay's own per-topic scans).
+query on `topic = 'customer.erased'`, served like the replay's own per-topic `seq` scan by `outbox_topic_seq_idx`
+(`(topic, seq)`, packages/events migration 0101, #702).
 
 **Not covered here: DLQ replays (#703).** `replayFromDlq` (packages/events) re-runs a consumer's handler on the
 ORIGINAL dead-lettered message fetched from the bus, unchanged. A message that failed before an erasure is then

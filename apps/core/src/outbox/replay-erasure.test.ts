@@ -393,3 +393,27 @@ describe('replayOutbox with an erased customer (database, recording publisher)',
     expect(r.sent).toHaveLength(1);
   });
 });
+
+describe('the replay scans (#702)', () => {
+  // seq scans priced out, so the plan shows which index the planner CAN use; without outbox_topic_seq_idx both
+  // queries fall back to a (disabled, still chosen) sequential scan of the whole outbox
+  const planOf = (sql: string) =>
+    hq.transaction(async (tx) => {
+      await tx.query('SET LOCAL enable_seqscan = off');
+      const r = await tx.query<{ 'QUERY PLAN': unknown }>(`EXPLAIN (FORMAT JSON) ${sql}`);
+      return JSON.stringify(r.rows[0]!['QUERY PLAN']);
+    });
+
+  it('a topic in seq order and the erased set both read outbox_topic_seq_idx', async () => {
+    expect(
+      await planOf(
+        `SELECT id FROM outbox o WHERE o.topic = 'order.placed' AND o.published_at IS NOT NULL AND o.seq > 0 ORDER BY o.seq LIMIT 500`,
+      ),
+    ).toContain('outbox_topic_seq_idx');
+    expect(
+      await planOf(
+        `SELECT store_id, payload->>'customer_id' FROM outbox WHERE topic = 'customer.erased'`,
+      ),
+    ).toContain('outbox_topic_seq_idx');
+  });
+});
