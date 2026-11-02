@@ -31,18 +31,29 @@ const MONTH = '(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\\.
  * years, and days of the month next to a month name ("Oct 3", "3 Oct", "1–31 October", "Oct 1, 2 and 3:" — a real
  * model writes dates in prose; the first real-model run, 2026-11-02, flagged 13 correct answers on dates alone).
  * Thousands separators (1,234.56) are dropped; a decimal comma (1.234,56 — an answer in another language) is read.
- * Nor are uuids (a store's id quoted from <stores>) or a year-less date of two two-digit parts that is a valid month
- * and day either way round (09-28, 28/09, 10/31 — the re-run of 2026-11-02, #18 and #8); "5-10" or "13-14" stay
- * figures, so nothing that could be a count is waved through.
+ * Nor is the id of one of the case's OWN stores (`ownIds`; #18 quoted one from <stores>) — any other uuid stays,
+ * so a foreign or invented id is reported (#686 review). Nor is a year-less date: two two-digit parts that are a
+ * valid month and day either way round (09-28, 28/09 — the re-run of 2026-11-02, #8), standing alone (not inside a
+ * decimal: 12.10-12.50 stays two figures) and not followed by a count word, a currency or arithmetic (10-20 orders,
+ * 10/12 stores, 10-12 EUR, 31-12 = 19 stay figures). The gap left: a bare pair that is also a date ("10-12 of them")
+ * reads as a date — pinned in real-model.test.
  */
-export function figuresOf(text: string): string[] {
+export function figuresOf(text: string, ownIds: readonly string[] = []): string[] {
+  const own = new Set(ownIds.map((id) => id.toLowerCase()));
   let clean = text
     .replace(/\[q\d+\]/g, ' ')
-    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, ' ')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, (id) =>
+      own.has(id.toLowerCase()) ? ' ' : id,
+    )
     .replace(/\b\d{4}-\d{2}-\d{2}(?:T[\d:.]+Z?)?\b/g, ' ')
     .replace(/\b(?:19|20)\d{2}\b/g, ' ')
-    .replace(/\b(\d{2})[-/](\d{2})\b/g, (span, a: string, b: string) =>
-      isMonthDay(Number(a), Number(b)) || isMonthDay(Number(b), Number(a)) ? ' ' : span,
+    .replace(
+      /(?<![\d.,])(\d{2})[-/](\d{2})(?![.,]?\d)/g,
+      (span: string, a: string, b: string, at: number, all: string) =>
+        (isMonthDay(Number(a), Number(b)) || isMonthDay(Number(b), Number(a))) &&
+        !notADateAfter(all.slice(at + span.length))
+          ? ' '
+          : span,
     );
   // a day list or range attached to a month: "Oct 1, 2 and 3", "1–31 October", "Week of 28 Sep"
   clean = clean
@@ -58,6 +69,13 @@ export function figuresOf(text: string): string[] {
     return n ? [n.dec ? `${n.int}.${n.dec}` : n.int] : m[0].split(/[.,]/);
   });
 }
+
+/** what makes a two-digit pair a quantity, not a date: a count word, a currency code, or arithmetic right after it */
+const COUNT_WORD_AFTER =
+  /^\s*(?:orders?|units?|refunds?|customers?|stores?|products?|days?|items?|weeks?|times)\b/i;
+const CURRENCY_OR_ARITHMETIC_AFTER = /^\s*(?:[A-Z]{3}\b|[=+×*/−-])/; // case-sensitive: "and" is no currency
+const notADateAfter = (rest: string) =>
+  COUNT_WORD_AFTER.test(rest) || CURRENCY_OR_ARITHMETIC_AFTER.test(rest);
 
 const isMonthDay = (month: number, day: number) =>
   month >= 1 && month <= 12 && day >= 1 && day <= 31;
@@ -312,7 +330,11 @@ export async function runRealCase(
   out.problems.push(...derived.problems);
   // integers also match a money figure written without decimals, and small integers the question itself names
   const asked = new Set(figuresOf(c.question));
-  for (const f of figuresOf(derived.rest))
+  // the asker's own store ids are what <stores> lists; any other uuid in the answer is reported
+  for (const f of figuresOf(
+    derived.rest,
+    caller.stores.map((s) => s.id),
+  ))
     if (!isBacked(f, backed) && !asked.has(f)) out.problems.push(`${f} is in no result`);
   out.problems = [...new Set(out.problems)];
   return out;

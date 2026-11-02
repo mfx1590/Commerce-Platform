@@ -7,6 +7,7 @@
 //   (v) injected SQL has no path (the input is not a MetricQuery: a tool error, nothing executed).
 import { describe, expect, it } from 'vitest';
 import { AppError } from '../../../lib/errors';
+import { METRIC_IDS, METRICS } from '../metrics/catalogue';
 import type { MetricsReader } from '../metrics/execute';
 import {
   askMetrics,
@@ -192,6 +193,15 @@ describe('the scope (#606 acceptance: a store-A principal asking about store B)'
       'Sorts the rows; with a dimension, grain total and limit it gives a top or bottom N',
     );
     expect(props.limit!.description).toBe('Rows to return: N for a top N');
+  });
+
+  it('an analyst’s tool names no finance metric anywhere — description, enums or descriptions (#686 review)', () => {
+    const finance = METRIC_IDS.filter((m) => METRICS[m].finance);
+    expect(finance.length).toBeGreaterThan(0); // the check is not vacuous
+    const whole = JSON.stringify(
+      queryMetricsTool({ stores: [A], finance: false, window: { from: 'a', to: 'b' } }),
+    );
+    for (const m of finance) expect(whole).not.toContain(m);
   });
 });
 

@@ -70,7 +70,11 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   #683 MERGED 8b4e70fd (after the queue fix 6ab9b6ef), #684 (@3) on main → main merged into the checker branch,
   BI_QA_TEMPLATE = bi-qa-answer@3 (same variables as @2; its derived forms are the ones real-model.test pins);
   reporting 225 pass; gates green. NEXT: PR (Opus review) → merge → ONE real-model re-run → #685 (flaky
-  ClickHouse test, mine).
+  ClickHouse test, mine). #686 Opus review FINDINGS fixed in-PR: the year-less date strip has lookarounds
+  (never inside a decimal: 12.10-12.50) and skips a pair followed by a count word / currency code (case-sensitive,
+  "and" is no currency) / arithmetic; gap pinned ("10-12 of them" reads as a date); figuresOf(text, ownIds) strips
+  only the case's own store uuids; analyst tool asserted free of every finance metric name; the tool text costs
+  ~70 tokens per step (analyst) / ~80 (finance), not 25. Reporting 237 pass.
 - #606 v2 FOLLOW-UP (2026-11-02, manager ten; #680 MERGED a150e0fb, #606 closed, #682 bi-qa-answer@2 on main).
   Branch data/phase5-606-v2 (cut --no-track from origin/main a150e0fb). BI_QA_TEMPLATE = @2; `locale` = the
   request's Accept-Language first tag via Intl.getCanonicalLocales (canonicalLocale in ask.ts), else en — no staff

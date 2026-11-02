@@ -123,7 +123,9 @@ Tests:
   (a written label must agree); a sum or difference of two amounts in one currency or two counts, exact in
   hundredths; a ratio half-up to 2 decimals on integer hundredths (BigInt, sign explicit); at most 2 decimals on
   every figure; each number parsed on its own (1.250.000,00 · 1,234). #23 of the first run (8,091.80 for 8,090.80)
-  now fails. Not figures: uuids, and a year-less date of two two-digit parts that is a valid month and day
-  (09-28, 28/09) — so a two-digit range that is also a date ("10-12") is not checked. The run logs each answer
-  WHOLE (dev data only), so a failure's cause can be read.
+  now fails. Not figures: the case's OWN store ids (any other uuid is reported), and a year-less date — two
+  two-digit parts that are a valid month and day (09-28, 28/09), standing alone (never inside a decimal: 12.10-12.50
+  stays two figures) and not followed by a count word, a currency code or arithmetic (10-20 orders, 10/12 stores,
+  10-12 EUR, 31-12 = 19 stay figures). The gap left, pinned in a test: a bare pair that is also a date ("10-12 of
+  them") reads as a date. The run logs each answer WHOLE (dev data only), so a failure's cause can be read.
 - `ask/golden/` (32): the **golden set of 30 questions** with recorded tool calls (`cases.ts`), each held to its results by `run.ts`: refused calls refused, every figure in the answer backed by the result it cites, citations resolve, no other store's row. A test proves the checks are not vacuous. Unit on a fake reader; **live** on the generated month in ClickHouse (opt-in like the other live tests). A real-model run replays the same questions once the owner's key exists.
