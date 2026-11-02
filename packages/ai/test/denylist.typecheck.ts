@@ -76,6 +76,21 @@ const replyWithAddress = { ...reply, street_address: 'x' };
 // @ts-expect-error … and in an object built elsewhere
 void ai.complete('support-reply-draft@1', replyWithAddress);
 
+// bi-qa-answer@2: locale is required (v1 has none)
+const qa = {
+  question: 'refunds?',
+  today: '2026-11-02',
+  window: '2026-10-03..2026-11-03',
+  stores: 'brand-a',
+  currencyNote: 'per currency',
+};
+void ai.complete('bi-qa-answer@1', qa);
+void ai.complete('bi-qa-answer@2', { ...qa, locale: 'en-GB' });
+// @ts-expect-error v2 without locale
+void ai.complete('bi-qa-answer@2', qa);
+// @ts-expect-error locale is not a v1 variable
+void ai.complete('bi-qa-answer@1', { ...qa, locale: 'en-GB' });
+
 const { carrier: _carrier, ...replyWithoutCarrier } = reply;
 // @ts-expect-error a declared variable is missing
 void ai.complete('support-reply-draft@1', replyWithoutCarrier);
