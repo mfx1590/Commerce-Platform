@@ -140,6 +140,7 @@ export {
   partitionKey,
   planTopics,
   RETENTION_MS,
+  SEGMENT_MS,
   retentionClassOf,
   type CreateKafkaOptions,
   type EnsureOptions,
