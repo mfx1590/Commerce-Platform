@@ -1,4 +1,4 @@
-// Per-store monthly token budget and per-minute rate limit (D8, #605).
+// Per-store (and, since #669, per-organization) monthly token budget and per-minute rate limit (D8, #605).
 // A call first RESERVES its worst case (estimated input + the template's maxTokens) and is refused, with nothing
 // sent, when that would pass the month's budget or the minute's call count; afterwards it SETTLES to the real usage
 // (a negative correction for an unused reservation; the whole reservation back after a failed call). Redis holds
@@ -16,11 +16,24 @@ export type ReserveResult =
   | { ok: false; reason: 'over_budget'; usedTokens: number; limitTokens: number }
   | { ok: false; reason: 'rate_limited'; limitPerMinute: number };
 
+/**
+ * Whose counters a call uses: a store's, or (for a call with `storeId: null`, #669) the organization's own. The two
+ * never mix: an organization call charges no store, a store call charges no organization.
+ */
+export interface LimitScope {
+  kind: 'store' | 'organization';
+  id: string;
+}
+
+/** The key segment: a store's id as before #669 (its live counters keep their keys), `org:<id>` for an organization
+ * (a uuid never starts with `org:`, so the two cannot collide). */
+export const scopeKey = (s: LimitScope): string => (s.kind === 'store' ? s.id : `org:${s.id}`);
+
 export interface UsageLimiter {
-  reserve(storeId: string, tokens: number, limits: Limits, now: Date): Promise<ReserveResult>;
-  /** Adds `deltaTokens` (may be negative) to this month's usage of the store. */
-  settle(storeId: string, deltaTokens: number, now: Date): Promise<void>;
-  usedTokens(storeId: string, now: Date): Promise<number>;
+  reserve(scope: LimitScope, tokens: number, limits: Limits, now: Date): Promise<ReserveResult>;
+  /** Adds `deltaTokens` (may be negative) to this month's usage of the scope. */
+  settle(scope: LimitScope, deltaTokens: number, now: Date): Promise<void>;
+  usedTokens(scope: LimitScope, now: Date): Promise<number>;
 }
 
 /** Phase-5 defaults while gift credit is the only money (manager, 2026-10-31); production sets its own via env. */
@@ -43,6 +56,19 @@ export function limitsFromEnv(env: NodeJS.ProcessEnv = process.env): Limits {
   };
 }
 
+/**
+ * The organization's own limits (calls with `storeId: null`, #669): `AI_ORG_MONTHLY_TOKEN_BUDGET`, defaulting to the
+ * store budget as resolved above; the per-minute limit is the same `AI_RATE_LIMIT_PER_MINUTE`, keyed by organization
+ * (manager, 2026-11-01).
+ */
+export function orgLimitsFromEnv(env: NodeJS.ProcessEnv = process.env): Limits {
+  const store = limitsFromEnv(env);
+  return {
+    monthlyTokens: positiveInt(env, 'AI_ORG_MONTHLY_TOKEN_BUDGET', store.monthlyTokens),
+    perMinute: store.perMinute,
+  };
+}
+
 export const monthKey = (now: Date) =>
   `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
 export const minuteKey = (now: Date) => String(Math.floor(now.getTime() / 60_000));
@@ -51,14 +77,14 @@ export const minuteKey = (now: Date) => String(Math.floor(now.getTime() / 60_000
 export function createMemoryLimiter(): UsageLimiter {
   const budget = new Map<string, number>();
   const rate = new Map<string, number>();
-  const bKey = (s: string, now: Date) => `${s}:${monthKey(now)}`;
+  const bKey = (s: LimitScope, now: Date) => `${scopeKey(s)}:${monthKey(now)}`;
   return {
-    async reserve(storeId, tokens, limits, now) {
-      const rKey = `${storeId}:${minuteKey(now)}`;
+    async reserve(scope, tokens, limits, now) {
+      const rKey = `${scopeKey(scope)}:${minuteKey(now)}`;
       const calls = (rate.get(rKey) ?? 0) + 1;
       if (calls > limits.perMinute)
         return { ok: false, reason: 'rate_limited', limitPerMinute: limits.perMinute };
-      const used = budget.get(bKey(storeId, now)) ?? 0;
+      const used = budget.get(bKey(scope, now)) ?? 0;
       if (used + tokens > limits.monthlyTokens) {
         return {
           ok: false,
@@ -68,15 +94,15 @@ export function createMemoryLimiter(): UsageLimiter {
         };
       }
       rate.set(rKey, calls);
-      budget.set(bKey(storeId, now), used + tokens);
+      budget.set(bKey(scope, now), used + tokens);
       return { ok: true, reservationTokens: tokens, usedTokens: used + tokens };
     },
-    async settle(storeId, delta, now) {
-      const k = bKey(storeId, now);
+    async settle(scope, delta, now) {
+      const k = bKey(scope, now);
       budget.set(k, Math.max(0, (budget.get(k) ?? 0) + delta));
     },
-    async usedTokens(storeId, now) {
-      return budget.get(bKey(storeId, now)) ?? 0;
+    async usedTokens(scope, now) {
+      return budget.get(bKey(scope, now)) ?? 0;
     },
   };
 }
@@ -132,15 +158,15 @@ export function createRedisLimiter(opts: RedisLimiterOptions = {}): RedisLimiter
       enableOfflineQueue: true,
     });
   const prefix = opts.prefix ?? 'ai:';
-  const bKey = (s: string, now: Date) => `${prefix}budget:${s}:${monthKey(now)}`;
-  const rKey = (s: string, now: Date) => `${prefix}rate:${s}:${minuteKey(now)}`;
+  const bKey = (s: LimitScope, now: Date) => `${prefix}budget:${scopeKey(s)}:${monthKey(now)}`;
+  const rKey = (s: LimitScope, now: Date) => `${prefix}rate:${scopeKey(s)}:${minuteKey(now)}`;
   return {
-    async reserve(storeId, tokens, limits, now) {
+    async reserve(scope, tokens, limits, now) {
       const [code, value] = (await redis.eval(
         RESERVE_LUA,
         2,
-        bKey(storeId, now),
-        rKey(storeId, now),
+        bKey(scope, now),
+        rKey(scope, now),
         tokens,
         limits.monthlyTokens,
         limits.perMinute,
@@ -159,12 +185,12 @@ export function createRedisLimiter(opts: RedisLimiterOptions = {}): RedisLimiter
       }
       return { ok: true, reservationTokens: tokens, usedTokens: value };
     },
-    async settle(storeId, delta, now) {
+    async settle(scope, delta, now) {
       if (delta === 0) return;
-      await redis.eval(SETTLE_LUA, 1, bKey(storeId, now), delta, BUDGET_TTL_S);
+      await redis.eval(SETTLE_LUA, 1, bKey(scope, now), delta, BUDGET_TTL_S);
     },
-    async usedTokens(storeId, now) {
-      return Number((await redis.get(bKey(storeId, now))) ?? 0);
+    async usedTokens(scope, now) {
+      return Number((await redis.get(bKey(scope, now))) ?? 0);
     },
     async close() {
       if (!opts.client) await redis.quit().catch(() => redis.disconnect());

@@ -14,26 +14,59 @@ export class AiConfigError extends AiError {}
 /** `AI_ENABLED` is not exactly '1': AI features are switched off (the default, and always in CI). */
 export class AiDisabledError extends AiError {}
 
-/** The store's monthly token budget would be exceeded by this call; nothing was sent. */
+/** Whose budget ran out: the store's month, the organization's month (a call with `storeId: null`), or one run's
+ * `maxTokensTotal` ceiling (#669). */
+export type BudgetScope = 'store' | 'organization' | 'run';
+
+/** A monthly token budget (or a run's ceiling) would be exceeded by this call; nothing was sent. */
 export class AiBudgetExceededError extends AiError {
+  /** The contract's error details (#668 / #664): `resets_at` is the next UTC month's first instant, null for a run. */
+  readonly details: {
+    scope: BudgetScope;
+    used_tokens: number;
+    limit_tokens: number;
+    resets_at: string | null;
+  };
+
   constructor(
-    readonly storeId: string,
+    readonly storeId: string | null,
     readonly usedTokens: number,
     readonly limitTokens: number,
+    readonly scope: BudgetScope = 'store',
+    resetsAt: Date | null = null,
   ) {
     super(
-      `AI token budget exhausted for this store this month (${usedTokens} of ${limitTokens} tokens)`,
+      scope === 'run'
+        ? `AI token ceiling of this run reached (${usedTokens} of ${limitTokens} tokens)`
+        : `AI token budget exhausted for this ${scope} this month (${usedTokens} of ${limitTokens} tokens)`,
     );
+    this.details = {
+      scope,
+      used_tokens: usedTokens,
+      limit_tokens: limitTokens,
+      resets_at: resetsAt ? resetsAt.toISOString() : null,
+    };
   }
 }
 
-/** Too many calls for this store in the current minute; nothing was sent. */
+/** Too many calls for this store (or organization) in the current minute; nothing was sent. */
 export class AiRateLimitedError extends AiError {
   constructor(
-    readonly storeId: string,
+    readonly storeId: string | null,
     readonly limitPerMinute: number,
+    readonly scope: 'store' | 'organization' = 'store',
   ) {
-    super(`AI rate limit reached for this store (${limitPerMinute} calls per minute)`);
+    super(`AI rate limit reached for this ${scope} (${limitPerMinute} calls per minute)`);
+  }
+}
+
+/** A tool-use run asked for more tool calls than `maxToolCalls`; the extra step's calls were not run (#669). */
+export class AiToolLoopError extends AiError {
+  readonly details: { max_tool_calls: number };
+
+  constructor(readonly maxToolCalls: number) {
+    super(`the model asked for more than ${maxToolCalls} tool calls; the run was stopped`);
+    this.details = { max_tool_calls: maxToolCalls };
   }
 }
 

@@ -2,17 +2,20 @@
 // price is known here: every call's cost is estimated and audited, so an unpriced model is a configuration error.
 import { AiConfigError } from './errors.js';
 
-export const PURPOSES = ['drafting', 'classification'] as const;
+export const PURPOSES = ['drafting', 'classification', 'analysis'] as const;
 export type Purpose = (typeof PURPOSES)[number];
 
 export const DEFAULT_MODELS: Readonly<Record<Purpose, string>> = {
   drafting: 'claude-sonnet-5-5',
   classification: 'claude-haiku-5-5',
+  // BI Q&A with tool use (#606, #669)
+  analysis: 'claude-sonnet-5-5',
 };
 
 const MODEL_ENV: Readonly<Record<Purpose, string>> = {
   drafting: 'AI_MODEL_DRAFTING',
   classification: 'AI_MODEL_CLASSIFICATION',
+  analysis: 'AI_MODEL_ANALYSIS',
 };
 
 /**
@@ -34,7 +37,7 @@ export const PRICES: Readonly<Record<string, ModelPrice>> = {
 };
 
 /**
- * Whether the API's server-side refusal fallback is requested for this purpose. OFF for both in Phase 5 (manager,
+ * Whether the API's server-side refusal fallback is requested for this purpose. OFF for every purpose in Phase 5 (manager,
  * 2026-10-31): a refusal returns AiRefusedError to the human, who rewords and retries — no beta header, no second
  * model the template was not written for, no unpredictable spend on gift credit. The transport still supports it and
  * the served model is audited either way, so turning it on later is this table only.
@@ -42,6 +45,7 @@ export const PRICES: Readonly<Record<string, ModelPrice>> = {
 export const FALLBACKS: Readonly<Record<Purpose, boolean>> = {
   drafting: false,
   classification: false,
+  analysis: false,
 };
 
 export function isPurpose(value: unknown): value is Purpose {

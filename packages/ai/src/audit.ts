@@ -12,12 +12,15 @@ export const OUTCOMES = [
   'over_budget',
   'rate_limited',
   'denied_field',
+  // a tool-use run asked for more tool calls than maxToolCalls (#669)
+  'tool_loop_cap',
 ] as const;
 export type AuditOutcome = (typeof OUTCOMES)[number];
 
 export interface AuditRecord {
   organizationId: string;
-  storeId: string;
+  /** null: an organization-scope call (#669), charged to the organization's own budget. */
+  storeId: string | null;
   /** staff_user.id of the person who asked; null for a job. */
   actorId: string | null;
   purpose: Purpose;
@@ -36,6 +39,12 @@ export interface AuditRecord {
   outcome: AuditOutcome;
   /** An error CLASS name only, never a message. */
   errorClass: string | null;
+  /** The run id of a tool-use run (one per runTools call, on every step's row); null for a plain complete(). */
+  conversationId: string | null;
+  /** 0-based model step of a tool-use run; null for a plain complete(). */
+  step: number | null;
+  /** The tool names that step asked for, in order; a name the caller did not offer is recorded as 'unknown'. */
+  toolNames: readonly string[];
 }
 
 export interface AuditSink {

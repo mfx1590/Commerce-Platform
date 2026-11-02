@@ -1,4 +1,4 @@
-// The Postgres audit sink against a throwaway database migrated with packages/db (0205 ai_call_audit): the gateway's
+// The Postgres audit sink against a throwaway database migrated with packages/db (0205 ai_call_audit, 0206 org scope): the gateway's
 // records fit the table's CHECKs for every outcome, rows land in store scope under RLS, and no column holds content.
 import { createOrganizationClient, createTenantClient } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
@@ -25,6 +25,19 @@ const copy = {
   audience: 'grownups who like wandering',
 };
 const CONTENT_WORDS = ['zephyrine', 'Quillwort', 'marmalade', 'wandering', 'example.org'];
+
+const qa = {
+  question: 'What were the refunds last week?',
+  today: '2026-11-01',
+  window: '2026-10-01..2026-10-31',
+  stores: ['brand-a', 'brand-b'],
+  currencyNote: 'Amounts are integer minor units per currency.',
+};
+const QUERY_METRICS = {
+  name: 'query_metrics',
+  description: 'Runs one typed metric query.',
+  inputSchema: { type: 'object' as const },
+};
 
 let db: TestDatabase;
 
@@ -128,6 +141,79 @@ describe('createPgAuditSink (ai_call_audit, 0205)', () => {
       /permission denied/,
     );
     await expect(a.query(`DELETE FROM ai_call_audit`)).rejects.toThrow(/permission denied/);
+  });
+
+  it('a tool-use run (#669, 0206): one row per step with conversation_id, step and tool_names; purpose analysis', async () => {
+    const run = await gateway({
+      purpose: 'analysis',
+      transport: createFakeTransport({
+        script: [
+          {
+            toolUse: [
+              { name: 'query_metrics', input: { metric: 'refunds' } },
+              { name: 'drop_it', input: {} },
+            ],
+          },
+          { text: 'Refunds were 12.00 EUR [q1].' },
+        ],
+      }),
+    }).runTools('bi-qa-answer@1', qa, {
+      tools: [QUERY_METRICS],
+      handle: async () => ({ content: '{"rows":[]}' }),
+    });
+    const { rows } = await createTenantClient(db.app, {
+      organizationId: ORG,
+      storeIds: [STORE_A],
+    }).transaction((tx) =>
+      tx.query(`SELECT * FROM ai_call_audit WHERE conversation_id = $1 ORDER BY step`, [
+        run.conversationId,
+      ]),
+    );
+    expect(rows.map((r) => [r.step, r.tool_names, r.outcome, r.purpose, r.store_id])).toEqual([
+      [0, ['query_metrics', 'unknown'], 'ok', 'analysis', STORE_A],
+      [1, [], 'ok', 'analysis', STORE_A],
+    ]);
+    expect(rows.map((r) => r.id)).toEqual(run.auditIds);
+    expect(JSON.stringify(rows)).not.toContain('drop_it');
+  });
+
+  it('organization scope (#669, 0206): store_id NULL rows are written in organization scope and visible only there', async () => {
+    const ai = gateway({
+      storeId: null,
+      purpose: 'analysis',
+      transport: createFakeTransport({
+        script: [{ toolUse: [{ name: 'query_metrics', input: {} }] }, { text: 'done' }],
+      }),
+    });
+    const run = await ai.runTools('bi-qa-answer@1', qa, {
+      tools: [QUERY_METRICS],
+      handle: async () => ({ content: '{"rows":[]}' }),
+    });
+    const hq = await createOrganizationClient(db.app, { organizationId: ORG }).transaction((tx) =>
+      tx.query(`SELECT * FROM ai_call_audit WHERE conversation_id = $1 ORDER BY step`, [
+        run.conversationId,
+      ]),
+    );
+    expect(hq.rows.map((r) => [r.store_id, r.step, r.outcome])).toEqual([
+      [null, 0, 'ok'],
+      [null, 1, 'ok'],
+    ]);
+    // no store session sees an organization row, not even one that may access every store
+    const stores = await createTenantClient(db.app, {
+      organizationId: ORG,
+      storeIds: [STORE_A, STORE_B],
+    }).transaction((tx) =>
+      tx.query(`SELECT id FROM ai_call_audit WHERE conversation_id = $1`, [run.conversationId]),
+    );
+    expect(stores.rows).toEqual([]);
+    // and a store session cannot write one (RLS WITH CHECK): a store-scoped insert of a NULL-store row fails
+    await expect(
+      createTenantClient(db.app, { organizationId: ORG, storeIds: [STORE_A] }).query(
+        `INSERT INTO ai_call_audit (organization_id, store_id, purpose, template_id, template_version, input_sha256, model, outcome)
+         VALUES ($1, NULL, 'analysis', 'bi-qa-answer', 1, repeat('0', 64), 'claude-sonnet-5-5', 'ok')`,
+        [ORG],
+      ),
+    ).rejects.toThrow(/row-level security/);
   });
 
   it('a failed write withholds the draft (AiAuditError) and nothing is returned', async () => {

@@ -26,6 +26,7 @@ import {
 
 const ORG = '33000000-0000-4000-8000-000000000001';
 const STORE = '33000000-0000-4000-8000-000000000031';
+const STORE_SCOPE = { kind: 'store', id: STORE } as const;
 const ACTOR = '33000000-0000-4000-8000-000000000077';
 const NOW = new Date('2026-10-31T10:15:00Z');
 const ENABLED = { AI_ENABLED: '1' };
@@ -93,7 +94,7 @@ describe('a successful draft', () => {
     });
     expect(draft.text).toMatch(/^\[fake claude-sonnet-5-5\] draft/);
     const used = draft.usage.inputTokens + draft.usage.outputTokens;
-    expect(await limiter.usedTokens(STORE, NOW)).toBe(used); // settled from the reservation to the real usage
+    expect(await limiter.usedTokens(STORE_SCOPE, NOW)).toBe(used); // settled from the reservation to the real usage
 
     expect(audit.records).toHaveLength(1);
     const rec = audit.records[0]!;
@@ -252,7 +253,13 @@ describe('refusals before any call (nothing is sent; one audit row each)', () =>
     const { ai, transport, audit } = setup({ limits });
     const err = await ai.complete('product-copy-draft@1', copy).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(AiBudgetExceededError);
-    expect(err).toMatchObject({ usedTokens: 0, limitTokens: 1199 });
+    expect(err).toMatchObject({ usedTokens: 0, limitTokens: 1199, scope: 'store', storeId: STORE });
+    expect((err as AiBudgetExceededError).details).toEqual({
+      scope: 'store',
+      used_tokens: 0,
+      limit_tokens: 1199,
+      resets_at: '2026-11-01T00:00:00.000Z',
+    });
     expect(transport.calls).toHaveLength(0);
     expect(audit.records[0]!.outcome).toBe('over_budget');
   });
@@ -274,6 +281,58 @@ describe('refusals before any call (nothing is sent; one audit row each)', () =>
   });
 });
 
+describe('organization scope: storeId null (#669)', () => {
+  const ORG_SCOPE = { kind: 'organization', id: ORG } as const;
+
+  it("charges the organization's own budget (never a store's) and audits store_id null", async () => {
+    const { ai, limiter, audit } = setup({ storeId: null });
+    expect(ai.storeId).toBeNull();
+    const draft = await ai.complete('product-copy-draft@1', copy);
+    const used = draft.usage.inputTokens + draft.usage.outputTokens;
+    expect(await limiter.usedTokens(ORG_SCOPE, NOW)).toBe(used);
+    expect(await limiter.usedTokens(STORE_SCOPE, NOW)).toBe(0);
+    expect(audit.records[0]).toMatchObject({
+      organizationId: ORG,
+      storeId: null,
+      outcome: 'ok',
+      conversationId: null,
+      step: null,
+      toolNames: [],
+    });
+  });
+
+  it('uses the organization limits (AI_ORG_MONTHLY_TOKEN_BUDGET), and says so in the error', async () => {
+    const env = {
+      ...ENABLED,
+      AI_MONTHLY_TOKEN_BUDGET: '900000',
+      AI_ORG_MONTHLY_TOKEN_BUDGET: '1199',
+    };
+    const { ai, transport, audit } = setup({ storeId: null, env });
+    const err = await ai.complete('product-copy-draft@1', copy).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AiBudgetExceededError);
+    expect((err as AiBudgetExceededError).details).toEqual({
+      scope: 'organization',
+      used_tokens: 0,
+      limit_tokens: 1199,
+      resets_at: '2026-11-01T00:00:00.000Z',
+    });
+    expect(transport.calls).toHaveLength(0);
+    expect(audit.records[0]).toMatchObject({ outcome: 'over_budget', storeId: null });
+
+    // the same budget is plenty for a store gateway: the scopes never mix
+    const store = setup({ env });
+    await expect(store.ai.complete('product-copy-draft@1', copy)).resolves.toBeDefined();
+  });
+
+  it('rate-limits per organization, with the store per-minute number', async () => {
+    const { ai } = setup({ storeId: null, orgLimits: { monthlyTokens: 1_000_000, perMinute: 1 } });
+    await ai.complete('product-copy-draft@1', copy);
+    const err = await ai.complete('product-copy-draft@1', copy).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AiRateLimitedError);
+    expect(err).toMatchObject({ scope: 'organization', storeId: null, limitPerMinute: 1 });
+  });
+});
+
 describe('after the call', () => {
   it('a transport failure refunds the whole reservation and is audited with the class only', async () => {
     const boom = new Error('connection words that must not be kept');
@@ -281,7 +340,7 @@ describe('after the call', () => {
     const { ai, limiter, audit } = setup({}, () => boom);
     const err = await ai.complete('product-copy-draft@1', copy).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(AiTransportError);
-    expect(await limiter.usedTokens(STORE, NOW)).toBe(0);
+    expect(await limiter.usedTokens(STORE_SCOPE, NOW)).toBe(0);
     expect(audit.records[0]).toMatchObject({
       outcome: 'error',
       errorClass: 'APIConnectionError',
@@ -301,7 +360,7 @@ describe('after the call', () => {
     expect((err as AiRefusedError).category).toBe('general_harms');
     expect(audit.records[0]).toMatchObject({ outcome: 'refused', errorClass: 'AiRefusedError' });
     expect(audit.records[0]!.inputTokens).toBeGreaterThan(0);
-    expect(await limiter.usedTokens(STORE, NOW)).toBeGreaterThan(0);
+    expect(await limiter.usedTokens(STORE_SCOPE, NOW)).toBeGreaterThan(0);
   });
 
   it('a limiter failure (Redis down) refuses before the call, audited as error with the class only', async () => {
@@ -339,7 +398,7 @@ describe('after the call', () => {
     const { ai, audit } = setup({ limiter });
     const d = await ai.complete('product-copy-draft@1', copy);
     expect(audit.records[0]).toMatchObject({ id: d.auditId, outcome: 'ok' });
-    expect(await mem.usedTokens(STORE, NOW)).toBeGreaterThan(
+    expect(await mem.usedTokens(STORE_SCOPE, NOW)).toBeGreaterThan(
       d.usage.inputTokens + d.usage.outputTokens,
     );
   });
