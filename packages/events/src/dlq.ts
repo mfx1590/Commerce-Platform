@@ -4,6 +4,14 @@
 // (a null value is a tombstone: the entry was replayed successfully). replayFromDlq re-fetches every original
 // message by (topic, partition, offset), runs the handler with the same retries, and writes a tombstone on
 // success; a failure writes a fresh record (attempts + 1) so the entry stays visible.
+//
+// Erasure (#703): a dead letter that failed BEFORE a customer's erasure is replayed AFTER it, so a handler could
+// rebuild what the consumer deleted. Before any handler runs, the replay reads `customer.erased` from the bus
+// (readErasedSet; fail closed: unreadable = nothing replayed) and, per entry, skips one whose payload names an
+// erased customer of its store (tombstoned, never handled) and nulls an erased customer's actor id. The bus keeps
+// customer.erased about 31 days (30-day class, daily roll), the same window as the 30-day topics whose dead letters
+// it guards; an older erasure is not known here, so the consumer's own `skip` hook is the check for an actor on a
+// forever topic (#707).
 import type { Kafka, KafkaMessage } from 'kafkajs';
 import {
   ConsumerConfigurationError,
@@ -14,7 +22,8 @@ import {
   type ProcessedQueryable,
   type ProcessedStore,
 } from './consumer.js';
-import { decodeMessage, HEADER_OUTBOX_ID } from './relay-message.js';
+import { actorErased, erasedSetFrom, namesErased, type ErasedSet } from './erasure.js';
+import { decodeMessage, HEADER_OUTBOX_ID, type DecodedMessage } from './relay-message.js';
 import { createKafka, dlqTopicName } from './topics.js';
 
 const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -219,11 +228,57 @@ async function fetchOriginals(
   return { found, missing };
 }
 
+/** customer.erased could not be read: the DLQ replay refuses to run any handler without it (#703). */
+export class ErasureSetUnavailableError extends Error {
+  constructor(topic: string, cause: unknown) {
+    super(`cannot read ${topic}, so no dead letter was replayed: ${errorClassOf(cause)}`);
+    this.name = 'ErasureSetUnavailableError';
+  }
+}
+
+/**
+ * The erased customers the bus still knows: every `customer.erased` message, read to the end (#703). Throws
+ * ErasureSetUnavailableError when the topic is missing, a read times out, or a message does not decode.
+ */
+export async function readErasedSet(opts: {
+  kafka: TopicReaderClient;
+  topicPrefix?: string;
+  groupId: string;
+  timeoutMs?: number;
+}): Promise<ErasedSet> {
+  const topic = `${opts.topicPrefix ?? ''}customer.erased`;
+  try {
+    const messages = await readTopicToEnd(
+      opts.kafka,
+      topic,
+      opts.groupId,
+      opts.timeoutMs ?? 15_000,
+    );
+    return erasedSetFrom(
+      messages.map((m) => {
+        const { envelope } = decodeMessage({ key: m.key, value: m.value, headers: m.headers });
+        const payload = envelope.payload as Record<string, unknown>;
+        return {
+          storeId: envelope.store_id,
+          customerId: payload.customer_id,
+          emailHash: payload.email_hash,
+        };
+      }),
+    );
+  } catch (err) {
+    throw new ErasureSetUnavailableError(topic, err);
+  }
+}
+
 export interface ReplayResult {
   entries: number;
   replayed: string[];
   failed: { outbox_id: string; error_class: string }[];
   missing: string[];
+  /** Tombstoned without running the handler (#703): `erased` = the payload names an erased customer of its store; `skip_hook` = the caller's `skip` said so. */
+  skipped: { outbox_id: string; reason: 'erased' | 'skip_hook' }[];
+  /** Replayed with the envelope actor's id nulled: the actor is an erased customer of the store (#703). */
+  actors_nulled: string[];
 }
 
 export interface ReplayOptions {
@@ -240,6 +295,12 @@ export interface ReplayOptions {
   /** List what would be replayed; run nothing, write nothing. */
   dryRun?: boolean;
   timeoutMs?: number;
+  /**
+   * The consumer's own erasure check (#703), asked for every entry the bus check let through, with the ORIGINAL
+   * message: true = tombstone it without running the handler. The bus check knows only the erasures still on the
+   * bus (about 31 days); a consumer with per-customer state checks its own erasure record here.
+   */
+  skip?: (message: DecodedMessage) => boolean | Promise<boolean>;
 }
 
 /** Reruns the handler for the group's live DLQ entries; a success writes a tombstone, a failure a fresh record. */
@@ -258,8 +319,23 @@ export async function replayFromDlq(opts: ReplayOptions): Promise<ReplayResult> 
     const only = new Set(opts.only);
     entries = entries.filter((e) => only.has(e.outbox_id));
   }
-  const result: ReplayResult = { entries: entries.length, replayed: [], failed: [], missing: [] };
+  const result: ReplayResult = {
+    entries: entries.length,
+    replayed: [],
+    failed: [],
+    missing: [],
+    skipped: [],
+    actors_nulled: [],
+  };
   if (opts.dryRun || entries.length === 0) return result;
+
+  // before anything is fetched or run: no erased set, no replay
+  const erased = await readErasedSet({
+    kafka,
+    topicPrefix: prefix,
+    groupId: `${prefix}dlq-erased-${opts.groupId}-${Math.random().toString(36).slice(2, 8)}`,
+    timeoutMs,
+  });
 
   const { found: originals, missing } = await fetchOriginals(
     kafka,
@@ -282,7 +358,7 @@ export async function replayFromDlq(opts: ReplayOptions): Promise<ReplayResult> 
         result.missing.push(entry.outbox_id);
         continue;
       }
-      let decoded;
+      let decoded: DecodedMessage;
       try {
         decoded = decodeMessage({
           key: original.key,
@@ -292,6 +368,43 @@ export async function replayFromDlq(opts: ReplayOptions): Promise<ReplayResult> 
       } catch (err) {
         result.failed.push({ outbox_id: entry.outbox_id, error_class: errorClassOf(err) });
         continue;
+      }
+      const { envelope } = decoded;
+      let reason: 'erased' | 'skip_hook' | null = null;
+      if (
+        namesErased(
+          envelope.topic,
+          envelope.store_id,
+          envelope.payload as Record<string, unknown>,
+          erased,
+        )
+      )
+        reason = 'erased';
+      else if (opts.skip) {
+        try {
+          if (await opts.skip(decoded)) reason = 'skip_hook';
+        } catch (err) {
+          // the consumer could not tell: never handled, never tombstoned, the entry stays for the next replay
+          result.failed.push({ outbox_id: entry.outbox_id, error_class: errorClassOf(err) });
+          continue;
+        }
+      }
+      if (reason) {
+        // never handled, and never retried either: the entry is closed like a success
+        await producer.send({
+          topic: dlqTopic,
+          acks: -1,
+          messages: [{ key: entry.outbox_id, value: null }],
+        });
+        result.skipped.push({ outbox_id: entry.outbox_id, reason });
+        continue;
+      }
+      if (actorErased(envelope.store_id, envelope.actor, erased)) {
+        decoded = {
+          ...decoded,
+          envelope: { ...envelope, actor: { type: 'customer' as const, id: null } },
+        };
+        result.actors_nulled.push(entry.outbox_id);
       }
       let lastError = '';
       let ok = false;

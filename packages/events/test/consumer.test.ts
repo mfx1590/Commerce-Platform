@@ -12,6 +12,7 @@ import {
   dlqTopicName,
   ensureTopics,
   envelopeToMessage,
+  ErasureSetUnavailableError,
   makeEvent,
   planTopics,
   readDeadLetters,
@@ -174,7 +175,7 @@ describe.runIf(brokerDown === null)(
     const wire = `${prefix}${topic}`;
     const policy: TopicPolicy = {
       environments: { t: { partitions: 2, replication: 1 } },
-      retention: { forever: [], days_30: ['store.'] },
+      retention: { forever: [], days_30: ['store.', 'customer.', 'order.', 'payment.'] },
       dlq: { prefix: 'dlq.', consumer_groups: [] },
     };
     const consumers: EventConsumer[] = [];
@@ -211,7 +212,10 @@ describe.runIf(brokerDown === null)(
     beforeAll(async () => {
       const admin = kafka.admin();
       await admin.connect();
-      await ensureTopics(admin, planTopics(policy, { environment: 't', prefix, topics: [topic] }));
+      await ensureTopics(
+        admin,
+        planTopics(policy, { environment: 't', prefix, topics: [topic, 'customer.erased'] }),
+      );
       await admin.disconnect();
       await publisher.connect();
     }, 60_000);
@@ -604,7 +608,14 @@ describe.runIf(brokerDown === null)(
           ran += 1;
         },
       });
-      expect(r).toEqual({ entries: 1, replayed: [], failed: [], missing: [ghost.outbox_id] });
+      expect(r).toEqual({
+        entries: 1,
+        replayed: [],
+        failed: [],
+        missing: [ghost.outbox_id],
+        skipped: [],
+        actors_nulled: [],
+      });
       expect(ran).toBe(0);
       expect(await readDeadLetters('ghost', { kafka, topicPrefix: prefix })).toHaveLength(1);
     }, 60_000);
@@ -619,7 +630,14 @@ describe.runIf(brokerDown === null)(
         dryRun: true,
         handler: async () => {},
       });
-      expect(dry).toEqual({ entries: 1, replayed: [], failed: [], missing: [] });
+      expect(dry).toEqual({
+        entries: 1,
+        replayed: [],
+        failed: [],
+        missing: [],
+        skipped: [],
+        actors_nulled: [],
+      });
 
       const replayed: string[] = [];
       let attempts = 0;
@@ -635,7 +653,14 @@ describe.runIf(brokerDown === null)(
           replayed.push(tagOf(m));
         },
       });
-      expect(r).toEqual({ entries: 1, replayed: [dead[0]!.outbox_id], failed: [], missing: [] });
+      expect(r).toEqual({
+        entries: 1,
+        replayed: [dead[0]!.outbox_id],
+        failed: [],
+        missing: [],
+        skipped: [],
+        actors_nulled: [],
+      });
       expect(replayed).toEqual(['bad']);
       expect(attempts).toBe(2);
       expect(await readDeadLetters('poison', { kafka, topicPrefix: prefix })).toEqual([]);
@@ -667,10 +692,252 @@ describe.runIf(brokerDown === null)(
         replayed: [],
         failed: [{ outbox_id: again.outbox_id, error_class: 'StillBroken' }],
         missing: [],
+        skipped: [],
+        actors_nulled: [],
       });
       const left = await readDeadLetters('poison', { kafka, topicPrefix: prefix });
       expect(left).toHaveLength(1);
       expect(left[0]).toMatchObject({ attempts: 3, error_class: 'StillBroken' });
     }, 90_000);
+
+    it("replayFromDlq with an erasure since the failure (#703): the erased customer's order is tombstoned unhandled, their actor id is nulled, the skip hook sees the original", async () => {
+      const X = '33000000-0000-4000-8000-0000000000a1';
+      const Y = '33000000-0000-4000-8000-0000000000b2';
+      const HX = 'a1'.repeat(32);
+      const LE = '33000000-0000-4000-8000-0000000000c3';
+      const uuid = () => crypto.randomUUID();
+      const customer = (id: string) => ({ type: 'customer' as const, id });
+      const orderPlaced = (customerId: string) => {
+        const orderId = uuid();
+        return makeEvent({
+          topic: 'order.placed',
+          organizationId: ORG,
+          storeId: STORE,
+          aggregateType: 'order',
+          aggregateId: orderId,
+          actor: customer(customerId),
+          payload: {
+            order_id: orderId,
+            display_id: 1,
+            legal_entity_id: LE,
+            sales_channel_id: uuid(),
+            customer_id: customerId,
+            email_hash: HX,
+            currency: 'EUR',
+            locale: 'en-GB',
+            totals: {
+              subtotal_minor: 1999,
+              discount_minor: 0,
+              shipping_minor: 0,
+              tax_minor: 0,
+              total_minor: 1999,
+            },
+            line_items: [],
+            shipping: {
+              shipping_option_id: null,
+              code: 'standard',
+              name: 'Standard',
+              carrier: 'manual',
+              price_minor: 0,
+            },
+            shipping_country: 'NL',
+            billing_country: 'NL',
+            promotion_codes: [],
+            placed_at: new Date().toISOString(),
+          },
+        });
+      };
+      const paymentAuthorized = (actorId: string) => {
+        const paymentId = uuid();
+        return makeEvent({
+          topic: 'payment.authorized',
+          organizationId: ORG,
+          storeId: STORE,
+          aggregateType: 'payment',
+          aggregateId: paymentId,
+          actor: customer(actorId),
+          payload: {
+            payment_id: paymentId,
+            order_id: uuid(),
+            legal_entity_id: LE,
+            provider: 'manual',
+            provider_payment_id: null,
+            amount_minor: 1999,
+            currency: 'EUR',
+            authorized_at: new Date().toISOString(),
+          },
+        });
+      };
+      const orderX = orderPlaced(X); // skipped: the payload names X
+      const payX = paymentAuthorized(X); // replayed, actor id nulled
+      const payY = paymentAuthorized(Y); // replayed as it is
+      const payHook = paymentAuthorized(Y); // the consumer's own record says skip
+      const payHookDown = paymentAuthorized(Y); // the consumer's own check throws: failed, kept
+
+      const admin = kafka.admin();
+      await admin.connect();
+      await ensureTopics(
+        admin,
+        planTopics(policy, {
+          environment: 't',
+          prefix,
+          topics: ['order.placed', 'payment.authorized'],
+          consumerGroups: ['erasure'],
+        }),
+      );
+      await admin.disconnect();
+
+      // all five fail BEFORE the erasure
+      const c = track(
+        createConsumer({
+          groupId: 'erasure',
+          topics: ['order.placed', 'payment.authorized'],
+          topicPrefix: prefix,
+          kafka,
+          fromBeginning: true,
+          retries: 1,
+          log: quiet,
+          sleep: noWait,
+          handler: async () => {
+            const e = new Error('down');
+            e.name = 'HandlerFailed';
+            throw e;
+          },
+        }),
+      );
+      await c.start();
+      await publisher.send(`${prefix}order.placed`, [envelopeToMessage(orderX, 'test')]);
+      await publisher.send(
+        `${prefix}payment.authorized`,
+        [payX, payY, payHook, payHookDown].map((e) => envelopeToMessage(e, 'test')),
+      );
+      await until(() => c.stats.dead_lettered === 5, 30_000, 'five dead letters');
+      await c.stop();
+
+      // then X is erased
+      const erasure = makeEvent({
+        topic: 'customer.erased',
+        organizationId: ORG,
+        storeId: STORE,
+        aggregateType: 'customer',
+        aggregateId: X,
+        payload: {
+          customer_id: X,
+          identity_id: null,
+          email_hash: HX,
+          erased_at: new Date().toISOString(),
+        },
+      });
+      await publisher.send(`${prefix}customer.erased`, [envelopeToMessage(erasure, 'test')]);
+
+      const handled: { id: string; actor: unknown }[] = [];
+      const hookSaw: { id: string; actor: unknown }[] = [];
+      const r = await replayFromDlq({
+        groupId: 'erasure',
+        topicPrefix: prefix,
+        kafka,
+        sleep: noWait,
+        skip: (m) => {
+          hookSaw.push({ id: m.outboxId, actor: m.envelope.actor });
+          if (m.outboxId === payHookDown.event_id) {
+            const e = new Error('suppression table unreachable');
+            e.name = 'HookDown';
+            throw e;
+          }
+          return m.outboxId === payHook.event_id;
+        },
+        handler: async (m) => {
+          handled.push({ id: m.outboxId, actor: m.envelope.actor });
+        },
+      });
+      const byId = <T extends { outbox_id?: string; id?: string }>(a: T[]) =>
+        [...a].sort((p, q) =>
+          String(p.outbox_id ?? p.id).localeCompare(String(q.outbox_id ?? q.id)),
+        );
+      expect(r.entries).toBe(5);
+      expect(byId(r.skipped)).toEqual(
+        byId([
+          { outbox_id: orderX.event_id, reason: 'erased' },
+          { outbox_id: payHook.event_id, reason: 'skip_hook' },
+        ]),
+      );
+      expect([...r.replayed].sort()).toEqual([payX.event_id, payY.event_id].sort());
+      expect(r.actors_nulled).toEqual([payX.event_id]);
+      expect(r).toMatchObject({
+        failed: [{ outbox_id: payHookDown.event_id, error_class: 'HookDown' }],
+        missing: [],
+      });
+      // the handler never saw the erased order, and saw no erased id as an actor
+      expect(byId(handled)).toEqual(
+        byId([
+          { id: payX.event_id, actor: { type: 'customer', id: null } },
+          { id: payY.event_id, actor: customer(Y) },
+        ]),
+      );
+      expect(JSON.stringify(handled)).not.toContain(X);
+      // the hook is asked only for what the bus check let through, with the ORIGINAL message
+      expect(byId(hookSaw)).toEqual(
+        byId([
+          { id: payX.event_id, actor: customer(X) },
+          { id: payY.event_id, actor: customer(Y) },
+          { id: payHook.event_id, actor: customer(Y) },
+          { id: payHookDown.event_id, actor: customer(Y) },
+        ]),
+      );
+      // replayed and skipped entries are closed; the one the hook could not decide stays, unhandled
+      expect(
+        (await readDeadLetters('erasure', { kafka, topicPrefix: prefix })).map((d) => d.outbox_id),
+      ).toEqual([payHookDown.event_id]);
+    }, 120_000);
+
+    it('replayFromDlq without a readable customer.erased runs nothing and keeps every entry (fail closed, #703)', async () => {
+      const bare = `${prefix}bare.`; // no customer.erased under this prefix
+      const admin = kafka.admin();
+      await admin.connect();
+      await ensureTopics(
+        admin,
+        planTopics(policy, {
+          environment: 't',
+          prefix: bare,
+          topics: [],
+          consumerGroups: ['ghost'],
+        }),
+      );
+      await admin.disconnect();
+      const entry: DeadLetter = {
+        outbox_id: '99999999-0000-4000-8000-000000000002',
+        group_id: 'ghost',
+        topic: `${bare}${topic}`,
+        partition: 0,
+        offset: '0',
+        event_topic: topic,
+        event_version: 1,
+        attempts: 5,
+        error_class: 'HandlerFailed',
+        failed_at: new Date().toISOString(),
+      };
+      const p = kafka.producer({ allowAutoTopicCreation: false });
+      await p.connect();
+      await p.send({
+        topic: `${bare}${dlqTopicName('ghost')}`,
+        messages: [{ key: entry.outbox_id, value: JSON.stringify(entry) }],
+      });
+      await p.disconnect();
+      let ran = 0;
+      await expect(
+        replayFromDlq({
+          groupId: 'ghost',
+          topicPrefix: bare,
+          kafka,
+          sleep: noWait,
+          timeoutMs: 5_000,
+          handler: async () => {
+            ran += 1;
+          },
+        }),
+      ).rejects.toBeInstanceOf(ErasureSetUnavailableError);
+      expect(ran).toBe(0);
+      expect(await readDeadLetters('ghost', { kafka, topicPrefix: bare })).toHaveLength(1);
+    }, 60_000);
   },
 );

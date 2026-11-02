@@ -122,6 +122,11 @@ erasures:** today's replay republishes those orders unscrubbed. **DLQ replay of 
 re-fetches the original by offset, so an `order.*` dead letter older than 30 days reports `missing`. Recover it with
 `outbox:replay --topic <t> --from/--to` instead.
 
+**DLQ replay reads `customer.erased` first (#703).** `replayFromDlq` builds its erased set from this topic and
+refuses to run without it, so `customer.erased` must exist wherever a group replays (`topics:create` makes it).
+It knows the erasures of the last ~31 days (30-day class, daily roll), the same window as the 30-day originals it
+guards; an actor on a forever topic can outlive it (#707). packages/events README, "Erasure on DLQ replay".
+
 **Cleanup policy `delete`** on every event topic (never `compact`: compaction would drop earlier events of
 the same key, and our key is the store).
 
