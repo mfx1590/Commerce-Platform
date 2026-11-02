@@ -87,9 +87,10 @@ export type CopyDraftGatewayFactory = (ctx: {
 // One limiter (Redis) per process, created on first use; the transport is resolved only when a call goes out, so
 // `AI_ENABLED` off is `ai_disabled` (the gateway refuses before the transport) even without a key configured.
 let redisLimiter: UsageLimiter | null = null;
+let anthropic: AiTransport | null = null; // created on the first call that goes out, then reused
 const lazyTransport: AiTransport = {
   kind: 'anthropic',
-  complete: (req) => createAnthropicTransport().complete(req),
+  complete: (req) => (anthropic ??= createAnthropicTransport()).complete(req),
 } as AiTransport;
 
 const defaultFactory: CopyDraftGatewayFactory = (ctx) =>
@@ -311,13 +312,15 @@ export async function draftProductCopy(
   const facts = await client.transaction((tx) =>
     productFacts(tx, storeId, input.productId, input.locale),
   );
-  const ai = factory({
-    organizationId: client.context.organizationId,
-    storeId,
-    actorId: input.actorId,
-  });
   let answer: Awaited<ReturnType<AiGateway['complete']>>;
   try {
+    // built inside the mapping: an error constructing the limiter, the audit sink or the gateway itself is the
+    // documented 503 / 500, not an unmapped one (#672 review)
+    const ai = factory({
+      organizationId: client.context.organizationId,
+      storeId,
+      actorId: input.actorId,
+    });
     answer = await ai.complete(COPY_TEMPLATE.key, {
       fields: fields.join(', '),
       brandVoice: facts.brandVoice,
