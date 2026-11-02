@@ -55,11 +55,12 @@ error and, if it gets through `as` casts, a `DeniedFieldError` at runtime.
 
 A published template is never edited: a changed prompt is a new `v<N+1>.json`, and callers move to it by key.
 
-| Key                          | Purpose        | maxTokens | Variables                                                                        | Answer                                                                                                                                                                                                                                                                                   |
-| ---------------------------- | -------------- | --------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `product-copy-draft@1`       | drafting       | 1200      | `brandVoice`, `locale`, `audience`, `productTitle`, `attributes`                 | plain text: two short paragraphs, then up to five bullets                                                                                                                                                                                                                                |
-| `product-copy-draft@2`       | drafting       | 2000      | as v1, plus `fields` (comma-separated: `title`, `description`, `bullets`, `seo`) | ONE strict-JSON object with every requested key and no others: `title` ≤ 200, `description` ≤ 5000 (paragraph breaks as `\n\n` in the string), `bullets` ≤ 5 × ≤ 200 (may be `[]`), `seo: { title ≤ 70, description ≤ 160 }` — the `ProductCopyDraft` shape of `draftProductCopy` (#608) |
-| `product-category-suggest@1` | classification | 64        | `productTitle`, `attributes`, `categories`                                       | one category handle from the list, or `none`                                                                                                                                                                                                                                             |
+| Key                          | Purpose        | maxTokens | Variables                                                                                                                                                                                                                                                                                                       | Answer                                                                                                                                                                                                                                                                                   |
+| ---------------------------- | -------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `product-copy-draft@1`       | drafting       | 1200      | `brandVoice`, `locale`, `audience`, `productTitle`, `attributes`                                                                                                                                                                                                                                                | plain text: two short paragraphs, then up to five bullets                                                                                                                                                                                                                                |
+| `product-copy-draft@2`       | drafting       | 2000      | as v1, plus `fields` (comma-separated: `title`, `description`, `bullets`, `seo`)                                                                                                                                                                                                                                | ONE strict-JSON object with every requested key and no others: `title` ≤ 200, `description` ≤ 5000 (paragraph breaks as `\n\n` in the string), `bullets` ≤ 5 × ≤ 200 (may be `[]`), `seo: { title ≤ 70, description ≤ 160 }` — the `ProductCopyDraft` shape of `draftProductCopy` (#608) |
+| `product-category-suggest@1` | classification | 64        | `productTitle`, `attributes`, `categories`                                                                                                                                                                                                                                                                      | one category handle from the list, or `none`                                                                                                                                                                                                                                             |
+| `support-reply-draft@1`      | drafting       | 700       | `question` (untrusted), `storeCode`, `brandVoice`, `locale`, `orderRef`, `orderStatus`, `paymentStatus`, `fulfillmentStatus`, `placedAt`, `shippedAt`, `deliveredAt`, `carrier`, `total`, `refundStatus`, `refunded`, `returnStatus`, `returnRequestedAt` (empty = unknown; money pre-formatted, e.g. `€49.76`) | plain text, 2–5 short sentences for a support agent to edit: no subject, no signature, no greeting with a name (#610, REQUEST #667)                                                                                                                                                      |
 
 Every drafting template uses only the given facts. In `product-copy-draft@2` each value sits in its own tag
 (`<locale>`, `<brand_voice>`, `<audience>`, `<product_title>`, `<facts>`), the requested keys stay outside the tags,
@@ -69,6 +70,15 @@ A missing fact drops the claim, never a requested key. The gateway returns the m
 parses the JSON and checks the keys and limits itself (the core answers `ai_invalid_draft` otherwise; check
 `stopReason === 'max_tokens'` first, a cut-off answer is not valid JSON); the gateway never trusts or repairs an
 answer. There is no structured-output (JSON schema) option in the transport yet.
+
+`support-reply-draft@1` works the same way: `<locale>`, `<brand_voice>`, `<store>`, `<order>` (the order, refund and
+return facts, one labelled line each; amounts already formatted) and `<question>`. The customer's question is answered,
+never obeyed; the draft names only facts from `<order>`, says what is not known instead of guessing, and commits the
+company to nothing the facts do not already show. The caller passes a projection without names, e-mail, address,
+phone, tracking number or uuid; the denylist and redaction are the second guard (see "Redaction" below for what is
+masked in the free-text question and what is not). Money arrives formatted as the customer sees it (`€49.76`, `¥2,495`; the caller formats it with `Intl`), and the
+model copies it exactly and never recomputes it; the redaction placeholders are explained to the model, which never
+repeats or asks for them.
 
 ## Order of a call
 
@@ -87,6 +97,28 @@ Every outcome, including each refusal before the call, writes exactly one audit 
 rendering (unknown template, denied field) has no input, so its `input_sha256` is `NO_INPUT_SHA256` = SHA-256 of the
 empty string (the column is NOT NULL, 64 hex); an ill-shaped template key is audited as `unknown`. A failed audit write withholds
 the draft (`AiAuditError`).
+
+## Redaction: exactly what is masked
+
+`redact()` runs over every rendered string (and, in a tool-use run, every tool result) before it is sent. It replaces a
+match with a placeholder and counts it; the counts go into the audit row, the text never does. It is the second guard:
+the first is the denylist, which keeps customer fields out of the variables altogether.
+
+| Placeholder  | Masked                                                                                                                                 |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `[email]`    | an e-mail address (`name@domain.tld`)                                                                                                  |
+| `[card]`     | 13–19 digits, grouped by spaces or hyphens or not, that pass the Luhn check                                                            |
+| `[iban]`     | an IBAN that passes mod-97, grouped or not                                                                                             |
+| `[address]`  | a street with a number (NL, DE, UK, US, FR shapes), an NL postcode followed by a place, a full UK postcode, a US `City, ST 12345` line |
+| `[tracking]` | UPS `1Z` + 16; DHL Express exactly 10 digits, DHL parcel `JJD` + digits; PostNL `3S` + four letters + digits                           |
+| `[phone]`    | at least 9 digits shaped like a phone: starting with `+`, `00`, `0` or `(`, or with separators                                         |
+
+**Not masked:** names; an e-mail address spelled out in words ("anna at example dot org"); other carriers' tracking
+numbers (GLS, DPD, …); an address in a shape not listed; free-text identity details. A caller must not put these in a
+variable; for free text it cannot control (a customer's question) they may reach the model, which is a recorded
+residual. The patterns lean towards masking: a bare 10-digit number (an ISBN-10, a US phone number without a
+separator) becomes `[tracking]`, and a 12/13-digit code that starts with `0` is taken for a phone number.
+GTIN-13s, UPC-12s that do not start with `0`, 13-digit order numbers and short numbers stay.
 
 ## Models and prices
 
