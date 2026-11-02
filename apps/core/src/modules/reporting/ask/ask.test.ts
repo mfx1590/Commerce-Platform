@@ -223,7 +223,7 @@ describe('the per-store switch and the budget scope', () => {
     const { deps, runs } = setup([answer('Nothing to look up.')]);
     await askMetrics(deps, caller([A, B], false, false), { question: 'x', store_ids: [A.id] });
     expect(runs[0]!.scope).toEqual({ organizationId: ORG, storeId: A.id, actorId: ACTOR });
-    expect(runs[0]!.key).toBe('bi-qa-answer@2');
+    expect(runs[0]!.key).toBe('bi-qa-answer@3');
     expect(runs[0]!.toolNames).toEqual(['query_metrics']);
     expect(runs[0]!.variables).toMatchObject({
       question: 'x',
@@ -233,7 +233,7 @@ describe('the per-store switch and the budget scope', () => {
     });
   });
 
-  it("the admin's locale reaches the template canonical (bi-qa-answer@2)", async () => {
+  it("the admin's locale reaches the template canonical (bi-qa-answer@2 and @3)", async () => {
     const { deps, runs } = setup([answer('Nichts.')]);
     await askMetrics(
       deps,

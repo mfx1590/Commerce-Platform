@@ -67,6 +67,10 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   dimensionsLine in the tool description (caller's metrics only, ~25 tokens) + one-line schema descriptions for
   dimensions / order_by / limit, pinned in ask.test. Manager routes #17 (unlabelled count difference) to window 14
   as bi-qa-answer@3; once both are on main, ONE more re-run decides #7. Reporting 221 pass; gates green.
+  #683 MERGED 8b4e70fd (after the queue fix 6ab9b6ef), #684 (@3) on main → main merged into the checker branch,
+  BI_QA_TEMPLATE = bi-qa-answer@3 (same variables as @2; its derived forms are the ones real-model.test pins);
+  reporting 225 pass; gates green. NEXT: PR (Opus review) → merge → ONE real-model re-run → #685 (flaky
+  ClickHouse test, mine).
 - #606 v2 FOLLOW-UP (2026-11-02, manager ten; #680 MERGED a150e0fb, #606 closed, #682 bi-qa-answer@2 on main).
   Branch data/phase5-606-v2 (cut --no-track from origin/main a150e0fb). BI_QA_TEMPLATE = @2; `locale` = the
   request's Accept-Language first tag via Intl.getCanonicalLocales (canonicalLocale in ask.ts), else en — no staff

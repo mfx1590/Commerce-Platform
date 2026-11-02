@@ -42,7 +42,7 @@ export interface RunToolsOptions {
   conversationId?: string;
 }
 
-/** The variables of template `bi-qa-answer@2` (#682; @1 plus `locale`). */
+/** The variables of template `bi-qa-answer@3` (#684; as @2: @1 plus `locale`). */
 export interface BiQaVariables {
   question: string;
   /** BCP 47, canonical (ask.ts canonicalLocale) */
@@ -55,7 +55,7 @@ export interface BiQaVariables {
 
 export interface GatewayLike {
   runTools(
-    key: 'bi-qa-answer@2',
+    key: 'bi-qa-answer@3',
     variables: BiQaVariables,
     opts: RunToolsOptions,
   ): Promise<AiToolRun>;

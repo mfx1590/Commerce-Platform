@@ -39,7 +39,7 @@ describe('figuresOf', () => {
   });
 });
 
-// bi-qa-answer@2's labelled derived figure, recomputed from the results it cites (#23: bookings [q1] − net [q2]).
+// bi-qa-answer@2 / @3's labelled derived figure, recomputed from the results it cites (#23: bookings [q1] − net [q2]).
 // The checker is the net for wrong figures (#683 review): every case below that should fail must fail.
 describe('checkDerived', () => {
   const money = (currency: string, minor: number): ResultValue => ({

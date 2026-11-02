@@ -14,8 +14,9 @@ import type { MetricId } from '../metrics/catalogue';
 import { aiErrorToAppError, type AiToolRun, type GatewayFactory } from './gateway';
 import { queryMetricsHandler, queryMetricsTool, type ExecutedQuery } from './tool';
 
-// v2 (#682, from the first real-model run): the answer's language, ONE labelled derived figure, top-N by dimension
-export const BI_QA_TEMPLATE = 'bi-qa-answer@2' as const;
+// v2 (#682, the first real-model run): the answer's language, ONE labelled derived figure, top-N by dimension;
+// v3 (#684, the re-run): every number not copied from a result is labelled — a count difference too (#17)
+export const BI_QA_TEMPLATE = 'bi-qa-answer@3' as const;
 /** The answer's language when the question's own cannot be told, and the fallback for a missing or bad locale. */
 export const DEFAULT_LOCALE = 'en';
 /** Tool calls one question may make (the gateway enforces it; #669 caps it at 8). */

@@ -154,7 +154,7 @@ const what = (v: ResultValue) => (v.unit === 'money' ? `${v.currency ?? '?'} mon
 const NUM = '[−-]?(?:\\d[\\d.,]*\\d|\\d)';
 const CUR = '(?:\\s*([A-Z]{3}))?';
 /**
- * bi-qa-answer@2's ONE labelled derived figure: `x CUR (derived: a CUR [qi] − b CUR [qj])` (+ for a sum) or
+ * bi-qa-answer@2 / @3's ONE labelled derived figure: `x CUR (derived: a CUR [qi] − b CUR [qj])` (+ for a sum) or
  * `x (derived: a [qi] / b [qj])` for a ratio.
  */
 const DERIVED = new RegExp(
@@ -304,7 +304,7 @@ export async function runRealCase(
   for (const m of answer.answer.matchAll(/\[q(\d+)\]/g))
     if (!answer.queries[Number(m[1]) - 1]?.result) out.problems.push(`[q${m[1]}] cites no result`);
   const backed = new Set(ran.flatMap((x) => [...backedValues(x.result!, x.query.metrics)]));
-  // a labelled derived figure (bi-qa-answer@2) is recomputed from the two results it cites
+  // a labelled derived figure (bi-qa-answer@2 / @3) is recomputed from the two results it cites
   const derived = checkDerived(answer.answer, (ref) => {
     const x = answer.queries[ref - 1];
     return x?.result ? resultValues(x.result, x.query.metrics) : undefined;
