@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `redact()` leaves canonical uuids intact (#680, reported by window 12). Their digit groups were masked as phone numbers (`00000000-0000-4000-8000-000000000031` became `[phone]-[phone]`), which broke ids in prompts and in tool results. E-mail is still masked first over the whole text; every other pattern now runs on the text between uuids, so PII right next to a uuid is still masked. Existing cases are unchanged.
 - Tool use for BI Q&A (REQUEST #669, for #606 / window 12):
   - Purpose `analysis` (`claude-sonnet-5-5`, `AI_MODEL_ANALYSIS`, fallbacks off).
   - Organization scope: `storeId: null` uses the organization's own monthly budget (`AI_ORG_MONTHLY_TOKEN_BUDGET`) and minute, keyed `org:<id>`; store keys are unchanged. The limiter API takes a `LimitScope`. `AiBudgetExceededError` names its scope (`store`, `organization`, `run`) with contract `details`; `AiRateLimitedError` names its scope.

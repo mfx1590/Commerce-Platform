@@ -175,6 +175,12 @@ residual. The patterns lean towards masking: a bare 10-digit number (an ISBN-10,
 separator) becomes `[tracking]`, and a 12/13-digit code that starts with `0` is taken for a phone number.
 GTIN-13s, UPC-12s that do not start with `0`, 13-digit order numbers and short numbers stay.
 
+**Left as they are:** canonical uuids (`8-4-4-4-12` hex, any case; #680). They are ids, not personal data, and
+their digit groups would otherwise read as phone, card or tracking numbers (`00000000-0000-4000-8000-000000000031`
+once became `[phone]-[phone]`). E-mail is masked first, over the whole text, so a uuid used as the local part of an
+address does not shield it; every other pattern runs on the text between uuids, so a phone or card number right next
+to a uuid is still masked.
+
 ## Models and prices
 
 | Purpose        | Default             | Override env              | Fallbacks |

@@ -73,6 +73,27 @@ describe('redact', () => {
     expect(redact('call 4155552671').text).toBe('call [tracking]');
   });
 
+  it('leaves uuids intact, in any case and inside JSON; PII beside them is still masked (#680)', () => {
+    const ids = ['00000000-0000-4000-8000-000000000031', '5a1b2c3d-1111-4222-8333-444455556666'];
+    for (const id of [...ids, ids[1]!.toUpperCase()]) {
+      expect(redact(`store ${id}`), id).toMatchObject({ text: `store ${id}`, total: 0 });
+    }
+    const json = JSON.stringify({ rows: [{ store_id: ids[0], order_id: ids[1], n: 2 }] });
+    expect(redact(json)).toMatchObject({ text: json, total: 0 });
+    // a phone, a card, a tracking number and an e-mail right next to uuids
+    const card = ['4111', ...Array<string>(3).fill('1111')].join(' '); // public test PAN, assembled at runtime
+    const r = redact(
+      `${ids[0]} +31612345678 ${ids[1]}, ${ids[1]}:020-555 1234; ${card} ${ids[0]} DHL 1234567890`,
+    );
+    expect(r.text).toBe(
+      `${ids[0]} [phone] ${ids[1]}, ${ids[1]}:[phone]; [card] ${ids[0]} DHL [tracking]`,
+    );
+    // e-mail is masked before uuids are set aside, so a uuid local part does not shield the address
+    expect(redact(`mail ${ids[1]}@example.org`).text).toBe('mail [email]');
+    // not a uuid (a 7-character first group): its digit runs are judged as before
+    expect(redact('ref 0000000-0000-4000-8000-000000000031').counts.phone).toBeGreaterThan(0);
+  });
+
   it('does NOT mask names, an e-mail spelled out in words, or an unknown carrier’s number (documented residuals)', () => {
     const text = 'Anna de Vries, anna at example dot org, GLS 12345678901234';
     // GLS: 14 digits, fails Luhn → not a card; not phone-shaped → stays

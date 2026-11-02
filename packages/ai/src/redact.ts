@@ -3,6 +3,7 @@
 // phone numbers, address shapes (a street name with a number, NL/UK postcodes, a US "City, ST 12345" line) and the
 // tracking numbers of the common carriers (UPS 1Z…, DHL 10 digits or JJD…, PostNL 3S…, #671). It does NOT mask names, an
 // e-mail address spelled out in words, other carriers' tracking numbers, or an address in a shape it does not know.
+// Canonical uuids are left as they are (#680): they are ids, and their digit groups would otherwise read as phones.
 // This is defence in depth: the hard guard is the denylist of customer fields (denylist.ts), which keeps those
 // fields out of a prompt altogether. The patterns lean towards masking; a masked GTIN in product copy costs a little
 // quality, a leaked card number costs much more.
@@ -16,6 +17,9 @@ export interface RedactionResult {
 }
 
 const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+// a canonical uuid (8-4-4-4-12 hex) is an id, never PII, but its digit groups look like phone, card and tracking runs
+// ("00000000-0000-4000-8000-000000000031" became "[phone]-[phone]", #680). The capture group makes split() keep them.
+const UUID_SPLIT = /(\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b)/i;
 // 13–19 digits, optionally grouped by single spaces or hyphens
 const CARD_CANDIDATE = /\b\d(?:[ -]?\d){12,18}\b/g;
 // UPS 1Z + 16; DHL Express exactly 10 digits (a bare run of 10 — 12/13-digit GTINs and order numbers stay), DHL
@@ -124,25 +128,35 @@ export function redact(input: string): RedactionResult {
     address: 0,
     tracking: 0,
   };
-  let text = input;
-  const mask = (re: RegExp, kind: RedactionKind, keep?: (m: string) => boolean) => {
-    text = text.replace(re, (m) => {
+  const mask = (
+    text: string,
+    re: RegExp,
+    kind: RedactionKind,
+    keep?: (m: string) => boolean,
+  ): string =>
+    text.replace(re, (m) => {
       if (keep && !keep(m)) return m;
       counts[kind] += 1;
       return `[${kind}]`;
     });
+  // e-mail first, over the whole text, so a uuid used as an address's local part does not shield the address
+  const rest = (s: string) => {
+    s = mask(s, IBAN_CANDIDATE, 'iban', ibanValid);
+    s = mask(s, CARD_CANDIDATE, 'card', (m) => luhn(m.replace(/\D/g, '')));
+    s = mask(s, STREET_AFTER, 'address');
+    s = mask(s, STREET_BEFORE, 'address');
+    s = mask(s, NL_POSTCODE, 'address');
+    s = mask(s, UK_POSTCODE, 'address');
+    s = mask(s, US_CITY_ZIP, 'address');
+    // before the phone check, which keeps a bare 10-digit run (not phone-shaped)
+    s = mask(s, TRACKING, 'tracking');
+    return mask(s, PHONE, 'phone', looksLikePhone);
   };
-  mask(EMAIL, 'email');
-  mask(IBAN_CANDIDATE, 'iban', ibanValid);
-  mask(CARD_CANDIDATE, 'card', (m) => luhn(m.replace(/\D/g, '')));
-  mask(STREET_AFTER, 'address');
-  mask(STREET_BEFORE, 'address');
-  mask(NL_POSTCODE, 'address');
-  mask(UK_POSTCODE, 'address');
-  mask(US_CITY_ZIP, 'address');
-  // before the phone check, which keeps a bare 10-digit run (not phone-shaped)
-  mask(TRACKING, 'tracking');
-  mask(PHONE, 'phone', looksLikePhone);
+  // every other pass runs on the text between uuids (even indexes of the split) and leaves the uuids as they are
+  const text = mask(input, EMAIL, 'email')
+    .split(UUID_SPLIT)
+    .map((part, i) => (i % 2 === 1 ? part : rest(part)))
+    .join('');
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   return { text, counts, total };
 }

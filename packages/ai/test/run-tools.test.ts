@@ -448,6 +448,20 @@ describe('runTools: what goes back to the model', () => {
     expect(JSON.stringify(s.audit.records)).not.toContain('anna');
   });
 
+  it('uuids in a JSON result reach the model intact; a phone beside them is still masked (#680)', async () => {
+    const ids = ['00000000-0000-4000-8000-000000000031', '5a1b2c3d-1111-4222-8333-444455556666'];
+    const s = setup([{ toolUse: [q('a')] }, { text: 'done' }], {}, async () => ({
+      content: JSON.stringify({
+        rows: [{ store_id: ids[0], order_id: ids[1], note: 'call +31 6 1234 5678' }],
+      }),
+    }));
+    await s.run();
+    const sent = s.transport.calls[1]!.turns![1] as Extract<AiTurn, { role: 'user' }>;
+    expect(JSON.parse(sent.toolResults[0]!.content)).toEqual({
+      rows: [{ store_id: ids[0], order_id: ids[1], note: 'call [phone]' }],
+    });
+  });
+
   it('a plain-text result has no keys to check and is still redacted', async () => {
     const s = setup([{ toolUse: [q('a')] }, { text: 'done' }], {}, async () => ({
       content: 'no rows; contact anna@example.org',
