@@ -229,8 +229,8 @@ side effect: durable (your own table) with `ctx.markProcessed(tx)` inside your t
 entries, anything that must not repeat (the mark and the side effects commit together); the memory store, or
 none, when the handler is idempotent anyway — those are at-least-once only, because a crash between the
 handler and the mark reruns the handler. Replay from the DLQ reports an entry whose original message is gone
-(a 30-day topic past its retention) as `missing` and keeps the entry; it never tombstones what it did not
-handle. Group timeouts: session 10 s, heartbeat 3 s (sent between retry attempts), rebalance 60 s.
+(a 30-day topic past its retention) as `missing` and keeps the entry; the only entries it tombstones without
+running the handler are the ones the erasure check skips (next section but one). Group timeouts: session 10 s, heartbeat 3 s (sent between retry attempts), rebalance 60 s.
 
 ## Consumer groups (#561) and stopping (0.6.3)
 
@@ -244,3 +244,52 @@ the PR that adds it.
 mid-retry when you stop gives up at its next attempt: it is not dead-lettered and its offset is not committed, so
 the next start of the group gets it again (`ConsumerStoppedError` never leaves the SDK; the log line is
 `stopped_mid_message`).
+
+## Erasure on DLQ replay (0.7.0, #703)
+
+A dead letter that failed BEFORE a customer's erasure is replayed AFTER it, so its handler could rebuild what the
+consumer deleted on `customer.erased` (a CDP profile, a CRM person, an analytics row). Live consumption is safe by
+order: events are keyed by store, so a customer's erasure arrives after their earlier events in the same partition.
+A DLQ replay breaks that order, so `replayFromDlq` checks first:
+
+1. **Before any handler runs** it reads `customer.erased` (with the topic prefix) to the end and builds the erased
+   customers per store (`readErasedSet`). The read is STRICT (`readTopicToEnd(…, { strict: true })`): every
+   partition must reach its `high − 1`; the idle shortcut the DLQ reads use for compacted topics is off, because a
+   stalled partition taken for finished would return part of the erasures as all of them (#710 review).
+   **Fail closed:** a missing topic, a partition short of its high watermark at the timeout (named in the message)
+   or a message that does not decode (named by offset, the value never quoted) throws
+   `ErasureSetUnavailableError` with the original error as its `cause`, and nothing is replayed or tombstoned.
+   `dryRun` reads nothing.
+2. **Skipped, tombstoned, never handled:** an entry whose payload names an erased customer of its store, by
+   customer id or e-mail hash (`ERASURE_RULES`, the same rules the core's `outbox:replay` applies since #629).
+   `result.skipped` lists it with `reason: 'erased'`. It is closed like a success because it must not be retried.
+   **Closed means TOMBSTONED, not marked processed:** the handler never ran, so the processed store gets no row for
+   the `outbox_id`. Only the DLQ entry ends; a later delivery of the same message (a new group, a reset offset)
+   reaches the handler like any other, and the consumer's own erasure check (the CLAUDE.md rule) decides then.
+3. **Your own check:** `skip?: (message) => boolean | Promise<boolean>` is asked for every entry step 2 let
+   through, with the ORIGINAL message; `true` skips it the same way (`reason: 'skip_hook'`). A hook that throws puts the entry in `failed` with the error class: not handled, not tombstoned, kept for the next replay.
+4. **Actor id nulled:** an entry whose envelope actor is an erased customer of the store reaches the handler with
+   `actor: { type: 'customer', id: null }` (envelope v1 allows it). `result.actors_nulled` lists it.
+
+**Two replays at once.** The DLQ keeps the latest record per `outbox_id`. Two replays of one group running
+together (or a replay while the live consumer dead-letters the same id again) can interleave a tombstone and a
+fresh failure record, so an entry one of them closed can come back as live. That is safe: the next replay runs
+every check again (the erased set, `skip`, the actor), and a handler that does run is deduplicated by the
+processed store as usual. Run one replay per group at a time anyway; a second one only repeats work.
+
+**What the bus check knows: about 31 days of erasures.** `customer.erased` is in the 30-day class with a daily
+segment roll (#694), so an erasure older than that is gone from the bus. The dead letters it guards point at
+originals on 30-day topics too (every topic in `ERASURE_RULES` is), and those expire on the same timescale: an
+original older than its erasure's record is reported `missing` anyway. The exception is an ACTOR on a forever
+topic (`payment.*`: a signed-in checkout stamps the customer as the actor of `payment.authorized`), which can
+outlive the erasure on the bus (#707). So a consumer with per-customer state keeps checking its own erasure record:
+when it handles a message (rule in CLAUDE.md) and, for a DLQ replay, in `skip`.
+
+```ts
+await replayFromDlq({
+  groupId: 'engagement.cdp',
+  handler,
+  processed,
+  skip: async ({ envelope }) => isSuppressed(envelope), // your erasure record, e.g. a suppression table
+});
+```
