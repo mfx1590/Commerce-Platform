@@ -34,13 +34,16 @@ describe('topics.policy.json', () => {
     }
   });
 
-  it('ledger-relevant topics without customer ids are kept forever, the rest 30 days (ADR 0003, #629)', () => {
-    // order.* carries customer_id / email_hash, so it is bounded like every such topic; the outbox replays it (#534)
+  it('only the inventory ledger is kept forever, everything else 30 days (ADR 0003, #629, #707)', () => {
+    // order.* carries customer_id / email_hash (#629); payment.* carries the signed-in customer as the envelope actor
+    // (payment.authorized), and refund.* / shipment.* / return.* are customer-facing too (#707); the outbox replays them
     expect(retentionClassOf('order.placed', policy)).toBe('days_30');
     expect(retentionClassOf('order.cancelled', policy)).toBe('days_30');
-    expect(retentionClassOf('payment.captured', policy)).toBe('forever');
-    expect(retentionClassOf('refund.issued', policy)).toBe('forever');
-    expect(retentionClassOf('shipment.shipped', policy)).toBe('forever');
+    expect(retentionClassOf('payment.authorized', policy)).toBe('days_30');
+    expect(retentionClassOf('payment.captured', policy)).toBe('days_30');
+    expect(retentionClassOf('refund.issued', policy)).toBe('days_30');
+    expect(retentionClassOf('shipment.shipped', policy)).toBe('days_30');
+    expect(retentionClassOf('return.received', policy)).toBe('days_30');
     expect(retentionClassOf('stock.moved', policy)).toBe('forever');
     expect(retentionClassOf('stock_item.mapped', policy)).toBe('forever');
     expect(retentionClassOf('product.published', policy)).toBe('days_30');
@@ -112,9 +115,9 @@ describe('planTopics', () => {
         'segment.ms': SEGMENT_MS.days_30,
       },
     });
-    const captured = plan.find((s) => s.name === 'payment.captured')!;
+    const moved = plan.find((s) => s.name === 'stock.moved')!;
     // a forever topic gets no segment.ms: the broker default roll is enough when nothing is deleted
-    expect(captured.configs).toEqual({ 'cleanup.policy': 'delete', 'retention.ms': '-1' });
+    expect(moved.configs).toEqual({ 'cleanup.policy': 'delete', 'retention.ms': '-1' });
   });
 
   it('production adds min.insync.replicas to every topic', () => {

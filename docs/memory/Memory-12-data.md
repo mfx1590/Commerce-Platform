@@ -66,8 +66,11 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   on dev AND prod BEFORE #696 merges** (manager added it to #696's gate).
   PR #708 (head 599fce03). Fable APPROVE; folded in: 0007 SELF-HEALING (3rd statement = 0005-form v2 refill, NOT IN
   guard); live test ingests half the v2 BEFORE 0007 → missing → 0007 → repaired; stale MV names fixed (README live
-  row, access/10, 500_live); same-event_id test noted as mock-independent. Unit 148. NEXT: machine → live re-run →
-  push ONE head → report.
+  row, access/10, 500_live); same-event_id test noted as mock-independent. Unit 148. Live 54/54 + negative control (no refill:
+  100/125). DONE: #708 MERGED 86ec82a0; manager applied 0007 on dev (v3 MV + refill, access re-applied). CH side of the
+  #696 gate done.
+- #707 FYI (2026-11-03, manager ten): README rebuild note — order.*/customer.* and since #707 payment/refund/
+  shipment/return keep 30 days on the bus; older history only via outbox:replay. Branch data/phase5-707-rebuild-note.
   Note for review: raw_events is keyed (topic, event_id), version NOT in the key — a replay that republishes the SAME
   event_id as v2 folds with the v1 copy under FINAL (later ingested_at wins; the version filter applies after
   FINAL), so stg v1/v2 never both see it; the tile's key is event_id, fct_order is LIMIT 1 BY order_id.

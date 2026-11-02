@@ -280,10 +280,11 @@ processed store as usual. Run one replay per group at a time anyway; a second on
 **What the bus check knows: about 31 days of erasures.** `customer.erased` is in the 30-day class with a daily
 segment roll (#694), so an erasure older than that is gone from the bus. The dead letters it guards point at
 originals on 30-day topics too (every topic in `ERASURE_RULES` is), and those expire on the same timescale: an
-original older than its erasure's record is reported `missing` anyway. The exception is an ACTOR on a forever
-topic (`payment.*`: a signed-in checkout stamps the customer as the actor of `payment.authorized`), which can
-outlive the erasure on the bus (#707). So a consumer with per-customer state keeps checking its own erasure record:
-when it handles a message (rule in CLAUDE.md) and, for a DLQ replay, in `skip`.
+original older than its erasure's record is reported `missing` anyway. That includes an ACTOR: a signed-in
+checkout stamps the customer as the actor of `payment.authorized`, and since #707 `payment.*`, `refund.*`,
+`shipment.*` and `return.*` are 30-day topics too; only `stock.*` / `stock_item.*` stay forever, and the core
+rejects a customer actor id there. A consumer with per-customer state still checks its own erasure record: when it
+handles a message (rule in CLAUDE.md) and, for a DLQ replay, in `skip`.
 
 ```ts
 await replayFromDlq({

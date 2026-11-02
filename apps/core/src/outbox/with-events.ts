@@ -24,6 +24,25 @@ export class InvalidEventError extends Error {
   }
 }
 
+/**
+ * The topic prefixes the bus keeps FOREVER: infra/redpanda/topics.policy.json `retention.forever` (outbox.test.ts pins
+ * the two together, so a change to one fails until the other follows). The core never reads that file at runtime.
+ */
+export const FOREVER_TOPIC_PREFIXES: readonly string[] = ['stock.', 'stock_item.'];
+
+/**
+ * #707: an event the bus keeps forever must not carry a customer as its actor WITH an id, because the id would outlive
+ * the customer's erasure on the broker (the outbox replay and the DLQ replay null it, the broker's own copy never
+ * expires). Every topic a customer flow writes is a 30-day topic; this keeps it that way.
+ */
+function customerActorOnForeverTopic(e: EventEnvelope): boolean {
+  return (
+    e.actor.type === 'customer' &&
+    e.actor.id !== null &&
+    FOREVER_TOPIC_PREFIXES.some((prefix) => e.topic.startsWith(prefix))
+  );
+}
+
 /** Envelope `actor` from our audit actor. */
 export function eventActor(actor: Actor): EventEnvelope['actor'] {
   return { type: actor.type, id: actor.id };
@@ -53,7 +72,8 @@ export async function buildEvent<T extends EventTopic>(
 }
 
 /**
- * Validates every envelope (envelope + payload JSON Schema) and inserts the rows into `outbox` on the caller's
+ * Validates every envelope (envelope + payload JSON Schema, and no customer actor id on a forever topic, #707) and
+ * inserts the rows into `outbox` on the caller's
  * transaction. A failing envelope throws before any insert, which aborts the caller's transaction — so an
  * invalid event can never leave a half-committed state change behind.
  */
@@ -63,6 +83,10 @@ export async function withEvents(tx: Queryable, events: EventEnvelope[]): Promis
   for (const e of events) {
     const r = v.validateEnvelope(e);
     if (!r.ok) throw new InvalidEventError(e.topic, r.errors);
+    if (customerActorOnForeverTopic(e))
+      throw new InvalidEventError(e.topic, [
+        'actor: a customer id on a topic the bus keeps forever (#707); write the actor with id null, or move the topic to the 30-day class',
+      ]);
   }
   for (const e of events) {
     const row = toOutboxRow(e);
