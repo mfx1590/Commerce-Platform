@@ -267,6 +267,16 @@ describe('fail closed', () => {
 
     // no gatewayFor: production's packages/ai gateway. With AI_ENABLED unset it refuses at the kill switch — before
     // the limiter (Redis) or the provider — and still writes its audit row (ai_call_audit, purpose analysis)
+    // counted before and after (#680 review): another test's disabled row of the organization cannot pass this one
+    const disabledOrgRows = async () =>
+      Number(
+        (
+          await createOrganizationClient(db.app, { organizationId: ORG }).query<{ n: string }>(
+            "SELECT count(*) AS n FROM ai_call_audit WHERE purpose = 'analysis' AND outcome = 'disabled' AND store_id IS NULL",
+          )
+        ).rows[0]!.n,
+      );
+    const before = await disabledOrgRows();
     const previous = process.env.AI_ENABLED;
     delete process.env.AI_ENABLED;
     try {
@@ -281,13 +291,7 @@ describe('fail closed', () => {
         .send({ question: 'x' });
       expect([b.status, b.body.code]).toEqual([503, 'ai_disabled']);
       expect(seen).toEqual([]);
-      const rows = await createOrganizationClient(db.app, { organizationId: ORG }).query<{
-        outcome: string;
-        store_id: string | null;
-      }>(
-        "SELECT outcome, store_id FROM ai_call_audit WHERE purpose = 'analysis' AND outcome = 'disabled'",
-      );
-      expect(rows.rows).toContainEqual({ outcome: 'disabled', store_id: null }); // the owner: organization scope
+      expect(await disabledOrgRows()).toBe(before + 1); // the owner: organization scope, exactly this request's row
     } finally {
       if (previous === undefined) delete process.env.AI_ENABLED;
       else process.env.AI_ENABLED = previous;

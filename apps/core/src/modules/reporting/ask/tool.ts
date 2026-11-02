@@ -159,13 +159,19 @@ export function queryMetricsHandler(deps: {
     }
     const result = await executeMetricQuery(deps.reader, query, scope);
     deps.executed.push({ ref, query, result });
-    // what the model reads names each store by its CODE, not its uuid: packages/ai redacts what is sent, and its phone
-    // pattern currently eats digit runs inside a uuid ("5a1b2c3d-[phone]-…"). The ids stay where the model needs them
-    // (the tool schema's enum, not redacted) and in the caller's full result.
-    const rows = result.rows.slice(0, MODEL_ROWS).map(({ store_id, ...rest }) => ({
-      ...rest,
-      store: store_id === null ? null : (deps.codes?.get(store_id) ?? store_id),
-    }));
+    // What the model reads carries no uuid (#680 review): each store by its CODE, each product by a label stable
+    // within this result (p1, p2 … in row order), so it can rank and compare without ids it has no use for. The ids
+    // stay where they matter: the tool schema's store enum (what the model filters by) and the caller's full result.
+    const productLabels = new Map<string, string>();
+    const rows = result.rows.slice(0, MODEL_ROWS).map(({ store_id, product_id, ...rest }) => {
+      if (product_id !== null && !productLabels.has(product_id))
+        productLabels.set(product_id, `p${productLabels.size + 1}`);
+      return {
+        ...rest,
+        store: store_id === null ? null : (deps.codes?.get(store_id) ?? store_id),
+        product: product_id === null ? null : productLabels.get(product_id)!,
+      };
+    });
     return {
       content: JSON.stringify({
         ref,

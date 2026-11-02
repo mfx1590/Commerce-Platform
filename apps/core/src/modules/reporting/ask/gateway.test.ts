@@ -98,6 +98,43 @@ describe('askMetrics on the real gateway (packages/ai, fake transport)', () => {
     expect(JSON.parse(back.toolResults[0]!.content)).toMatchObject({ ref: 'q1' });
   });
 
+  it('products reach the model as p1, p2 … with no product_id (#680 review); the caller keeps the ids', async () => {
+    const P1 = '00000000-0000-4000-8000-0000000000f1';
+    const P2 = '00000000-0000-4000-8000-0000000000f2';
+    const byProduct: MetricsReader = {
+      async query({ query }) {
+        if (query.includes('FROM raw_events')) return { json: async <T>() => [{ t: null }] as T[] };
+        const rows = [P2, P1].map((p, i) => ({
+          out_period: '2026-10-01',
+          out_product: p,
+          m_units: i + 1,
+        }));
+        return { json: async <T>() => rows as T[] };
+      },
+    };
+    const { transport, gatewayFor } = real([
+      {
+        toolUse: [
+          { name: 'query_metrics', input: q({ metrics: ['units'], dimensions: ['product'] }) },
+        ],
+      },
+      { text: 'ok' },
+    ]);
+    const r = await askMetrics(
+      { reader: byProduct, gatewayFor, biQaSwitches: async () => new Map() },
+      caller([A], false),
+      { question: 'top products?' },
+    );
+    const back = transport.calls[1]!.turns!.find((t) => t.role === 'user') as {
+      toolResults: { content: string }[];
+    };
+    const sent = JSON.parse(back.toolResults[0]!.content) as { rows: Record<string, unknown>[] };
+    expect(sent.rows.map((x) => x.product)).toEqual(['p1', 'p2']);
+    expect(sent.rows.every((x) => !('product_id' in x))).toBe(true);
+    expect(back.toolResults[0]!.content).not.toContain(P1);
+    expect(r.queries[0]!.result!.rows.map((x) => x.product_id)).toEqual([P1, P2]); // sorted; p1 is the first row's;
+  });
+
   it('rows reach the model by store CODE (a uuid would be mangled by redaction); the caller keeps the ids', async () => {
     const digitHeavy = { id: '5a1b2c3d-1111-4222-8333-444455556666', code: 'brand-a' };
     const { transport, gatewayFor } = real([

@@ -52,6 +52,13 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- #680 REVIEW FINDINGS (2026-11-02, manager ten; Fable review = findings, no block). Done locally on
+  data/phase5-606-gateway: product_id dropped from rows sent to the model (p1, p2 … labels; caller keeps ids; README);
+  AiConfigError / TemplateError / DeniedFieldError → AppError internal "BI Q&A is misconfigured"; Anthropic transport
+  cached after first creation (ai.ts); routes.test disabled-audit assertion compares counts before/after. Reporting
+  ask tests 90 pass. WAITING: #681 (window 14 uuid guard in redact()) still OPEN → then merge main, add the
+  no-"[phone]" + step-0 redactions=0 tests, push, report head. Real-model run was ALREADY done before #681 (#7 no
+  top-5 may be the mangled product ids) — asked the manager whether to re-run after #681.
 - #606 CLOSING PR (2026-11-02, manager ten): #677 MERGED. Branch data/phase5-606-gateway from origin/main 2c4cb0a1:
   production gatewayFor = createAiGateway (ask/ai.ts: analysis, lazy Anthropic transport, Redis limiter, pg audit), as
   catalog/copy-draft.ts does; stores variable = code + id per line (the template). gateway.test.ts + the golden set

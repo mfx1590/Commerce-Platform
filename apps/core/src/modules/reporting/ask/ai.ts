@@ -15,9 +15,11 @@ import { getPool } from '../../../lib/db';
 import type { GatewayFactory } from './gateway';
 
 let redisLimiter: UsageLimiter | null = null;
+// created on the first call that goes out (so AI off needs no key), then reused: one SDK client per process
+let anthropic: AiTransport | null = null;
 const lazyTransport: AiTransport = {
   kind: 'anthropic',
-  complete: (req) => createAnthropicTransport().complete(req),
+  complete: (req) => (anthropic ??= createAnthropicTransport()).complete(req),
 } as AiTransport;
 
 export const defaultGatewayFor: GatewayFactory = (scope) =>
