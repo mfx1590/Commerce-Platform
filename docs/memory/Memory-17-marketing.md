@@ -106,6 +106,24 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
   Gates: lint, typecheck (18/18), format:check, `pnpm test --filter @platform/core` = 190 passed / 1 skipped.
 
 ## In progress
+- **2026-11-04 · the #696 gate, notifications side** (manager = "Manager session eleven"; report there). Branch
+  `marketing/phase5-696-gate` from origin/main 3049a65 (upstream set by an explicit first push). Findings:
+  the consumer claims by TOPIC, never by version (no `version === 1` anywhere); the replay (#534) writes no
+  outbox rows, so for this poller v2 arrives only from live checkout after #696 — but a scrubbed v2 (null
+  `email_hash`, null `customer_id`) WAS a bug: erasure (gdpr.ts) scrubs the `customer` row only, the order row
+  keeps its address for the ledger, so the worker would have mailed an erased customer. Fixed in my paths:
+  `scrubbedEvent()` reads the one payload field (`version >= 2 AND email_hash IS json null`) before any
+  address row → skip `customer_erased`; plus a row guard (order's customer `status = 'erased'`) in both the
+  order and the shipment loader. Local mock `src/testing/order-placed-v2.ts` (window 16's #705 pattern,
+  excluded from the build, hands over to the published @2 via `ajv.getSchema`). Tests: mock pinned; (a) v2 with
+  hash = v1 byte for byte; (b) scrubbed → skipped, no transport call, log line without PII; (b') row guard on
+  v1 + shipping notice; (c) replay of handled event ids sends nothing. The byte-for-byte test found line items
+  of one transaction share `created_at` → lines now `ORDER BY created_at, sku, id`. README "Event versions and
+  the deploy order", CHANGELOG 0.3.1. Gates: root lint, root typecheck 29/29, notifications 52/52, ownership.
+  PR "Refs #696"; then hold pushes until the manager confirms.
+- The 2026-10-19 docket (below) is DONE: #491 → #515 = eabe8a0 (contracts-v0.4.25), #499 → #516 = e211a75
+  (db 0.3.14 / 0198). The #499 review nits are under "Next — Phase 3". The local `marketing/phase3` branch
+  carries the full memory history (unpushed memory commits up to d5b0afb); this file on main is the #516 copy.
 - **ACTIVE again 2026-10-19** (manager = session "Manager session seven"; report there). Merged main b1d9225
   (contracts-v0.4.24, db 0.3.12) = `8af2d6a`, `pnpm install --frozen-lockfile`, packages rebuilt. Two tasks,
   in order; one PR each; hold pushes until the manager confirms a merge; full suite of every package touched.
@@ -167,6 +185,14 @@ Make marketing a product, not a side effect: campaigns with server-side attribut
      → nothing; failed → retried; stuck → not resent; PII sweep of log lines), server (401/200/health).
   8. README, CHANGELOG, CLAUDE.md; REQUEST for root `.gitignore` (`.notifications/`) + `.env.example` rows.
   Storefront confirmation copy untouched (window 3 flips it, #351).
+
+## Next — Phase 3 (manager's docket; nothing until a task is sent)
+- [ ] **#499 review nits (manager 2026-10-19, "next PR, not now")**, apps/notifications: (1) `loadExportReady`
+  must also require `expires_at > now()` — an export still `ready` but past its deadline before the purge
+  would be mailed with a past date (+ test); (2) a staff-requested export for a GUEST customer (no account)
+  gets "sign in to your account" — add a `customer_guest` skip or guest wording (+ test); (3)
+  `requestedByType` is loaded but unused — drop or use; (4) the PII sweep's forbidden list lacks the fixture
+  first name (`Cora`).
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#145 · 2.1** Campaign module with attribution report — PR open 2026-09-08

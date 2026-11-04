@@ -55,24 +55,46 @@ function shippingMethodOf(
   return name === '' ? null : { name, carrier };
 }
 
+/**
+ * The erased-customer guard (#696 / #629). `order.placed@2` makes `email_hash` nullable: null means the customer
+ * was erased and the event was scrubbed — the ONE thing read from a payload here, and read before any row with an
+ * address is touched. Erasure scrubs the `customer` row only (the order keeps its address for the ledger, gdpr.ts),
+ * so the order row alone would still hand the worker a real address; hence the second guard, the order's
+ * customer's status. Either way the delivery is skipped as `customer_erased` with no address read into memory.
+ */
+async function scrubbedEvent(db: Queryable, storeId: string, eventId: string): Promise<boolean> {
+  const ev = await db.query<{ scrubbed: boolean }>(
+    `SELECT (version >= 2 AND payload ? 'email_hash' AND jsonb_typeof(payload->'email_hash') = 'null') AS scrubbed
+       FROM outbox WHERE id = $1 AND store_id = $2`,
+    [eventId, storeId],
+  );
+  return ev.rows[0]?.scrubbed === true;
+}
+
+const ORDER_CUSTOMER_JOIN = `LEFT JOIN customer cu ON cu.id = o.customer_id AND cu.store_id = o.store_id`;
+
 export async function loadOrderConfirmation(
   db: Queryable,
   storeId: string,
   orderId: string,
-): Promise<Loaded<'order_confirmation'> | null> {
-  const order = await db.query<OrderRow>(
-    `SELECT display_id::int AS display_id, email, locale, currency, placed_at, shipping_address, shipping_method,
-            promotion_codes, subtotal_minor::text, discount_minor::text, shipping_minor::text, tax_minor::text,
-            total_minor::text
-       FROM "order" WHERE id = $1 AND store_id = $2`,
+  eventId: string,
+): Promise<LoadOutcome<'order_confirmation'>> {
+  if (await scrubbedEvent(db, storeId, eventId)) return { skip: 'customer_erased' };
+  const order = await db.query<OrderRow & { customer_status: string | null }>(
+    `SELECT o.display_id::int AS display_id, o.email, o.locale, o.currency, o.placed_at, o.shipping_address,
+            o.shipping_method, o.promotion_codes, o.subtotal_minor::text, o.discount_minor::text,
+            o.shipping_minor::text, o.tax_minor::text, o.total_minor::text, cu.status AS customer_status
+       FROM "order" o ${ORDER_CUSTOMER_JOIN}
+      WHERE o.id = $1 AND o.store_id = $2`,
     [orderId, storeId],
   );
   const o = order.rows[0];
   if (!o) return null;
+  if (o.customer_status === 'erased') return { skip: 'customer_erased' };
   const lines = await db.query<LineRow>(
     `SELECT title, variant_title, sku, quantity, unit_price_minor::text, total_minor::text
        FROM order_line_item WHERE order_id = $1 AND store_id = $2
-      ORDER BY created_at, id`,
+      ORDER BY created_at, sku, id`,
     [orderId, storeId],
   );
   return {
@@ -126,21 +148,22 @@ export async function loadShipmentShipped(
   db: Queryable,
   storeId: string,
   shipmentId: string,
-): Promise<Loaded<'shipment_shipped'> | null> {
-  const shipment = await db.query<ShipmentRow>(
+): Promise<LoadOutcome<'shipment_shipped'>> {
+  const shipment = await db.query<ShipmentRow & { customer_status: string | null }>(
     `SELECT s.carrier, s.service, s.tracking_number, s.tracking_url, s.shipped_at,
-            o.display_id::int AS display_id, o.email, o.locale, o.shipping_address
-       FROM shipment s JOIN "order" o ON o.id = s.order_id
+            o.display_id::int AS display_id, o.email, o.locale, o.shipping_address, cu.status AS customer_status
+       FROM shipment s JOIN "order" o ON o.id = s.order_id ${ORDER_CUSTOMER_JOIN}
       WHERE s.id = $1 AND s.store_id = $2`,
     [shipmentId, storeId],
   );
   const sh = shipment.rows[0];
   if (!sh) return null;
+  if (sh.customer_status === 'erased') return { skip: 'customer_erased' };
   const items = await db.query<ShipmentItemRow>(
     `SELECT si.quantity, li.title, li.variant_title
        FROM shipment_item si JOIN order_line_item li ON li.id = si.order_line_item_id
       WHERE si.shipment_id = $1 AND si.store_id = $2
-      ORDER BY li.created_at, li.id`,
+      ORDER BY li.created_at, li.sku, li.id`,
     [shipmentId, storeId],
   );
   return {
