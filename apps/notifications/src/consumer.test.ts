@@ -13,6 +13,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AuthError, createStaffAuth } from './auth.js';
 import { brandProfile } from './brands.js';
 import {
+  orderPlacedV2IsPublished,
+  toOrderPlacedV2,
+  validatesAsV2,
+} from './testing/order-placed-v2.js';
+import {
   claimEvents,
   CURSOR_NAME,
   deliverPending,
@@ -134,9 +139,12 @@ async function placeOrder(
   return { orderId, lineIds: lines.rows.map((r) => r.id), salesChannelId };
 }
 
-async function insertOutbox(e: EventEnvelope): Promise<string> {
-  const v = validator.validateEnvelope(e);
-  if (!v.ok) throw new Error(`fixture event invalid: ${JSON.stringify(v.errors)}`);
+/** `prevalidated`: an `order.placed@2` fixture, already validated by the local mock (unknown to the SDK until #696). */
+async function insertOutbox(e: EventEnvelope, prevalidated = false): Promise<string> {
+  if (!prevalidated) {
+    const v = validator.validateEnvelope(e);
+    if (!v.ok) throw new Error(`fixture event invalid: ${JSON.stringify(v.errors)}`);
+  }
   const row = toOutboxRow(e);
   await db.owner.query(
     `INSERT INTO outbox (id, organization_id, store_id, topic, version, aggregate_type, aggregate_id, payload, headers, occurred_at)
@@ -158,70 +166,77 @@ async function insertOutbox(e: EventEnvelope): Promise<string> {
 }
 
 /** A real `order.placed` v1 for the order, as checkout would emit it (email hashed, never in the payload). */
+/** `v2`: emit `order.placed@2` instead — `'hash'` = a live v2 (hash present), `'scrubbed'` = an erased customer. */
 async function emitOrderPlaced(
   placed: Placed,
   storeId: string = A,
   email = EMAIL,
+  v2?: 'hash' | 'scrubbed',
 ): Promise<string> {
   const legalEntityId =
     storeId === A ? SEED_IDS.legalEntities.brandA : SEED_IDS.legalEntities.brandB;
-  return insertOutbox(
-    makeEvent({
-      topic: 'order.placed',
-      organizationId: ORG,
-      storeId,
-      aggregateType: 'order',
-      aggregateId: placed.orderId,
-      payload: {
-        order_id: placed.orderId,
-        display_id: 1001,
-        legal_entity_id: legalEntityId,
-        sales_channel_id: placed.salesChannelId,
-        customer_id: null,
-        email_hash: createHash('sha256').update(email.toLowerCase()).digest('hex'),
-        currency: storeId === A ? 'EUR' : 'GBP',
-        locale: 'en-GB',
-        totals: {
-          subtotal_minor: 10999,
-          discount_minor: 1000,
-          shipping_minor: 495,
-          tax_minor: 1821,
-          total_minor: 10494,
-        },
-        line_items: [
-          {
-            order_line_item_id: placed.lineIds[0]!,
-            variant_id: null,
-            sku: 'HOOD-NVY-M',
-            title: 'Everyday Hoodie',
-            quantity: 2,
-            unit_price_minor: 4500,
-            discount_minor: 0,
-            tax_rate_bp: 2100,
-            tax_minor: 1562,
-            total_minor: 9000,
-          },
-          {
-            order_line_item_id: placed.lineIds[1]!,
-            variant_id: null,
-            sku: 'CAP-BLK',
-            title: 'Classic Cap',
-            quantity: 1,
-            unit_price_minor: 1999,
-            discount_minor: 0,
-            tax_rate_bp: 2100,
-            tax_minor: 347,
-            total_minor: 1999,
-          },
-        ],
-        shipping: { code: 'standard', name: 'Standard', carrier: 'PostNL', price_minor: 495 },
-        shipping_country: 'NL',
-        billing_country: 'NL',
-        promotion_codes: ['WELCOME10'],
-        placed_at: '2026-10-07T09:30:00.000Z',
+  const hash = createHash('sha256').update(email.toLowerCase()).digest('hex');
+  const v1 = makeEvent({
+    topic: 'order.placed',
+    organizationId: ORG,
+    storeId,
+    aggregateType: 'order',
+    aggregateId: placed.orderId,
+    payload: {
+      order_id: placed.orderId,
+      display_id: 1001,
+      legal_entity_id: legalEntityId,
+      sales_channel_id: placed.salesChannelId,
+      customer_id: null,
+      email_hash: hash,
+      currency: storeId === A ? 'EUR' : 'GBP',
+      locale: 'en-GB',
+      totals: {
+        subtotal_minor: 10999,
+        discount_minor: 1000,
+        shipping_minor: 495,
+        tax_minor: 1821,
+        total_minor: 10494,
       },
-    }),
+      line_items: [
+        {
+          order_line_item_id: placed.lineIds[0]!,
+          variant_id: null,
+          sku: 'HOOD-NVY-M',
+          title: 'Everyday Hoodie',
+          quantity: 2,
+          unit_price_minor: 4500,
+          discount_minor: 0,
+          tax_rate_bp: 2100,
+          tax_minor: 1562,
+          total_minor: 9000,
+        },
+        {
+          order_line_item_id: placed.lineIds[1]!,
+          variant_id: null,
+          sku: 'CAP-BLK',
+          title: 'Classic Cap',
+          quantity: 1,
+          unit_price_minor: 1999,
+          discount_minor: 0,
+          tax_rate_bp: 2100,
+          tax_minor: 347,
+          total_minor: 1999,
+        },
+      ],
+      shipping: { code: 'standard', name: 'Standard', carrier: 'PostNL', price_minor: 495 },
+      shipping_country: 'NL',
+      billing_country: 'NL',
+      promotion_codes: ['WELCOME10'],
+      placed_at: '2026-10-07T09:30:00.000Z',
+    },
+  });
+  if (!v2) return insertOutbox(v1);
+  const e = toOrderPlacedV2(
+    v1,
+    v2 === 'scrubbed' ? { emailHash: null, customerId: null } : { emailHash: hash },
   );
+  return insertOutbox(e as EventEnvelope, true);
 }
 
 async function ship(placed: Placed): Promise<{ shipmentId: string; eventId: string }> {
@@ -741,6 +756,109 @@ describe('customer.export_ready → data-export notice (#499)', () => {
     expect(byEvent.get(e4)).toMatchObject({ status: 'skipped', last_error: 'source_not_found' });
     // a skipped row is final: the next run does not look at it again
     expect((await runOnce(deps(), stores)).stores[0]).toMatchObject({ claimed: 0, skipped: 0 });
+  });
+});
+
+describe('order.placed@2 (#696 gate): v1 and v2 alike; a scrubbed event is an erased customer', () => {
+  /** An erased customer row the way gdpr.ts leaves it (placeholder address), owning `orderId`. */
+  async function eraseOwnerOf(orderId: string): Promise<string> {
+    const c = await db.owner.query<{ id: string }>(
+      `INSERT INTO customer (organization_id, store_id, email, status, consent, metadata)
+       VALUES ($1, $2, 'erased+placeholder@invalid', 'erased', '{}', '{}') RETURNING id`,
+      [ORG, A],
+    );
+    await db.owner.query(`UPDATE "order" SET customer_id = $2 WHERE id = $1`, [
+      orderId,
+      c.rows[0]!.id,
+    ]);
+    return c.rows[0]!.id;
+  }
+
+  it('pins the local v2 mock: v1 refuses a null hash, @2 accepts null and a hash, @2 is unknown to the SDK until #696', async () => {
+    const placed = await placeOrder();
+    const v1 = (
+      await db.owner.query<{ payload: Record<string, unknown> }>(
+        `SELECT payload FROM outbox WHERE id = $1`,
+        [await emitOrderPlaced(placed)],
+      )
+    ).rows[0]!.payload;
+    const scrubbed = { ...v1, email_hash: null, customer_id: null };
+    expect(validator.validatePayload('order.placed', 1, scrubbed).ok).toBe(false);
+    expect(validatesAsV2(scrubbed)).toBe(true);
+    expect(validatesAsV2(v1)).toBe(true);
+    expect(validatesAsV2({ ...v1, email_hash: 'ada@example.test' })).toBe(false);
+    // the premise of the gate: the SDK does not know @2 until packages/events publishes it
+    expect(validator.validatePayload('order.placed', 2, v1).ok).toBe(orderPlacedV2IsPublished());
+  });
+
+  it('(a) a v2 event with a hash sends the same confirmation as v1', async () => {
+    const first = await placeOrder({ displayId: 1001 });
+    await emitOrderPlaced(first);
+    const second = await placeOrder({ displayId: 1002 });
+    await emitOrderPlaced(second, A, EMAIL, 'hash');
+    const report = await runOnce(deps(), stores);
+    expect(report.stores[0]).toMatchObject({ claimed: 2, sent: 2, skipped: 0 });
+    const [v1, v2] = transport.sent;
+    expect(v2!.email.to).toBe(v1!.email.to);
+    expect(v2!.email.subject.replace('#1002', '#1001')).toBe(v1!.email.subject);
+    expect(v2!.email.text.replace('#1002', '#1001')).toBe(v1!.email.text);
+    expect(v2!.email.html.replace(/#1002/g, '#1001')).toBe(v1!.email.html);
+    expect((await deliveries()).map((d) => d.status)).toEqual(['sent', 'sent']);
+  });
+
+  it('(b) a scrubbed v2 event (null email_hash, null customer_id) sends nothing: skipped as customer_erased, no address read', async () => {
+    const placed = await placeOrder();
+    const eventId = await emitOrderPlaced(placed, A, EMAIL, 'scrubbed');
+    const report = await runOnce(deps(), stores);
+    expect(report.stores[0]).toMatchObject({
+      claimed: 1,
+      sent: 0,
+      failed: 0,
+      skipped: 1,
+      stuck: 0,
+    });
+    expect(transport.calls).toBe(0);
+    expect((await deliveries())[0]).toMatchObject({
+      event_id: eventId,
+      kind: 'order_confirmation',
+      status: 'skipped',
+      last_error: 'customer_erased',
+    });
+    expect(LOG_LINES.some((l) => l.includes(`event=${eventId} reason=customer_erased`))).toBe(true);
+  });
+
+  it("(b') the row guard: an order whose customer is erased is skipped on a v1 event too, and so is its shipping notice", async () => {
+    const placed = await placeOrder();
+    await eraseOwnerOf(placed.orderId);
+    await emitOrderPlaced(placed);
+    await ship(placed);
+    const report = await runOnce(deps(), stores);
+    expect(report.stores[0]).toMatchObject({ claimed: 2, sent: 0, skipped: 2 });
+    expect(transport.calls).toBe(0);
+    expect((await deliveries()).map((d) => [d.kind, d.status, d.last_error])).toEqual([
+      ['order_confirmation', 'skipped', 'customer_erased'],
+      ['shipment_shipped', 'skipped', 'customer_erased'],
+    ]);
+  });
+
+  it('(c) a replayed event whose event_id was already handled sends nothing — v2 with a hash and scrubbed alike', async () => {
+    const live = await placeOrder({ displayId: 1001 });
+    await emitOrderPlaced(live, A, EMAIL, 'hash');
+    const erased = await placeOrder({ displayId: 1002 });
+    await emitOrderPlaced(erased, A, EMAIL, 'scrubbed');
+    expect((await runOnce(deps(), stores)).stores[0]).toMatchObject({ sent: 1, skipped: 1 });
+
+    for (let i = 0; i < 2; i += 1) {
+      await db.owner.query(`UPDATE marketing_cursor SET seq = 0 WHERE store_id = $1`, [A]);
+      expect((await runOnce(deps(), stores)).stores[0]).toMatchObject({
+        scanned: 2,
+        claimed: 0,
+        sent: 0,
+        skipped: 0,
+      });
+    }
+    expect(transport.sent).toHaveLength(1);
+    expect(await deliveries()).toHaveLength(2);
   });
 });
 

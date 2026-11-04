@@ -1,5 +1,18 @@
 # Changelog — @platform/notifications
 
+## 0.3.1 — 2026-11-04 (window 17, the #696 gate)
+
+- `order.placed@2` (CONTRACT CHANGE #696, `email_hash` nullable) is consumed like v1: the worker claims by topic,
+  never by version, and renders from the rows. **Fix:** a scrubbed v2 (null `email_hash`, null `customer_id` —
+  an erased customer, #629) is now skipped as `customer_erased` before any address is read; until now the
+  order row, which erasure leaves intact for the ledger, would have handed the worker the erased customer's
+  address. The order and shipment loaders also skip when the order's customer is `erased` (v1 events too).
+- Tests: the local `src/testing/order-placed-v2.ts` mock (derived from `@1`, steps aside once `@2` is
+  published); v2-with-hash equals v1 byte for byte; scrubbed → skipped without PII; the row guard; a replayed
+  `event_id` sends nothing twice. README: the deploy-order rule.
+- Found by the byte-for-byte test: line items placed in one transaction share a `created_at`, so the email's
+  line order was uuid order. Lines (and parcel contents) are now ordered by `created_at, sku, id`.
+
 ## 0.3.0 — 2026-10-19 (window 17, REQUEST #499)
 
 - New kind **`export_ready`** on `customer.export_ready` v1 (events 0.3.6): "your copy of your data is ready —

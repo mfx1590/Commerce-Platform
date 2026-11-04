@@ -21,6 +21,8 @@ window 16's Phase 4 Novu worker — that scope (SMS/WhatsApp/Slack, consumer gro
 - `pnpm --filter @platform/notifications exec vitest run` — ~8 s; `consumer.test.ts` builds its own throwaway DB
   through `@platform/db/testing` (`notification_delivery` = packages/db migration 0180, db 0.3.3)
 - Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/notifications` before finishing any task.
+- `src/testing/` is test-only (excluded from the build): the local `order.placed@2` mock until #696 lands.
+  Deploy this worker with the `@2`-aware `@platform/events` build no later than core (README, "Event versions").
 
 ## Layout
 

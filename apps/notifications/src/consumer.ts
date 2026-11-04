@@ -222,7 +222,7 @@ async function load(
 ): Promise<LoadOutcome<NotificationKind>> {
   switch (row.kind) {
     case 'order_confirmation':
-      return loadOrderConfirmation(db, storeId, row.aggregate_id);
+      return loadOrderConfirmation(db, storeId, row.aggregate_id, row.event_id);
     case 'shipment_shipped':
       return loadShipmentShipped(db, storeId, row.aggregate_id);
     case 'export_ready':

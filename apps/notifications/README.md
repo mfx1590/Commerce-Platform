@@ -185,6 +185,24 @@ subject either way. Skipped, with the reason on the row: an erased customer (`er
 deleted with the row), a disabled one (cannot sign in to download), an export that expired before the worker
 got to it, a missing row. The customer row has no locale, so the store's default decides the template.
 
+## Event versions and the deploy order (#696)
+
+The worker claims by **topic**, never by version: `order.placed@1` and `order.placed@2` (CONTRACT CHANGE #696,
+`email_hash` nullable; null = the customer was erased and the outbox replay scrubbed the event, #629) are the
+same delivery. The payload is not the record source, so a v2 with a hash renders exactly as a v1 — a test
+compares the two emails byte for byte. The one thing read from the payload is the **scrub marker**: a v2 whose
+`email_hash` is null is skipped as `customer_erased` **before any row with an address is read**. Belt and
+braces: erasure scrubs the `customer` row only (the order keeps its address for the ledger), so the order and
+shipment loaders also skip when the order's customer is `erased` — on a v1 event too. A replayed event whose
+`event_id` was already handled sends nothing, scrubbed or not (`UNIQUE (event_id)`).
+
+**Deploy order.** `@platform/events`' `makeEvent` stamps `LATEST_VERSION`: the day #696 merges, live checkout
+publishes `@2`. This worker reads the outbox table directly (no SDK, no `topic@version` whitelist), so it never
+drops an unknown version — but it must be deployed **with the regenerated `@platform/events` build no later
+than core**, like every consumer in the gate. Until #696 lands, `src/testing/order-placed-v2.ts` is a local
+mock of `@2` derived from the real `@1` (tests only, excluded from the build); it hands over to the published
+schema by itself (`ajv.getSchema` first) and then goes away.
+
 ## What is not here (and where it is tracked)
 
 - **A live send.** Blocked on the owner's Resend account; proven at the 2b gate, which closes #360.
