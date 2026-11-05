@@ -53,6 +53,7 @@ export { healthAnswer } from './health.js';
 export type { HealthAnswer } from './health.js';
 export { createIngestMetrics } from './metrics.js';
 export {
+  columnClass,
   ibanValid,
   luhnValid,
   PII_PATTERNS,
@@ -61,6 +62,7 @@ export {
   type PiiKind,
   type PiiSweepResult,
   type SweepOptions,
+  UnclassifiedColumnError,
 } from './pii-sweep.js';
 export type { IngestMetrics } from './metrics.js';
 export { idleState, waitForIdle } from './once.js';
