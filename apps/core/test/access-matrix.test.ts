@@ -62,7 +62,16 @@ const ABANDONED = { A: 1, B: 2 };
 
 // ---- principals -------------------------------------------------------------------------------------------------
 
-const STAFF = ['owner', 'finance', 'analyst', 'support', 'adminA', 'adminB', 'none'] as const;
+const STAFF = [
+  'owner',
+  'finance',
+  'analyst',
+  'support',
+  'adminA',
+  'adminB',
+  'noRole',
+  'none',
+] as const;
 const STORE_KEYS = ['keyA', 'keyB', 'noKey'] as const;
 type Staff = (typeof STAFF)[number];
 type StoreKey = (typeof STORE_KEYS)[number];
@@ -76,6 +85,7 @@ const SUBJECT: Record<Staff, string | undefined> = {
   support: 'seed-support', // support on organization:hq
   adminA: 'matrix-admin-a', // store_admin on store:brand-a only
   adminB: 'matrix-admin-b', // store_admin on store:brand-b only
+  noRole: 'matrix-no-role', // an active staff_user with NO role_assignment row (#720 review)
   none: undefined,
 };
 
@@ -121,20 +131,28 @@ interface Row {
   leak?: boolean;
 }
 
+/** Appended to every admin rule: the column that fails if a route's `requirePermission` guard is removed (#720). */
+const NO_ROLE =
+  ' · noRole: a staff user with no role_assignment holds no relation (ADR 0002: every relation comes from a tuple) → 403';
 const VIEWER_A =
   'x-permission viewer on store:{storeId} (path = brand A). ADR 0002 L35: store viewer = store_staff (⊇ store_admin, ' +
   'L32; ⊇ owner from organization, L31) or support (incl. support FROM ORGANIZATION, L33 — HQ support reads every ' +
-  'store by design, reviewed on #612) or analyst / operations / finance from organization. store_admin of B: none of these on A → 403';
+  'store by design, reviewed on #612) or analyst / operations / finance from organization. store_admin of B: none of these on A → 403' +
+  NO_ROLE;
 const ANY_STORE =
-  'x-permission viewer on store:* = viewer on at least one store (ADR 0002 L35, as VIEWER_A); every principal here views ' +
-  'some store → 200, and the route narrows to the stores it may view (leak sweep)';
+  'x-permission viewer on store:* = viewer on at least one store (ADR 0002 L35, as VIEWER_A); every principal with a role views ' +
+  'some store → 200, and the route narrows to the stores it may view (leak sweep)' +
+  NO_ROLE;
 const HQ_ANALYST =
-  'x-permission analyst on organization:hq. ADR 0002 L25: analyst = [user] or owner; finance, support and store admins hold no analyst → 403';
+  'x-permission analyst on organization:hq. ADR 0002 L25: analyst = [user] or owner; finance, support and store admins hold no analyst → 403' +
+  NO_ROLE;
 const HQ_FINANCE =
-  'x-permission finance on organization:hq. ADR 0002 L23: finance = [user] or owner; analyst, support and store admins → 403';
+  'x-permission finance on organization:hq. ADR 0002 L23: finance = [user] or owner; analyst, support and store admins → 403' +
+  NO_ROLE;
 const STAFF_A =
   'x-permission store_staff on store:{storeId} (path = brand A). ADR 0002 L32: store_staff = [user] or store_admin ' +
-  '(⊇ owner from organization, L31); finance, analyst and support are viewers, not staff → 403';
+  '(⊇ owner from organization, L31); finance, analyst and support are viewers, not staff → 403' +
+  NO_ROLE;
 const NEEDS_CLICKHOUSE =
   'needs ClickHouse (dead port here): a principal the guard lets through gets 503 `unavailable` — the rows are ' +
   'metrics-live (window 12)';
@@ -153,6 +171,7 @@ const viewerA = {
   support: 200,
   adminA: 200,
   adminB: 403,
+  noRole: 403,
   none: 401,
 };
 const anyStore = {
@@ -162,6 +181,7 @@ const anyStore = {
   support: 200,
   adminA: 200,
   adminB: 200,
+  noRole: 403,
   none: 401,
 };
 
@@ -173,6 +193,7 @@ const passes = (status: number) => ({
   support: status,
   adminA: status,
   adminB: status,
+  noRole: 403,
   none: 401,
 });
 
@@ -209,6 +230,7 @@ const ROWS: Row[] = [
       support: 403,
       adminA: 403,
       adminB: 403,
+      noRole: 403,
       none: 401,
     },
     call: (who) => staff(who as Staff, request(app).get(`/admin/hq/reports/sales?${WINDOW}`)),
@@ -225,6 +247,7 @@ const ROWS: Row[] = [
       support: 403,
       adminA: 403,
       adminB: 403,
+      noRole: 403,
       none: 401,
     },
     call: (who) => staff(who as Staff, request(app).get(`/admin/hq/reports/finance?${WINDOW}`)),
@@ -324,6 +347,7 @@ const ROWS: Row[] = [
       support: 403,
       adminA: 200,
       adminB: 403,
+      noRole: 403,
       none: 401,
     },
     leak: true,
@@ -369,6 +393,18 @@ function operations(file: string): (Op & { tags: string[]; text: string })[] {
         text: JSON.stringify(op),
       })),
   );
+}
+
+/** An admin operation's `x-permission`, read from admin-api.yaml (the same source the routes read). */
+function xPermission(operationId: string): { relation: string; object: string } {
+  const op = operations('admin-api.yaml').find((o) => o.operationId === operationId);
+  const perm =
+    op &&
+    (JSON.parse(op.text) as { 'x-permission'?: { relation: string; object: string } })[
+      'x-permission'
+    ];
+  if (!perm) throw new Error(`${operationId} has no x-permission in admin-api.yaml`);
+  return perm;
 }
 
 /** Every route an Express router declares, nested routers included (they mount without a prefix here). */
@@ -419,6 +455,13 @@ beforeAll(async () => {
       [ORG, user.rows[0]!.id, storeId],
     );
   }
+
+  // an active staff user with no role at all: the guard is the only thing that refuses it on the store:* routes
+  await hq.query(
+    `INSERT INTO staff_user (organization_id, keycloak_subject, email, display_name, status)
+     VALUES ($1, 'matrix-no-role', 'matrix-no-role@example.test', 'matrix-no-role', 'active')`,
+    [ORG],
+  );
 
   // data in BOTH stores for every row-returning route: a promotion-coded order with an attributed last touch,
   // abandoned carts with a recovery row, and popular recommendations
@@ -593,6 +636,15 @@ describe('access matrix (#612 gate 3)', () => {
             status === 401 ? 'unauthorized' : 'forbidden',
           );
         }
+        if (who === 'noRole') {
+          // the GUARD refused it, not a handler's own check (listMetrics and askMetrics also 403 a caller with no
+          // store, so the status alone would survive a removed guard): requirePermission's dev-token message names
+          // exactly the operation's x-permission (src/http/permissions.ts)
+          const perm = xPermission(row.operationId);
+          expect(res.body.message, `${row.operationId} as noRole: refused by the guard`).toBe(
+            `requires ${perm.relation} on ${perm.object.replace('{storeId}', A)}`,
+          );
+        }
         cells.push(`${who} ${status}`);
       }
       console.info(
@@ -689,6 +741,23 @@ describe('the store A / store B leak (#612 gate 3)', () => {
       request(app).post(`/admin/stores/${B}/products/${productOf.B}/copy-drafts`),
     ).send({ locale: 'de-DE', fields: ['title'] });
     expect(copy.status).toBe(403);
+  });
+
+  it('a store admin of BOTH stores: askMetrics without naming one is a 400 store_required before any read (ask.ts:139); queryMetrics has no such rule', async () => {
+    const both = (req: request.Test) => req.set('Authorization', 'Bearer dev:seed-store-admin');
+    // askMetrics: a store-level caller with several stores names exactly ONE — the question is charged to that
+    // store's AI budget (admin-api.yaml askMetrics: "must name exactly ONE in store_ids … store_required")
+    const ask = await both(request(app).post('/admin/metrics/ask')).send({ question: 'bookings?' });
+    expect(ask.status, JSON.stringify(ask.body)).toBe(400);
+    expect(ask.body).toMatchObject({
+      code: 'validation_error',
+      details: { field: 'store_ids', reason: 'store_required' },
+    });
+    // queryMetrics: the contract restricts the query to EVERY store the caller views — two stores are allowed, so
+    // it passes validation and reaches the read (503 here: no ClickHouse); never a store_required
+    const query = await both(request(app).post('/admin/metrics/query')).send(metricQuery());
+    expect(query.status, JSON.stringify(query.body)).toBe(503);
+    expect(query.body.code).toBe('unavailable');
   });
 
   it('a brand-B product through a brand-A path is a 404 that names nothing of brand B', async () => {

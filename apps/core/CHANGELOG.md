@@ -11,6 +11,9 @@
   the contract and the routers' stacks (a new route without a row fails), and the store A / B leak sweep over every
   row-returning route. Unit job only (public module APIs, no ClickHouse, AI off); `test/README.md` says what is
   covered where. No finding: every cell matched the contract and ADR 0002.
+- #720 review: an 8th principal, an active staff user with no role, is 403 on every admin route and the 403 must be
+  the guard's (`requires <x-permission>`), so removing a route's `requirePermission` fails the matrix (mutation-checked
+  on listMetrics and queryMetrics); the two-store admin's askMetrics without a store is 400 `store_required`.
 
 ### 2026-11-05 · the outbox replay scrubs an erased customer's order.placed to @2 (#629, window 14)
 
