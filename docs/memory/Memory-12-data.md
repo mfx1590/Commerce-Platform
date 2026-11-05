@@ -75,7 +75,11 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   (p95 56 ms). Ingest unit 152, live 54/54; core reporting unit 264. Skips print reasons (checked with a dead CH).
   Gotcha: toString(Nullable col) stays Nullable → extractAll fails; wrap ifNull(toString(c), ''). The gate month
   has only 5 topics (coverage gap stated; pii.test.ts covers every topic@version offline). #633 still OPEN → no 3c
-  case yet. NEXT: PR → manager (PR up + checks finished) → HOLD pushes.
+  case yet. PR #718 (head f200f555). Manager eleven: gate 1 must use the RELAY's published count, not the watermark
+  (duplicates count there) → per topic from outbox rows the relay marked published (acked sends only), summing to the
+  relay CLI's own total; watermark printed as witness. Live 8/8 again (p95 487 ms). #633 being built on
+  main/phase5-633-month (won't touch reconcile-gate): when on main, remove the 3c exemption + add 3c "fails when"
+  (this PR if first, else follow-up). Keep the machine. HOLD pushes after each report until confirmed.
 - #696 GATE (2026-11-02, manager ten; branch data/phase5-696-gate from origin/main; pattern #705, window 16).
   FINDING: every CH reader of order.placed filtered `version = 1` (stg_order_placed_v1 → fct_order/fct_order_line/
   all marts; 0006's mv_orders_minute_v2) — once @2 lands, v2 orders would silently vanish from BI. Ingest itself was

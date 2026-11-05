@@ -14,8 +14,9 @@
 //      (captures and fees, PSP clearing, payouts) — must show 0 difference;
 //   4. the gate can fail: a tampered ClickHouse ledger line and a tampered core order are both caught.
 // And, on the same run (Integration 5 plan, #612):
-//   gate 1 (ingest): per topic, what the relay published (the prefixed topics' high watermarks) = raw_events FINAL
-//     uniqExact(event_id) = the month; a replay of the whole outbox (the core's replayOutbox, every topic) through
+//   gate 1 (ingest): per topic, what the relay published (the outbox rows it marked published, which it does only for
+//     a send the broker acknowledged; their sum = the relay CLI's own `published`) = raw_events FINAL
+//     uniqExact(event_id) = the month (the topics' high watermarks are printed as a witness); a replay of the whole outbox (the core's replayOutbox, every topic) through
 //     the same group changes no count; the ingest's own `ingest_delay` (relay publish → ClickHouse ack) p95 < 10 s;
 //   gate 4 (PII): every table and view of the migrated, populated ClickHouse database (sweepPii enumerates them
 //     from system.tables: raw, staging, dims, facts, marts, live, ledger lines) holds 0 values shaped like an
@@ -100,7 +101,8 @@ describe.runIf(skip === null)(
     const delays: number[] = [];
     let perTopic: () => Promise<{
       month: Record<string, number>;
-      published: Record<string, number>;
+      relayed: Record<string, number>;
+      watermark: Record<string, number>;
       unique: Record<string, number>;
       final: Record<string, number>;
     }>;
@@ -351,12 +353,21 @@ describe.runIf(skip === null)(
       perTopic = async () => {
         const monthCounts: Record<string, number> = {};
         for (const e of month.events) monthCounts[e.topic] = (monthCounts[e.topic] ?? 0) + 1;
+        // the relay's own record: it sets published_at only on the rows of an acknowledged send (relay.ts)
+        const relayed: Record<string, number> = {};
+        for (const r of (
+          await db.owner.query<{ topic: string; n: string }>(
+            'SELECT topic, count(*) AS n FROM outbox WHERE published_at IS NOT NULL GROUP BY topic',
+          )
+        ).rows)
+          relayed[r.topic] = Number(r.n);
+        // a witness only: a high watermark counts records written, a duplicate included
         const ka = kafka.admin();
         await ka.connect();
-        const published: Record<string, number> = {};
+        const watermark: Record<string, number> = {};
         try {
           for (const t of topics)
-            published[t] = (await ka.fetchTopicOffsets(`${prefix}${t}`)).reduce(
+            watermark[t] = (await ka.fetchTopicOffsets(`${prefix}${t}`)).reduce(
               (n, p) => n + Number(p.high) - Number(p.low),
               0,
             );
@@ -371,7 +382,7 @@ describe.runIf(skip === null)(
           unique[r.topic] = Number(r.u);
           final[r.topic] = Number(r.n);
         }
-        return { month: monthCounts, published, unique, final };
+        return { month: monthCounts, relayed, watermark, unique, final };
       };
       reingestedSince = async (since) =>
         Number(
@@ -496,18 +507,22 @@ describe.runIf(skip === null)(
       expect(timings.reconcile_ms).toBeLessThan(CEILING_MS.reconcile);
     });
 
-    it('gate 1: per topic, what the relay published = raw_events FINAL uniqExact(event_id) = the month', async () => {
+    it("gate 1: per topic, the relay's published count = raw_events FINAL uniqExact(event_id) = the month", async () => {
       const c = await perTopic();
       console.info(
         JSON.stringify({
           test: 'gate1-counts',
           topics: Object.keys(c.month).length,
-          per_topic: c.month,
+          relay_published: c.relayed,
+          raw_unique_final: c.unique,
+          watermark: c.watermark,
         }),
       );
       // the month's topics: order.placed, order.cancelled, payment.captured, refund.issued, shipment.shipped
       expect(Object.keys(c.month).length).toBeGreaterThanOrEqual(5);
-      expect(c.published).toEqual(c.month);
+      // the relay's per-topic record adds up to what the relay CLI itself reported, and is the month
+      expect(Object.values(c.relayed).reduce((n, x) => n + x, 0)).toBe(Number(summary.relayed));
+      expect(c.relayed).toEqual(c.month);
       expect(c.unique).toEqual(c.month);
       expect(c.final).toEqual(c.month);
     });
