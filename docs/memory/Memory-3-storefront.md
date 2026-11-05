@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-10-10 · Contracts: **contracts-v0.4.14** · **Manager = "Manager session five" (handing over to a session six — check Memory-main's top bullet).** Done: #441 + #440 (PR #445 = `d67349a`), #447 (PR #448 = `0ec34d1`), **#449 (PR #450 = `e0cd978`, merged 2026-10-09; code commit `0267a04`, 15/15 checks green; issue CLOSED)**. **#446 = PR #451 (code commit `1c9b14c`; head = this memory commit)** — four unit tests take the locale from `src/i18n/routing`; main merged at `fd718df` (`f915e7c`); report to the manager when the PR is up and again when every check has finished; hold pushes until the manager confirms the merge. Then QUIET. Still open: #358's live proof (Stripe keys). Machine NOT mine.
+Last updated: 2026-11-05 · Contracts: **contracts-v0.4.30** (Store API 0.5.9 has `listProductRecommendations`) · **Manager = "Manager session eleven"** (message it, never the owner). Phase 5: **#609 recommendation rails IN PROGRESS** on `storefront/phase5-609-rail` (cut `--no-track` from origin/main `2839329`). Earlier: #446 (PR #451 = `0ed6b7d`, merged 2026-10-10; code commit `1c9b14c`; issue CLOSED) — that record was local commit `a11a4680`, never pushed; it is kept on the LOCAL branch `storefront/phase3-local-a11a4680`. Still open: #358's live proof (Stripe keys). Machine NOT mine unless the manager says so.
 
 ## Identity (does not change)
 
@@ -246,6 +246,14 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## In progress
 
+- [ ] **#609 — P5.10 recommendation rails (PDP + cart), 0.15.0, branch `storefront/phase5-609-rail`.**
+      Built: `listProductRecommendations` on the client (variant_ids joined with commas), `src/lib/recommendations.ts`
+      (never throws; 300 ms deadline that also aborts; `RECOMMENDATIONS_TIMEOUT_MS`), `RecommendationRail` (unchanged
+      `ProductCard`; returns null when empty) + client `RecommendationTracker` (IntersectionObserver view once, delegated
+      click by `data-rail-position`), `src/lib/analytics/` (local event definition, `STOREFRONT_ANALYTICS_CONSENT_MODE`
+      analytics|strict, dataLayer + `platform:analytics` sink, no network). Unit 647/647 (20 new). REQUEST #725 to
+      window 16 for the tracking-plan `client_events` entries. **Manager APPROVED option A (11-05)** + condition: measure the added server time. Machine runs done 11-05 (then reported machine free): bundle PASS (PDP 139.8 / cart 140.3 kB); e2e 69 passed / 8 core-only skips; perf PASS (PDP 99/100/100, LCP 2.06-2.22 s, CLS 0); rail-timing PDP added p50/p95 293/292 ms, cart 297/289 ms (deadline 300), rail 20/20 normal, 0/20 slow; Prism upstream ~3 ms, so the overlap is NOT shown. The starter has no LAUNCH file: the 8.3 line goes in the PR brand list for window 10. **PR #727 UP 11-05, head `f2c8d15`** (main merged at 9c40832); manager told (PR up). Review 11-05 (Fable + manager): ONE fix — a malformed 200 body threw inside .then(ok, fail) and escaped the race (PDP/cart 500); fixed with fromResponse + .then().catch(), 5 tests; README rail-timing slack wording. NEXT: report again when every check has finished; then HOLD all pushes until the manager confirms the merge (this memory note is a LOCAL commit, push it only after). Brands: window 10's re-sync (list in README).
+
 - [x] **#449 — DONE, PR #450 merged = `e0cd978` (2026-10-09 12:08 UTC), code commit `0267a04`, head
   `d4a364f`; 15/15 checks green.** A fresh session on 2026-10-10 was started with a stale message
   (it described the fix as uncommitted): verified merged, issue closed, and no NL literal left in any
@@ -413,7 +421,7 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 
-- [ ] **#446 — PR #451, code commit `1c9b14c` (2026-10-10), 0.14.3; tick when merged.** `route-origin.test.ts`
+- [x] **#446 — DONE, PR #451 merged = `0ed6b7d` (2026-10-10), code commit `1c9b14c`, 0.14.3; 15/15 checks green.** `route-origin.test.ts`
       (×2: `/${defaultLocale}/account`), `seo.test.ts` (one alternate per configured locale, `x-default` on
       the default, count = locales + 1) and `cms-content.test.ts` (metadata in the default locale) import
       `locales` / `defaultLocale` from `@/i18n/routing`. **Measured, unit suite (609 tests):** before —
@@ -818,6 +826,13 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
     ignores. The local papercut below is gone.
 
 ## Gotchas learned
+
+- **`.then(ok, fail)` does not catch what `ok` throws (2026-11-05, #727 review):** a never-throws helper needs `.then(ok).catch(fail)`, and a 200 body is untrusted input — validate the shape before touching `.items`.
+- **Another session's Prism can hold :4010 with an OLD store spec (2026-11-05):** `/store/recommendations` answered
+  NO_PATH_MATCHED. Playwright reuses an existing :4010 locally, so point `MOCK_API_URL` at a private Prism
+  (e.g. :4120, `prism mock packages/contracts/openapi/store-api.yaml --port 4120`) and never kill the other one.
+- **React 19 hoists `<link rel="preload" as="image">` for an eager `<img>`** in renderToStaticMarkup — strip it before
+  comparing markup in a test. The real `ProductCard` is lazy (no priority), so rails add no preloads.
 
 - **`pnpm add` in this monorepo re-resolves unrelated peer suffixes** (Medusa, Vitest) in the lockfile
   — three times now. Revert the lockfile and hand-add only the importer entries, then prove it with

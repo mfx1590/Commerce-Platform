@@ -1,5 +1,6 @@
 import { EMBED_HOSTS } from '@platform/cms';
 import createNextIntlPlugin from 'next-intl/plugin';
+import { analyticsConsentMode } from './src/lib/analytics/consent-mode.mjs';
 
 /**
  * Plain ESM on purpose, not TypeScript: `next start` loads this file at **runtime**, and loading a
@@ -26,6 +27,10 @@ const frameHosts = Object.values(EMBED_HOSTS)
  * (`src/instrumentation.ts`). Exactly `1` or nothing.
  */
 const localImages = process.env.E2E_LOCAL_IMAGES === '1' ? '1' : '';
+
+// An unknown analytics consent mode fails `next build` and `next start` here, not at the first
+// render (#609): a typo such as `strcit` must never quietly mean the open mode.
+analyticsConsentMode(process.env);
 
 /** @type {import('next').NextConfig} */
 const config = {
