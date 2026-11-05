@@ -147,3 +147,100 @@ describe.runIf(down === null)(
     });
   },
 );
+
+describe.runIf(down === null)(
+  'writeMonthToCoreDb on the richer month (#633): payment-status precedence, failed orders out of sales',
+  () => {
+    const month = generateMonth({
+      orders: 150,
+      legalEntities: 3,
+      deterministicIds: true,
+      seed: 602,
+      richPayments: true,
+    });
+    const ev = (topic: string) => month.events.filter((e) => e.topic === topic);
+    let db: TestDatabase;
+    let hq: ScopedClient;
+
+    beforeAll(async () => {
+      db = await createTestDatabase('test_utils_month633');
+      await seed(db.owner);
+      hq = createOrganizationClient(db.app, { organizationId: SEED_IDS.organization });
+    });
+    afterAll(async () => {
+      await db?.drop();
+    });
+
+    it('captured wins over failed, a split capture is captured, failed only is failed', async () => {
+      const counts = await writeMonthToCoreDb(db.owner, month.events);
+      expect(counts).toMatchObject({
+        orders: month.orders,
+        payments: month.captures + month.failures,
+        refunds: month.refunds,
+        ignored: ev('shipment.shipped').length,
+      });
+      const captures = new Map<string, number>();
+      for (const e of ev('payment.captured'))
+        captures.set(String(pl(e).order_id), (captures.get(String(pl(e).order_id)) ?? 0) + 1);
+      const failed = new Set(ev('payment.failed').map((e) => String(pl(e).order_id)));
+      const want = new Map<string, string>();
+      for (const e of ev('order.placed')) {
+        const o = String(pl(e).order_id);
+        want.set(o, captures.has(o) ? 'captured' : failed.has(o) ? 'failed' : 'awaiting');
+      }
+      const rows = (
+        await hq.query<{ id: string; payment_status: string }>(
+          'SELECT id, payment_status FROM "order"',
+        )
+      ).rows;
+      expect(new Map(rows.map((r) => [r.id, r.payment_status]))).toEqual(want);
+      // all three precedence cases occur: failed then captured, two captures, failed only
+      const retried = [...failed].filter((o) => captures.has(o));
+      const split = [...captures].filter(([, n]) => n === 2);
+      expect(retried).toHaveLength(month.retried);
+      expect(split).toHaveLength(month.splitCaptures);
+      expect(month.retried).toBeGreaterThan(0);
+      expect(month.splitCaptures).toBeGreaterThan(0);
+      expect([...want.values()].filter((s) => s === 'failed')).toHaveLength(
+        month.failures - month.retried,
+      );
+    });
+
+    it('rpt_sales_daily leaves out cancelled and failed-only orders; rpt_payments_daily counts each partial capture', async () => {
+      const cancelled = new Set(ev('order.cancelled').map((e) => String(pl(e).order_id)));
+      const captured = new Set(ev('payment.captured').map((e) => String(pl(e).order_id)));
+      const failedOnly = new Set(
+        ev('payment.failed')
+          .map((e) => String(pl(e).order_id))
+          .filter((o) => !captured.has(o)),
+      );
+      const kept = ev('order.placed').filter(
+        (e) => !cancelled.has(String(pl(e).order_id)) && !failedOnly.has(String(pl(e).order_id)),
+      );
+      const sales = (
+        await hq.query<{ orders: string; total: string }>(
+          'SELECT sum(orders) AS orders, sum(total_minor) AS total FROM rpt_sales_daily',
+        )
+      ).rows[0]!;
+      expect(Number(sales.orders)).toBe(kept.length);
+      expect(Number(sales.total)).toBe(
+        kept.reduce((n, e) => n + Number((pl(e).totals as P).total_minor), 0),
+      );
+      const cash = (
+        await hq.query<{ n: string; amount: string }>(
+          'SELECT sum(captured_count) AS n, sum(captured_minor) AS amount FROM rpt_payments_daily',
+        )
+      ).rows[0]!;
+      expect(Number(cash.n)).toBe(month.captures);
+      expect(Number(cash.amount)).toBe(
+        ev('payment.captured').reduce((n, e) => n + Number(pl(e).amount_minor), 0),
+      );
+      const failedRows = (
+        await hq.query<{ n: string }>(
+          "SELECT count(*) AS n FROM payment WHERE status = 'failed' AND failure_reason IS NOT NULL AND captured_at IS NULL",
+        )
+      ).rows[0]!;
+      expect(Number(failedRows.n)).toBe(month.failures);
+    });
+  },
+);

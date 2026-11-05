@@ -231,6 +231,47 @@ export function paymentCaptured(
   );
 }
 
+/** A payment the PSP declined (authorization or capture): what the core emits, the order left pending. */
+export function paymentFailed(
+  placed: EventEnvelope<'order.placed'>,
+  opts: {
+    amount_minor?: number;
+    paymentId?: string;
+    provider_payment_id?: string | null;
+    failure_reason?: string | null;
+    failed_at?: string;
+    eventId?: string;
+  } = {},
+): EventEnvelope<'payment.failed'> {
+  const p = placed.payload;
+  const paymentId = opts.paymentId ?? newId();
+  const failedAt = opts.failed_at ?? '2026-10-05T10:00:05.000Z';
+  return assertValid(
+    makeEvent({
+      topic: 'payment.failed',
+      organizationId: placed.organization_id,
+      storeId: placed.store_id,
+      aggregateType: 'payment',
+      aggregateId: paymentId,
+      occurredAt: new Date(failedAt),
+      payload: {
+        payment_id: paymentId,
+        order_id: p.order_id,
+        provider: 'stripe',
+        provider_payment_id:
+          opts.provider_payment_id === undefined
+            ? `pi_fixture_${paymentId.slice(0, 8)}`
+            : opts.provider_payment_id,
+        amount_minor: opts.amount_minor ?? p.totals.total_minor,
+        currency: p.currency,
+        failure_reason: opts.failure_reason === undefined ? 'card_declined' : opts.failure_reason,
+        failed_at: failedAt,
+      },
+      eventId: opts.eventId ?? newId(),
+    }),
+  );
+}
+
 export function refundIssued(
   placed: EventEnvelope<'order.placed'>,
   payment: EventEnvelope<'payment.captured'>,
@@ -338,6 +379,144 @@ export interface GeneratedStream {
   captures: number;
   refunds: number;
   cancellations: number;
+  /** richPayments only (else 0): payment.failed events (each its own payment_id). */
+  failures: number;
+  /** richPayments only: failed orders whose retry (a second payment) was captured. */
+  retried: number;
+  /** richPayments only: orders captured in two partial payment.captured events. */
+  splitCaptures: number;
+  /** richPayments only (else []): the month-end PSP payout report per legal entity (accounting's fixture-file shape). */
+  payouts: MonthPayoutFile[];
+}
+
+/** One row of a payout report: the shape of apps/accounting's `BalanceTransactionRow` (Stripe balance transaction). */
+export interface MonthPayoutLine {
+  balance_transaction_id: string;
+  reporting_category: 'charge' | 'refund';
+  currency: string;
+  gross_minor: number;
+  fee_minor: number;
+  net_minor: number;
+  available_on: string;
+  created: string;
+  source_id: string | null;
+  payment_intent_id: string | null;
+  charge_id: string | null;
+  refund_id: string | null;
+  description: string;
+}
+
+/** One legal entity's PSP payout report: the shape of apps/accounting's `PayoutFixtureFile` (createFixtureSource). */
+export interface MonthPayoutFile {
+  provider: 'stripe';
+  legal_entity_id: string;
+  account: string;
+  currency: string;
+  payouts: {
+    payout_id: string;
+    arrival_date: string;
+    amount_minor: number;
+    status: 'paid';
+    balance_transactions: MonthPayoutLine[];
+  }[];
+}
+
+const PAYOUT_SETTLEMENT_DAYS = 2;
+const plusDays = (day: string, n: number): string => {
+  const d = new Date(`${day}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+const shortId = (uuid: string): string => uuid.replace(/-/g, '').slice(0, 24);
+
+/**
+ * The month-end payout of each legal entity, as accounting's fixture builder models one (#549): a charge row per
+ * capture (available two days after the capture, fee as payment.captured carried it, a null fee as 0) and a refund
+ * row per refund (available on its day); the payout carries every row available before `arrival` and pays Σ net.
+ * Later rows stay the open PSP balance. Both row kinds are monotone in time, so reconcilePayout's window rule sees no
+ * unmatched ledger line: the payout reconciles to the cent and posts Dr 1000 / Cr 1100 (psp.payout) on `arrival`.
+ * Legal entities with no row, or a zero payout (which reconcile never posts), get no payout.
+ */
+export function monthEndPayouts(
+  events: readonly EventEnvelopeV1Base[],
+  entities: readonly { legalEntityId: string; code: string; currency: string }[],
+  arrival = '2026-10-31',
+): MonthPayoutFile[] {
+  const out: MonthPayoutFile[] = [];
+  for (const le of entities) {
+    const rows: MonthPayoutLine[] = [];
+    for (const e of events) {
+      if (e.topic === 'payment.captured') {
+        const p = (e as EventEnvelope<'payment.captured'>).payload;
+        if (p.legal_entity_id !== le.legalEntityId || !p.provider_payment_id) continue;
+        const fee = p.fee_minor ?? 0;
+        rows.push({
+          balance_transaction_id: `txn_${shortId(p.payment_id)}`,
+          reporting_category: 'charge',
+          currency: p.currency,
+          gross_minor: p.amount_minor,
+          fee_minor: fee,
+          net_minor: p.amount_minor - fee,
+          available_on: plusDays(p.captured_at.slice(0, 10), PAYOUT_SETTLEMENT_DAYS),
+          created: p.captured_at,
+          source_id: `ch_${shortId(p.payment_id)}`,
+          payment_intent_id: p.provider_payment_id,
+          charge_id: `ch_${shortId(p.payment_id)}`,
+          refund_id: null,
+          description: 'Payment',
+        });
+      } else if (e.topic === 'refund.issued') {
+        const r = (e as EventEnvelope<'refund.issued'>).payload;
+        if (r.legal_entity_id !== le.legalEntityId || !r.provider_refund_id) continue;
+        rows.push({
+          balance_transaction_id: `txn_${shortId(r.refund_id)}`,
+          reporting_category: 'refund',
+          currency: r.currency,
+          gross_minor: -r.amount_minor,
+          fee_minor: 0,
+          net_minor: -r.amount_minor,
+          available_on: r.issued_at.slice(0, 10),
+          created: r.issued_at,
+          source_id: r.provider_refund_id,
+          payment_intent_id: null,
+          charge_id: null,
+          refund_id: r.provider_refund_id,
+          description: 'Refund',
+        });
+      }
+    }
+    const paid = rows
+      .filter((r) => r.available_on < arrival)
+      .sort((a, b) =>
+        a.created < b.created
+          ? -1
+          : a.created > b.created
+            ? 1
+            : a.balance_transaction_id < b.balance_transaction_id
+              ? -1
+              : a.balance_transaction_id > b.balance_transaction_id
+                ? 1
+                : 0,
+      );
+    const amount = paid.reduce((a, r) => a + r.net_minor, 0);
+    if (paid.length === 0 || amount === 0) continue;
+    out.push({
+      provider: 'stripe',
+      legal_entity_id: le.legalEntityId,
+      account: `acct_month_${le.code}`,
+      currency: le.currency,
+      payouts: [
+        {
+          payout_id: `po_month_${le.code}_${arrival.slice(0, 7).replace('-', '')}`,
+          arrival_date: arrival,
+          amount_minor: amount,
+          status: 'paid',
+          balance_transactions: paid,
+        },
+      ],
+    });
+  }
+  return out;
 }
 
 /**
@@ -357,6 +536,20 @@ export interface GenerateMonthOptions {
   deterministicIds?: boolean;
   /** 2 (default: A/EUR, B/GBP) or 3 (+ C/USD, a third store and currency) legal entities. */
   legalEntities?: 2 | 3;
+  /**
+   * The richer payment month (#633), default false (the default month is byte-identical to before): some orders'
+   * payment fails (payment.failed; half of them retried with a second payment that is captured, the rest never
+   * captured: nothing ships, no refund, the order stays pending, as the core leaves it), some orders are captured in
+   * two partial payment.captured events (two payments) summing to the order total, and `payouts` holds a month-end
+   * PSP payout per legal entity. Drawn from a second PRNG seeded from `seed`, so it is deterministic too.
+   */
+  richPayments?: boolean;
+  /** richPayments: share of orders whose first payment fails (default 0.08). */
+  failedRate?: number;
+  /** richPayments: share of captured orders captured in two parts (default 0.1). */
+  splitCaptureRate?: number;
+  /** richPayments: the payouts' arrival date (default 2026-10-31; rows available before it are paid out). */
+  payoutArrival?: string;
 }
 
 export function generateMonth(opts: GenerateMonthOptions): GeneratedStream {
@@ -374,6 +567,13 @@ export function generateMonth(opts: GenerateMonthOptions): GeneratedStream {
   let captures = 0;
   let refunds = 0;
   let cancellations = 0;
+  // richPayments draws from its own PRNG, so the default month's draws (and bytes) are untouched
+  const extra = opts.richPayments ? rng(((opts.seed ?? 42) * 104_729 + 633) >>> 0) : null;
+  const failedRate = opts.failedRate ?? 0.08;
+  const splitCaptureRate = opts.splitCaptureRate ?? 0.1;
+  let failures = 0;
+  let retried = 0;
+  let splitCaptures = 0;
   let day = 1;
   for (let i = 0; i < opts.orders; i++) {
     if (i > 0 && i % perDay === 0 && day < 28) day += 1;
@@ -407,13 +607,50 @@ export function generateMonth(opts: GenerateMonthOptions): GeneratedStream {
     const total = placed.payload.totals.total_minor;
 
     let payment: EventEnvelope<'payment.captured'> | null = null;
-    if (random() < 0.9) {
+    const mm = String(i % 60).padStart(2, '0');
+    if (extra && extra() < failedRate) {
+      // the first payment fails; the core leaves the order pending with payment_status 'failed'
+      events.push(
+        paymentFailed(placed, {
+          failure_reason: pick(['card_declined', 'insufficient_funds', 'expired_card']),
+          failed_at: `2026-10-${dd}T10:${mm}:20.000Z`,
+        }),
+      );
+      failures += 1;
+      if (extra() >= 0.5) continue; // never captured: no shipment, no refund, no cancellation
+      // the customer retries with another payment, which is captured (payment_status 'captured' wins)
       payment = paymentCaptured(placed, {
-        fee_minor: random() < nullFeeRate ? null : Math.round(total * 0.029) + 25,
-        captured_at: `2026-10-${dd}T10:${String(i % 60).padStart(2, '0')}:30.000Z`,
+        fee_minor: extra() < nullFeeRate ? null : Math.round(total * 0.029) + 25,
+        captured_at: `2026-10-${dd}T10:${mm}:40.000Z`,
       });
       events.push(payment);
       captures += 1;
+      retried += 1;
+    } else if (random() < 0.9) {
+      const nullFee = random() < nullFeeRate;
+      if (extra && total >= 2 && extra() < splitCaptureRate) {
+        // two partial captures (two payments) summing to the authorised amount, the order total
+        const first = Math.max(1, Math.floor(total * (0.3 + 0.4 * extra())));
+        const parts = [first, total - first];
+        const [a, b] = parts.map((amount, k) =>
+          paymentCaptured(placed, {
+            amount_minor: amount,
+            fee_minor: nullFee ? null : Math.round(amount * 0.029) + 25,
+            captured_at: `2026-10-${dd}T1${k}:${mm}:30.000Z`,
+          }),
+        );
+        events.push(a!, b!);
+        payment = a!; // refunds below reference the first payment
+        captures += 2;
+        splitCaptures += 1;
+      } else {
+        payment = paymentCaptured(placed, {
+          fee_minor: nullFee ? null : Math.round(total * 0.029) + 25,
+          captured_at: `2026-10-${dd}T10:${mm}:30.000Z`,
+        });
+        events.push(payment);
+        captures += 1;
+      }
     }
 
     const fate = random();
@@ -501,5 +738,23 @@ export function generateMonth(opts: GenerateMonthOptions): GeneratedStream {
       refunds += 1;
     }
   }
-  return { events, orders: opts.orders, shipments, captures, refunds, cancellations };
+  const entities = [
+    { legalEntityId: LE_A, code: 'le_brand_a', currency: 'EUR' },
+    { legalEntityId: LE_B, code: 'le_brand_b', currency: 'GBP' },
+    ...(opts.legalEntities === 3
+      ? [{ legalEntityId: LE_C, code: 'le_brand_c', currency: 'USD' }]
+      : []),
+  ];
+  return {
+    events,
+    orders: opts.orders,
+    shipments,
+    captures,
+    refunds,
+    cancellations,
+    failures,
+    retried,
+    splitCaptures,
+    payouts: opts.richPayments ? monthEndPayouts(events, entities, opts.payoutArrival) : [],
+  };
 }
