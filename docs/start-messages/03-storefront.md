@@ -1,5 +1,5 @@
 # Start message — Window 3: Storefront starter & UI kit (Phase 5, #609)
-Paste into a NEW Claude Code session opened IN the folder `C:\Users\mehdi\Desktop\wt-storefront` (worktree option OFF).
+Paste into a NEW Claude Code session opened IN the folder `C:\Users\mehdi\Desktop\wt-storefront` (worktree option OFF). Model: **Opus** (manager's decision 2026-11-05).
 The Phase 1 version of this file is in git history.
 
 ---
