@@ -104,4 +104,7 @@ keycloakUrl?, keycloakRealm?, verifier?, permission? })`; `loadApiSpec(path?)` /
   it works, so give its client a pool of at least 2; an overlapping run is `ErpSyncInProgress`.
 - A parked event that is a posting defect stays parked when its order arrives (#639): `parked_defects` on the result.
 - `@platform/test-utils` is a devDependency (#658): only tests and the tsx-run fixture generator may import it; the
-  build excludes `src/posting/fixtures.ts` and `src/reconcile/fixtures/**` (`src/packaging.test.ts` guards both).
+  build excludes `src/posting/fixtures.ts`, `src/reconcile/fixtures/**` and `src/testing/**` (`src/packaging.test.ts`).
+- `order.placed@2` (#696) posts like v1; the ledger must be deployed with the @2-aware `@platform/events` no later than
+  core, or the SDK counts v2 as `skipped_unknown` and the order never reaches the ledger. `src/testing/order-placed-v2.ts`
+  is the local @2 mock for tests until @2 is published.

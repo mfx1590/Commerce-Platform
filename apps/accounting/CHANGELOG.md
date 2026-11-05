@@ -1,5 +1,17 @@
 # Changelog — @platform/accounting
 
+## 0.6.10 — 2026-11-05 (the #696 gate, accounting side; #701)
+
+- `order.placed@2` (#696: v1 with `email_hash` nullable, an erased customer): checked at runtime — the ledger never
+  reads `email_hash` or `customer_id`, never branches on the version, and validates through the generic
+  `createValidator()`, so a v2 posts exactly like a v1 once the regenerated `@platform/events` is deployed. No code
+  change. New `test/order-placed-v2.test.ts` (+6) on a local @2 mock (`src/testing/order-placed-v2.ts`, excluded from
+  the build) that steps aside once @2 is published: same lines with a hash and with both ids null, idempotent
+  replay, parked events released by a v2 order, and the deploy-order case.
+- README: "Rebuild from the outbox, orders first" (#701: all five ledger topics are 30 days on the bus; replay all
+  five, orders first; what the erasure-aware replay does today) and the deploy-order rule for @2.
+- Tests: 122 (+6).
+
 ## 0.6.9 — 2026-10-30 (#658, the Fable re-reviews of #596 / #597 and #593 / #617)
 
 - Fix (medium): a non-default consumer group on a ledger another accounting group filled is refused at boot
