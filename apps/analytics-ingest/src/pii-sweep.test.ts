@@ -3,7 +3,14 @@
 // reconcile-gate.test.ts) over every table and view of a migrated, populated database.
 import { describe, expect, it } from 'vitest';
 import type { ChClient } from './clickhouse.js';
-import { ibanValid, luhnValid, PII_PATTERNS, sweepPii } from './pii-sweep.js';
+import {
+  columnClass,
+  ibanValid,
+  luhnValid,
+  PII_PATTERNS,
+  sweepPii,
+  UnclassifiedColumnError,
+} from './pii-sweep.js';
 
 const re = (k: keyof typeof PII_PATTERNS) => new RegExp(PII_PATTERNS[k]);
 const first = (k: 'card' | 'iban', s: string) => re(k).exec(s)?.[1];
@@ -59,7 +66,7 @@ describe('PII shapes', () => {
 describe('sweepPii', () => {
   function fakeCh(
     tables: { name: string; engine: string }[],
-    columns: { table: string; name: string }[],
+    columns: { table: string; name: string; type: string }[],
   ) {
     const queries: { query: string; params: Record<string, unknown> }[] = [];
     const ch = {
@@ -104,8 +111,12 @@ describe('sweepPii', () => {
         { name: 'no_strings', engine: 'MergeTree' },
       ],
       [
-        { table: 'raw_events', name: 'payload' },
-        { table: 'stg_x', name: 'currency' },
+        { table: 'raw_events', name: 'payload', type: 'String' },
+        { table: 'raw_events', name: 'version', type: 'UInt16' },
+        { table: 'stg_x', name: 'currency', type: 'LowCardinality(String)' },
+        { table: 'no_strings', name: 'n', type: 'Nullable(Int64)' },
+        // a materialised view's columns are not the sweep's (it is not enumerated), whatever their type
+        { table: 'mv_x', name: 'ip', type: 'IPv4' },
       ],
     );
     const r = await sweepPii(ch);
@@ -130,5 +141,66 @@ describe('sweepPii', () => {
       queries.filter((q) => /FROM `/.test(q.query)).map((q) => q.query.match(/FROM (`\w+`)/)![1]),
     ).toEqual(['`raw_events`', '`stg_x`']);
     expect(queries.at(-1)!.params).toEqual(PII_PATTERNS);
+  });
+
+  it('stops on a column type it cannot classify instead of skipping it (an IP address is personal data)', async () => {
+    const { ch } = fakeCh(
+      [{ name: 'visits', engine: 'MergeTree' }],
+      [
+        { table: 'visits', name: 'id', type: 'UUID' },
+        { table: 'visits', name: 'client_ip', type: 'Nullable(IPv6)' },
+        { table: 'visits', name: 'point', type: 'Tuple(Float64, Float64)' },
+      ],
+    );
+    const err = await sweepPii(ch).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UnclassifiedColumnError);
+    expect((err as UnclassifiedColumnError).columns).toEqual([
+      'visits.client_ip: Nullable(IPv6)',
+      'visits.point: Tuple(Float64, Float64)',
+    ]);
+  });
+});
+
+describe('columnClass', () => {
+  it('reads every text-capable type, proves the text-free ones safe, and refuses the rest', () => {
+    for (const t of [
+      'String',
+      'Nullable(String)',
+      'LowCardinality(Nullable(String))',
+      'Array(String)',
+      'Map(String, UInt64)',
+      'FixedString(64)',
+      'JSON',
+      "Object('json')",
+      'Dynamic',
+      'Variant(String, UInt64)',
+    ])
+      expect(columnClass(t), t).toBe('read');
+    for (const t of [
+      'UInt16',
+      'Int64',
+      'Nullable(Int64)',
+      'Float64',
+      'Decimal(18, 4)',
+      'Bool',
+      'Date',
+      'DateTime',
+      "DateTime64(3, 'UTC')",
+      'Nullable(DateTime64(3))',
+      'UUID',
+      'Nullable(UUID)',
+      'Array(UUID)',
+      "Enum8('a' = 1, 'b' = 2)",
+      'LowCardinality(Nullable(Date))',
+    ])
+      expect(columnClass(t), t).toBe('safe');
+    for (const t of [
+      'IPv4',
+      'Nullable(IPv6)',
+      'Tuple(Float64, Float64)',
+      'AggregateFunction(uniq, UInt64)',
+      'Point',
+    ])
+      expect(columnClass(t), t).toBe('unknown');
   });
 });

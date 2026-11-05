@@ -201,7 +201,7 @@ have p95 < 10 s (measured ≈ 0.5 s; printed every run).
 `sweepPii(ch)` (`src/pii-sweep.ts`, exported; CLI `pii:sweep`) reads every table and view of the current database.
 They are enumerated from `system.tables`, so a new table or model cannot be missed. Materialised views (no rows of
 their own) and the runner's `_migrations*` are left out. Every column whose type carries a String is read through
-`toString`, without FINAL, because an unmerged old copy is bytes on disk too. The shapes:
+`toString`, without FINAL, because an unmerged old copy is bytes on disk too. Every other column must be provably text-free (numbers, dates, uuids, booleans, enums, at any Nullable / LowCardinality / Array depth). Any other type stops the sweep with `UnclassifiedColumnError` instead of being skipped (`columnClass`; IPv4 / IPv6 included, since an address is personal data). `pii:sweep` connects as `CLICKHOUSE_READONLY_USER` when it is set (readonly = 1 on the server), else as `CLICKHOUSE_USER`. The shapes:
 
 - an e-mail;
 - a phone, either international `+…` or a domestic `0…` number with separators;
@@ -217,8 +217,8 @@ Where it runs:
 
 - **Live, in the gate**, after `reconcile`, so `ledger_lines` is filled: 28 tables and views, 63 string columns, 0
   findings. One planted raw e-mail is then found exactly once, in `raw_events.payload`.
-- **Coverage:** the gate's month has 5 topics (order.placed, order.cancelled, payment.captured, refund.issued,
-  shipment.shipped). Every other topic@version is swept offline by `pii.test.ts`. The dev-stack run (`pii:sweep` on
+- **Coverage:** the gate's month (`richPayments`, #633) has 6 topics (order.placed, order.cancelled, payment.captured,
+  payment.failed, refund.issued, shipment.shipped). Every other topic@version is swept offline by `pii.test.ts`. The dev-stack run (`pii:sweep` on
   the dev database) covers real data.
 
 ## Erasure: `customer.erased` (#623)
