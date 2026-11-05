@@ -13,6 +13,13 @@
 //      tables, and every identity — bookings, recognised revenue (copy integrity, lineage, lifetime invariant) and cash
 //      (captures and fees, PSP clearing, payouts) — must show 0 difference;
 //   4. the gate can fail: a tampered ClickHouse ledger line and a tampered core order are both caught.
+// And, on the same run (Integration 5 plan, #612):
+//   gate 1 (ingest): per topic, what the relay published (the prefixed topics' high watermarks) = raw_events FINAL
+//     uniqExact(event_id) = the month; a replay of the whole outbox (the core's replayOutbox, every topic) through
+//     the same group changes no count; the ingest's own `ingest_delay` (relay publish → ClickHouse ack) p95 < 10 s;
+//   gate 4 (PII): every table and view of the migrated, populated ClickHouse database (sweepPii enumerates them
+//     from system.tables: raw, staging, dims, facts, marts, live, ledger lines) holds 0 values shaped like an
+//     e-mail, a phone, an IBAN or a card, and 0 name/address keys with a value; one planted raw e-mail is found.
 // Runs in the live job only: opt-in (ANALYTICS_LIVE=1 on a laptop, with the machine; CI=true in the live job), then
 // skipped with a printed reason when ClickHouse refuses the configured user or the broker is down — so the unit job
 // (CI=true, no ClickHouse) skips it after one quick probe. Run it with TZ=UTC (CI is UTC) until #627 lands: the
@@ -89,6 +96,22 @@ describe.runIf(skip === null)(
     let tamperLedgerCopy: () => Promise<void>;
     let tamperCoreOrder: () => Promise<void>;
     let summary: Record<string, unknown> = {};
+    // gate 1 and gate 4 (filled in beforeAll)
+    const delays: number[] = [];
+    let perTopic: () => Promise<{
+      month: Record<string, number>;
+      published: Record<string, number>;
+      unique: Record<string, number>;
+      final: Record<string, number>;
+    }>;
+    let replayEverything: () => Promise<{ published: number; ingested: number; since: string }>;
+    let reingestedSince: (since: string) => Promise<number>;
+    let sweep: () => Promise<{
+      scanned: { table: string; engine: string; columns: string[] }[];
+      findings: { table: string; column: string; kind: string; count: number }[];
+    }>;
+    let plantRawEmail: () => Promise<void>;
+    let countRows: (table: string) => Promise<number>;
 
     const until = async (cond: () => boolean, what: string, ms: number) => {
       const t0 = Date.now();
@@ -196,6 +219,8 @@ describe.runIf(skip === null)(
         sink: ingest.createRawEventsSink(ch),
         // the production topology honours customer.erased (#623); a word, not a key
         erasure: { key: 'gate5-erasure-word-only', ch },
+        // gate 1: the ingest's own analytics_ingest.ingest_delay values (relay publish → ClickHouse ack), captured
+        metrics: { ...ingest.createIngestMetrics(), delay: (ms: number) => void delays.push(ms) },
         log: () => {},
       });
       stops.push(() => raw.stop());
@@ -319,6 +344,108 @@ describe.runIf(skip === null)(
           `UPDATE "order" SET total_minor = total_minor + 1 WHERE id = (SELECT id FROM "order" WHERE status <> 'cancelled' AND payment_status <> 'failed' ORDER BY id LIMIT 1)`,
         );
       };
+      // ---- gate 1 and gate 4 helpers (used by the its below; nothing runs here)
+      const topics = [...new Set(month.events.map((e) => e.topic))].sort();
+      const rowsOf = async <T>(query: string) =>
+        (await ch.query({ query, format: 'JSONEachRow' })).json<T>();
+      perTopic = async () => {
+        const monthCounts: Record<string, number> = {};
+        for (const e of month.events) monthCounts[e.topic] = (monthCounts[e.topic] ?? 0) + 1;
+        const ka = kafka.admin();
+        await ka.connect();
+        const published: Record<string, number> = {};
+        try {
+          for (const t of topics)
+            published[t] = (await ka.fetchTopicOffsets(`${prefix}${t}`)).reduce(
+              (n, p) => n + Number(p.high) - Number(p.low),
+              0,
+            );
+        } finally {
+          await ka.disconnect();
+        }
+        const unique: Record<string, number> = {};
+        const final: Record<string, number> = {};
+        for (const r of await rowsOf<{ topic: string; u: string; n: string }>(
+          'SELECT topic, uniqExact(event_id) AS u, count() AS n FROM raw_events FINAL GROUP BY topic',
+        )) {
+          unique[r.topic] = Number(r.u);
+          final[r.topic] = Number(r.n);
+        }
+        return { month: monthCounts, published, unique, final };
+      };
+      reingestedSince = async (since) =>
+        Number(
+          (
+            await rowsOf<{ n: string }>(
+              `SELECT count() AS n FROM raw_events FINAL WHERE ingested_at >= toDateTime64('${since}', 3, 'UTC')`,
+            )
+          )[0]!.n,
+        );
+      replayEverything = async () => {
+        const { replayOutbox } = await import('../../outbox');
+        // the ingest resumes the SAME group: it sees only what the replay publishes
+        const again = ingest.createIngest({
+          config: {
+            groupId: rawGroup,
+            topicPrefix: prefix,
+            batchSize: 500,
+            flushMs: 200,
+            concurrency: 8,
+          },
+          kafka,
+          sink: ingest.createRawEventsSink(ch),
+          erasure: { key: 'gate5-erasure-word-only', ch },
+          log: () => {},
+        });
+        stops.push(() => again.stop());
+        await again.start();
+        const publisher = events.createKafkaPublisher(kafka);
+        await publisher.connect();
+        // the replay's rows are later than every first copy: ingested_at is the ReplacingMergeTree version
+        const since = ingest.toClickHouseTime(new Date());
+        let published = 0;
+        try {
+          for (const topic of topics)
+            published += (
+              await replayOutbox(hq, publisher, {
+                organizationId: SEED_IDS.organization,
+                topic,
+                topicPrefix: prefix,
+              })
+            ).published;
+        } finally {
+          await publisher.disconnect().catch(() => {});
+        }
+        await until(
+          () => again.stats.rows >= published,
+          `${published} replayed events`,
+          CEILING_MS.consume,
+        );
+        await again.stop();
+        return { published, ingested: again.stats.rows, since };
+      };
+      sweep = () => ingest.sweepPii(ch);
+      countRows = async (table) =>
+        Number((await rowsOf<{ n: string }>(`SELECT count() AS n FROM ${table}`))[0]!.n);
+      plantRawEmail = async () => {
+        // a probe topic no model reads, so the raw payload is the only place the planted value can be
+        await ingest.createRawEventsSink(ch).insert([
+          {
+            topic: 'pii.probe',
+            version: 1,
+            event_id: '00000000-0000-4000-8000-00000000a612',
+            organization_id: SEED_IDS.organization,
+            store_id: null,
+            aggregate_type: 'probe',
+            aggregate_id: 'probe',
+            occurred_at: ingest.toClickHouseTime(new Date()),
+            published_at: ingest.toClickHouseTime(new Date()),
+            payload: JSON.stringify({ note: ['someone', 'shop.example'].join('@') }),
+            ingested_at: ingest.toClickHouseTime(new Date()),
+          },
+        ]);
+      };
+
       summary = {
         test: 'reconcile-gate',
         orders: ORDERS,
@@ -367,6 +494,87 @@ describe.runIf(skip === null)(
       for (const i of r.identities) expect(i.differences, i.identity).toEqual([]);
       expect(r.ok).toBe(true);
       expect(timings.reconcile_ms).toBeLessThan(CEILING_MS.reconcile);
+    });
+
+    it('gate 1: per topic, what the relay published = raw_events FINAL uniqExact(event_id) = the month', async () => {
+      const c = await perTopic();
+      console.info(
+        JSON.stringify({
+          test: 'gate1-counts',
+          topics: Object.keys(c.month).length,
+          per_topic: c.month,
+        }),
+      );
+      // the month's topics: order.placed, order.cancelled, payment.captured, refund.issued, shipment.shipped
+      expect(Object.keys(c.month).length).toBeGreaterThanOrEqual(5);
+      expect(c.published).toEqual(c.month);
+      expect(c.unique).toEqual(c.month);
+      expect(c.final).toEqual(c.month);
+    });
+
+    it("gate 1: the ingest's ingest_delay (relay publish → ClickHouse ack) has p95 < 10 s", () => {
+      const sorted = [...delays].sort((a, b) => a - b);
+      const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))]!;
+      console.info(
+        JSON.stringify({
+          test: 'gate1-lag',
+          deliveries: sorted.length,
+          p50_ms: Math.round(at(0.5)),
+          p95_ms: Math.round(at(0.95)),
+          max_ms: Math.round(sorted.at(-1)!),
+        }),
+      );
+      expect(sorted.length).toBeGreaterThanOrEqual(Number(summary.events));
+      expect(at(0.95)).toBeLessThan(10_000);
+    });
+
+    it('gate 1: a replay of the whole outbox through the same group changes no count', async () => {
+      const before = await perTopic();
+      const r = await replayEverything();
+      const after = await perTopic();
+      console.info(
+        JSON.stringify({ test: 'gate1-replay', replayed: r.published, reingested: r.ingested }),
+      );
+      // the replay really went through: every event again, and each event's FINAL row is now the replayed copy
+      expect(r.published).toBe(Number(summary.events));
+      expect(await reingestedSince(r.since)).toBe(Number(summary.events));
+      // … and no count moved
+      expect(after.unique).toEqual(before.unique);
+      expect(after.final).toEqual(before.final);
+      expect(after.unique).toEqual(after.month);
+    });
+
+    it('gate 4: no table or view of the ClickHouse database holds an e-mail, phone, IBAN, card or personal-data key', async () => {
+      const r = await sweep();
+      const names = r.scanned.map((t) => t.table);
+      console.info(
+        JSON.stringify({
+          test: 'gate4-pii',
+          tables: names.length,
+          string_columns: r.scanned.reduce((n, t) => n + t.columns.length, 0),
+          findings: r.findings.length,
+        }),
+      );
+      // every layer is in the sweep, enumerated from system.tables (a new table or model cannot be missed)
+      for (const t of ['raw_events', 'ledger_lines', 'orders_minute_events', 'customer_erasures'])
+        expect(names).toContain(t);
+      for (const layer of ['stg_', 'dim_', 'fct_', 'mart_', 'live_'])
+        expect(
+          names.some((n) => n.startsWith(layer)),
+          layer,
+        ).toBe(true);
+      // the ledger copy is populated by now (the reconcile above read it), so its bytes are swept too
+      expect(await countRows('ledger_lines')).toBeGreaterThan(0);
+      expect(r.findings).toEqual([]);
+    });
+
+    it('gate 4 fails when it should: one planted raw e-mail is found, where it is and nowhere else', async () => {
+      await plantRawEmail();
+      const r = await sweep();
+      console.info(JSON.stringify({ test: 'gate4-pii-mutation', findings: r.findings }));
+      expect(r.findings).toEqual([
+        { table: 'raw_events', column: 'payload', kind: 'email', count: 1 },
+      ]);
     });
 
     it('the gate fails when it should: a forged ClickHouse ledger line and a changed core order are both caught', async () => {
