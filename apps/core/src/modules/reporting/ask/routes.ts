@@ -81,7 +81,12 @@ export function askAdminRouter(opts: AskRouterOptions = {}): Router {
       try {
         const answer = await askMetrics(
           {
-            reader: opts.reader ?? sharedMetricsReader(),
+            // lazy (#720 review): the reader is resolved only when a query runs, so the scope check in askMetrics
+            // answers first — a store outside the caller's scope is a 403, even while the analytics store is not
+            // configured (sharedMetricsReader would be a 503)
+            get reader() {
+              return opts.reader ?? sharedMetricsReader();
+            },
             gatewayFor: opts.gatewayFor ?? defaultGatewayFor,
             biQaSwitches: (ids) => biQaSwitches(p, ids),
           },

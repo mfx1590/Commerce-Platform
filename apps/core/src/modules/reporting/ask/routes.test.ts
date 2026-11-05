@@ -154,6 +154,37 @@ describe('askMetrics', () => {
     expect(seen).toEqual([]);
   });
 
+  it('the scope check comes before the analytics store: store B is a 403, not a 503, while no read-only user is configured (#720 review)', async () => {
+    const saved = process.env.CLICKHOUSE_READONLY_USER;
+    delete process.env.CLICKHOUSE_READONLY_USER;
+    try {
+      // the production wiring: no injected reader, so the route would build the shared one
+      const bare = express();
+      mountCoreMiddleware(bare, new DevTokenVerifier(), {
+        moduleRouters: [
+          askAdminRouter({
+            spec: specWith(OPS),
+            gatewayFor: (scope) => {
+              gateways = scriptedGateways(script);
+              return gateways(scope);
+            },
+            feedbackFor: () => feedback,
+          }),
+        ],
+      });
+      bare.use(coreErrorHandler);
+      const r = await request(bare)
+        .post('/admin/metrics/ask')
+        .set('Authorization', 'Bearer dev:ask-admin-a')
+        .send({ question: 'refunds?', store_ids: [B] });
+      expect(r.status).toBe(403);
+      expect(r.body).toMatchObject({ code: 'forbidden', details: { object: `store:${B}` } });
+      expect(seen).toEqual([]);
+    } finally {
+      if (saved !== undefined) process.env.CLICKHOUSE_READONLY_USER = saved;
+    }
+  });
+
   it('the model asking for store B anyway gets a tool error; the analytics store is not read', async () => {
     script = [
       { toolUse: [{ name: 'query_metrics', input: q({ filters: { store_ids: [B] } }) }] },
