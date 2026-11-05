@@ -30,6 +30,17 @@ nothing, and `return.requested.reason`, which is free text a customer or an agen
 items are reduced to counts rather than forwarding each title and SKU — every property sent is one more thing
 to justify.
 
+**Client events are a separate list (#725).** `client_events` holds events a BROWSER emits — window 3's
+recommendation rails to begin with (`recommendation_viewed`, `recommendation_clicked`, #609). They have no
+envelope, no schema in `packages/events` and no consumer in `apps/engagement`, so they cannot go in `events`
+or `unmapped`: those two are checked against `EVENT_TOPICS` and a browser event there would break the check.
+Each entry carries `event`, `source`, `call`, `properties`, `consent_gated` and a `$comment`, and the tests in
+`apps/engagement/src/cdp/mapper.test.ts` pin that shape plus the anonymity the request promises (no
+`customer_id`, no `email_hash`, no cookie, no session id). The emitting side builds against this list
+property-for-property; the browser's own consent switch (`STOREFRONT_ANALYTICS_CONSENT_MODE`) must be set to
+the same mode as `ENGAGEMENT_CDP_CONSENT_MODE_<STORE_CODE>` for that brand, and `strict` sends none of them —
+`apps/engagement/README.md` has the reasoning.
+
 **Consent gates everything except an erasure.** Read-only, from the `customer.consent` projection
 (`packages/db` 0005, maintained by the core's consent ledger alongside 0194), through a tenant client scoped to
 the event's own store, and **evaluated at processing time** — manager ruling, 2026-10-23. Never the
@@ -109,7 +120,9 @@ e-mail was option (b) and was rejected). A test pins the behaviour in both direc
 ## Changing it
 
 1. Edit `tracking-plan.json` — a mapped topic needs its `call`, its properties and `consent_gated`; an unmapped
-   one needs a reason a reader can disagree with.
+   one needs a reason a reader can disagree with. A **client event** (`client_events`) needs `event`, `source`,
+   `call`, `properties` and `consent_gated` too, and it comes from a REQUEST by the window that emits it —
+   this service does not emit or consume one, so the entry is the only thing the two sides share.
 2. Add or change the mapping in `apps/engagement/src/cdp/` and its fixture test. The tests fail until the plan
    and the mapper agree in both directions.
 3. `pnpm --filter @platform/engagement exec vitest run`, then the README and CHANGELOG there.

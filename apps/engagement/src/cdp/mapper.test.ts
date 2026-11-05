@@ -251,6 +251,15 @@ interface Plan {
     consent_gated: boolean;
   }[];
   unmapped: { topics: string[]; reason: string }[];
+  /** Browser events, not bus topics (#725) — see the describe below for why they are a separate list. */
+  client_events: {
+    event: string;
+    source: string;
+    call: string;
+    properties: string[];
+    consent_gated: boolean;
+    $comment?: string;
+  }[];
 }
 const plan = JSON.parse(
   readFileSync(
@@ -339,6 +348,84 @@ describe('the tracking plan and the mapper agree', () => {
     expect(plan.consent.purpose).toBe('marketing_email');
     expect(plan.consent.evaluated).toMatch(/processing time/);
     expect(plan.identity.rule).toMatch(/customer_id/);
+  });
+});
+
+// ---- client events (#725) -----------------------------------------------------------------------------------
+//
+// Browser events, from REQUEST #725 (window 3's recommendation rails, #609). They are NOT bus topics: no
+// envelope, no schema in packages/events, no consumer here. They live in their own top-level list precisely so
+// the `events` / `unmapped` pair can keep being checked against EVENT_TOPICS — a browser event in either list
+// would break that check instead of documenting anything.
+//
+// This service does not emit or receive them; the plan is the shared DEFINITION, and the storefront builds
+// against it property-for-property. So what these tests can usefully pin is the SHAPE (a client event that
+// omits a field is a definition two sides can read differently) and the ANONYMITY the request promises.
+
+const CDP_CALLS = ['identify', 'track', 'suppress'];
+const IDENTIFYING = /customer_id|user_id|email|session|cookie|ip_|_ip$|device|anonymous/i;
+
+describe("the plan's client events (#725)", () => {
+  it('there are client events, and each one is a complete definition', () => {
+    expect(plan.client_events.length).toBeGreaterThan(0);
+    for (const e of plan.client_events) {
+      // All five fields, because the storefront reads this as a contract: a missing `call` or
+      // `consent_gated` is not a smaller definition, it is one the two sides can disagree about.
+      expect(typeof e.event, `${e.event}: event`).toBe('string');
+      expect(e.event, 'a client event name is snake_case').toMatch(/^[a-z][a-z0-9_]*$/);
+      expect(typeof e.source, `${e.event}: source`).toBe('string');
+      expect(e.source.length, `${e.event}: source says where it comes from`).toBeGreaterThan(0);
+      expect(CDP_CALLS, `${e.event}: call`).toContain(e.call);
+      expect(Array.isArray(e.properties), `${e.event}: properties`).toBe(true);
+      expect(e.properties.length, `${e.event}: properties is not empty`).toBeGreaterThan(0);
+      for (const p of e.properties) expect(p, `${e.event}.${p}`).toMatch(/^[a-z][a-z0-9_]*$/);
+      expect(typeof e.consent_gated, `${e.event}: consent_gated`).toBe('boolean');
+      // The same demand the unmapped list gets: a reader must be able to disagree with it.
+      expect(e.$comment?.length ?? 0, `${e.event}: $comment`).toBeGreaterThan(20);
+    }
+  });
+
+  it('a client event is not a bus topic, and cannot quietly become one', () => {
+    const names = plan.client_events.map((e) => e.event);
+    expect(new Set(names).size, 'a client event is listed twice').toBe(names.length);
+
+    const topics: string[] = [
+      ...plan.events.map((e) => e.topic),
+      ...plan.unmapped.flatMap((u) => u.topics),
+    ];
+    for (const name of names) {
+      expect(topics, `${name} is in the bus lists`).not.toContain(name);
+      expect(
+        EVENT_TOPICS as readonly string[],
+        `${name} is an events-contract topic`,
+      ).not.toContain(name);
+    }
+  });
+
+  it('every client-event property is ANONYMOUS — the promise #725 makes', () => {
+    // The request's own words: "no customer_id, no email_hash, no cookie, no session id". These events are
+    // emitted by a browser with no login, so a property that named a person would be the one way this list
+    // could start carrying identity — and nothing else in this service would catch it, because no consumer
+    // here ever sees them.
+    for (const e of plan.client_events) {
+      for (const p of e.properties) {
+        expect(p, `${e.event}.${p} names an identifier`).not.toMatch(IDENTIFYING);
+      }
+      expect(e.properties, `${e.event} carries a product id, not a person`).not.toContain('id');
+    }
+  });
+
+  it('`consent_gated: false` does NOT mean "sent in strict mode"', () => {
+    // Worth pinning because the flag reads like a licence. It means what it means for a bus topic: no granted
+    // `marketing_email` is required. Strict mode asks for a granted purpose for a KNOWN customer, and these
+    // events carry no customer at all, so strict drops every one of them — which is why the README says the
+    // storefront's switch must agree with this store's `ENGAGEMENT_CDP_CONSENT_MODE_<STORE_CODE>`.
+    for (const e of plan.client_events) {
+      expect(e.consent_gated, `${e.event}: an anonymous event has no consent row to check`).toBe(
+        false,
+      );
+    }
+    expect(plan.consent.purpose).toBe('marketing_email');
   });
 });
 

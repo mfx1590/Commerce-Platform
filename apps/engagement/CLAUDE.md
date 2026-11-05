@@ -310,6 +310,13 @@ package yet.
   printed beside them. Keep both: they are two paths to one answer, and a disagreement means the report is
   wrong.
 - A new topic in `packages/events` must be added to `data/cdp/tracking-plan.json` as mapped or unmapped with a
-  reason; the suite fails until it is.
+  reason; the suite fails until it is. **`client_events` is the third list** (#725): events a BROWSER emits
+  (window 3's recommendation rails), which are NOT bus topics — no envelope, no schema, no consumer here — and
+  must stay out of `events`/`unmapped`, which are checked against `EVENT_TOPICS`. This service neither emits
+  nor receives them; the entry is the shared definition the emitting window builds against, so it needs all
+  five fields, must name no identifier (they are anonymous), and `consent_gated: false` means "no granted
+  purpose required", NOT "sent in strict mode" — strict needs a named customer, so strict sends none of them.
+  The browser's `STOREFRONT_ANALYTICS_CONSENT_MODE` must be deployed to agree with
+  `ENGAGEMENT_CDP_CONSENT_MODE_<STORE_CODE>`; nothing here can enforce that.
 - Never touch a Dockerfile: the manager lands this service's `COPY` lines as an integration commit.
 - Update README.md and CHANGELOG.md with every change, and the memory file before every commit.
