@@ -43,10 +43,7 @@
             ]
           },
           "landing_path": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "order_id": {
             "format": "uuid",
@@ -59,47 +56,26 @@
           },
           "referrer": {
             "description": "Origin only (scheme + host), e.g. https://www.google.com",
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "touch": {
-            "enum": [
-              "first",
-              "last"
-            ],
+            "enum": ["first", "last"],
             "type": "string"
           },
           "utm_campaign": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "utm_content": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "utm_medium": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "utm_source": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "utm_term": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
         "required": [
@@ -142,10 +118,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "amount_minor",
-              "currency"
-            ],
+            "required": ["amount_minor", "currency"],
             "type": "object"
           },
           "campaign_id": {
@@ -188,32 +161,16 @@
             "type": "string"
           },
           "utm_campaign": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "utm_medium": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "utm_source": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
-        "required": [
-          "campaign_id",
-          "name",
-          "type",
-          "utm_source",
-          "utm_medium",
-          "utm_campaign"
-        ],
+        "required": ["campaign_id", "name", "type", "utm_source", "utm_medium", "utm_campaign"],
         "title": "campaign.ended v1",
         "type": "object"
       }
@@ -238,10 +195,7 @@
                 "type": "string"
               }
             },
-            "required": [
-              "amount_minor",
-              "currency"
-            ],
+            "required": ["amount_minor", "currency"],
             "type": "object"
           },
           "campaign_id": {
@@ -284,32 +238,16 @@
             "type": "string"
           },
           "utm_campaign": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "utm_medium": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "utm_source": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
-        "required": [
-          "campaign_id",
-          "name",
-          "type",
-          "utm_source",
-          "utm_medium",
-          "utm_campaign"
-        ],
+        "required": ["campaign_id", "name", "type", "utm_source", "utm_medium", "utm_campaign"],
         "title": "campaign.launched v1",
         "type": "object"
       }
@@ -437,12 +375,7 @@
             "type": "boolean"
           },
           "status": {
-            "enum": [
-              "guest",
-              "registered",
-              "disabled",
-              "erased"
-            ],
+            "enum": ["guest", "registered", "disabled", "erased"],
             "type": "string"
           }
         },
@@ -488,11 +421,7 @@
             ]
           }
         },
-        "required": [
-          "customer_id",
-          "identity_id",
-          "erased_at"
-        ],
+        "required": ["customer_id", "identity_id", "erased_at"],
         "title": "customer.erased v1",
         "type": "object"
       }
@@ -532,12 +461,7 @@
             ]
           }
         },
-        "required": [
-          "customer_id",
-          "identity_id",
-          "email_hash",
-          "erased_at"
-        ],
+        "required": ["customer_id", "identity_id", "email_hash", "erased_at"],
         "title": "customer.erased v2",
         "type": "object"
       }
@@ -570,20 +494,11 @@
             "type": "string"
           },
           "requested_by_type": {
-            "enum": [
-              "staff",
-              "customer"
-            ],
+            "enum": ["staff", "customer"],
             "type": "string"
           }
         },
-        "required": [
-          "export_id",
-          "customer_id",
-          "requested_by",
-          "requested_by_type",
-          "expires_at"
-        ],
+        "required": ["export_id", "customer_id", "requested_by", "requested_by_type", "expires_at"],
         "title": "customer.export_ready v1",
         "type": "object"
       }
@@ -611,11 +526,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "customer_id",
-          "requested_by",
-          "requested_at"
-        ],
+        "required": ["customer_id", "requested_by", "requested_at"],
         "title": "customer.export_requested v1",
         "type": "object"
       }
@@ -643,19 +554,11 @@
             "type": "string"
           },
           "requested_by_type": {
-            "enum": [
-              "staff",
-              "customer"
-            ],
+            "enum": ["staff", "customer"],
             "type": "string"
           }
         },
-        "required": [
-          "customer_id",
-          "requested_by",
-          "requested_by_type",
-          "requested_at"
-        ],
+        "required": ["customer_id", "requested_by", "requested_by_type", "requested_at"],
         "title": "customer.export_requested v2",
         "type": "object"
       }
@@ -713,12 +616,7 @@
             "type": "boolean"
           },
           "status": {
-            "enum": [
-              "guest",
-              "registered",
-              "disabled",
-              "erased"
-            ],
+            "enum": ["guest", "registered", "disabled", "erased"],
             "type": "string"
           }
         },
@@ -744,12 +642,7 @@
         "description": "A product feed was (re)generated and is available at `url` for the channel to fetch. Aggregate: product_feed.",
         "properties": {
           "channel": {
-            "enum": [
-              "google_merchant",
-              "meta",
-              "tiktok",
-              "pinterest"
-            ],
+            "enum": ["google_merchant", "meta", "tiktok", "pinterest"],
             "type": "string"
           },
           "currency": {
@@ -813,10 +706,7 @@
                   "type": "integer"
                 }
               },
-              "required": [
-                "order_line_item_id",
-                "quantity"
-              ],
+              "required": ["order_line_item_id", "quantity"],
               "type": "object"
             },
             "type": "array"
@@ -832,10 +722,7 @@
           },
           "parcel_count": {
             "minimum": 1,
-            "type": [
-              "integer",
-              "null"
-            ]
+            "type": ["integer", "null"]
           },
           "shipment_id": {
             "format": "uuid",
@@ -848,13 +735,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "shipment_id",
-          "order_id",
-          "warehouse_id",
-          "items",
-          "occurred_at"
-        ],
+        "required": ["shipment_id", "order_id", "warehouse_id", "items", "occurred_at"],
         "title": "fulfillment.packed v1",
         "type": "object"
       }
@@ -881,10 +762,7 @@
                   "type": "integer"
                 }
               },
-              "required": [
-                "order_line_item_id",
-                "quantity"
-              ],
+              "required": ["order_line_item_id", "quantity"],
               "type": "object"
             },
             "type": "array"
@@ -909,13 +787,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "shipment_id",
-          "order_id",
-          "warehouse_id",
-          "items",
-          "occurred_at"
-        ],
+        "required": ["shipment_id", "order_id", "warehouse_id", "items", "occurred_at"],
         "title": "fulfillment.picking v1",
         "type": "object"
       }
@@ -929,10 +801,7 @@
         "description": "A fulfilment request for a shipment was accepted by a warehouse or 3PL.",
         "properties": {
           "external_id": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "items": {
             "items": {
@@ -948,10 +817,7 @@
                   "type": "integer"
                 }
               },
-              "required": [
-                "order_line_item_id",
-                "quantity"
-              ],
+              "required": ["order_line_item_id", "quantity"],
               "type": "object"
             },
             "type": "array"
@@ -1023,10 +889,7 @@
             "type": "string"
           },
           "reason": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "totals": {
             "additionalProperties": false,
@@ -1096,11 +959,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "order_id",
-          "display_id",
-          "completed_at"
-        ],
+        "required": ["order_id", "display_id", "completed_at"],
         "title": "order.completed v1",
         "type": "object"
       }
@@ -1126,11 +985,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "order_id",
-          "display_id",
-          "confirmed_at"
-        ],
+        "required": ["order_id", "display_id", "confirmed_at"],
         "title": "order.confirmed v1",
         "type": "object"
       }
@@ -1302,12 +1157,7 @@
                 ]
               }
             },
-            "required": [
-              "code",
-              "name",
-              "carrier",
-              "price_minor"
-            ],
+            "required": ["code", "name", "carrier", "price_minor"],
             "type": "object"
           },
           "shipping_country": {
@@ -1543,12 +1393,7 @@
                 ]
               }
             },
-            "required": [
-              "code",
-              "name",
-              "carrier",
-              "price_minor"
-            ],
+            "required": ["code", "name", "carrier", "price_minor"],
             "type": "object"
           },
           "shipping_country": {
@@ -1656,13 +1501,7 @@
             "type": "string"
           },
           "status": {
-            "enum": [
-              "pending",
-              "confirmed",
-              "processing",
-              "completed",
-              "cancelled"
-            ],
+            "enum": ["pending", "confirmed", "processing", "completed", "cancelled"],
             "type": "string"
           }
         },
@@ -1718,10 +1557,7 @@
             "type": "string"
           },
           "provider_payment_id": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
         "required": [
@@ -1789,10 +1625,7 @@
             "type": "string"
           },
           "provider_payment_id": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
         "required": [
@@ -1831,10 +1664,7 @@
             "type": "string"
           },
           "failure_reason": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "order_id": {
             "format": "uuid",
@@ -1851,10 +1681,7 @@
             "type": "string"
           },
           "provider_payment_id": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         },
         "required": [
@@ -1893,11 +1720,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "product_id",
-          "handle",
-          "archived_at"
-        ],
+        "required": ["product_id", "handle", "archived_at"],
         "title": "product.archived v1",
         "type": "object"
       }
@@ -1957,24 +1780,13 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "variant_id",
-                "sku",
-                "title"
-              ],
+              "required": ["variant_id", "sku", "title"],
               "type": "object"
             },
             "type": "array"
           }
         },
-        "required": [
-          "product_id",
-          "handle",
-          "title",
-          "category_id",
-          "variants",
-          "published_at"
-        ],
+        "required": ["product_id", "handle", "title", "category_id", "variants", "published_at"],
         "title": "product.published v1",
         "type": "object"
       }
@@ -2004,11 +1816,7 @@
             "type": "string"
           },
           "status": {
-            "enum": [
-              "draft",
-              "published",
-              "archived"
-            ],
+            "enum": ["draft", "published", "archived"],
             "type": "string"
           },
           "variants": {
@@ -2029,23 +1837,13 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "variant_id",
-                "sku",
-                "title"
-              ],
+              "required": ["variant_id", "sku", "title"],
               "type": "object"
             },
             "type": "array"
           }
         },
-        "required": [
-          "product_id",
-          "handle",
-          "status",
-          "changed_fields",
-          "variants"
-        ],
+        "required": ["product_id", "handle", "status", "changed_fields", "variants"],
         "title": "product.updated v1",
         "type": "object"
       }
@@ -2127,10 +1925,7 @@
             "type": "string"
           },
           "failure_reason": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "order_id": {
             "format": "uuid",
@@ -2197,18 +1992,10 @@
             "type": "string"
           },
           "provider_refund_id": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "reason": {
-            "enum": [
-              "return",
-              "cancellation",
-              "goodwill",
-              "chargeback"
-            ],
+            "enum": ["return", "cancellation", "goodwill", "chargeback"],
             "type": "string"
           },
           "refund_id": {
@@ -2260,10 +2047,7 @@
                 "condition": {
                   "oneOf": [
                     {
-                      "enum": [
-                        "resellable",
-                        "damaged"
-                      ],
+                      "enum": ["resellable", "damaged"],
                       "type": "string"
                     },
                     {
@@ -2281,10 +2065,7 @@
                   "type": "integer"
                 }
               },
-              "required": [
-                "order_line_item_id",
-                "quantity"
-              ],
+              "required": ["order_line_item_id", "quantity"],
               "type": "object"
             },
             "type": "array"
@@ -2309,13 +2090,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "return_id",
-          "order_id",
-          "warehouse_id",
-          "items",
-          "received_at"
-        ],
+        "required": ["return_id", "order_id", "warehouse_id", "items", "received_at"],
         "title": "return.received v1",
         "type": "object"
       }
@@ -2342,10 +2117,7 @@
                   "type": "integer"
                 }
               },
-              "required": [
-                "order_line_item_id",
-                "quantity"
-              ],
+              "required": ["order_line_item_id", "quantity"],
               "type": "object"
             },
             "type": "array"
@@ -2356,10 +2128,7 @@
             "type": "string"
           },
           "reason": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "requested_at": {
             "format": "date-time",
@@ -2371,13 +2140,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "return_id",
-          "order_id",
-          "reason",
-          "items",
-          "requested_at"
-        ],
+        "required": ["return_id", "order_id", "reason", "items", "requested_at"],
         "title": "return.requested v1",
         "type": "object"
       }
@@ -2420,12 +2183,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "review_id",
-          "product_id",
-          "rating",
-          "published_at"
-        ],
+        "required": ["review_id", "product_id", "rating", "published_at"],
         "title": "review.published v1",
         "type": "object"
       }
@@ -2464,10 +2222,7 @@
                   "type": "integer"
                 }
               },
-              "required": [
-                "order_line_item_id",
-                "quantity"
-              ],
+              "required": ["order_line_item_id", "quantity"],
               "type": "object"
             },
             "type": "array"
@@ -2478,10 +2233,7 @@
             "type": "string"
           },
           "service": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "shipment_id": {
             "format": "uuid",
@@ -2531,11 +2283,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "shipment_id",
-          "order_id",
-          "delivered_at"
-        ],
+        "required": ["shipment_id", "order_id", "delivered_at"],
         "title": "shipment.delivered v1",
         "type": "object"
       }
@@ -2634,10 +2382,7 @@
                   "type": "integer"
                 }
               },
-              "required": [
-                "order_line_item_id",
-                "quantity"
-              ],
+              "required": ["order_line_item_id", "quantity"],
               "type": "object"
             },
             "type": "array"
@@ -2653,10 +2398,7 @@
             "type": "string"
           },
           "service": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "shipment_id": {
             "format": "uuid",
@@ -2668,10 +2410,7 @@
             "type": "string"
           },
           "tracking_number": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "warehouse_id": {
             "format": "uuid",
@@ -2735,10 +2474,7 @@
             ]
           },
           "reference_type": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "reserved_after": {
             "type": "integer"
@@ -2786,12 +2522,8 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "dependentRequired": {
-          "store_id": [
-            "variant_id"
-          ],
-          "variant_id": [
-            "store_id"
-          ]
+          "store_id": ["variant_id"],
+          "variant_id": ["store_id"]
         },
         "description": "Stock of a stock item changed in a warehouse (one stock_movement row of the shared pool). `sku` is the stock item's. `variant_id` and `store_id` are present together, and only when a store caused the movement (a sale, a return, a shipment release); both are absent for a pool movement no store caused (receipt, transfer, cycle count), whose envelope `store_id` is null.",
         "properties": {
@@ -2826,10 +2558,7 @@
             ]
           },
           "reference_type": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "reserved_after": {
             "type": "integer"
@@ -2909,12 +2638,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "stock_item_id",
-          "previous_stock_item_id",
-          "variant_id",
-          "store_id"
-        ],
+        "required": ["stock_item_id", "previous_stock_item_id", "variant_id", "store_id"],
         "title": "stock_item.mapped v1",
         "type": "object"
       }
@@ -2953,12 +2677,7 @@
             "type": "string"
           },
           "status": {
-            "enum": [
-              "draft",
-              "active",
-              "paused",
-              "archived"
-            ],
+            "enum": ["draft", "active", "paused", "archived"],
             "type": "string"
           },
           "store_id": {
@@ -3001,12 +2720,7 @@
             "type": "string"
           },
           "status": {
-            "enum": [
-              "draft",
-              "active",
-              "paused",
-              "archived"
-            ],
+            "enum": ["draft", "active", "paused", "archived"],
             "type": "string"
           },
           "store_id": {
@@ -3015,12 +2729,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "store_id",
-          "code",
-          "status",
-          "changed_fields"
-        ],
+        "required": ["store_id", "code", "status", "changed_fields"],
         "title": "store.updated v1",
         "type": "object"
       }
