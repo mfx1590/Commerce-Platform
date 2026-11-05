@@ -171,3 +171,5 @@
   - `test/erasure.test.ts`: v1 or v2 → v2 nulls, everything else equal, valid v2, input not mutated; only order.placed has a scrub rule.
   - `test/consumer.test.ts` live: the erased customer's v1 order and guest order reach the handler scrubbed (version 2, header 2, no schema id, both ids null), the hook is not asked about them, and nothing the handler saw carries the id or the hash.
   - Mutation-checked: with the scrub rule removed, or with the hook asked about scrubbed entries, the tests fail.
+
+- #662 (docs, manager): README "Consumer groups and stopping" says a `stop()` during a dead-letter send can dead-letter one `outbox_id` twice or after it succeeded (at-least-once); DLQ watchers dedupe on `outbox_id`. The Topics heading lists every v2.

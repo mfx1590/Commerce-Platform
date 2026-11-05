@@ -14,7 +14,7 @@ migrations/0101_outbox_topic_seq.sql  (topic, seq) index for the replay scans (#
 scripts/generate.mjs          -> src/generated/{schemas,types}.ts
 ```
 
-## Topics (38; all v1, `stock.moved` and `customer.export_requested` also v2)
+## Topics (38; all v1, `stock.moved`, `customer.export_requested`, `customer.erased` and `order.placed` also v2)
 
 | Aggregate      | Topics                                                                                                                                                                                   |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -244,6 +244,11 @@ the PR that adds it.
 mid-retry when you stop gives up at its next attempt: it is not dead-lettered and its offset is not committed, so
 the next start of the group gets it again (`ConsumerStoppedError` never leaves the SDK; the log line is
 `stopped_mid_message`).
+
+A `stop()` during a dead-letter send, or between that send and the commit, can leave the record on `dlq.<group>` while
+the message is redelivered. The same `outbox_id` may then be dead-lettered twice, or succeed after its DLQ record was
+written (at-least-once, never lost). A DLQ watcher or `replayFromDlq` caller should dedupe on the `outbox_id` header,
+and treat a DLQ record whose `outbox_id` is already in the group's processed store as resolved (#662).
 
 ## Erasure on DLQ replay (0.7.0, #703)
 
