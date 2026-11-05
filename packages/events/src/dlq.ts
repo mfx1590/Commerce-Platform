@@ -8,7 +8,8 @@
 // Erasure (#703): a dead letter that failed BEFORE a customer's erasure is replayed AFTER it, so a handler could
 // rebuild what the consumer deleted. Before any handler runs, the replay reads `customer.erased` from the bus
 // (readErasedSet; fail closed: unreadable = nothing replayed) and, per entry, skips one whose payload names an
-// erased customer of its store (tombstoned, never handled) and nulls an erased customer's actor id. The bus keeps
+// erased customer of its store (tombstoned, never handled) — or, for a topic with a scrub rule (order.placed, #629),
+// hands the handler the scrubbed v2 instead — and nulls an erased customer's actor id. The bus keeps
 // customer.erased about 31 days (30-day class, daily roll), the same window as the 30-day topics whose dead letters
 // it guards; an older erasure is not known here, so the consumer's own `skip` hook is the check for an actor on a
 // forever topic (#707).
@@ -22,11 +23,23 @@ import {
   type ProcessedQueryable,
   type ProcessedStore,
 } from './consumer.js';
-import { actorErased, erasedSetFrom, namesErased, type ErasedSet } from './erasure.js';
-import { decodeMessage, HEADER_OUTBOX_ID, type DecodedMessage } from './relay-message.js';
+import { actorErased, erasedSetFrom, namesErased, scrubErased, type ErasedSet } from './erasure.js';
+import type { EventEnvelopeV1Base } from './generated/types.js';
+import {
+  decodeMessage,
+  HEADER_OUTBOX_ID,
+  HEADER_SCHEMA_ID,
+  HEADER_VERSION,
+  type DecodedMessage,
+} from './relay-message.js';
+import { createValidator, type Validator } from './validator.js';
 import { createKafka, dlqTopicName } from './topics.js';
 
 const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+let validator: Validator | undefined;
+/** One compiled validator per process, built on the first scrubbed entry only. */
+const getValidator = (): Validator => (validator ??= createValidator());
 
 /** The live (not tombstoned) entries of a group's DLQ, latest per outbox id. */
 export async function readDeadLetters(
@@ -305,6 +318,8 @@ export interface ReplayResult {
   skipped: { outbox_id: string; reason: 'erased' | 'skip_hook' }[];
   /** Replayed with the envelope actor's id nulled: the actor is an erased customer of the store (#703). */
   actors_nulled: string[];
+  /** Replayed SCRUBBED (#629): the payload named an erased customer and its topic has a scrub rule (order.placed → v2, customer_id and email_hash null). The handler ran on the scrubbed message; the skip hook was not asked. */
+  scrubbed: string[];
 }
 
 export interface ReplayOptions {
@@ -352,6 +367,7 @@ export async function replayFromDlq(opts: ReplayOptions): Promise<ReplayResult> 
     missing: [],
     skipped: [],
     actors_nulled: [],
+    scrubbed: [],
   };
   if (opts.dryRun || entries.length === 0) return result;
 
@@ -397,6 +413,7 @@ export async function replayFromDlq(opts: ReplayOptions): Promise<ReplayResult> 
       }
       const { envelope } = decoded;
       let reason: 'erased' | 'skip_hook' | null = null;
+      let scrubbed: EventEnvelopeV1Base | null = null;
       if (
         namesErased(
           envelope.topic,
@@ -404,9 +421,19 @@ export async function replayFromDlq(opts: ReplayOptions): Promise<ReplayResult> 
           envelope.payload as Record<string, unknown>,
           erased,
         )
-      )
-        reason = 'erased';
-      else if (opts.skip) {
+      ) {
+        // #629: a topic with a scrub rule travels without the identifiers; any other is skipped
+        scrubbed = scrubErased(envelope);
+        if (!scrubbed) reason = 'erased';
+        else if (!getValidator().validateEnvelope(scrubbed).ok) {
+          // never handed to a handler unvalidated: failed, kept for the next replay
+          result.failed.push({
+            outbox_id: entry.outbox_id,
+            error_class: 'ScrubbedEnvelopeInvalid',
+          });
+          continue;
+        }
+      } else if (opts.skip) {
         try {
           if (await opts.skip(decoded)) reason = 'skip_hook';
         } catch (err) {
@@ -425,10 +452,21 @@ export async function replayFromDlq(opts: ReplayOptions): Promise<ReplayResult> 
         result.skipped.push({ outbox_id: entry.outbox_id, reason });
         continue;
       }
-      if (actorErased(envelope.store_id, envelope.actor, erased)) {
+      if (scrubbed) {
+        // the skip hook is NOT asked: it keys on the identifiers the scrub removed, and a skip would drop the order
+        // from a ledger again. The headers follow the new version; the original's registry id no longer applies.
+        const headers: Record<string, string> = {
+          ...decoded.headers,
+          [HEADER_VERSION]: String(scrubbed.version),
+        };
+        delete headers[HEADER_SCHEMA_ID];
+        decoded = { ...decoded, envelope: scrubbed, schemaId: null, headers };
+        result.scrubbed.push(entry.outbox_id);
+      }
+      if (actorErased(decoded.envelope.store_id, decoded.envelope.actor, erased)) {
         decoded = {
           ...decoded,
-          envelope: { ...envelope, actor: { type: 'customer' as const, id: null } },
+          envelope: { ...decoded.envelope, actor: { type: 'customer' as const, id: null } },
         };
         result.actors_nulled.push(entry.outbox_id);
       }

@@ -2,6 +2,11 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-11-05 · the outbox replay scrubs an erased customer's order.placed to @2 (#629, window 14)
+
+- `replayOutbox` (`src/outbox/replay.ts`) no longer skips an `order.placed` that names an erased customer. It sends it as `order.placed@2` with `customer_id` and `email_hash` null (packages/events 0.8.0 `scrubErased`): the stored row is validated as stored, then the scrub is validated as v2. The `event_id` is unchanged, the `version` header is 2, and the schema id is looked up for the version SENT. The summary gains `erased_scrubbed` per event type. Other customer-naming topics are still skipped. A ledger rebuilt from scratch now keeps those orders' revenue, and their parked shipments, cancellations and refunds post.
+- Tests (`replay-erasure.test.ts`): a v1 row and a guest row scrubbed to valid v2 with the same event_id, field-by-field equal otherwise; version and schema-id headers; the other store unchanged. A live case on a prefixed topic reads the scrubbed message back from the broker (version header 2, schema id of @2). Mutation-checked: with the schema id taken from the stored version, the tests fail.
+
 ### 2026-11-03 · no customer actor id on a forever topic (#707, window 14)
 
 - `withEvents` (`src/outbox`) refuses, with `InvalidEventError` and before any insert, an event whose topic the bus

@@ -698,6 +698,7 @@ describe.runIf(brokerDown === null)(
         missing: [ghost.outbox_id],
         skipped: [],
         actors_nulled: [],
+        scrubbed: [],
       });
       expect(ran).toBe(0);
       expect(await readDeadLetters('ghost', { kafka, topicPrefix: prefix })).toHaveLength(1);
@@ -720,6 +721,7 @@ describe.runIf(brokerDown === null)(
         missing: [],
         skipped: [],
         actors_nulled: [],
+        scrubbed: [],
       });
 
       const replayed: string[] = [];
@@ -743,6 +745,7 @@ describe.runIf(brokerDown === null)(
         missing: [],
         skipped: [],
         actors_nulled: [],
+        scrubbed: [],
       });
       expect(replayed).toEqual(['bad']);
       expect(attempts).toBe(2);
@@ -777,6 +780,7 @@ describe.runIf(brokerDown === null)(
         missing: [],
         skipped: [],
         actors_nulled: [],
+        scrubbed: [],
       });
       const left = await readDeadLetters('poison', { kafka, topicPrefix: prefix });
       expect(left).toHaveLength(1);
@@ -851,8 +855,9 @@ describe.runIf(brokerDown === null)(
           },
         });
       };
-      const orderX = orderPlaced(X); // skipped: the payload names X
-      const guestOrderX = orderPlaced(null); // X's guest order: no customer id, skipped by the e-mail hash alone
+      // #629: both are replayed SCRUBBED (order.placed@2, customer_id and email_hash null), never skipped
+      const orderX = { ...orderPlaced(X), version: 1 }; // X's own order, stored before @2 existed: v1 → v2
+      const guestOrderX = orderPlaced(null); // X's guest order: no customer id, matched by the e-mail hash alone
       const payX = paymentAuthorized(X); // replayed, actor id nulled
       const payY = paymentAuthorized(Y); // replayed as it is
       const payHook = paymentAuthorized(Y); // the consumer's own record says skip
@@ -892,7 +897,8 @@ describe.runIf(brokerDown === null)(
       await c.start();
       await publisher.send(
         `${prefix}order.placed`,
-        [orderX, guestOrderX].map((e) => envelopeToMessage(e, 'test')),
+        // a registry id on the original: the scrubbed message must not carry it on (it names the v1 schema)
+        [orderX, guestOrderX].map((e) => envelopeToMessage(e, 'test', { schemaId: 101 })),
       );
       await publisher.send(
         `${prefix}payment.authorized`,
@@ -917,7 +923,14 @@ describe.runIf(brokerDown === null)(
       });
       await publisher.send(`${prefix}customer.erased`, [envelopeToMessage(erasure, 'test')]);
 
-      const handled: { id: string; actor: unknown }[] = [];
+      const handled: {
+        id: string;
+        actor: unknown;
+        version: number;
+        header: string | undefined;
+        schemaId: number | null;
+        ids?: unknown[];
+      }[] = [];
       const hookSaw: { id: string; actor: unknown }[] = [];
       const r = await replayFromDlq({
         groupId: 'erasure',
@@ -934,7 +947,17 @@ describe.runIf(brokerDown === null)(
           return m.outboxId === payHook.event_id;
         },
         handler: async (m) => {
-          handled.push({ id: m.outboxId, actor: m.envelope.actor });
+          const pl = m.envelope.payload as Record<string, unknown>;
+          handled.push({
+            id: m.outboxId,
+            actor: m.envelope.actor,
+            version: m.envelope.version,
+            header: m.headers.version,
+            schemaId: m.schemaId,
+            ...(m.envelope.topic === 'order.placed'
+              ? { ids: [pl.customer_id, pl.email_hash] }
+              : {}),
+          });
         },
       });
       const byId = <T extends { outbox_id?: string; id?: string }>(a: T[]) =>
@@ -942,28 +965,45 @@ describe.runIf(brokerDown === null)(
           String(p.outbox_id ?? p.id).localeCompare(String(q.outbox_id ?? q.id)),
         );
       expect(r.entries).toBe(6);
-      expect(byId(r.skipped)).toEqual(
-        byId([
-          { outbox_id: orderX.event_id, reason: 'erased' },
-          { outbox_id: guestOrderX.event_id, reason: 'erased' },
-          { outbox_id: payHook.event_id, reason: 'skip_hook' },
-        ]),
+      expect(r.skipped).toEqual([{ outbox_id: payHook.event_id, reason: 'skip_hook' }]);
+      expect([...r.replayed].sort()).toEqual(
+        [orderX.event_id, guestOrderX.event_id, payX.event_id, payY.event_id].sort(),
       );
-      expect([...r.replayed].sort()).toEqual([payX.event_id, payY.event_id].sort());
-      expect(r.actors_nulled).toEqual([payX.event_id]);
+      expect([...r.scrubbed].sort()).toEqual([orderX.event_id, guestOrderX.event_id].sort());
+      expect([...r.actors_nulled].sort()).toEqual([orderX.event_id, payX.event_id].sort());
       expect(r).toMatchObject({
         failed: [{ outbox_id: payHookDown.event_id, error_class: 'HookDown' }],
         missing: [],
       });
-      // the handler never saw the erased order, and saw no erased id as an actor
+      // the handler got the erased customer's orders SCRUBBED (v2, both identifiers null, version header 2, no v1
+      // schema id), and saw no erased id as an actor
+      const nullActor = { type: 'customer', id: null };
       expect(byId(handled)).toEqual(
         byId([
-          { id: payX.event_id, actor: { type: 'customer', id: null } },
-          { id: payY.event_id, actor: customer(Y) },
+          {
+            id: orderX.event_id,
+            actor: nullActor,
+            version: 2,
+            header: '2',
+            schemaId: null,
+            ids: [null, null],
+          },
+          {
+            id: guestOrderX.event_id,
+            actor: { type: 'system', id: null },
+            version: 2,
+            header: '2',
+            schemaId: null,
+            ids: [null, null],
+          },
+          { id: payX.event_id, actor: nullActor, version: 1, header: '1', schemaId: null },
+          { id: payY.event_id, actor: customer(Y), version: 1, header: '1', schemaId: null },
         ]),
       );
       expect(JSON.stringify(handled)).not.toContain(X);
-      // the hook is asked only for what the bus check let through, with the ORIGINAL message
+      expect(JSON.stringify(handled)).not.toContain(HX);
+      // the hook is asked only for what the bus check let through, with the ORIGINAL message; a scrubbed order is NOT
+      // asked (it keys on the identifiers the scrub removed, and a skip would drop the order from a ledger again)
       expect(byId(hookSaw)).toEqual(
         byId([
           { id: payX.event_id, actor: customer(X) },

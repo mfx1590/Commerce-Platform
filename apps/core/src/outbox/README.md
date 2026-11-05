@@ -193,7 +193,14 @@ from the outbox's own `customer.erased` rows (published or not; v1 has no `email
 STORE, by customer id or e-mail hash, so an erased customer's guest orders in that store match too, and the same
 person in another store does not:
 
-- **Skipped:** every row that names an erased customer in `order.placed`, `customer.created`, `customer.updated`,
+- **Scrubbed (#629, since @2 landed in #716):** an `order.placed` that names an erased customer is SENT as
+  `order.placed@2` with `customer_id` and `email_hash` null. Everything else is unchanged: the `event_id` (so a
+  consumer that processed the original dedupes it), `occurred_at`, the store, every other payload field. A v1 row is
+  validated as v1 first, then scrubbed and validated as v2; one that fails stops the replay (never sent). The
+  `version` header is `2`, and `schema_id` is `schemaIds['order.placed@2']`, the id of the version SENT. Nothing else
+  in the payload names the person: no address, name, phone or e-mail, countries only. (Residual, recorded on #629:
+  `promotion_codes` are kept as entered; a single-use personal code links back only through our promotions tables.)
+- **Skipped:** every row that names an erased customer in `customer.created`, `customer.updated`,
   `customer.export_requested`, `customer.export_ready`, `cart.abandoned`, `review.published` and
   `referral.converted` (either party). Nothing is sent for the row.
 - **Actor id nulled, on every topic:** a signed-in checkout stamps the customer as the envelope `actor` of
@@ -205,7 +212,8 @@ person in another store does not:
   any other when the customer erased themself.
 
 The summary adds `erased_customers` (`customer.erased` rows in scope; also on `--dry-run`), `erased_skipped` per
-event type (`{ "order.placed": 2 }`; `{}` for a topic outside `ERASURE_RULES`) and `erased_actors`.
+event type (`{ "cart.abandoned": 2 }`; `{}` for a topic outside `ERASURE_RULES`), `erased_scrubbed` per event type
+(`{ "order.placed": 2 }`; `{}` for a topic without a scrub rule) and `erased_actors`.
 `replay-erasure.test.ts` walks every schema recursively (properties, array items, `oneOf`/`anyOf`/`allOf`) for
 `customer_id`, `*_customer_id`, `email_hash`, `identity_id` and `requested_by`, and fails when such a topic has no
 rule. A customer erased while a replay runs is not in that replay's set: their `customer.erased` row is relayed
@@ -216,16 +224,18 @@ query on `topic = 'customer.erased'`, served like the replay's own per-topic `se
 **The rules are @platform/events' (#703):** `ERASURE_RULES`, `namesErased` and `actorErased` live in
 packages/events (`src/erasure.ts`, with the schema guard in `test/erasure.test.ts`), because `replayFromDlq`
 applies the same ones to dead letters: it reads `customer.erased` from the BUS (this replay reads the outbox's rows,
-which are never pruned), skips an erased customer's entries, nulls their actor id, and fails closed when it cannot
-read the topic. packages/events README, "Erasure on DLQ replay".
+which are never pruned), scrubs an erased customer's `order.placed` and skips their other entries, nulls their
+actor id, and fails closed when it cannot read the topic. packages/events README, "Erasure on DLQ replay".
 
-**What skipping `order.placed` costs (manager decision 2026-11-02).** A ledger REBUILT FROM SCRATCH by a replay
-misses the revenue lines of an erased customer's orders, and that order's later `shipment.*` / `refund.*` events
-park in accounting (`accounting_parked_event`) with no order to post against. That holds until `order.placed@2`
-(#696, `email_hash` nullable; deferred, it needs five consumer windows first) lets the replay send those orders
-without the ids. The EXISTING ledger keeps them: accounting posted each order when it was first delivered and is
-idempotent by `source_event_id` (UNIQUE (`source_event_id`, `account_code`)), so a replay into it changes nothing.
-Rebuild the ledger from scratch only with this gap in mind; the outbox still holds the orders.
+**Why `order.placed` is scrubbed, not skipped (#629 decision 2(i)).** Until #716 the replay SKIPPED it, so a ledger
+REBUILT FROM SCRATCH missed the revenue lines of an erased customer's orders, and their later shipments,
+cancellations and return refunds stayed parked in accounting. The scrubbed v2 carries the sale without the person:
+accounting posts it (`postOrderPlaced` reads neither field), engagement drops it (no identity, #705), analytics
+stages it unattributed (#708). An EXISTING ledger is unchanged: the same `event_id` dedupes through
+`consumer_processed`, and UNIQUE (`source_event_id`, `account_code`) is the second guard. In ClickHouse the
+replayed v2 replaces the v1 row (`raw_events` is ReplacingMergeTree keyed (topic, event_id), read `FINAL`).
+Notifications and the core's own orders projection never see a replay: they claim from the outbox TABLE, which the
+replay does not write.
 
 ## Pruning (not built)
 

@@ -161,3 +161,13 @@
 - Gate (#696): every consumer accepts v1 AND v2 before this landed (engagement #705, core #709, analytics-ingest #708 + ClickHouse 0007, notifications #714, accounting #715). **Deploy order: every consumer with this build no later than core**; an SDK consumer on an older build skips an unknown topic@version as `skipped_unknown`.
 - Not in this version: today's `outbox:replay` still SKIPS an erased customer's `order.placed`, whatever the version; sending it as v2 with null ids is a window 14 follow-up.
 - Tests: v2 accepts a null hash (and a real one), v1 refuses null, v2 refuses a raw e-mail; the schema-compat "new version" fixture moves to `order.placed@99`. `schemas/published.lock.json` gains `order.placed@2`.
+
+## 0.8.0 — 2026-11-05 (window 14, #629: the replays scrub an erased customer's order.placed to @2)
+
+- `ERASURE_RULES['order.placed']` gains a `scrub` rule, and new export `scrubErased(envelope)`: an `order.placed` (v1 or v2) that names an erased customer becomes `order.placed@2` with `customer_id` and `email_hash` null, the `event_id` and everything else unchanged. It returns null for a topic without a scrub rule, which is skipped as before. #629 decision 2(i), possible since @2 (#716) and its consumer gate (#705, #708, #709, #714, #715).
+- `replayFromDlq`: such an entry is no longer tombstoned unhandled. It reaches the handler scrubbed, validated as v2 first (a failure goes to `failed` and is kept), with the `version` header set to 2 and the original `schema_id` dropped. **Breaking for callers:** `ReplayResult` gains `scrubbed`. The `skip` hook is not asked for a scrubbed entry: it keys on the removed identifiers, and a skip would drop the order from a ledger again. README and CLAUDE.md: a handler must be safe on a scrubbed v2.
+- `createValidator` moves to `src/validator.ts` (re-exported unchanged from the index), so `dlq.ts` can validate without importing the package index.
+- Tests:
+  - `test/erasure.test.ts`: v1 or v2 → v2 nulls, everything else equal, valid v2, input not mutated; only order.placed has a scrub rule.
+  - `test/consumer.test.ts` live: the erased customer's v1 order and guest order reach the handler scrubbed (version 2, header 2, no schema id, both ids null), the hook is not asked about them, and nothing the handler saw carries the id or the hash.
+  - Mutation-checked: with the scrub rule removed, or with the hook asked about scrubbed entries, the tests fail.

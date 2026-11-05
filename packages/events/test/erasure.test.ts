@@ -4,11 +4,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   actorErased,
+  createValidator,
   ERASURE_RULES,
   erasedSetFrom,
+  makeEvent,
   EVENT_SCHEMAS,
   EVENT_TOPICS,
   namesErased,
+  scrubErased,
 } from '../src/index.js';
 
 const X = '33000000-0000-4000-8000-000000000001';
@@ -82,5 +85,76 @@ describe('erasedSetFrom', () => {
     expect(namesErased('cart.abandoned', 's2', { customer_id: X, email_hash: HX }, set)).toBe(
       false,
     );
+  });
+});
+
+describe('scrubErased (#629)', () => {
+  const order = (customerId: string | null) =>
+    makeEvent({
+      topic: 'order.placed',
+      organizationId: '33000000-0000-4000-8000-0000000000e1',
+      storeId: '33000000-0000-4000-8000-0000000000e2',
+      aggregateType: 'order',
+      aggregateId: '33000000-0000-4000-8000-0000000000e3',
+      actor: customerActor(customerId),
+      payload: {
+        order_id: '33000000-0000-4000-8000-0000000000e3',
+        display_id: 7,
+        legal_entity_id: '33000000-0000-4000-8000-0000000000e4',
+        sales_channel_id: '33000000-0000-4000-8000-0000000000e5',
+        customer_id: customerId,
+        email_hash: HX,
+        currency: 'EUR',
+        locale: 'en-GB',
+        totals: {
+          subtotal_minor: 1999,
+          discount_minor: 0,
+          shipping_minor: 0,
+          tax_minor: 0,
+          total_minor: 1999,
+        },
+        line_items: [],
+        shipping: {
+          shipping_option_id: null,
+          code: 'standard',
+          name: 'Standard',
+          carrier: 'manual',
+          price_minor: 0,
+        },
+        shipping_country: 'NL',
+        billing_country: 'DE',
+        promotion_codes: ['WELCOME10'],
+        placed_at: '2026-10-01T10:00:00.000Z',
+      },
+    });
+  const v = createValidator();
+
+  it('order.placed v1 or v2 → v2 with customer_id and email_hash null; everything else, event_id included, unchanged; valid v2', () => {
+    for (const original of [{ ...order(X), version: 1 }, order(X), order(null)]) {
+      expect(v.validateEnvelope(original).ok).toBe(true);
+      const scrubbed = scrubErased(original)!;
+      expect(scrubbed).toEqual({
+        ...original,
+        version: 2,
+        payload: { ...original.payload, customer_id: null, email_hash: null },
+      });
+      expect(v.validateEnvelope(scrubbed)).toEqual({ ok: true, errors: [] });
+      // the actor is not the scrub's business: actorErased nulls it separately
+      expect(scrubbed.actor).toEqual(original.actor);
+    }
+    // the input is not mutated
+    const o = order(X);
+    scrubErased(o);
+    expect((o.payload as { customer_id: string }).customer_id).toBe(X);
+  });
+
+  it('only order.placed has a scrub rule; every other topic is skipped (null)', () => {
+    expect(
+      Object.entries(ERASURE_RULES)
+        .filter(([, r]) => r.scrub)
+        .map(([t]) => t),
+    ).toEqual(['order.placed']);
+    expect(scrubErased({ ...order(X), topic: 'cart.abandoned' })).toBeNull();
+    expect(scrubErased({ ...order(X), topic: 'payment.captured' })).toBeNull();
   });
 });

@@ -6,12 +6,12 @@
 //
 // Erasure (#629): the outbox keeps every payload, so a replay would hand an erased customer's ids back to the bus.
 // Before it sends, the replay reads the erased customers from the outbox's own customer.erased rows (published or
-// not; they are never pruned) and, per store, SKIPS every row of a topic that names one: order.placed, customer.*,
-// cart.abandoned, review.published, referral.converted. On EVERY topic it also nulls the envelope actor's id when
-// the actor is an erased customer of that store (a signed-in checkout stamps the customer as the actor of
-// payment.authorized, order.confirmed, …; v1 allows a null id). customer.erased keeps its payload. Skipping
-// order.placed means a ledger rebuilt from scratch misses those orders until order.placed@2 (#696, email_hash
-// nullable) lets the replay send them without the ids; an existing ledger keeps them (idempotent by source_event_id).
+// not; they are never pruned) and, per store, handles every row of a topic that names one: order.placed is SCRUBBED
+// (sent as order.placed@2 with customer_id and email_hash null, the event_id and everything else unchanged, validated
+// as v2 first; #629 decision 2(i): a ledger rebuilt from scratch keeps the sale), customer.*, cart.abandoned,
+// review.published and referral.converted are SKIPPED. On EVERY topic it also nulls the envelope actor's id when the
+// actor is an erased customer of that store (a signed-in checkout stamps the customer as the actor of
+// payment.authorized, order.confirmed, …; v1 allows a null id). customer.erased keeps its payload.
 import {
   actorErased,
   createValidator,
@@ -21,6 +21,7 @@ import {
   EVENT_TOPICS,
   namesErased,
   outboxRowToEnvelope,
+  scrubErased,
   type ErasedSet,
   type OutboxRow,
   type RelayMessage,
@@ -114,6 +115,8 @@ export interface ReplaySummary {
   erased_actors: number;
   /** Rows not sent because they name an erased customer, per event type (`{ "order.placed": 2 }`); empty for a topic that names no customer. */
   erased_skipped: Record<string, number>;
+  /** Rows SENT scrubbed (#629): they named an erased customer and their topic has a scrub rule (`{ "order.placed": 2 }`, sent as v2 with customer_id and email_hash null); empty for any other topic. */
+  erased_scrubbed: Record<string, number>;
   duration_ms: number;
 }
 
@@ -214,6 +217,7 @@ export async function replayOutbox(
     erased_customers: erased.customers,
     erased_actors: 0,
     erased_skipped: rule ? { [opts.topic]: 0 } : {},
+    erased_scrubbed: rule?.scrub ? { [opts.topic]: 0 } : {},
     published: 0,
     batches: 0,
     duration_ms: 0,
@@ -241,6 +245,7 @@ export async function replayOutbox(
     const replayedAt = now().toISOString();
     const messages: RelayMessage[] = [];
     let skipped = 0;
+    let scrubs = 0;
     let actors = 0;
     for (const row of rows) {
       let envelope = outboxRowToEnvelope(row);
@@ -248,15 +253,26 @@ export async function replayOutbox(
       if (!check.ok)
         throw new Error(`outbox row ${row.id} no longer validates: ${check.errors.join('; ')}`);
       if (namesErased(row.topic, row.store_id, envelope.payload as Payload, erased)) {
-        skipped += 1;
-        continue;
+        // #629: order.placed travels as v2 without the identifiers (the ledger keeps the sale); any other topic is skipped
+        const scrubbed = scrubErased(envelope);
+        if (!scrubbed) {
+          skipped += 1;
+          continue;
+        }
+        const again = v.validateEnvelope(scrubbed);
+        if (!again.ok)
+          throw new Error(
+            `outbox row ${row.id} scrubbed to ${scrubbed.topic}@${scrubbed.version} does not validate: ${again.errors.join('; ')}`,
+          );
+        envelope = scrubbed as typeof envelope;
+        scrubs += 1;
       }
       if (actorErased(row.store_id, envelope.actor, erased)) {
         envelope = { ...envelope, actor: { type: 'customer', id: null } };
         actors += 1;
       }
       const m = envelopeToMessage(envelope, REPLAY_PRODUCER, {
-        schemaId: opts.schemaIds?.[`${row.topic}@${row.version}`],
+        schemaId: opts.schemaIds?.[`${envelope.topic}@${envelope.version}`],
       });
       m.headers[HEADER_REPLAY] = '1';
       m.headers[HEADER_REPLAYED_AT] = replayedAt;
@@ -286,8 +302,11 @@ export async function replayOutbox(
     lastSeq = rows[rows.length - 1]!.seq;
     summary.published += messages.length;
     summary.erased_actors += actors;
-    if (rule)
+    if (rule) {
       summary.erased_skipped[opts.topic] = (summary.erased_skipped[opts.topic] ?? 0) + skipped;
+      if (rule.scrub)
+        summary.erased_scrubbed[opts.topic] = (summary.erased_scrubbed[opts.topic] ?? 0) + scrubs;
+    }
     summary.batches += 1;
     log({
       replay: 'outbox',
