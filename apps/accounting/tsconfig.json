@@ -11,6 +11,7 @@
     "dist",
     "**/*.test.ts",
     "src/posting/fixtures.ts",
-    "src/reconcile/fixtures/**"
+    "src/reconcile/fixtures/**",
+    "src/testing/**"
   ]
 }

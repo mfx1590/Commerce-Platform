@@ -16,7 +16,11 @@ describe('packaging (#658)', () => {
   it('the build excludes the modules that import it; the generator script runs from source', () => {
     const ts = json('../tsconfig.json');
     expect(ts.exclude).toEqual(
-      expect.arrayContaining(['src/posting/fixtures.ts', 'src/reconcile/fixtures/**']),
+      expect.arrayContaining([
+        'src/posting/fixtures.ts',
+        'src/reconcile/fixtures/**',
+        'src/testing/**',
+      ]),
     );
     expect(json('../package.json').scripts['fixtures:payouts'].startsWith('tsx src/')).toBe(true);
   });

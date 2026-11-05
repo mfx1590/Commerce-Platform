@@ -433,9 +433,38 @@ dead-letter the whole history into `dlq.<typo>` while the real group stops being
 throwaway ledger pass `--allow-new-group` (`ACCOUNTING_ALLOW_NEW_GROUP=1`; logged as `new_group_allowed`). The default
 group is never refused.
 
+**Rebuild from the outbox, orders first (#701).** Since #699 and #707, every topic the ledger posts from
+(`order.placed`, `order.cancelled`, `payment.captured`, `refund.issued`, `shipment.shipped`) stays on the bus for 30
+days. A fresh group that reads from the beginning sees 30 days, not the history. Before, or together with, the fresh
+group, replay every ledger topic from the outbox:
+
+```bash
+pnpm --filter @platform/core outbox:replay --topic order.placed
+pnpm --filter @platform/core outbox:replay --topic order.cancelled
+pnpm --filter @platform/core outbox:replay --topic payment.captured
+pnpm --filter @platform/core outbox:replay --topic refund.issued
+pnpm --filter @platform/core outbox:replay --topic shipment.shipped
+```
+
+Orders first. A shipment, a cancellation, or a refund whose reason is not `cancellation`, that arrives before its order
+is parked (`accounting_parked_event`) and posted once the order arrives; a payment (and a cancellation refund) posts
+on its own. So the order of the last three does not matter. Replaying into the EXISTING ledger changes nothing: it is
+idempotent by `source_event_id`. Since #700 the replay SKIPS an erased customer's `order.placed`, so a ledger rebuilt
+from scratch misses those orders' revenue lines, and their later shipments, cancellations and return refunds stay
+parked (their payments post). `order.placed@2` (#696) makes `email_hash` nullable so such an order can travel without
+the customer's ids, and the ledger posts a v2 exactly like a v1 (tested, `test/order-placed-v2.test.ts`), but the
+replay does not send it yet: as of today `apps/core/src/outbox/replay.ts` still skips every `order.placed` that names
+an erased customer, @2 or not, so the gap stays until the replay is changed to republish those orders as @2.
+
+**Deploy order (#696).** Deploy accounting with the regenerated `@platform/events` build that knows `order.placed@2`
+no later than core. From that build on, checkout publishes @2 (`makeEvent` writes the latest version), and a consumer
+whose build does not know @2 counts it as `skipped_unknown`: neither processed nor dead-lettered, so the order would be
+missing from the ledger without any alert. The ledger itself needs no code change for @2: it never reads
+`email_hash` or `customer_id` and never branches on the version.
+
 ## Tests
 
-`pnpm --filter @platform/accounting test` — 116 tests in fourteen files:
+`pnpm --filter @platform/accounting test` — 122 tests in fifteen files:
 
 - `src/posting/posting.test.ts` — pure: the arithmetic, the worked example of every topic above, partial shipments,
   proportional refunds and cancellations, every defect class, the netted life of one order, the late shipment, event
@@ -469,6 +498,10 @@ group is never refused.
   new-group opt-in.
 - `src/packaging.test.ts` — `@platform/test-utils` is a devDependency only and the build leaves out the modules that
   import it (#658).
+- `test/order-placed-v2.test.ts` — the #696 gate: `order.placed@2` (a local mock of the contract change, derived from
+  v1, that steps aside once `@platform/events` publishes @2) posts exactly like v1 with a hash and with `email_hash` and
+  `customer_id` null; a replayed v2 with the same event id is a no-op; parked shipments and refunds are released by a
+  v2 order; the deploy-order case (today's build refuses v2).
 - `test/group-guard.test.ts` — the boot guard: an empty ledger takes any group, other services' groups do not count,
   a mistyped group on a filled ledger is refused, the opt-in allows it, the default is never refused — on an empty
   ledger (a fresh deploy, no flag) as on a filled one (#658).
