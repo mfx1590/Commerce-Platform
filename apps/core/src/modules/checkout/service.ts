@@ -1,6 +1,6 @@
 // Checkout module (issue #104): shipping options, payment session, and placement — ONE transaction on the locked
 // cart that writes "order" + order_line_item + payment, records attribution (src/lib/attribution.ts), emits
-// `order.placed` v1 through the outbox and marks the cart completed. Idempotency lives on
+// `order.placed` v2 through the outbox and marks the cart completed. Idempotency lives on
 // `payment.idempotency_key` (0006, UNIQUE): a replayed key returns the stored order without touching the
 // provider; a different key on a completed cart is 409 `cart_completed`. Integer minor units throughout.
 import { createHash } from 'node:crypto';
@@ -159,7 +159,7 @@ interface LineInsertRow {
  * (items, email, both addresses, shipping option, payment session) → totals refreshed → stock re-checked →
  * provider `authorize` (failed → 402 `payment_failed`, nothing written) → "order" (display_id from the store-row
  * trigger) → order_line_item → payment (carries the key) → attribution rows + `attribution.recorded` →
- * `order.placed` v1 → cart completed. Any throw rolls all of it back.
+ * `order.placed` v2 → cart completed. Any throw rolls all of it back.
  */
 export async function completeCart(
   client: ScopedClient,

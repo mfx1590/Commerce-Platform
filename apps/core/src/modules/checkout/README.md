@@ -42,7 +42,7 @@ module: `GET /store/carts/{cartId}/shipping-options`, `POST …/payment-session`
    before rethrowing, so no dangling hold survives (#174 review; tested on the manual provider's call log).
 7. `recordAttribution()` from `src/lib/attribution.ts` (Integration 1): one `attribution` row + one
    `attribution.recorded` per touch in `cart.metadata.attribution` — called, not reimplemented.
-8. `order.placed` v1 through `withEvents` (validated against `packages/events/schemas/order.placed/v1.json`;
+8. `order.placed` v2 through `withEvents` (validated against `packages/events/schemas/order.placed/v2.json`, #696;
    `email_hash` only, no address, no raw email).
 9. `cart` → `status = 'completed'`, `order_id`, `completed_at`, payment session marked `authorized`.
 

@@ -2,7 +2,7 @@
   {
     "event_id": "b304e008-ff59-43c6-b7fc-f49067b2b029",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-01T10:00:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -131,7 +131,7 @@
   {
     "event_id": "297f7117-2035-4f15-9bc5-16543efcfe87",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-01T10:01:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -347,7 +347,7 @@
   {
     "event_id": "6274a200-633e-4714-84bb-d8b332efe7ba",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-02T10:02:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -528,7 +528,7 @@
   {
     "event_id": "67b62619-d876-4658-9659-bf96782c3710",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-02T10:03:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -700,7 +700,7 @@
   {
     "event_id": "e1271eb8-e1e2-4bd0-b7e2-000c4d8b3be3",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-03T10:04:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -813,7 +813,7 @@
   {
     "event_id": "01595255-7686-47cd-938a-c907c9995fc1",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-03T10:05:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -942,7 +942,7 @@
   {
     "event_id": "514baa2a-2468-4d9f-bfb9-f85fbf013f0a",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-04T10:06:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -1103,7 +1103,7 @@
   {
     "event_id": "72470e51-5ab0-4085-b9be-fb90f5afa569",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-04T10:07:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -1264,7 +1264,7 @@
   {
     "event_id": "c010ad1e-63e1-4a88-9cd6-61b35af839cc",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-05T10:08:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -1448,7 +1448,7 @@
   {
     "event_id": "1c0267bc-5dc9-4336-94c7-69e8d195b855",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-05T10:09:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -1620,7 +1620,7 @@
   {
     "event_id": "81d0b0c5-bb70-4bea-964d-25a20da4357e",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-06T10:10:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -1825,7 +1825,7 @@
   {
     "event_id": "441f9d96-26cd-409f-9c51-c0a86d08e459",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-06T10:11:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -1986,7 +1986,7 @@
   {
     "event_id": "3e5a89e3-c36b-4cc8-8865-24a2d5da8c1f",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-07T10:12:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -2151,7 +2151,7 @@
   {
     "event_id": "9d79769c-8371-46da-8a43-538a2c26aa21",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-07T10:13:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -2336,7 +2336,7 @@
   {
     "event_id": "2766ff80-278b-4ce5-9184-119c1a71b693",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-08T10:14:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -2481,7 +2481,7 @@
   {
     "event_id": "bcd2686e-1263-4b4c-a643-76fdc466ca37",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-08T10:15:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -2594,7 +2594,7 @@
   {
     "event_id": "184d2a22-af96-4425-add6-682075ca7bd4",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-09T10:16:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -2707,7 +2707,7 @@
   {
     "event_id": "cb898405-c1b3-420b-9367-2c9fb24f5950",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-09T10:17:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -2843,7 +2843,7 @@
   {
     "event_id": "3bb33e75-10c8-441f-9138-1596d2c98ab6",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-10T10:18:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -3008,7 +3008,7 @@
   {
     "event_id": "6f48780d-d426-468a-aefe-cf141daeafde",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-10T10:19:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -3121,7 +3121,7 @@
   {
     "event_id": "adb58fb5-8d70-48e9-9819-435dfb8175e0",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-11T10:20:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -3348,7 +3348,7 @@
   {
     "event_id": "a86f064b-f668-42fc-bd36-c5938eb35e8e",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-11T10:21:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -3564,7 +3564,7 @@
   {
     "event_id": "8c61ac68-189c-4d9d-bd2b-0f0696b36f42",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-12T10:22:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -3725,7 +3725,7 @@
   {
     "event_id": "2b8c0de6-5a7a-44bc-a2d2-b16a24ef6479",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-12T10:23:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -3897,7 +3897,7 @@
   {
     "event_id": "c69ef6dc-d4f4-4cf0-b675-b0c52ae786ae",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-13T10:24:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -4042,7 +4042,7 @@
   {
     "event_id": "d836119a-a154-47cb-81b5-a6ecddebfe58",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-13T10:25:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -4253,7 +4253,7 @@
   {
     "event_id": "93698eb3-b289-4a73-b4b6-8f2b8a0f3e48",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-14T10:26:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -4460,7 +4460,7 @@
   {
     "event_id": "73dc3238-09ae-4fad-ada5-fee1ca7a5105",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-14T10:27:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -4647,7 +4647,7 @@
   {
     "event_id": "0be341f4-b02d-4d1c-bc51-4162f5d2dbbc",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-15T10:28:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -4792,7 +4792,7 @@
   {
     "event_id": "7a5a7baa-6ac2-48a8-b4e0-1e22f19428dc",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-15T10:29:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -4931,7 +4931,7 @@
   {
     "event_id": "36dc7d8e-fd11-4b89-966a-2918474198ea",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-16T10:30:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -5092,7 +5092,7 @@
   {
     "event_id": "62f7a029-7d21-47fc-bd98-02336ae96e03",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-16T10:31:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -5205,7 +5205,7 @@
   {
     "event_id": "65683243-398a-4654-a265-94071210b1bd",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-17T10:32:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -5412,7 +5412,7 @@
   {
     "event_id": "7b7cf0d2-565a-472c-94e7-a5444504487e",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-17T10:33:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -5557,7 +5557,7 @@
   {
     "event_id": "2507707b-2426-46b7-a0b4-e86259e507ed",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-18T10:34:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -5742,7 +5742,7 @@
   {
     "event_id": "e36c5c82-4b6a-4715-9546-d7801ff34613",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-18T10:35:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -5958,7 +5958,7 @@
   {
     "event_id": "d4efe3e7-4d0d-4c4c-8fcc-f57754b37757",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-19T10:36:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -6149,7 +6149,7 @@
   {
     "event_id": "ec6bda23-a68e-48e6-b67d-02c438e538f9",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-19T10:37:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -6234,7 +6234,7 @@
   {
     "event_id": "9ef8d52a-e0d5-4324-8d00-2893fe90680e",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-20T10:38:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -6373,7 +6373,7 @@
   {
     "event_id": "b5c992c3-f1de-40b7-8f41-e0a19ba6e49a",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-20T10:39:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -6545,7 +6545,7 @@
   {
     "event_id": "d7204115-4595-414b-b2d1-fb8731405f0b",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-21T10:40:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -6684,7 +6684,7 @@
   {
     "event_id": "725de66d-3edb-412a-9139-6a92fcc92325",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-21T10:41:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -6856,7 +6856,7 @@
   {
     "event_id": "a1e46113-9182-48e3-b2a9-23bdbf1f842e",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-22T10:42:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -6969,7 +6969,7 @@
   {
     "event_id": "57e98382-51ed-4c78-aa09-51047d156bc3",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-22T10:43:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -7130,7 +7130,7 @@
   {
     "event_id": "5c57f202-6c7d-467a-bbcc-0ad0ecb5d5c1",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-23T10:44:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -7275,7 +7275,7 @@
   {
     "event_id": "7a18e7df-588a-406c-96cc-b34d4cc9c441",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-23T10:45:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -7476,7 +7476,7 @@
   {
     "event_id": "fda0ad0a-7a05-435b-9e31-a85081273684",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-24T10:46:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -7677,7 +7677,7 @@
   {
     "event_id": "7e3c27aa-1a7b-4b74-ac2d-853ceeb8acd2",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-24T10:47:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -7854,7 +7854,7 @@
   {
     "event_id": "7244cbef-5fe8-48b5-8b46-6b428f60ebb2",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-25T10:48:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -7983,7 +7983,7 @@
   {
     "event_id": "9964b6bc-56e0-462f-b60d-814eb730ce72",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-25T10:49:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -8143,7 +8143,7 @@
   {
     "event_id": "96221e61-bc3b-45bb-8b53-ed301533598e",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-26T10:50:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -8231,7 +8231,7 @@
   {
     "event_id": "b700b9d8-77f1-45f9-8b25-2e003d5c2b14",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-26T10:51:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -8391,7 +8391,7 @@
   {
     "event_id": "c4d2cd83-96b4-46ae-84ba-05a5eebf4add",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-27T10:52:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -8591,7 +8591,7 @@
   {
     "event_id": "e5412295-1747-4ec2-9ede-902b4f085f60",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-27T10:53:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -8807,7 +8807,7 @@
   {
     "event_id": "3f7e0b4a-2a8d-45f3-9a8c-b4587778a65c",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-28T10:54:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -8895,7 +8895,7 @@
   {
     "event_id": "d0d4560e-0bc0-4886-9d8d-f74b01bedf99",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-28T10:55:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000032",
@@ -9008,7 +9008,7 @@
   {
     "event_id": "bfd3c55d-2569-4f0b-9d55-3346e1bcdb6d",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-28T10:56:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -9147,7 +9147,7 @@
   {
     "event_id": "ad39b445-d90e-4439-a549-6549af4cf746",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-28T10:57:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -9303,7 +9303,7 @@
   {
     "event_id": "fd3d00c3-69f8-4261-9761-d279ddb39174",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-28T10:58:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",
@@ -9432,7 +9432,7 @@
   {
     "event_id": "c98806f2-3680-42bf-8350-5eb4f486fc48",
     "topic": "order.placed",
-    "version": 1,
+    "version": 2,
     "occurred_at": "2026-10-28T10:59:00.000Z",
     "organization_id": "00000000-0000-4000-8000-000000000001",
     "store_id": "00000000-0000-4000-8000-000000000031",

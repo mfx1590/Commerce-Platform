@@ -139,6 +139,18 @@ describe('event schemas', () => {
     expect(r.errors.join()).toMatch(/email_hash/);
   });
 
+  it('order.placed v2 (#629): email_hash may be null (an erased customer, scrubbed by the replay); v1 still requires it', () => {
+    const erased = { ...orderPlaced, customer_id: null, email_hash: null };
+    expect(v.validatePayload('order.placed', 2, erased)).toEqual({ ok: true, errors: [] });
+    expect(v.validatePayload('order.placed', 2, orderPlaced)).toEqual({ ok: true, errors: [] });
+    expect(v.validatePayload('order.placed', 1, erased).ok).toBe(false);
+    const raw = v.validatePayload('order.placed', 2, {
+      ...orderPlaced,
+      email_hash: 'x@example.com',
+    });
+    expect(raw.ok).toBe(false);
+  });
+
   it('rejects an unknown topic or version and a bad envelope', () => {
     expect(v.validatePayload('order.exploded', 1, {}).errors[0]).toMatch(/unknown event/);
     expect(v.validatePayload('order.placed', 99, orderPlaced).ok).toBe(false);
