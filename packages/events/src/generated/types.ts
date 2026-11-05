@@ -368,6 +368,79 @@ promotion_codes: string[]
 placed_at: string
 }
 /**
+ * Checkout completed: the order exists and is awaiting payment capture. Source of truth for sales accounting. v2 makes email_hash nullable (#629): null means the customer was erased (the outbox replay scrubs it) and is never a profile or guest identity.
+ */
+export interface OrderPlacedV2 {
+order_id: string
+display_id: number
+legal_entity_id: string
+sales_channel_id: string
+customer_id: (string | null)
+email_hash: (string | null)
+currency: string
+locale: string
+totals: {
+/**
+ * Amount in minor units (cents). Never a float.
+ */
+subtotal_minor: number
+/**
+ * Amount in minor units (cents). Never a float.
+ */
+discount_minor: number
+/**
+ * Amount in minor units (cents). Never a float.
+ */
+shipping_minor: number
+/**
+ * Amount in minor units (cents). Never a float.
+ */
+tax_minor: number
+/**
+ * Amount in minor units (cents). Never a float.
+ */
+total_minor: number
+}
+line_items: {
+order_line_item_id: string
+variant_id: (string | null)
+sku: string
+title: string
+quantity: number
+/**
+ * Amount in minor units (cents). Never a float.
+ */
+unit_price_minor: number
+/**
+ * Amount in minor units (cents). Never a float.
+ */
+discount_minor: number
+tax_rate_bp: number
+/**
+ * Amount in minor units (cents). Never a float.
+ */
+tax_minor: number
+/**
+ * Amount in minor units (cents). Never a float.
+ */
+total_minor: number
+}[]
+shipping: {
+shipping_option_id?: (string | null)
+code: string
+name: string
+carrier: string
+/**
+ * Amount in minor units (cents). Never a float.
+ */
+price_minor: number
+}
+shipping_country: string
+billing_country: string
+promotion_codes: string[]
+placed_at: string
+}
+/**
  * Status projection changed (status, payment_status, fulfillment_status, edits).
  */
 export interface OrderUpdatedV1 {
@@ -689,6 +762,7 @@ export interface EventPayloads {
   'order.completed@1': OrderCompletedV1;
   'order.confirmed@1': OrderConfirmedV1;
   'order.placed@1': OrderPlacedV1;
+  'order.placed@2': OrderPlacedV2;
   'order.updated@1': OrderUpdatedV1;
   'payment.authorized@1': PaymentAuthorizedV1;
   'payment.captured@1': PaymentCapturedV1;
@@ -730,7 +804,7 @@ export interface LatestPayloads {
   'order.cancelled': OrderCancelledV1;
   'order.completed': OrderCompletedV1;
   'order.confirmed': OrderConfirmedV1;
-  'order.placed': OrderPlacedV1;
+  'order.placed': OrderPlacedV2;
   'order.updated': OrderUpdatedV1;
   'payment.authorized': PaymentAuthorizedV1;
   'payment.captured': PaymentCapturedV1;

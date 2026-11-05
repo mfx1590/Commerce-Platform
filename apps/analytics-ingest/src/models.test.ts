@@ -34,6 +34,10 @@ const validator = createValidator();
 // ---- the month, plus catalogue events so dim_variant has something to resolve -------------------------------
 
 const month = generateMonth({ orders: 150, legalEntities: 3, deterministicIds: true, seed: 601 });
+// The month is the v1 history migrations 0002–0006 were written against (their MVs read `version = 1`); makeEvent
+// stamps LATEST_VERSION, which is 2 since #696, so pin it. The #696 test below makes its own v2 rows from these.
+for (const e of month.events)
+  if (e.topic === 'order.placed') (e as { version: number }).version = 1;
 type Placed = EventEnvelope<'order.placed'>;
 const placed = month.events.filter((e) => e.topic === 'order.placed') as unknown as Placed[];
 

@@ -1219,6 +1219,242 @@
         "type": "object"
       }
     },
+    "order.placed@2": {
+      "sha256": "42a2e0f3c4dda23f55754a6ea08bc69b77a4aba919e15b9932a910bfe2410503",
+      "schema": {
+        "$id": "https://schemas.commerce-platform.dev/events/order.placed/v2.json",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "description": "Checkout completed: the order exists and is awaiting payment capture. Source of truth for sales accounting. v2 makes email_hash nullable (#629): null means the customer was erased (the outbox replay scrubs it) and is never a profile or guest identity.",
+        "properties": {
+          "billing_country": {
+            "pattern": "^[A-Z]{2}$",
+            "type": "string"
+          },
+          "currency": {
+            "pattern": "^[A-Z]{3}$",
+            "type": "string"
+          },
+          "customer_id": {
+            "oneOf": [
+              {
+                "format": "uuid",
+                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "display_id": {
+            "type": "integer"
+          },
+          "email_hash": {
+            "oneOf": [
+              {
+                "description": "sha256 of the lowercased value; never the raw PII",
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "legal_entity_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "line_items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "discount_minor": {
+                  "description": "Amount in minor units (cents). Never a float.",
+                  "type": "integer"
+                },
+                "order_line_item_id": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                  "type": "string"
+                },
+                "quantity": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "sku": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "tax_minor": {
+                  "description": "Amount in minor units (cents). Never a float.",
+                  "type": "integer"
+                },
+                "tax_rate_bp": {
+                  "type": "integer"
+                },
+                "title": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "total_minor": {
+                  "description": "Amount in minor units (cents). Never a float.",
+                  "type": "integer"
+                },
+                "unit_price_minor": {
+                  "description": "Amount in minor units (cents). Never a float.",
+                  "type": "integer"
+                },
+                "variant_id": {
+                  "oneOf": [
+                    {
+                      "format": "uuid",
+                      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "order_line_item_id",
+                "variant_id",
+                "sku",
+                "title",
+                "quantity",
+                "unit_price_minor",
+                "discount_minor",
+                "tax_rate_bp",
+                "tax_minor",
+                "total_minor"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "locale": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "order_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "placed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "promotion_codes": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "sales_channel_id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+          },
+          "shipping": {
+            "additionalProperties": false,
+            "properties": {
+              "carrier": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "code": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "name": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "price_minor": {
+                "description": "Amount in minor units (cents). Never a float.",
+                "type": "integer"
+              },
+              "shipping_option_id": {
+                "oneOf": [
+                  {
+                    "format": "uuid",
+                    "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["code", "name", "carrier", "price_minor"],
+            "type": "object"
+          },
+          "shipping_country": {
+            "pattern": "^[A-Z]{2}$",
+            "type": "string"
+          },
+          "totals": {
+            "additionalProperties": false,
+            "properties": {
+              "discount_minor": {
+                "description": "Amount in minor units (cents). Never a float.",
+                "type": "integer"
+              },
+              "shipping_minor": {
+                "description": "Amount in minor units (cents). Never a float.",
+                "type": "integer"
+              },
+              "subtotal_minor": {
+                "description": "Amount in minor units (cents). Never a float.",
+                "type": "integer"
+              },
+              "tax_minor": {
+                "description": "Amount in minor units (cents). Never a float.",
+                "type": "integer"
+              },
+              "total_minor": {
+                "description": "Amount in minor units (cents). Never a float.",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "subtotal_minor",
+              "discount_minor",
+              "shipping_minor",
+              "tax_minor",
+              "total_minor"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "order_id",
+          "display_id",
+          "legal_entity_id",
+          "sales_channel_id",
+          "customer_id",
+          "email_hash",
+          "currency",
+          "locale",
+          "totals",
+          "line_items",
+          "shipping",
+          "shipping_country",
+          "billing_country",
+          "promotion_codes",
+          "placed_at"
+        ],
+        "title": "order.placed v2",
+        "type": "object"
+      }
+    },
     "order.updated@1": {
       "sha256": "5d2c5f313eff7ddbcad1f8771b9e6f89ca373ae3889dd4695cc3bf9a8fdf6312",
       "schema": {

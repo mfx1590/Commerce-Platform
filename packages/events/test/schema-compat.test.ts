@@ -300,8 +300,10 @@ describe('schemas/published.lock.json — the CI gate for published versions', (
     expect(vc.state).toBe('changed_compatible');
     expect(explainVerdict(vc)).toMatch(/schemas:lock/);
 
-    const added = { ...current, 'order.placed@2': current[key]! };
-    expect(compareWithLock(lock, added).find((v) => v.key === 'order.placed@2')?.state).toBe('new');
+    const added = { ...current, 'order.placed@99': current[key]! };
+    expect(compareWithLock(lock, added).find((v) => v.key === 'order.placed@99')?.state).toBe(
+      'new',
+    );
     expect(compareWithLock(null).every((v) => v.state === 'new')).toBe(true);
   });
 
