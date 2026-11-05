@@ -2,6 +2,12 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-11-05 · a flake in the erasure PII check (#721)
+
+- `test/customers-api.test.ts` (DELETE /store/customers/me): the erased customer's outbox and audit docs are checked
+  for the phone as `+31 6 4444 4444`, `4444 4444` and `31644444444` instead of a bare `4444`, which a random uuid or
+  the hex `email_hash` in those docs could contain by chance (#719's CI). The other PII literals are unchanged.
+
 ### 2026-11-05 · the Integration 5 access matrix (#612 gate 3)
 
 - `test/access-matrix.test.ts`: 13 routes (the four reports, window 17's three marketing reports, listMetrics,
