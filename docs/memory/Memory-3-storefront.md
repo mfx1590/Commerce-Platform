@@ -252,9 +252,7 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       `ProductCard`; returns null when empty) + client `RecommendationTracker` (IntersectionObserver view once, delegated
       click by `data-rail-position`), `src/lib/analytics/` (local event definition, `STOREFRONT_ANALYTICS_CONSENT_MODE`
       analytics|strict, dataLayer + `platform:analytics` sink, no network). Unit 647/647 (20 new). REQUEST #725 to
-      window 16 for the tracking-plan `client_events` entries. Analytics option A sent to the manager (A/B/C) — awaiting.
-      Still to do: machine (build, bundle-budget --sync-readme, e2e incl. `e2e/recommendations.spec.ts`, `pnpm perf`),
-      merge main, push `-u`, PR "Closes #609", report twice. Brands: window 10's re-sync (list in README).
+      window 16 for the tracking-plan `client_events` entries. **Manager APPROVED option A (11-05)** + condition: measure the added server time. Machine runs done 11-05 (then reported machine free): bundle PASS (PDP 139.8 / cart 140.3 kB); e2e 69 passed / 8 core-only skips; perf PASS (PDP 99/100/100, LCP 2.06-2.22 s, CLS 0); rail-timing PDP added p50/p95 293/292 ms, cart 297/289 ms (deadline 300), rail 20/20 normal, 0/20 slow; Prism upstream ~3 ms, so the overlap is NOT shown. The starter has no LAUNCH file: the 8.3 line goes in the PR brand list for window 10. Next: merge main, push -u, PR, report twice. Brands: window 10's re-sync (list in README).
 
 - [x] **#449 — DONE, PR #450 merged = `e0cd978` (2026-10-09 12:08 UTC), code commit `0267a04`, head
   `d4a364f`; 15/15 checks green.** A fresh session on 2026-10-10 was started with a stale message

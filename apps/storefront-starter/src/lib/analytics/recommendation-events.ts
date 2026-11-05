@@ -1,5 +1,7 @@
 import type { RecommendationKind } from '../store-api';
 import type { RecommendationSurface } from '../recommendations';
+// The consent switch is plain ESM so next.config.mjs can fail the build on a bad value.
+import { analyticsConsentMode as parseConsentMode, CONSENT_MODES } from './consent-mode.mjs';
 
 /**
  * The two recommendation events (#609), defined HERE until the CDP tracking plan carries them —
@@ -73,24 +75,12 @@ export function clickedEvent(rail: RailContext, position: number): Recommendatio
   };
 }
 
-/**
- * Consent mode, the 2026-10-23 rule (#576) as it applies to an anonymous browser event:
- * - `analytics` (default): sent — counting our own commerce behaviour needs no marketing consent;
- * - `strict`: NOT sent — strict drops any event without a granted `marketing_email` for a known
- *   customer, and these events carry no customer, so strict always drops them.
- * One storefront deployment is one store, so one variable is the per-store switch. An unknown value
- * throws rather than falling back to the open mode, as the engagement switch does.
- */
-export const CONSENT_MODES = ['analytics', 'strict'] as const;
+/** Consent mode (the 2026-10-23 rule, #576), as `consent-mode.mjs` explains; strict sends nothing. */
+export { CONSENT_MODES };
 export type ConsentMode = (typeof CONSENT_MODES)[number];
 
 export function analyticsConsentMode(
   env: Record<string, string | undefined> = process.env,
 ): ConsentMode {
-  const raw = env.STOREFRONT_ANALYTICS_CONSENT_MODE?.trim();
-  if (raw === undefined || raw === '') return 'analytics';
-  if ((CONSENT_MODES as readonly string[]).includes(raw)) return raw as ConsentMode;
-  throw new Error(
-    `STOREFRONT_ANALYTICS_CONSENT_MODE must be one of ${CONSENT_MODES.join(', ')}; got an unknown value`,
-  );
+  return parseConsentMode(env);
 }

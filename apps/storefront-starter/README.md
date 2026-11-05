@@ -300,7 +300,7 @@ Both requests send `limit=4` and the page's currency.
   never throws. A 404, a 5xx, a network error or a timeout all give an empty rail. It gives up and aborts the
   request at `RECOMMENDATIONS_TIMEOUT_MS` (default **300 ms**). The request starts as soon as its anchor is known:
   on the PDP after `getProduct`, on the cart after `getCart`. It then runs alongside the page's other reads, so the
-  most a stalled core can add is that deadline. A 404 logs one line in development and nothing in production.
+  most a stalled core can add is that deadline. A 404 logs one line in development and nothing in production. `node scripts/rail-timing.mjs` (needs the machine and a build) measures this: the PDP and the cart with the call answering normally versus held past the deadline by a delay proxy, as p50 / p95 over 20 requests each. It exits 1 if the added p95 exceeds the deadline.
 - **No layout shift; hidden when empty.** The rail is part of the first server HTML or it is absent. There is no
   Suspense pop-in and no reserved empty box. Its cards use the card's fixed square image box and load lazily, so
   they never compete with the gallery for LCP.
@@ -317,14 +317,14 @@ cookie and no session.
 
 The definition lives in `src/lib/analytics/recommendation-events.ts` until the CDP tracking plan carries it
 (REQUEST #725 to window 16). The sink (`src/lib/analytics/track.ts`) pushes onto `window.dataLayer` and dispatches
-a `platform:analytics` DOM event. It makes no request: there is no destination yet (D11; LAUNCH 8.3).
+a `platform:analytics` DOM event. It makes no request, sets no cookie and stores no identifier: there is no destination yet (D11; LAUNCH 8.3). **The launch wave plugs the real sink in** by subscribing to that DOM event (or reading `dataLayer`); nothing in the rail changes.
 
 Consent follows the 2026-10-23 rule through `STOREFRONT_ANALYTICS_CONSENT_MODE`:
 
 - `analytics` (default): the events are sent.
 - `strict`: nothing is tracked. Strict drops events without a known, consenting customer, and these events never
   name one. The rail still renders.
-- An unknown value throws.
+- An unknown value fails `next build` and `next start` (`next.config.mjs` calls `src/lib/analytics/consent-mode.mjs`, the same function the render path uses).
 
 Keep it equal to the engagement service's `ENGAGEMENT_CDP_CONSENT_MODE_<STORE_CODE>` for the same store.
 
@@ -840,22 +840,22 @@ fails if this block drifts from it. Refresh with
 | --------------------------------------------- | -------------------- | ------------------ |
 | `/[locale]/(account)/account/deleted/page`    | 130.6 kB             | 145 kB _(default)_ |
 | `/[locale]/(account)/account/orders/page`     | 130.6 kB             | 145 kB _(default)_ |
-| `/[locale]/(account)/account/page`            | 134.3 kB             | 145 kB _(default)_ |
-| `/[locale]/(checkout)/cart/page`              | 140.6 kB             | 145 kB             |
+| `/[locale]/(account)/account/page`            | 135.1 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/cart/page`              | 140.3 kB             | 145 kB             |
 | `/[locale]/(checkout)/checkout/address/page`  | 133.8 kB             | 139 kB             |
-| `/[locale]/(checkout)/checkout/page`          | 129.4 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/checkout/page`          | 129.3 kB             | 145 kB _(default)_ |
 | `/[locale]/(checkout)/checkout/payment/page`  | 133.8 kB             | 145 kB _(default)_ |
-| `/[locale]/(checkout)/checkout/review/page`   | 134.9 kB             | 139 kB             |
+| `/[locale]/(checkout)/checkout/review/page`   | 134.8 kB             | 139 kB             |
 | `/[locale]/(checkout)/checkout/shipping/page` | 133.8 kB             | 145 kB _(default)_ |
 | `/[locale]/(checkout)/orders/[orderId]/page`  | 130.6 kB             | 145 kB _(default)_ |
 | `/[locale]/(content)/campaign/[slug]/page`    | 132.9 kB             | 145 kB _(default)_ |
 | `/[locale]/(content)/legal/[slug]/page`       | 132.9 kB             | 145 kB _(default)_ |
 | `/[locale]/(content)/pages/[slug]/page`       | 132.9 kB             | 145 kB _(default)_ |
-| `/[locale]/(shop)/categories/[handle]/page`   | 136.3 kB             | 141 kB             |
-| `/[locale]/(shop)/page`                       | 131.2 kB             | 136 kB             |
-| `/[locale]/(shop)/products/[handle]/page`     | 139.3 kB             | 144 kB             |
-| `/[locale]/(shop)/products/page`              | 136.3 kB             | 141 kB             |
-| `/_not-found/page`                            | 103 kB               | 145 kB _(default)_ |
+| `/[locale]/(shop)/categories/[handle]/page`   | 136.2 kB             | 141 kB             |
+| `/[locale]/(shop)/page`                       | 131.1 kB             | 136 kB             |
+| `/[locale]/(shop)/products/[handle]/page`     | 139.8 kB             | 144 kB             |
+| `/[locale]/(shop)/products/page`              | 136.2 kB             | 141 kB             |
+| `/_not-found/page`                            | 102.9 kB             | 145 kB _(default)_ |
 
 _Generated by `pnpm --filter @platform/storefront-starter bundle-budget --sync-readme`; budgets live in `bundle-budget.json`._
 <!-- bundle-budget:end -->

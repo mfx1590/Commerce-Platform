@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { HEADERS } from '@platform/contracts';
 import { NextIntlClientProvider } from 'next-intl';
 import { createElement, type ReactNode } from 'react';
@@ -293,4 +295,26 @@ describe('recommendation events — the local definition until the tracking plan
     expect(analyticsConsentMode({ STOREFRONT_ANALYTICS_CONSENT_MODE: 'strict' })).toBe('strict');
     expect(() => analyticsConsentMode({ STOREFRONT_ANALYTICS_CONSENT_MODE: 'strcit' })).toThrow();
   });
+});
+
+describe('STOREFRONT_ANALYTICS_CONSENT_MODE fails the build, not the first render', () => {
+  const loadConfig = (value: string) =>
+    spawnSync(
+      process.execPath,
+      ['--input-type=module', '-e', "await import('./next.config.mjs')"],
+      {
+        cwd: fileURLToPath(new URL('..', import.meta.url)),
+        env: { ...process.env, STOREFRONT_ANALYTICS_CONSENT_MODE: value },
+        encoding: 'utf8',
+      },
+    );
+
+  it('next.config.mjs refuses an unknown value and loads with a known one', () => {
+    const typo = loadConfig('strcit');
+    expect(typo.status).not.toBe(0);
+    expect(typo.stderr).toContain(
+      'STOREFRONT_ANALYTICS_CONSENT_MODE must be one of analytics, strict',
+    );
+    expect(loadConfig('strict').status).toBe(0);
+  }, 30_000);
 });

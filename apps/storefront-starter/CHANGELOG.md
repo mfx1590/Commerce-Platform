@@ -15,7 +15,9 @@
   sink is `window.dataLayer` plus a `platform:analytics` DOM event, and it makes no network request.
   `STOREFRONT_ANALYTICS_CONSENT_MODE`: `analytics` (default) or `strict` (nothing tracked); an unknown value throws.
 - Catalogue namespace `recommendations` (en-GB, de-DE).
-- Tests: `test/recommendations.test.ts` (20) and `e2e/recommendations.spec.ts` (server HTML, layout shift, view and
+- An unknown `STOREFRONT_ANALYTICS_CONSENT_MODE` fails `next build` / `next start`: `next.config.mjs` calls `src/lib/analytics/consent-mode.mjs`, the one parser the render path also uses.
+- `scripts/rail-timing.mjs` (needs the machine and a build): PDP and cart server time with the recommendations call normal vs held past the deadline by a delay proxy, p50 / p95 over 20 requests; exits 1 if the added p95 exceeds the deadline + 150 ms.
+- Tests: `test/recommendations.test.ts` (21) and `e2e/recommendations.spec.ts` (server HTML, layout shift, view and
   click events, cart rail).
 
 ## Unreleased — 2026-10-18 (window 13, #473 PR: #501 review nits)
