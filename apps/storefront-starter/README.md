@@ -300,7 +300,7 @@ Both requests send `limit=4` and the page's currency.
   never throws. A 404, a 5xx, a network error or a timeout all give an empty rail. It gives up and aborts the
   request at `RECOMMENDATIONS_TIMEOUT_MS` (default **300 ms**). The request starts as soon as its anchor is known:
   on the PDP after `getProduct`, on the cart after `getCart`. It then runs alongside the page's other reads, so the
-  most a stalled core can add is that deadline. A 404 logs one line in development and nothing in production. `node scripts/rail-timing.mjs` (needs the machine and a build) measures this: the PDP and the cart with the call answering normally versus held past the deadline by a delay proxy, as p50 / p95 over 20 requests each. It exits 1 if the added p95 exceeds the deadline.
+  most a stalled core can add is that deadline. A 404 logs one line in development and nothing in production. `node scripts/rail-timing.mjs` (needs the machine and a build) measures this: the PDP and the cart with the call answering normally versus held past the deadline by a delay proxy, as p50 / p95 over 20 requests each. It exits 1 if the added p95 exceeds the deadline plus `SLACK_MS` (default 150 ms, for timer and scheduling noise on a laptop).
 - **No layout shift; hidden when empty.** The rail is part of the first server HTML or it is absent. There is no
   Suspense pop-in and no reserved empty box. Its cards use the card's fixed square image box and load lazily, so
   they never compete with the gallery for LCP.

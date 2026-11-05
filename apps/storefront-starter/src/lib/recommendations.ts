@@ -49,6 +49,22 @@ export function recommendationsTimeoutMs(
   return parsed > 0 ? parsed : DEFAULT_TIMEOUT_MS;
 }
 
+const KINDS: readonly unknown[] = ['bought_together', 'popular'] satisfies RecommendationKind[];
+
+/**
+ * A 200 is trusted only as far as the rail needs it: a body that is not the contract shape (null,
+ * `{}`, `items` not an array, an unknown `kind`) is an empty rail, never an exception.
+ */
+export function fromResponse(list: unknown): Recommendations {
+  if (typeof list !== 'object' || list === null) return EMPTY_RECOMMENDATIONS;
+  const { kind, items } = list as { kind?: unknown; items?: unknown };
+  if (!KINDS.includes(kind) || !Array.isArray(items)) return EMPTY_RECOMMENDATIONS;
+  return {
+    kind: kind as RecommendationKind,
+    items: (items as ProductSummary[]).slice(0, RAIL_LIMIT),
+  };
+}
+
 export interface LoadOptions {
   currency?: string | undefined;
   timeoutMs?: number;
@@ -86,19 +102,19 @@ export async function loadRecommendations(
         ? { signal: controller.signal, revalidate: PDP_REVALIDATE, tags: ['recommendations'] }
         : { signal: controller.signal, cache: 'no-store' },
     )
-    .then(
-      // No anchor filter: the core never recommends an anchor back to itself (#609). The mock's
-      // single example can, and that is what keeps a populated rail visible against it.
-      (list): Recommendations => ({ kind: list.kind, items: list.items.slice(0, RAIL_LIMIT) }),
-      (error: unknown): Recommendations => {
-        // A 404 means the anchor ids are not a published product of this store: a bug worth a
-        // note in development, a silent empty rail for a shopper. Ids only — nothing personal.
-        if (isNotFound(error) && process.env.NODE_ENV !== 'production') {
-          console.warn(`[recommendations] 404 for the ${anchor.surface} anchor`);
-        }
-        return EMPTY_RECOMMENDATIONS;
-      },
-    );
+    // No anchor filter: the core never recommends an anchor back to itself (#609). The mock's
+    // single example can, and that is what keeps a populated rail visible against it.
+    .then(fromResponse)
+    // `.catch` after `.then`, not `.then`'s second argument: it must also catch anything
+    // `fromResponse` throws, or a 200 with an odd body would escape the race and fail the page.
+    .catch((error: unknown): Recommendations => {
+      // A 404 means the anchor ids are not a published product of this store: a bug worth a
+      // note in development, a silent empty rail for a shopper. Ids only — nothing personal.
+      if (isNotFound(error) && process.env.NODE_ENV !== 'production') {
+        console.warn(`[recommendations] 404 for the ${anchor.surface} anchor`);
+      }
+      return EMPTY_RECOMMENDATIONS;
+    });
 
   try {
     return await Promise.race([request, deadline]);

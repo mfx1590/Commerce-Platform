@@ -147,6 +147,29 @@ describe('loadRecommendations — never throws, never waits past its deadline', 
     warn.mockRestore();
   });
 
+  // #727 review: a 200 whose body is not the contract shape used to throw inside the success
+  // handler, escape the race and fail the PDP / cart with a 500.
+  it.each([
+    ['null', null],
+    ['{}', {}],
+    ['items: "x"', { kind: 'bought_together', items: 'x' }],
+    ['an unknown kind', { kind: 'trending', items: [] }],
+  ])('a 200 with %s is an empty rail and does not throw', async (_, body) => {
+    const { client } = clientAnswering(async () => body as unknown as RecommendationList);
+    await expect(loadRecommendations(PDP, { client })).resolves.toEqual(EMPTY_RECOMMENDATIONS);
+  });
+
+  it('anything thrown while reading a 200 body is an empty rail too', async () => {
+    const hostile = {
+      kind: 'popular',
+      get items(): never {
+        throw new Error('unreadable body');
+      },
+    };
+    const { client } = clientAnswering(async () => hostile as unknown as RecommendationList);
+    await expect(loadRecommendations(PDP, { client })).resolves.toEqual(EMPTY_RECOMMENDATIONS);
+  });
+
   it('a call that never answers gives up at the deadline and aborts the request', async () => {
     let signal: AbortSignal | undefined;
     const { client } = clientAnswering((s) => {
