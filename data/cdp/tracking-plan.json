@@ -1,7 +1,7 @@
 {
-  "$comment": "The CDP tracking plan (window 16, #554). One entry per event topic we map onto a CDP call, and every topic we do NOT map listed with the reason. Properties are ids, integer minor-unit amounts with their currency, countries, counts and email_hash — never a name, address, phone number or e-mail (ADR 0003 item 5). The mapper in apps/engagement/src/cdp is driven by this file and its tests assert the two agree, so a topic added here without a mapping, or mapped without an entry, fails the suite.",
-  "version": 2,
-  "updated": "2026-10-24",
+  "$comment": "The CDP tracking plan (window 16, #554). One entry per event topic we map onto a CDP call, and every topic we do NOT map listed with the reason. Properties are ids, integer minor-unit amounts with their currency, countries, counts and email_hash — never a name, address, phone number or e-mail (ADR 0003 item 5). The mapper in apps/engagement/src/cdp is driven by this file and its tests assert the two agree, so a topic added here without a mapping, or mapped without an entry, fails the suite. `client_events` is a SEPARATE top-level list (#725) for events a BROWSER emits: they are not bus topics, they have no envelope and no schema in packages/events, and the `events` / `unmapped` pair is checked against EVENT_TOPICS — so a browser event listed there would break that check rather than document anything.",
+  "version": 3,
+  "updated": "2026-11-05",
   "owner": "window 16 (engagement)",
   "identity": {
     "$comment": "How a CDP identity is resolved, in this order. `customer_id` is our own id and the only stable key; email_hash is a fallback that cannot be reversed and is never the upsert key for a known customer. Since order.placed@2 (CONTRACT CHANGE #696) email_hash may be null, which means the customer was erased and the outbox replay scrubbed the payload: there is then no anonymousId, and with customer_id also null the event is dropped as no_identity rather than tracked under a placeholder.",
@@ -65,7 +65,7 @@
     },
     {
       "topic": "order.placed",
-      "version": 1,
+      "version": 2,
       "call": "track",
       "name": "Order Completed",
       "properties": [
@@ -84,7 +84,7 @@
         "store_code"
       ],
       "consent_gated": true,
-      "$comment": "Named for RudderStack's e-commerce spec. Line items are reduced to counts: the per-line titles and SKUs are not needed for a CDP audience and every property we send is one more thing to justify. `version` stays 1 until order.placed@2 is published (#696): the mapping reads no field that differs between them — email_hash is not one of the properties — so v2 maps identically, and the version here records the schema this entry was written against, not a version gate."
+      "$comment": "Named for RudderStack's e-commerce spec. Line items are reduced to counts: the per-line titles and SKUs are not needed for a CDP audience and every property we send is one more thing to justify. Version 2 since CONTRACT CHANGE #696 landed in events 0.7.1 (#716); v1 is still accepted and maps identically, because the one thing v2 changes — a nullable email_hash — is not one of these properties. A null hash means the customer was erased and the replay scrubbed the payload: no anonymousId, and with customer_id also null the event is dropped as no_identity rather than tracked under a placeholder."
     },
     {
       "topic": "order.cancelled",
@@ -187,6 +187,24 @@
         "cart.abandoned"
       ],
       "reason": "window 17's marketing domain. cart.abandoned and attribution.recorded are the obvious CDP candidates, but they belong to marketing's own flows (Klaviyo, deferred until an account exists) and double-sending them would double-count an audience. A REQUEST to window 17 before any of these is mapped."
+    }
+  ],
+  "client_events": [
+    {
+      "event": "recommendation_viewed",
+      "source": "storefront (browser)",
+      "call": "track",
+      "properties": ["kind", "surface", "product_ids", "count"],
+      "consent_gated": false,
+      "$comment": "Fires once per rail mount, when half the rail is on screen. kind is the kind SERVED by GET /store/recommendations (popular on a fallback rail), never the kind asked for, so a fallback rail is never counted as a co-occurrence win. surface is pdp | cart. product_ids are the cards shown, in rail order (at most 4). Anonymous: no customer_id, no email_hash, no cookie, no session id."
+    },
+    {
+      "event": "recommendation_clicked",
+      "source": "storefront (browser)",
+      "call": "track",
+      "properties": ["kind", "surface", "product_ids", "product_id", "position"],
+      "consent_gated": false,
+      "$comment": "A click on a card link in the rail. position is 1-based. Same anonymity as recommendation_viewed."
     }
   ]
 }
