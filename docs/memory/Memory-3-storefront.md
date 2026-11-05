@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-11-05 · Contracts: **contracts-v0.4.30** (Store API 0.5.9 has `listProductRecommendations`) · **Manager = "Manager session eleven"** (message it, never the owner). Phase 5: **#609 recommendation rails IN PROGRESS** on `storefront/phase5-609-rail` (cut `--no-track` from origin/main `2839329`). Earlier: #446 (PR #451 = `0ed6b7d`, merged 2026-10-10; code commit `1c9b14c`; issue CLOSED) — that record was local commit `a11a4680`, never pushed; it is kept on the LOCAL branch `storefront/phase3-local-a11a4680`. Still open: #358's live proof (Stripe keys). Machine NOT mine unless the manager says so.
+Last updated: 2026-11-05 · Contracts: **contracts-v0.4.30** (Store API 0.5.9 has `listProductRecommendations`) · **Manager = "Manager session eleven"** (message it, never the owner). Phase 5: **#609 DONE — PR #727 MERGED = `0391a388` (2026-11-05), fix head `bfadd11`; issue CLOSED. QUIET (manager: stay idle).** Brand re-sync filed by the manager for window 10. Was built on `storefront/phase5-609-rail` (cut `--no-track` from origin/main `2839329`). Earlier: #446 (PR #451 = `0ed6b7d`, merged 2026-10-10; code commit `1c9b14c`; issue CLOSED) — that record was local commit `a11a4680`, never pushed; it is kept on the LOCAL branch `storefront/phase3-local-a11a4680`. Still open: #358's live proof (Stripe keys). Machine NOT mine unless the manager says so.
 
 ## Identity (does not change)
 
@@ -246,7 +246,7 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## In progress
 
-- [ ] **#609 — P5.10 recommendation rails (PDP + cart), 0.15.0, branch `storefront/phase5-609-rail`.**
+- [x] **#609 — DONE, PR #727 merged = `0391a388` (2026-11-05). P5.10 recommendation rails (PDP + cart), 0.15.0, branch `storefront/phase5-609-rail`.**
       Built: `listProductRecommendations` on the client (variant_ids joined with commas), `src/lib/recommendations.ts`
       (never throws; 300 ms deadline that also aborts; `RECOMMENDATIONS_TIMEOUT_MS`), `RecommendationRail` (unchanged
       `ProductCard`; returns null when empty) + client `RecommendationTracker` (IntersectionObserver view once, delegated
