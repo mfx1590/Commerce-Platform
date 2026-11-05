@@ -260,7 +260,15 @@ A DLQ replay breaks that order, so `replayFromDlq` checks first:
    or a message that does not decode (named by offset, the value never quoted) throws
    `ErasureSetUnavailableError` with the original error as its `cause`, and nothing is replayed or tombstoned.
    `dryRun` reads nothing.
-2. **Skipped, tombstoned, never handled:** an entry whose payload names an erased customer of its store, by
+2. **Scrubbed (0.8.0, #629):** an `order.placed` entry whose payload names an erased customer of its store reaches
+   the handler as `order.placed@2` with `customer_id` and `email_hash` null (`scrubErased`). The `event_id` and
+   everything else are unchanged; the `version` header becomes `2`, and the original's `schema_id` is dropped
+   (`schemaId: null`). It is validated as v2 first; one that fails goes to `failed` (kept, never handled).
+   `result.scrubbed` lists it. **The `skip` hook is NOT asked for a scrubbed entry**: it keys on the identifiers the
+   scrub removed, and a skip would drop the order from a ledger again. **So a handler must be safe on a scrubbed
+   v2**, a v2 with both identifiers null: today every consumer is (accounting posts it, engagement drops it,
+   analytics stages it unattributed; notifications reads the outbox, not the bus; #705, #708, #714, #715).
+   **Skipped, tombstoned, never handled:** any OTHER entry whose payload names an erased customer of its store, by
    customer id or e-mail hash (`ERASURE_RULES`, the same rules the core's `outbox:replay` applies since #629).
    `result.skipped` lists it with `reason: 'erased'`. It is closed like a success because it must not be retried.
    **Closed means TOMBSTONED, not marked processed:** the handler never ran, so the processed store gets no row for

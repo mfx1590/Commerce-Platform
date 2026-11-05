@@ -1,11 +1,24 @@
 // The erasure-aware replay (#629). The outbox keeps every payload, so a replay must not hand an erased customer's ids
-// back to the bus: per store, every row that names an erased customer is skipped, order.placed included (until
-// order.placed@2, #696, lets the replay send it without the ids), customer.erased keeps its payload, and on every
-// topic an envelope actor that is an erased customer of the store loses its id (#700 review: a signed-in checkout
-// stamps the customer as the actor of payment.authorized, order.confirmed, …).
+// back to the bus: per store, an order.placed that names an erased customer is SCRUBBED (sent as order.placed@2 with
+// customer_id and email_hash null, the event_id unchanged; #629 decision 2(i), possible since @2 landed in #716), every
+// other row that names one is skipped, customer.erased keeps its payload, and on every topic an envelope actor that is
+// an erased customer of the store loses its id (#700 review: a signed-in checkout stamps the customer as the actor of
+// payment.authorized, order.confirmed, …).
+import net from 'node:net';
 import { createOrganizationClient } from '@platform/db';
 import { createTestDatabase, type TestDatabase } from '@platform/db/testing';
-import { type EventEnvelope, type RelayMessage } from '@platform/events';
+import {
+  brokersFromEnv,
+  createKafka,
+  createKafkaPublisher,
+  createValidator,
+  decodeMessage,
+  ensureTopics,
+  planTopics,
+  readTopicToEnd,
+  type EventEnvelope,
+  type RelayMessage,
+} from '@platform/events';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createStore } from '../modules/registry';
 import { buildEvent, withEvents } from './index';
@@ -27,6 +40,9 @@ let db: TestDatabase;
 let hq: ReturnType<typeof createOrganizationClient>;
 let storeA = '';
 let storeB = '';
+// the two rows the scrub rewrites: X's own order STORED AS v1 (history from before #716) and X's guest order (v2)
+let orderXv1 = '';
+let guestOrderX = '';
 
 // ERASURE_RULES, namesErased and actorErased, and the guard that every schema naming a customer has a rule, are
 // @platform/events' since #703 (packages/events/test/erasure.test.ts); this file tests the outbox replay with them.
@@ -187,9 +203,13 @@ beforeAll(async () => {
   storeA = await store('brand-ea');
   storeB = await store('brand-eb');
 
+  const ownV1 = { ...(await orderPlaced(storeA, X, HX)), version: 1 }; // scrubbed v1 → v2
+  const guest = await orderPlaced(storeA, null, HX); // scrubbed by the hash alone
+  orderXv1 = ownV1.event_id;
+  guestOrderX = guest.event_id;
   const events = [
-    await orderPlaced(storeA, X, HX), // X's own order: skipped
-    await orderPlaced(storeA, null, HX), // X's guest order before registering: skipped by the hash
+    ownV1, // X's own order, stored as v1 before @2 existed: sent scrubbed as v2
+    guest, // X's guest order before registering: sent scrubbed (matched by the hash)
     await orderPlaced(storeA, Y, HY), // Y stays
     await orderPlaced(storeB, null, HX), // the same person in another store, not erased there
     await cartAbandoned(storeA, X, HX), // skipped
@@ -220,31 +240,65 @@ afterAll(async () => {
 });
 
 describe('replayOutbox with an erased customer (database, recording publisher)', () => {
-  it('skips the erased customer’s order.placed in that store only, by id and by hash, and counts it per type', async () => {
+  it('scrubs the erased customer’s order.placed in that store only (by id and by hash) to a valid v2, same event_id, and counts it per type', async () => {
     const r = recorder();
     const summary = await replayOutbox(hq, r.publisher, {
       organizationId: ORG,
       topic: 'order.placed',
+      // the schema id follows the SENT version: a scrubbed v1 row goes out as @2
+      schemaIds: { 'order.placed@1': 101, 'order.placed@2': 202 },
       log: quiet,
     });
     expect(summary).toMatchObject({
       rows: 4,
-      published: 2,
+      published: 4,
       erased_customers: 1,
-      erased_skipped: { 'order.placed': 2 },
+      erased_skipped: { 'order.placed': 0 },
+      erased_scrubbed: { 'order.placed': 2 },
+      erased_actors: 1, // X's own order: X was the actor too
     });
     const out = r.envelopes();
-    expect(out.map((e) => [e.store_id, (e.payload as { email_hash: string }).email_hash])).toEqual([
+    const byId = new Map(out.map((e) => [e.event_id, e]));
+    for (const id of [orderXv1, guestOrderX]) {
+      expect(byId.get(id)).toMatchObject({
+        version: 2,
+        store_id: storeA,
+        payload: { customer_id: null, email_hash: null },
+      });
+    }
+    expect(byId.get(orderXv1)!.actor).toEqual(customerActor(null));
+    // everything but the identifiers is unchanged: the original rows, field by field
+    const stored = await hq.query<{ id: string; payload: Record<string, unknown> }>(
+      `SELECT id, payload FROM outbox WHERE id = ANY($1::uuid[])`,
+      [[orderXv1, guestOrderX]],
+    );
+    for (const row of stored.rows) {
+      expect(byId.get(row.id)!.payload).toEqual({
+        ...row.payload,
+        customer_id: null,
+        email_hash: null,
+      });
+    }
+    // every message on the wire validates as what it says it is
+    const v = createValidator();
+    for (const e of out) expect(v.validateEnvelope(e)).toEqual({ ok: true, errors: [] });
+    // the version and schema-id headers follow the scrubbed version
+    const headersOf = (id: string) =>
+      r.sent.flatMap((x) => x.messages).find((m) => m.headers.outbox_id === id)!.headers;
+    expect(headersOf(orderXv1)).toMatchObject({ version: '2', schema_id: '202' });
+    // nothing on the wire carries the erased customer's id, or their hash in store A
+    const wire = r.sent.flatMap((x) => x.messages.map((m) => m.value));
+    expect(wire.filter((val) => val.includes(X))).toEqual([]);
+    expect(wire.filter((val) => val.includes(HX) && val.includes(storeA))).toEqual([]);
+    // Y's order and the same person's order in store B (not erased there) go out as stored
+    expect(
+      out
+        .filter((e) => ![orderXv1, guestOrderX].includes(e.event_id))
+        .map((e) => [e.store_id, (e.payload as { email_hash: string }).email_hash]),
+    ).toEqual([
       [storeA, HY],
       [storeB, HX],
     ]);
-    // nothing on the wire carries the erased customer's id, or their hash in store A
-    const wire = r.sent.flatMap((s) => s.messages.map((m) => m.value));
-    expect(wire.filter((v) => v.includes(X))).toEqual([]);
-    expect(wire.filter((v) => v.includes(HX) && v.includes(storeA))).toEqual([]);
-
-    // the skipped rows were the erased customer's; the actor of Y's order is Y
-    expect(summary.erased_actors).toBe(0);
 
     // a store without erased customers replays as before
     expect(
@@ -254,7 +308,12 @@ describe('replayOutbox with an erased customer (database, recording publisher)',
         storeId: storeB,
         log: quiet,
       }),
-    ).toMatchObject({ published: 1, erased_customers: 0, erased_skipped: { 'order.placed': 0 } });
+    ).toMatchObject({
+      published: 1,
+      erased_customers: 0,
+      erased_skipped: { 'order.placed': 0 },
+      erased_scrubbed: { 'order.placed': 0 },
+    });
   });
 
   it('nulls the actor id of an erased customer on a topic outside the rules, and leaves the payload and other actors', async () => {
@@ -287,7 +346,12 @@ describe('replayOutbox with an erased customer (database, recording publisher)',
         topic: 'cart.abandoned',
         log: quiet,
       }),
-    ).toMatchObject({ rows: 2, published: 1, erased_skipped: { 'cart.abandoned': 1 } });
+    ).toMatchObject({
+      rows: 2,
+      published: 1,
+      erased_skipped: { 'cart.abandoned': 1 },
+      erased_scrubbed: {},
+    });
     expect(
       carts.envelopes().map((e) => (e.payload as { customer_id: string }).customer_id),
     ).toEqual([Y]);
@@ -318,6 +382,7 @@ describe('replayOutbox with an erased customer (database, recording publisher)',
         log: quiet,
       }),
     ).toMatchObject({ rows: 4, published: 0, erased_customers: 1 });
+    // order.placed scrubs; a dry run sends nothing and counts nothing as scrubbed
   });
 
   it('a batch whose every row is skipped sends nothing and the replay still moves on', async () => {
@@ -361,3 +426,101 @@ describe('the replay scans (#702)', () => {
     ).toContain('outbox_topic_seq_idx');
   });
 });
+
+// ---- live: the scrubbed order on a real broker (prefixed topic, self-cleaning; skipped when the broker is down) ----
+
+async function probeBroker(): Promise<string | null> {
+  const [hostPort] = brokersFromEnv();
+  const [host, port] = hostPort!.split(':');
+  return new Promise((done) => {
+    const sock = net.connect({
+      host: host === 'localhost' ? '127.0.0.1' : host!,
+      port: Number(port),
+      timeout: 1500,
+    });
+    sock.once('connect', () => (sock.destroy(), done(null)));
+    sock.once('error', (e) =>
+      done(`${hostPort}: ${(e as NodeJS.ErrnoException).code ?? e.message}`),
+    );
+    sock.once('timeout', () => (sock.destroy(), done(`${hostPort}: timeout`)));
+  });
+}
+const brokerDown = await probeBroker();
+if (brokerDown)
+  console.warn(
+    `replay-erasure.test: broker ${brokerDown} — the live scrub case is skipped (pnpm compose:up)`,
+  );
+
+describe.runIf(brokerDown === null)(
+  'the scrubbed order.placed on the local Redpanda (#629)',
+  () => {
+    const prefix = `t-${Math.random().toString(36).slice(2, 8)}.`;
+    const kafka = createKafka({ clientId: 'replay-erasure-test' });
+
+    afterAll(async () => {
+      const admin = kafka.admin();
+      await admin.connect();
+      try {
+        const mine = (await admin.listTopics()).filter((t) => t.startsWith(prefix));
+        if (mine.length) await admin.deleteTopics({ topics: mine, timeout: 30_000 });
+        const groups = (await admin.listGroups()).groups
+          .map((g) => g.groupId)
+          .filter((g) => g.startsWith(prefix));
+        if (groups.length) await admin.deleteGroups(groups).catch(() => {});
+        console.info(`replay-erasure.test: deleted ${mine.length} topic(s) with prefix ${prefix}`);
+      } finally {
+        await admin.disconnect();
+      }
+    }, 60_000);
+
+    it('the replay puts the scrubbed v2 on the wire: version header and envelope 2, identifiers null, event_id kept, @2 schema id', async () => {
+      const admin = kafka.admin();
+      await admin.connect();
+      await ensureTopics(
+        admin,
+        planTopics(
+          {
+            environments: { t: { partitions: 1, replication: 1 } },
+            retention: { forever: [], days_30: ['order.'] },
+            dlq: { prefix: 'dlq.', consumer_groups: [] },
+          },
+          { environment: 't', prefix, topics: ['order.placed'] },
+        ),
+      );
+      await admin.disconnect();
+      const publisher = createKafkaPublisher(kafka, { retries: 1 });
+      await publisher.connect();
+      try {
+        expect(
+          await replayOutbox(hq, publisher, {
+            organizationId: ORG,
+            topic: 'order.placed',
+            topicPrefix: prefix,
+            schemaIds: { 'order.placed@1': 101, 'order.placed@2': 202 },
+            log: quiet,
+          }),
+        ).toMatchObject({ published: 4, erased_scrubbed: { 'order.placed': 2 } });
+      } finally {
+        await publisher.disconnect();
+      }
+      const read = await readTopicToEnd(kafka, `${prefix}order.placed`, `${prefix}reader`, 20_000, {
+        strict: true,
+      });
+      expect(read).toHaveLength(4);
+      const decoded = read.map((m) =>
+        decodeMessage({ key: m.key, value: m.value, headers: m.headers }),
+      );
+      for (const id of [orderXv1, guestOrderX]) {
+        const d = decoded.find((x) => x.outboxId === id)!;
+        expect(d.headers.version).toBe('2');
+        expect(d.schemaId).toBe(202);
+        expect(d.envelope).toMatchObject({
+          event_id: id,
+          version: 2,
+          payload: { customer_id: null, email_hash: null },
+        });
+      }
+      expect(read.map((m) => m.value!.toString()).filter((val) => val.includes(X))).toEqual([]);
+    }, 90_000);
+  },
+);

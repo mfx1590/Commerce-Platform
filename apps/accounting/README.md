@@ -449,12 +449,11 @@ pnpm --filter @platform/core outbox:replay --topic shipment.shipped
 Orders first. A shipment, a cancellation, or a refund whose reason is not `cancellation`, that arrives before its order
 is parked (`accounting_parked_event`) and posted once the order arrives; a payment (and a cancellation refund) posts
 on its own. So the order of the last three does not matter. Replaying into the EXISTING ledger changes nothing: it is
-idempotent by `source_event_id`. Since #700 the replay SKIPS an erased customer's `order.placed`, so a ledger rebuilt
-from scratch misses those orders' revenue lines, and their later shipments, cancellations and return refunds stay
-parked (their payments post). `order.placed@2` (#696) makes `email_hash` nullable so such an order can travel without
-the customer's ids, and the ledger posts a v2 exactly like a v1 (tested, `test/order-placed-v2.test.ts`), but the
-replay does not send it yet: as of today `apps/core/src/outbox/replay.ts` still skips every `order.placed` that names
-an erased customer, @2 or not, so the gap stays until the replay is changed to republish those orders as @2.
+idempotent by `source_event_id`. An erased customer's `order.placed` is not skipped: since #629 both replays (the
+core's `outbox:replay` and the consumer SDK's `replayFromDlq`) send it as `order.placed@2` with `customer_id` and
+`email_hash` null and the same `event_id`, and the ledger posts a v2 exactly like a v1 (tested,
+`test/order-placed-v2.test.ts`). So a ledger rebuilt from scratch gets those orders' revenue lines, and their parked
+shipments, cancellations and return refunds are released.
 
 **Deploy order (#696).** Deploy accounting with the regenerated `@platform/events` build that knows `order.placed@2`
 no later than core. From that build on, checkout publishes @2 (`makeEvent` writes the latest version), and a consumer

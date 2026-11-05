@@ -1,6 +1,4 @@
 // Public API of @platform/events. Nothing outside this package may import from src/* directly.
-import { Ajv2020, type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
-import addFormats from 'ajv-formats';
 import {
   COMMON_SCHEMA,
   ENVELOPE_SCHEMA,
@@ -26,52 +24,7 @@ export type EventEnvelope<T extends EventTopic = EventTopic> = Omit<
   payload: LatestPayloads[T];
 };
 
-export interface ValidationResult {
-  ok: boolean;
-  errors: string[];
-}
-
-function formatErrors(errors: ErrorObject[] | null | undefined): string[] {
-  return (errors ?? []).map((e) => `${e.instancePath || '/'} ${e.message ?? 'invalid'}`);
-}
-
-/**
- * Compiles every schema once. Use one instance per process.
- * `validateEnvelope` checks the envelope AND the payload against `schemas/<topic>/v<version>.json`.
- */
-export function createValidator() {
-  const ajv = new Ajv2020({ allErrors: true, strict: true, allowUnionTypes: true });
-  // ajv-formats ships a CJS default export; under NodeNext ESM it may arrive wrapped.
-  const applyFormats = ((addFormats as unknown as { default?: unknown }).default ?? addFormats) as (
-    a: Ajv2020,
-  ) => void;
-  applyFormats(ajv);
-  ajv.addSchema(COMMON_SCHEMA as unknown as object);
-  const envelopeFn = ajv.compile(ENVELOPE_SCHEMA as unknown as object);
-  const payloadFns = new Map<string, ValidateFunction>();
-  for (const [key, schema] of Object.entries(EVENT_SCHEMAS)) {
-    payloadFns.set(key, ajv.compile(schema as unknown as object));
-  }
-
-  const validatePayload = (topic: string, version: number, payload: unknown): ValidationResult => {
-    const fn = payloadFns.get(`${topic}@${version}`);
-    if (!fn) return { ok: false, errors: [`unknown event ${topic}@${version}`] };
-    const ok = fn(payload);
-    return { ok: ok === true, errors: ok ? [] : formatErrors(fn.errors) };
-  };
-
-  const validateEnvelope = (event: unknown): ValidationResult => {
-    const ok = envelopeFn(event);
-    if (!ok) return { ok: false, errors: formatErrors(envelopeFn.errors) };
-    const e = event as EventEnvelopeV1Base;
-    const p = validatePayload(e.topic, e.version, e.payload);
-    return p.ok ? p : { ok: false, errors: p.errors.map((m) => `/payload${m}`) };
-  };
-
-  return { validateEnvelope, validatePayload, ajv };
-}
-
-export type Validator = ReturnType<typeof createValidator>;
+export { createValidator, type ValidationResult, type Validator } from './validator.js';
 
 /** Builds a well-formed envelope for the latest version of `topic`. Producers use this before writing to `outbox`. */
 export function makeEvent<T extends EventTopic>(input: {
@@ -247,6 +200,7 @@ export {
   ERASURE_RULES,
   erasedSetFrom,
   namesErased,
+  scrubErased,
   type ErasedSet,
   type ErasureRecord,
   type ErasureRule,

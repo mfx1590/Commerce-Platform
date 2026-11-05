@@ -124,7 +124,9 @@ For accounting (`LEDGER_TOPICS`): `--topic order.placed`, `--topic order.cancell
 `refund.issued`, `shipment.shipped`, before or together with the fresh group. Accounting PARKS a
 `shipment.shipped`, an `order.cancelled` and a `refund.issued` whose reason is not `cancellation` until its
 `order.placed` arrives, then posts them in `occurred_at` order; a `payment.captured` (and a cancellation refund)
-posts on its own. So after the orders, the order of the last three does not matter. The
+posts on its own. So after the orders, the order of the last three does not matter. An erased customer's
+`order.placed` is replayed SCRUBBED (`order.placed@2`, `customer_id` and `email_hash` null, #629), so the rebuilt
+ledger keeps the sale. The
 same applies to a new `analytics.raw` group and to an engagement `--drain`: from the bus alone they see 30 days.
 
 **DLQ replay of a 30-day topic:** `replayFromDlq` re-fetches the original by offset, so a dead letter of ANY
