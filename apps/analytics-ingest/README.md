@@ -52,6 +52,7 @@ Redpanda (every topic of @platform/events, from the beginning)
 | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pnpm --filter @platform/analytics-ingest ch:migrate`    | applies `data/clickhouse/migrations/*.sql` (each once; an edited applied file is refused) and then `data/clickhouse/models/*.sql` (views, re-applied when changed) to `CLICKHOUSE_DATABASE` (creates it), under `_migrations_lock`, after the idempotency lint |
 | `pnpm --filter @platform/analytics-ingest dev` / `start` | long-running consumer; `GET /health` on `$PORT` when set (the container contract; readiness, see Deploying)                                                                                                                                                    |
+| `pnpm --filter @platform/analytics-ingest pii:sweep`     | the live PII sweep (`sweepPii`, below) over `CLICKHOUSE_DATABASE`: read-only; prints every table and view read and the findings as counts, never a value; exit 0 = none, 1 = any, 2 = error. `--json` for the whole result                                     |
 | `pnpm --filter @platform/analytics-ingest once`          | `--once`: drain to idle (≥ `ANALYTICS_MIN_RUN_MS`, then `ANALYTICS_IDLE_MS` quiet, hard stop `ANALYTICS_MAX_RUN_MS`), print one JSON report (rows per topic, dead letters this run, records on the group's DLQ), exit 0 (1 on max_run)                         |
 
 Flags: `--once`, `--group <id>`, `--topic-prefix <p>` (tests and gates; applies to the DLQ too).
@@ -188,6 +189,37 @@ production topology: the real relay, the real ledger and this ingest in fresh gr
 against the core's report routes mounted in-process and the Finance API (verifier seam), and checks that every
 identity is 0. It also checks that a forged ledger copy and a changed order are both caught. It runs in the live job
 only.
+
+The same run carries the Integration 5 **ingest** gate (#612, gate 1): per topic, what the relay published (the
+prefixed topics' high watermarks) = `raw_events FINAL` `uniqExact(event_id)` = the month; a replay of the whole
+outbox (the core's `replayOutbox`, every topic) through the same group changes no count, and every event's FINAL row
+is then the replayed copy; and the ingest's own `ingest_delay` values (captured through `createIngest({ metrics })`)
+have p95 < 10 s (measured ≈ 0.5 s; printed every run).
+
+## No PII in ClickHouse: the live sweep (#612, gate 4)
+
+`sweepPii(ch)` (`src/pii-sweep.ts`, exported; CLI `pii:sweep`) reads every table and view of the current database.
+They are enumerated from `system.tables`, so a new table or model cannot be missed. Materialised views (no rows of
+their own) and the runner's `_migrations*` are left out. Every column whose type carries a String is read through
+`toString`, without FINAL, because an unmerged old copy is bytes on disk too. The shapes:
+
+- an e-mail;
+- a phone, either international `+…` or a domestic `0…` number with separators;
+- an IBAN: a registered country, then mod-97;
+- a card: 13–19 digits from an issuer range, then Luhn;
+- a name or address key with a non-empty value in JSON text (`"first_name":"…"`), which only free-text columns such
+  as `raw_events.payload` can hold.
+
+sha256 (`email_hash`), uuids, timestamps and money match none of them (`pii-sweep.test.ts`). The result is counts per
+table, column and shape, never a value.
+
+Where it runs:
+
+- **Live, in the gate**, after `reconcile`, so `ledger_lines` is filled: 28 tables and views, 63 string columns, 0
+  findings. One planted raw e-mail is then found exactly once, in `raw_events.payload`.
+- **Coverage:** the gate's month has 5 topics (order.placed, order.cancelled, payment.captured, refund.issued,
+  shipment.shipped). Every other topic@version is swept offline by `pii.test.ts`. The dev-stack run (`pii:sweep` on
+  the dev database) covers real data.
 
 ## Erasure: `customer.erased` (#623)
 

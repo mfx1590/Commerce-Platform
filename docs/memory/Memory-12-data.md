@@ -52,6 +52,34 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- INTEGRATION 5 GATE (2026-11-05, Manager session ELEVEN local_3be8fff4…; plan on #612 latest comment). Branch
+  data/phase5-int5-gate from origin/main 2bc270be (first push with explicit -u). Machine is MINE for live CH runs
+  (report "machine free"). One PR "Refs #612", Fable review; message PR up (number+head) + checks finished; HOLD
+  pushes after that until confirmed. #633 (manager: month gains payment.failed/partial captures/payouts) OPEN.
+  PLAN:
+  1. gate 1 in apps/core/src/modules/reporting/reconcile-gate.test.ts (same topology, new its, before the tamper):
+     per-topic Kafka high watermarks (prefixed topics) = raw_events FINAL uniqExact(event_id) per topic = month
+     per topic; then replayOutbox (in-process, from '../../outbox') of every topic → a new ingest on the same group
+     consumes it → no FINAL count changes, count() without FINAL grew (proof it landed); lag p95 < 10 s from a
+     capturing IngestMetrics passed to createIngest (delay = Kafka ts → CH ack, exactly ingest_delay), printed.
+  2. gate 4: apps/analytics-ingest/src/pii-sweep.ts `sweepPii(ch)` (system.tables minus MVs/_migrations*, every
+     String-ish column via system.columns; e-mail, phone (+intl / domestic 0-prefixed), IBAN (mod-97 in JS), card
+     (13-19 digits, Luhn in JS); name/address KEYS only in free-text payload JSON). Counts only, never values.
+     Exported + `pii:sweep` CLI (for the manager's dev-stack proof). Unit tests on the shapes; live in the gate after
+     reconcile (ledger_lines filled) + mutation: one planted raw e-mail → exactly 1 finding.
+  3. metrics-live.test.ts: already skips with a reason + prints p95; add pass lines per block and a printed reason
+     when the read path skips. Give the manager the command/env (alongside the money-gate step; TZ=UTC).
+  4. identity 3c "fails when it should" after #633 lands; else PR without it and say so.
+  DONE (built + live, machine freed): gate test 8/8 (counts 5 topics = month; lag p95 506 ms; replay 543 re-ingested,
+  no count moved; sweep 28 tables/views, 63 string cols, 0 findings; planted e-mail → exactly 1). metrics-live 10/10
+  (p95 56 ms). Ingest unit 152, live 54/54; core reporting unit 264. Skips print reasons (checked with a dead CH).
+  Gotcha: toString(Nullable col) stays Nullable → extractAll fails; wrap ifNull(toString(c), ''). The gate month
+  has only 5 topics (coverage gap stated; pii.test.ts covers every topic@version offline). #633 still OPEN → no 3c
+  case yet. PR #718 (head f200f555). Manager eleven: gate 1 must use the RELAY's published count, not the watermark
+  (duplicates count there) → per topic from outbox rows the relay marked published (acked sends only), summing to the
+  relay CLI's own total; watermark printed as witness. Live 8/8 again (p95 487 ms). #633 being built on
+  main/phase5-633-month (won't touch reconcile-gate): when on main, remove the 3c exemption + add 3c "fails when"
+  (this PR if first, else follow-up). Keep the machine. HOLD pushes after each report until confirmed.
 - #696 GATE (2026-11-02, manager ten; branch data/phase5-696-gate from origin/main; pattern #705, window 16).
   FINDING: every CH reader of order.placed filtered `version = 1` (stg_order_placed_v1 → fct_order/fct_order_line/
   all marts; 0006's mv_orders_minute_v2) — once @2 lands, v2 orders would silently vanish from BI. Ingest itself was
@@ -71,6 +99,7 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   #696 gate done.
 - #707 FYI (2026-11-03, manager ten): README rebuild note — order.*/customer.* and since #707 payment/refund/
   shipment/return keep 30 days on the bus; older history only via outbox:replay. Branch data/phase5-707-rebuild-note.
+  DONE: #711 MERGED 047bb001; dev broker has the 30-day retention. IDLE.
   Note for review: raw_events is keyed (topic, event_id), version NOT in the key — a replay that republishes the SAME
   event_id as v2 folds with the v1 copy under FINAL (later ingested_at wins; the version filter applies after
   FINAL), so stg v1/v2 never both see it; the tile's key is event_id, fct_order is LIMIT 1 BY order_id.

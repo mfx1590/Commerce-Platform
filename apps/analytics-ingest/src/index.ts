@@ -52,6 +52,16 @@ export type {
 export { healthAnswer } from './health.js';
 export type { HealthAnswer } from './health.js';
 export { createIngestMetrics } from './metrics.js';
+export {
+  ibanValid,
+  luhnValid,
+  PII_PATTERNS,
+  sweepPii,
+  type PiiFinding,
+  type PiiKind,
+  type PiiSweepResult,
+  type SweepOptions,
+} from './pii-sweep.js';
 export type { IngestMetrics } from './metrics.js';
 export { idleState, waitForIdle } from './once.js';
 export type { IdleOutcome, OnceReport, WaitForIdleOptions } from './once.js';
