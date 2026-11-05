@@ -34,6 +34,8 @@ issue; tick it only with a link to the evidence.
       erased customers (order.placed@2 with email_hash null). Outbox pruning, if ever added, exempts `customer.erased`.
       Lawyer: is the outbox at rest covered by "orders retained", is a ~31-day bus window after erasure acceptable, and
       is crypto-shredding not required?
+      Residual (#629 scrub-to-@2): a replayed order.placed of an erased customer keeps raw `promotion_codes`; a
+      single-use personal code links back to the person only through our own promotions tables. Name it in that check.
 - [ ] **CDP erasure verified end to end on the real RudderStack workspace (#657, PR #660):** erase a customer who
       was first tracked as a guest, and confirm BOTH the customer-id profile and the guest-period profile
       (anonymousId = email_hash) are gone in every destination. A guest who never registered cannot be erased
