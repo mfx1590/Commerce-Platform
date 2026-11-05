@@ -1125,7 +1125,18 @@ describe('account self-service (#470, Store API 0.5.6): edit / delete an address
       [dora.id],
     );
     const written = docs.rows.map((r) => r.doc).join('\n');
-    for (const pii of ['dora@example.test', 'Dora', 'Explorer', '4444', 'Mapstreet', 'sub-dora']) {
+    // the phone in forms hex text cannot hold (#721): the docs carry uuids and a hex email_hash, so a bare '4444'
+    // matches a random id by chance — the spaced forms contain a space, and the digits-only (E.164 without '+') run
+    // of 11 digits is the normalised phone
+    const phone = ['+31 6 4444 4444', '4444 4444', '31644444444'];
+    for (const pii of [
+      'dora@example.test',
+      'Dora',
+      'Explorer',
+      ...phone,
+      'Mapstreet',
+      'sub-dora',
+    ]) {
       expect(written).not.toContain(pii);
     }
 
