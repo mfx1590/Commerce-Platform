@@ -2,6 +2,12 @@
 
 ## 0.8.1 — unreleased (#648 follow-ups)
 
+- Integration 5 gate 4 (#612): `sweepPii` (exported) and `pii:sweep` (read-only CLI). The live PII sweep reads every
+  table and view of the database, enumerated from `system.tables`. It reports counts only, never values. The shapes
+  are e-mail, phone, IBAN (mod-97), card (Luhn), and name/address keys with a value in JSON text. Unit-tested on the
+  shapes (sha256, uuids, timestamps and money pass) and on the enumeration. It runs live in the core's Integration 5
+  gate, together with the gate 1 ingest proofs: relay-published = `uniqExact(event_id) FINAL` per topic, a full outbox
+  replay changes no count, `ingest_delay` p95 < 10 s.
 - README: a rebuild from the bus is bounded by its retention — `order.*`, `customer.*` and, since #707, `payment.*`,
   `refund.*`, `shipment.*`, `return.*` keep 30 days; older history comes only from the core's outbox replay.
 - #696 gate (order.placed@2, `email_hash` nullable): the ingest and the models accept v1 AND v2. Before #696 lands,
