@@ -507,6 +507,15 @@ jobs:
           node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/analytics-models.json"             'ClickHouse models on the generated month' 'ClickHouse runner under concurrency' 'customer.erased in ClickHouse (#623)'
           pnpm --filter @platform/core exec vitest run src/modules/reporting/reconcile-gate.test.ts             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/money-gate.json"
           node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/money-gate.json"             'Integration 5 gate: the generated month through the real relay, ledger and ingest, every identity at 0'
+      # Integration 5 gates 3 and 5 (#612): the metrics API on ClickHouse, the store-scope leak property and p95 < 300 ms
+      # on the CI month, through the read-only user (CLICKHOUSE_READONLY_USER above). Pinned so a skip fails the step.
+      - name: metrics API on ClickHouse (leak property + p95) — and it really ran
+        if: needs.changes.outputs.e2e == 'true'
+        env:
+          TZ: 'UTC'
+        run: |
+          pnpm --filter @platform/core exec vitest run src/modules/reporting/metrics/metrics-live.test.ts             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/metrics-live.json"
+          node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/metrics-live.json"             'metrics API on ClickHouse (#603)'
       # One command covers both suites: packages/auth-sdk/vitest.config.ts already collects
       # ../../apps/core/src/modules/hq-rbac/test/**, which is how window 2 wired them.
       # Through turbo, not `pnpm --filter ... test`, so `dependsOn: ^build` builds @platform/db and
