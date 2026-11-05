@@ -65,5 +65,6 @@ bus only needs a delivery window, and an erased customer leaves the bus within t
 Only the inventory ledger (`stock.*`, `stock_item.*`) stays forever; every topic that can name a customer, in the payload
 or as the envelope actor, is 30-day (#629, #707: a signed-in checkout stamps the customer as the actor of
 `payment.authorized`, so `payment.*`, `refund.*`, `shipment.*` and `return.*` moved too; the core refuses a customer
-actor id on a forever topic). Replays will skip
-erased customers (#700); scrubbing `order.placed` needs `order.placed@2` (#696, deferred).
+actor id on a forever topic). Replays skip
+erased customers (#700), except `order.placed`, which both replays send as `order.placed@2` with `customer_id` and
+`email_hash` null (#696, #629) so the ledger keeps the order.
