@@ -2,6 +2,11 @@
 
 ## 0.8.1 — unreleased (#648 follow-ups)
 
+- #718 review: `sweepPii` classifies EVERY column type. It reads any String / JSON type, proves numbers, dates, uuids,
+  booleans and enums text-free, and stops with `UnclassifiedColumnError` on anything else (IPv4 / IPv6 included)
+  instead of skipping it (`columnClass`, exported). `pii:sweep` connects as `CLICKHOUSE_READONLY_USER` when set. The
+  Integration 5 gate turns identity 3c on (#633's `richPayments` month, payouts reconciled by the ledger) and proves it
+  fails on a payout off by one minor unit while every other identity stays 0.
 - Integration 5 gate 4 (#612): `sweepPii` (exported) and `pii:sweep` (read-only CLI). The live PII sweep reads every
   table and view of the database, enumerated from `system.tables`. It reports counts only, never values. The shapes
   are e-mail, phone, IBAN (mod-97), card (Luhn), and name/address keys with a value in JSON text. Unit-tested on the

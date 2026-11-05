@@ -1,7 +1,9 @@
 // The Integration 5 money gate (#602, D7 as amended 2026-10-25; plan §3): the generated month through the PRODUCTION
 // topology, then every identity at 0 difference in minor units.
 //   1. the month (@platform/test-utils: 150 orders, three legal entities incl. Brand C / USD, captures with known and
-//      unknown fees, refunds of every reason, cancellations before and after partial shipments) is written to a
+//      unknown fees, refunds of every reason, cancellations before and after partial shipments; `richPayments` (#633):
+//      payment.failed with retries, captures split in two, and the month-end PSP payout report per legal entity,
+//      which the ledger reconciles into its bank journal before the APIs are read) is written to a
 //      throwaway core database twice over: projected into the order / payment / refund rows the reporting views read
 //      (writeMonthToCoreDb, a pure projection), and as outbox rows, as withEvents would write them;
 //   2. ONE run of the core's real relay CLI (`--once --throwaway-db --topic-prefix`) publishes the outbox under a
@@ -114,6 +116,11 @@ describe.runIf(skip === null)(
     }>;
     let plantRawEmail: () => Promise<void>;
     let countRows: (table: string) => Promise<number>;
+    // identity 3c (#633)
+    let payoutsReconciled = 0;
+    let payoutsTotal = 0;
+    let payoutLinesInClickHouse: () => Promise<number>;
+    let tamperPayout: () => Promise<void>;
 
     const until = async (cond: () => boolean, what: string, ms: number) => {
       const t0 = Date.now();
@@ -174,6 +181,8 @@ describe.runIf(skip === null)(
         deterministicIds: true,
         legalEntities: 3,
         ordersPerDay: Math.max(1, Math.floor(ORDERS / 27)),
+        // #633: payment.failed, split captures and the PSP payouts, so identity 3c compares real keys
+        richPayments: true,
       });
       const projected = await testUtils.writeMonthToCoreDb(db.owner, month.events);
       // the outbox's one writer (ADR 0003): withEvents validates each envelope and writes its row
@@ -285,6 +294,17 @@ describe.runIf(skip === null)(
       timings.consume_ms = Date.now() - t1;
       await ledger.stop();
       await raw.stop();
+
+      // ---- 2b. the PSP's month-end payout reports, reconciled by the ledger (#549) into its bank journal: the ledger
+      // side of identity 3c (1000 debits, source psp.payout) and the Finance API's listPayouts
+      const source = accounting.createFixtureSource(month.payouts);
+      const reconciled = [];
+      for (const f of month.payouts)
+        reconciled.push(
+          ...(await accounting.reconcileAll({ client: hq, source }, f.legal_entity_id)),
+        );
+      payoutsReconciled = reconciled.filter((r) => r.status === 'reconciled').length;
+      payoutsTotal = month.payouts.reduce((n, f) => n + f.payouts.length, 0);
 
       // ---- 3. the two public APIs over HTTP, in-process
       process.env.CORE_DEV_TOKENS = '1';
@@ -436,6 +456,21 @@ describe.runIf(skip === null)(
         return { published, ingested: again.stats.rows, since };
       };
       sweep = () => ingest.sweepPii(ch);
+      payoutLinesInClickHouse = async () =>
+        Number(
+          (
+            await rowsOf<{ n: string }>(
+              "SELECT count() AS n FROM fct_ledger_line WHERE source_topic = 'psp.payout'",
+            )
+          )[0]!.n,
+        );
+      tamperPayout = async () => {
+        // the PSP side of 3c, off by one minor unit (listPayouts reads psp_payout); the ledger is untouched
+        await db.owner.query(
+          `UPDATE psp_payout SET amount_minor = amount_minor + 1
+            WHERE id = (SELECT id FROM psp_payout ORDER BY provider_payout_id COLLATE "C" LIMIT 1)`,
+        );
+      };
       countRows = async (table) =>
         Number((await rowsOf<{ n: string }>(`SELECT count() AS n FROM ${table}`))[0]!.n);
       plantRawEmail = async () => {
@@ -499,9 +534,23 @@ describe.runIf(skip === null)(
         '3b cash: captures = the ledger capture entries',
         '3c cash: payouts = bank debits',
       ]);
-      // every identity compared something real (3c: the month has no PSP payouts, both sides empty)
-      for (const i of r.identities.filter((x) => !x.identity.startsWith('3c')))
-        expect(i.keys, i.identity).toBeGreaterThan(0);
+      // every identity compared something real, 3c included (#633: the month's PSP payouts, reconciled by the ledger)
+      for (const i of r.identities) expect(i.keys, i.identity).toBeGreaterThan(0);
+      const c3 = r.identities.find((i) => i.identity.startsWith('3c'))!;
+      const lines = await payoutLinesInClickHouse();
+      console.info(
+        JSON.stringify({
+          test: 'gate-3c',
+          payouts: payoutsTotal,
+          reconciled: payoutsReconciled,
+          keys: c3.keys,
+          psp_payout_ledger_lines: lines,
+        }),
+      );
+      expect(payoutsTotal).toBeGreaterThan(0);
+      expect(payoutsReconciled).toBe(payoutsTotal);
+      // the pulled ledger copy carries the bank lines the payouts posted
+      expect(lines).toBeGreaterThan(0);
       for (const i of r.identities) expect(i.differences, i.identity).toEqual([]);
       expect(r.ok).toBe(true);
       expect(timings.reconcile_ms).toBeLessThan(CEILING_MS.reconcile);
@@ -518,8 +567,8 @@ describe.runIf(skip === null)(
           watermark: c.watermark,
         }),
       );
-      // the month's topics: order.placed, order.cancelled, payment.captured, refund.issued, shipment.shipped
-      expect(Object.keys(c.month).length).toBeGreaterThanOrEqual(5);
+      // the expected counts are the month's own (with richPayments, payment.failed too), never written by hand
+      expect(Object.keys(c.month)).toContain('payment.failed');
       // the relay's per-topic record adds up to what the relay CLI itself reported, and is the month
       expect(Object.values(c.relayed).reduce((n, x) => n + x, 0)).toBe(Number(summary.relayed));
       expect(c.relayed).toEqual(c.month);
@@ -590,6 +639,15 @@ describe.runIf(skip === null)(
       expect(r.findings).toEqual([
         { table: 'raw_events', column: 'payload', kind: 'email', count: 1 },
       ]);
+    });
+
+    it('3c fails when it should: a PSP payout off by one minor unit, and only 3c shows it', async () => {
+      await tamperPayout();
+      const r = await reconcileOnce();
+      const failing = r.identities.filter((i) => i.differences.length > 0).map((i) => i.identity);
+      console.info(JSON.stringify({ test: 'gate-3c-mutation', failing }));
+      expect(r.ok).toBe(false);
+      expect(failing).toEqual(['3c cash: payouts = bank debits']);
     });
 
     it('the gate fails when it should: a forged ClickHouse ledger line and a changed core order are both caught', async () => {

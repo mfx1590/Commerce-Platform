@@ -4,8 +4,9 @@
 //
 //   * WHAT is swept is enumerated from system.tables (every table and view of the current database; materialised
 //     views hold no rows of their own, and `_migrations*` are the runner's), so a new table or model cannot be
-//     missed. Every column whose type carries a String (Nullable, LowCardinality, Array, Map …) is read through
-//     toString; numbers, dates and UUIDs cannot hold these shapes.
+//     missed. Every column whose type carries a String (Nullable, LowCardinality, Array, Map …) or is JSON is read
+//     through toString; numbers, dates, UUIDs and enums cannot hold these shapes; any OTHER type (IPv4 / IPv6
+//     included) stops the sweep with UnclassifiedColumnError instead of being skipped silently (`columnClass`).
 //   * The shapes: an e-mail; a phone (international `+…`, or a domestic `0…` number with separators); an IBAN (a
 //     registered country, then the mod-97 check); a card number (13-19 digits from an issuer range, then Luhn); and a
 //     name or address KEY with a non-empty value in JSON text (`"first_name":"…"`), which only free-text columns such
@@ -78,6 +79,33 @@ export function ibanValid(s: string): boolean {
   return rest === 1;
 }
 
+/**
+ * How the sweep treats a column type: `read` (it can hold text: any type with a String in it, or JSON / Object /
+ * Dynamic / Variant, all read through toString), `safe` (numbers, dates, uuids, booleans, enums: no free text, at any
+ * Nullable / LowCardinality / Array depth), `unknown` (anything else, IPv4 / IPv6 included — an address is personal
+ * data, so such a column needs a decision, never a silent skip).
+ */
+export function columnClass(type: string): 'read' | 'safe' | 'unknown' {
+  if (/String|JSON|Object\(|Dynamic|Variant/.test(type)) return 'read';
+  let inner = type.trim();
+  for (let m; (m = /^(Nullable|LowCardinality|Array)\((.*)\)$/.exec(inner));) inner = m[2]!.trim();
+  return /^(U?Int(8|16|32|64|128|256)|Float(32|64)|BFloat16|Decimal(32|64|128|256)?\(.*\)|Bool|Date|Date32|DateTime(\(.*\))?|DateTime64\(.*\)|UUID|Enum(8|16)?\(.*\)|Nothing)$/.test(
+    inner,
+  )
+    ? 'safe'
+    : 'unknown';
+}
+
+/** A column the sweep cannot classify: the sweep refuses to report "nothing found" over it. */
+export class UnclassifiedColumnError extends Error {
+  constructor(readonly columns: string[]) {
+    super(
+      `pii sweep: column types it cannot classify (read or prove safe first): ${columns.join(', ')}`,
+    );
+    this.name = 'UnclassifiedColumnError';
+  }
+}
+
 const quote = (identifier: string) =>
   `\`${identifier.replace(/\\/g, '\\\\').replace(/`/g, '\\`')}\``;
 
@@ -98,13 +126,20 @@ export async function sweepPii(ch: ChClient, opts: SweepOptions = {}): Promise<P
      WHERE database = currentDatabase() AND engine != 'MaterializedView' AND NOT startsWith(name, '_')
      ORDER BY name`,
   );
-  const columns = await rows<{ table: string; name: string }>(
-    `SELECT table, name FROM system.columns
-     WHERE database = currentDatabase() AND position(type, 'String') > 0
-     ORDER BY table, position`,
-  );
+  const swept = new Set(tables.map((t) => t.name));
+  const columns = (
+    await rows<{ table: string; name: string; type: string }>(
+      `SELECT table, name, type FROM system.columns WHERE database = currentDatabase() ORDER BY table, position`,
+    )
+  ).filter((c) => swept.has(c.table));
+  // every column is classified: read, or provably unable to hold text; anything else stops the sweep (#718 review)
+  const unclassified = columns.filter((c) => columnClass(c.type) === 'unknown');
+  if (unclassified.length > 0)
+    throw new UnclassifiedColumnError(unclassified.map((c) => `${c.table}.${c.name}: ${c.type}`));
   const byTable = new Map<string, string[]>();
-  for (const c of columns) byTable.set(c.table, [...(byTable.get(c.table) ?? []), c.name]);
+  for (const c of columns)
+    if (columnClass(c.type) === 'read')
+      byTable.set(c.table, [...(byTable.get(c.table) ?? []), c.name]);
 
   const scanned: PiiSweepResult['scanned'] = [];
   const findings: PiiFinding[] = [];

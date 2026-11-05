@@ -52,6 +52,13 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- INT5 3c FOLLOW-UP (2026-11-05, manager eleven): #718 MERGED 1fad84d4; #633 MERGED as #719 268a81bf (richPayments
+  opt-in). Branch data/phase5-int5-3c. Done: gate month richPayments + reconcileAll(createFixtureSource(month.payouts))
+  after the consumers stop; 3c exemption removed (3 payouts reconciled, 3 keys, 6 psp.payout lines in CH); "3c fails
+  when" = psp_payout.amount_minor +1 → ONLY 3c fails; gate1 counts incl. payment.failed (from the month). #718 nits:
+  sweep classifies every column type (UnclassifiedColumnError on IPv4/6, Tuple, AggregateFunction …), pii:sweep as
+  CLICKHOUSE_READONLY_USER. #720 nit: ask route reader is a lazy getter → store B 403 before the reader's 503 (new
+  route test; negative control: eager → 503). Live gate 9/9 (lag p95 599 ms). Unit: ingest 154, reporting 265.
 - INTEGRATION 5 GATE (2026-11-05, Manager session ELEVEN local_3be8fff4…; plan on #612 latest comment). Branch
   data/phase5-int5-gate from origin/main 2bc270be (first push with explicit -u). Machine is MINE for live CH runs
   (report "machine free"). One PR "Refs #612", Fable review; message PR up (number+head) + checks finished; HOLD
