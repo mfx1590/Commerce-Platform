@@ -308,6 +308,42 @@ not. `data/cdp/README.md` records that asymmetry; closing it by reading the orde
 (manager ruling 2026-10-24), and the way in, if guest analytics ever matters, is a contract change adding
 `email_hash` to those five topics.
 
+### Client events (#725)
+
+`data/cdp/tracking-plan.json` has a third list beside `events` and `unmapped`: **`client_events`**, for events
+a BROWSER emits. The first two are window 3's recommendation rails (#609): `recommendation_viewed` and
+`recommendation_clicked`, both `track`, both anonymous.
+
+They are not bus topics — no envelope, no schema in `packages/events`, no consumer in this service — and that
+is why they are a separate list: `events` and `unmapped` are checked against `EVENT_TOPICS`, so a browser event
+in either one would break that check rather than document anything. **This service neither emits nor receives
+them.** The plan is the shared DEFINITION: the storefront builds against it property-for-property (it holds a
+local copy in `apps/storefront-starter/src/lib/analytics/`), and the tests here pin the shape — all five fields
+present, snake_case names, a comment a reader can disagree with — plus the anonymity below.
+
+**The two consent switches must agree.** The storefront reads `STOREFRONT_ANALYTICS_CONSENT_MODE`
+(`analytics` | `strict`, default `analytics`, an unknown value throws). One storefront deployment is one store,
+so that variable is the per-store switch on the browser side, and it has to be set to the same value as
+**`ENGAGEMENT_CDP_CONSENT_MODE_<STORE_CODE>`** for that brand. Nothing can enforce it from here — they are two
+processes reading two environments — so it is a deployment check. When they disagree, one brand's analytics
+disagrees with itself: the CDP counts the orders while the rails are silent, or the rails report impressions
+for a brand whose events this service is dropping.
+
+**`strict` means never sent**, not "sent without consent". Strict mode requires a granted `marketing_email`
+for a customer we can name; these events carry no customer at all, so in strict every one of them is dropped.
+`"consent_gated": false` on an entry therefore reads the same way it does for a bus topic — no granted purpose
+is REQUIRED — and not as a licence to send in strict mode. A test pins that reading, because the flag invites
+the other one.
+
+**Anonymous, and asserted:** no `customer_id`, no `email_hash`, no cookie and no session id, which is what
+#725 promises. A test rejects any property whose name looks like an identifier — nothing else here would catch
+one, since no consumer in this service ever sees these events. `product_ids` and `product_id` are catalogue
+ids, not people.
+
+There is no browser analytics destination yet (D11, LAUNCH 8.3): the storefront's default sink pushes onto
+`window.dataLayer` and dispatches a `platform:analytics` DOM event, making no network request and setting no
+cookie. A real destination subscribes there at launch.
+
 ### Consent
 
 In `strict` mode, and for the `identify` of a known customer, the consent itself is read

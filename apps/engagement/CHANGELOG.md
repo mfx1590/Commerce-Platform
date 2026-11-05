@@ -1,5 +1,32 @@
 # @platform/engagement
 
+## 0.9.5 — 2026-11-05 (#725 client events in the tracking plan; the #716 version nit)
+
+- **`client_events`, a third top-level list in `data/cdp/tracking-plan.json`** (REQUEST #725 from window 3,
+  approved as proposed): `recommendation_viewed` and `recommendation_clicked`, the storefront's recommendation
+  rails (#609), with the two entries exactly as the request states them. They are BROWSER events — no
+  envelope, no schema in `packages/events`, no consumer here — so they cannot live in `events` / `unmapped`,
+  which are checked against `EVENT_TOPICS`; a browser event there would break that check rather than document
+  anything. This service neither emits nor receives them: the entry is the definition the storefront builds
+  against property-for-property.
+- **Four tests on the new list**, since the plan is now a contract with a party that is not on the bus: every
+  entry carries all five fields with a usable `$comment`; a client event is not a bus topic and cannot quietly
+  become one (no overlap with `events`, `unmapped` or `EVENT_TOPICS`); **every property is anonymous** — no
+  name that looks like `customer_id`, `email`, `session`, `cookie` or a device id, which is the promise #725
+  makes and the one thing nothing else here could catch, because no consumer ever sees these events; and
+  `consent_gated: false` is pinned as "no granted purpose required", NOT "sent in strict mode".
+- **The README** (service and `data/cdp`) records the pair of switches: `STOREFRONT_ANALYTICS_CONSENT_MODE` on
+  the browser side must be deployed to the same value as `ENGAGEMENT_CDP_CONSENT_MODE_<STORE_CODE>` for that
+  brand — two processes, two environments, so nothing can enforce it from here — and **`strict` sends none of
+  these events**, because strict wants a granted `marketing_email` for a customer we can name and these carry
+  no customer at all.
+- **The #716 nit:** the plan documented `order.placed` as `"version": 1`. It is **2** since CONTRACT CHANGE
+  #696 landed in events 0.7.1, with v1 still accepted and mapping identically — the `$comment` that explained
+  why the entry said 1 (the schema was unpublished) is replaced by what a reader needs now: a null
+  `email_hash` is an erased customer, never a profile. Plan `version` 3, `updated` 2026-11-05.
+- Tests: **557 passing / 9 live skipped** offline (was 553/9). The live blocks were NOT needed for this task
+  and the offline run is the evidence for it: window 3 holds the machine.
+
 ## 0.9.4 — 2026-11-03 (docs: the bus keeps 30 days, so a drain measures 30 days)
 
 - **README, the `--drain` section:** "reads its topics from the beginning" is true of the consumer and
