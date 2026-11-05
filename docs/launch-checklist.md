@@ -61,7 +61,7 @@ issue; tick it only with a link to the evidence.
 
 ## Data platform
 
-- [ ] Integration 5 gate green (#612): the money identities at 0 in CI (the #602 gate) and on the dev stack with
+- [x] Integration 5 gate green (#612; report 2026-11-05 on the issue: CI month all 8 identities > 0 keys at 0, access matrix, PII sweep, metrics p95 ~40 ms; dev stack with the cash gap stated): the money identities at 0 in CI (the #602 gate) and on the dev stack with
       the coverage gaps stated; the access matrix; the PII sweep; metrics p95 < 300 ms.
 - [ ] ClickHouse in production: the read-only user, system tables behind a grant, a memory cap sized for the host.
 - [ ] **ClickHouse users as SQL migrations, not XML (#648):** Cloud ignores users.d/config.d; a least-privilege ingest
