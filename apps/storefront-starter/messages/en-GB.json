@@ -241,5 +241,9 @@
       "tooLarge": "Too large to deliver online — please contact us",
       "download": "Download"
     }
+  },
+  "recommendations": {
+    "boughtTogether": "Frequently bought together",
+    "youMayAlsoLike": "You may also like"
   }
 }

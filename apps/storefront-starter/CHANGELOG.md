@@ -1,5 +1,23 @@
 # Changelog — @platform/storefront-starter
 
+## 0.15.0 — 2026-11-05 (window 3, #609: recommendation rails)
+
+- **PDP "Frequently bought together" and cart "You may also like"** from `listProductRecommendations`, rendered with
+  the unchanged `ProductCard` (`src/components/recommendation-rail.tsx`). The rails are server-rendered and hidden
+  when empty. The fetch starts as soon as its anchor is known and runs in parallel with the rest of the page.
+- `src/lib/recommendations.ts` `loadRecommendations` never throws: a 404, 5xx, network error or timeout gives an
+  empty rail. It aborts at `RECOMMENDATIONS_TIMEOUT_MS` (default 300 ms). PDP rails are cached for 60 s (tag
+  `recommendations`); cart rails are `no-store`.
+- New `StoreApiClient.listProductRecommendations`, which sends `variant_ids` as one comma-separated value. New types
+  `RecommendationList` and `RecommendationKind`.
+- **Analytics:** `recommendation_viewed` and `recommendation_clicked`, carrying the served `kind` and the `surface`,
+  with no identity of any kind (`src/lib/analytics/`, a local definition until REQUEST #725 lands). The default
+  sink is `window.dataLayer` plus a `platform:analytics` DOM event, and it makes no network request.
+  `STOREFRONT_ANALYTICS_CONSENT_MODE`: `analytics` (default) or `strict` (nothing tracked); an unknown value throws.
+- Catalogue namespace `recommendations` (en-GB, de-DE).
+- Tests: `test/recommendations.test.ts` (20) and `e2e/recommendations.spec.ts` (server HTML, layout shift, view and
+  click events, cart rail).
+
 ## Unreleased — 2026-10-18 (window 13, #473 PR: #501 review nits)
 
 - The export download link carries the locale prefix (`exportDownloadPath`; no middleware redirect any more) and the

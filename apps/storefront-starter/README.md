@@ -284,6 +284,60 @@ rebuilt by `listHref`. Filters and pagination are links and a GET form, so the f
 JavaScript and every view is shareable and crawlable. The PDP's `VariantPicker` is the only client
 component in the catalog.
 
+## Recommendations (#609)
+
+Two rails, both built on `listProductRecommendations` (Store API 0.5.9, contracts-v0.4.29), and both rendered with
+the PLP's `ProductCard`, unchanged, because the response items are the same `ProductSummary`:
+
+| Surface | Heading (`recommendations.*`)                   | Request                                         |
+| ------- | ----------------------------------------------- | ----------------------------------------------- |
+| PDP     | "Frequently bought together" (`boughtTogether`) | `kind=bought_together&product_id=<product.id>`  |
+| Cart    | "You may also like" (`youMayAlsoLike`)          | `kind=bought_together&variant_ids=<cart lines>` |
+
+Both requests send `limit=4` and the page's currency.
+
+- **A failed or slow call never breaks or holds the page.** `src/lib/recommendations.ts` `loadRecommendations`
+  never throws. A 404, a 5xx, a network error or a timeout all give an empty rail. It gives up and aborts the
+  request at `RECOMMENDATIONS_TIMEOUT_MS` (default **300 ms**). The request starts as soon as its anchor is known:
+  on the PDP after `getProduct`, on the cart after `getCart`. It then runs alongside the page's other reads, so the
+  most a stalled core can add is that deadline. A 404 logs one line in development and nothing in production.
+- **No layout shift; hidden when empty.** The rail is part of the first server HTML or it is absent. There is no
+  Suspense pop-in and no reserved empty box. Its cards use the card's fixed square image box and load lazily, so
+  they never compete with the gallery for LCP.
+- **The SERVED kind.** The rail's `data-kind` and both analytics events use the response's `kind`, not the requested
+  one. A fallback rail reports `popular`.
+- PDP rails are cached for 60 s (tag `recommendations`), like the catalogue. Cart rails are `no-store`.
+- The rail can be empty against a real core until the nightly `index-recommendations` job has run on its data. That
+  is valid. `pnpm mock` always serves a one-item rail.
+
+**Analytics.** `recommendation_viewed` fires once per rail, when half of it is on screen. `recommendation_clicked`
+fires on a click on a card link. Both carry `kind` (served), `surface` (`pdp` | `cart`), `product_ids`, and either
+`count` (viewed) or `product_id` + 1-based `position` (clicked). They carry no customer id, no e-mail hash, no
+cookie and no session.
+
+The definition lives in `src/lib/analytics/recommendation-events.ts` until the CDP tracking plan carries it
+(REQUEST #725 to window 16). The sink (`src/lib/analytics/track.ts`) pushes onto `window.dataLayer` and dispatches
+a `platform:analytics` DOM event. It makes no request: there is no destination yet (D11; LAUNCH 8.3).
+
+Consent follows the 2026-10-23 rule through `STOREFRONT_ANALYTICS_CONSENT_MODE`:
+
+- `analytics` (default): the events are sent.
+- `strict`: nothing is tracked. Strict drops events without a known, consenting customer, and these events never
+  name one. The rail still renders.
+- An unknown value throws.
+
+Keep it equal to the engagement service's `ENGAGEMENT_CDP_CONSENT_MODE_<STORE_CODE>` for the same store.
+
+**For a brand (re-sync, window 10).** Pick up:
+
+- `src/lib/recommendations.ts`, `src/lib/analytics/**`, `src/components/recommendation-{rail,tracker}.tsx`;
+- the two `RecommendationRail` placements in the PDP and cart pages;
+- the `listProductRecommendations` client method and its types;
+- the `recommendations` namespace in every catalogue the brand ships;
+- the two optional environment variables.
+
+A brand that overrides the PDP or cart page must place the rail itself.
+
 ## Cart and checkout
 
 The cart lives in the API. The browser carries only its id, in an httpOnly cookie, so nothing about

@@ -241,5 +241,9 @@
       "tooLarge": "Zu groß für den Online-Download — bitte kontaktieren Sie uns",
       "download": "Herunterladen"
     }
+  },
+  "recommendations": {
+    "boughtTogether": "Wird oft zusammen gekauft",
+    "youMayAlsoLike": "Das könnte Ihnen auch gefallen"
   }
 }
