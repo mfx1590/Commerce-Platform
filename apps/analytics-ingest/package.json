@@ -22,6 +22,7 @@
     "once": "node dist/main.js --once",
     "ch:migrate": "tsx src/migrate-cli.ts",
     "reconcile": "tsx src/reconcile-cli.ts",
+    "pii:sweep": "tsx src/pii-sweep-cli.ts",
     "test": "vitest run --passWithNoTests",
     "lint": "eslint . --max-warnings 0",
     "clean": "rm -rf dist .turbo"

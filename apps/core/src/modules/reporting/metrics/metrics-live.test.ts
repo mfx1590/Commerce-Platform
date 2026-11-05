@@ -7,6 +7,8 @@
 //   * p95 latency over 200 random queries < 300 ms (measured, printed);
 //   * the READ path: one compiled query through `analytics_ro` on `analytics` (readonly = 1, no per-query settings).
 // Opt-in like the other ClickHouse tests (ANALYTICS_LIVE=1 with the machine; CI=true), skipped with a printed reason.
+// CI (Integration 5 gates 3/5, #612): every block prints one JSON line when it passes (`test: 'metrics-live'`), the
+// p95 included, and a skipped block prints why; the describe titles are pinned by require-live-tests.
 import type { Express } from 'express';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -106,13 +108,19 @@ describe.runIf(skip === null)('metrics API on ClickHouse (#603)', () => {
   });
 
   it('every metric runs on ClickHouse at every grain', async () => {
+    let runs = 0;
     for (const m of Object.keys(METRICS) as MetricId[])
-      for (const grain of METRICS[m].grains ?? ['day', 'week', 'month', 'total'])
+      for (const grain of METRICS[m].grains ?? ['day', 'week', 'month', 'total']) {
         await executeMetricQuery(
           reader,
           parseMetricQuery({ metrics: [m], grain, from: '2026-10-01', to: '2026-11-01' }),
           [A],
         );
+        runs += 1;
+      }
+    console.info(
+      JSON.stringify({ test: 'metrics-live', block: 'every metric × grain', queries: runs }),
+    );
   });
 
   it('300 random queries for a store-A scope never return another store, and their totals equal the marts for A', async () => {
@@ -132,18 +140,35 @@ describe.runIf(skip === null)('metrics API on ClickHouse (#603)', () => {
       seed = (seed * 48271) % 2147483647;
       return seed / 2147483647;
     };
+    let rows = 0;
+    let compared = 0;
     for (let i = 0; i < 300; i++) {
       const q = randomQuery(random, [A]);
       const r = await executeMetricQuery(reader, q, [A]);
+      rows += r.rows.length;
       for (const row of r.rows) expect([null, A], JSON.stringify(q)).toContain(row.store_id);
       if (
         q.metrics.includes('bookings_minor') &&
         q.to === '2027-01-01' &&
         q.dimensions.length === 0
       )
-        for (const t of r.currency_totals)
+        for (const t of r.currency_totals) {
           expect(t.values.bookings_minor, JSON.stringify(q)).toBe(truth.get(t.currency!) ?? 0);
+          compared += 1;
+        }
     }
+    // the property was exercised: rows came back, and totals were compared with the marts
+    expect(rows).toBeGreaterThan(0);
+    expect(compared).toBeGreaterThan(0);
+    console.info(
+      JSON.stringify({
+        test: 'metrics-live',
+        block: 'leak property (store A)',
+        queries: 300,
+        rows,
+        totals_compared: compared,
+      }),
+    );
   });
 
   it('a two-store scope answers per store exactly what each store answers alone', async () => {
@@ -161,6 +186,9 @@ describe.runIf(skip === null)('metrics API on ClickHouse (#603)', () => {
     }
     expect(both.rows.some((r) => r.store_id === A) && both.rows.some((r) => r.store_id === B)).toBe(
       true,
+    );
+    console.info(
+      JSON.stringify({ test: 'metrics-live', block: 'two-store scope', rows: both.rows.length }),
     );
   });
 
@@ -193,7 +221,12 @@ describe.runIf(skip === null)('metrics API on ClickHouse (#603)', () => {
   });
 
   it('the read path: analytics_ro reads with no per-query settings, is refused a write, and runs a compiled query', async (ctx) => {
-    if (!ro) return ctx.skip();
+    if (!ro) {
+      console.warn(
+        'metrics-live.test: CLICKHOUSE_READONLY_USER is not set — the analytics_ro read path is skipped',
+      );
+      return ctx.skip();
+    }
     // reading is accepted without any per-query setting (the profile carries readonly and the limits)
     const r = await (
       await ro.query({ query: 'SELECT count() AS n FROM raw_events', format: 'JSONEachRow' })
@@ -230,6 +263,13 @@ describe.runIf(skip === null)('metrics API on ClickHouse (#603)', () => {
     });
     await expect(executeMetricQuery(ro, q, [A])).resolves.toMatchObject({ truncated: false });
     expect(compileMetricQuery(q, [A]).sources).toHaveLength(1);
+    console.info(
+      JSON.stringify({
+        test: 'metrics-live',
+        block: 'read path (analytics_ro)',
+        compiled_query: true,
+      }),
+    );
   });
 
   describe('a store-scoped principal cannot escape its scope over HTTP (the real router, real data)', () => {
@@ -334,6 +374,9 @@ describe.runIf(skip === null)('metrics API on ClickHouse (#603)', () => {
       const r = await ask('seed-analyst', { metrics: ['bookings_minor'], dimensions: ['store'] });
       expect(r.status).toBe(200);
       expect(new Set(r.body.rows.map((x: { store_id: string }) => x.store_id)).size).toBe(3);
+      console.info(
+        JSON.stringify({ test: 'metrics-live', block: 'HTTP scope escape (a)-(d) + organization' }),
+      );
     });
   });
 });
