@@ -1,5 +1,11 @@
 # Changelog — @platform/accounting
 
+## Unreleased (#633, main window on integration/phase5-633-month)
+
+- Test only: `test/month-payouts.test.ts` (+2) — the richer generated month (`@platform/test-utils` 0.2.0,
+  `richPayments`) consumed by the ledger; each legal entity's month-end payout reconciles with 0 differences and posts
+  the bank entry, and `listPayouts` = the 1000 debits from psp.payout (identity 3c's two sides). No code change.
+
 ## 0.6.10 — 2026-11-05 (the #696 gate, accounting side; #701)
 
 - `order.placed@2` (#696: v1 with `email_hash` nullable, an erased customer): checked at runtime — the ledger never

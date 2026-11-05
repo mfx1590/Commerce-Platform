@@ -8,6 +8,8 @@
 //   order.cancelled   → that order's status = 'cancelled', cancelled_at
 //   payment.captured  → payment (status 'captured', amount, fee, captured_at); the order's payment_status 'captured'
 //   payment.failed    → payment (status 'failed'); the order's payment_status 'failed' unless it was captured
+// (a split capture or a retry is a second payment row: each payment_id is its own row; any capture makes the order
+// 'captured', #633)
 //   refund.issued     → refund (status 'succeeded', amount, reason, created_at = issued_at)
 // Columns the events do not carry and no report reads get neutral fixture values: `email` is
 // `projection+<order_id>@example.test` (the event carries only a hash), the addresses hold only the payload's
