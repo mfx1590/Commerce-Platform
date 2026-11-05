@@ -185,7 +185,50 @@ Bus consumers for engagement, each an adapter + dev sink/mock (no external accou
 - **Never commit a 64-hex email_hash fixture.** The `sha256` $def needs a real 64-hex value, so a word will not validate — compute it: `createHash('sha256').update('…').digest('hex')`, which is what apps/core does. I had three such literals before catching it; one would have reddened every open PR.
 - `pg` is deliberately NOT a dependency of this app: for a pool type use `Parameters<typeof createTenantClient>[0]`.
 
-## RESUME HERE — 2026-11-03: docs note MERGED (PR #713 = 3ff0acdc); IDLE
+## RESUME HERE — 2026-11-05: #725 client events + the #716 version nit — PR opening
+
+**Manager session ELEVEN now** (session ten is gone; repo root). Branch `engagement/phase5-725-client-events`
+off `origin/main` `9c408327`, carrying #713's stranded memory commit. `pnpm install --frozen-lockfile` was a
+no-op (already up to date). Since my last task: **#696 is DONE** (events 0.7.1 publishes `order.placed@2`,
+#716), the #629 replay scrub-to-@2 is in (events 0.8.0, #717), Integration 5 green (#612).
+
+**What #725 is:** REQUEST from window 3 (storefront, #609 recommendation rails), approved as proposed. A new
+TOP-LEVEL `client_events` list in `data/cdp/tracking-plan.json` with `recommendation_viewed` and
+`recommendation_clicked`, exactly as the issue states them. They are BROWSER events: no envelope, no schema in
+`packages/events`, no consumer here — and that is WHY they are a third list, because `events`/`unmapped` are
+checked against `EVENT_TOPICS` and a browser event in either would break that check. This service neither
+emits nor receives them; the entry is the shared definition the storefront builds against property-for-property
+(it keeps a local copy under `apps/storefront-starter/src/lib/analytics/`).
+
+**Four tests, because the plan is now a contract with a party that is not on the bus:** all five fields with a
+usable `$comment`; no overlap with `events`, `unmapped` or `EVENT_TOPICS`; **every property anonymous** (no
+`customer_id`/`email`/`session`/`cookie`/device name) — the one promise nothing else here could catch, since no
+consumer sees these events; and `consent_gated: false` pinned as "no granted purpose REQUIRED", not "sent in
+strict". Strict wants a granted `marketing_email` for a customer we can name, and these carry no customer, so
+strict sends none of them.
+
+**The two switches must AGREE and nothing can enforce it:** `STOREFRONT_ANALYTICS_CONSENT_MODE` (browser) and
+`ENGAGEMENT_CDP_CONSENT_MODE_<STORE_CODE>` (here) are two processes reading two environments. A disagreement
+makes one brand's analytics disagree with itself — the CDP counting orders while the rails are silent, or the
+rails reporting impressions for a brand whose events this service drops. Said in both READMEs as a DEPLOYMENT
+check.
+
+**The #716 nit, which was my own deliberate deferral:** the plan said `order.placed` `"version": 1` with a
+`$comment` explaining that the schema was unpublished. #716 published it, so the entry is **2** now (v1 still
+accepted, maps identically — the nullable `email_hash` is not one of the properties) and the comment says what
+a reader needs instead: a null hash is an erased customer, never a profile. Plan `version` 3.
+
+**Still open, worth a follow-up PR (not bundled):** `src/testing/order-placed-v2.ts` is now dead scaffolding —
+@2 is published, so the `ajv.getSchema(id) ?? compile(mock)` handover I built for exactly this day means the
+real schema validates the fixtures and the mock is never compiled. The suite passes untouched, which was the
+point. Replacing the helper with `envelopeFor(..., 2)` and deleting it is a small, separate change; proposed to
+the manager rather than slipped into a #725 PR.
+
+**Machine:** window 3 holds it. The gate run used the broker (the live blocks ran) before I thought about it;
+I then re-ran with `KAFKA_BROKERS=127.0.0.1:19999` so the recorded evidence is the OFFLINE one — 557 passed /
+9 skipped, each skip printing its reason. For a task that needs no broker, that is the run to quote.
+
+## RESUME (superseded) — 2026-11-03: docs note MERGED (PR #713 = 3ff0acdc); IDLE
 
 **Manager session ten**, docs only. Branch `engagement/phase5-712-docs` off `origin/main`, carrying #705's
 stranded memory commit (cherry-picked).
