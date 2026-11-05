@@ -2,6 +2,16 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-11-05 · the Integration 5 access matrix (#612 gate 3)
+
+- `test/access-matrix.test.ts`: 13 routes (the four reports, window 17's three marketing reports, listMetrics,
+  queryMetrics, askMetrics, askMetricsFeedback, draftProductCopy, Store API recommendations) × owner, finance, HQ
+  analyst, HQ support, store admin of A, store admin of B, no token (publishable key A / B / none for the Store API)
+  → the status `x-permission` + ADR 0002 decide, one rule per row and one printed line per route. Completeness from
+  the contract and the routers' stacks (a new route without a row fails), and the store A / B leak sweep over every
+  row-returning route. Unit job only (public module APIs, no ClickHouse, AI off); `test/README.md` says what is
+  covered where. No finding: every cell matched the contract and ADR 0002.
+
 ### 2026-11-05 · the outbox replay scrubs an erased customer's order.placed to @2 (#629, window 14)
 
 - `replayOutbox` (`src/outbox/replay.ts`) no longer skips an `order.placed` that names an erased customer. It sends it as `order.placed@2` with `customer_id` and `email_hash` null (packages/events 0.8.0 `scrubErased`): the stored row is validated as stored, then the scrub is validated as v2. The `event_id` is unchanged, the `version` header is 2, and the schema id is looked up for the version SENT. The summary gains `erased_scrubbed` per event type. Other customer-naming topics are still skipped. A ledger rebuilt from scratch now keeps those orders' revenue, and their parked shipments, cancellations and refunds post.
