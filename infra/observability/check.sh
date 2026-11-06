@@ -95,6 +95,20 @@ if ! MSYS_NO_PATHCONV=1 docker run --rm -v "$ROOT/infra/observability:/cfg:ro" \
   fail=1
 fi
 
+# The SLO rules (#730): generated from rules/slo.mjs (a hand edit of the YAML fails here), valid PromQL, and
+# their unit tests pass — every SLO's burn-rate alerts fire on a burning budget and stay silent when healthy.
+echo '== SLO rules are what rules/slo.mjs generates'
+node "$ROOT/infra/observability/rules/slo.mjs" --check || fail=1
+echo '== SLO rules: promtool check rules + test rules'
+if ! MSYS_NO_PATHCONV=1 docker run --rm -v "$ROOT/infra/observability/rules:/r:ro" -w /r   --entrypoint promtool prom/prometheus:v3.0.1 check rules slo.rules.yml; then
+  echo 'FAIL rules/slo.rules.yml did not pass promtool check rules'
+  fail=1
+fi
+if ! MSYS_NO_PATHCONV=1 docker run --rm -v "$ROOT/infra/observability/rules:/r:ro" -w /r   --entrypoint promtool prom/prometheus:v3.0.1 test rules slo.test.yml; then
+  echo 'FAIL rules/slo.test.yml: an SLO alert did not behave as tested'
+  fail=1
+fi
+
 if [ "$fail" -ne 0 ]; then
   echo '== observability checks FAILED'
   exit 1

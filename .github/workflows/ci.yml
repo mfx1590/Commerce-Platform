@@ -7,8 +7,8 @@ on:
     # A memory-only push to main would otherwise run the whole pipeline with CHANGES_ALL=1 — the
     # most expensive run there is — to test nothing.
     #
-    # Deliberately NOT on `pull_request`. Branch protection requires five checks, and a workflow
-    # that does not run reports nothing, so a docs-only PR would sit "Expected — waiting for status"
+    # Deliberately NOT on `pull_request`. Branch protection requires six checks (infra/README.md → Branch
+    # protection), and a workflow that does not run reports nothing, so a docs-only PR would sit "Expected — waiting for status"
     # and could never merge. On the PR side the classifier already makes a docs-only run no-op in
     # seconds, so there is little to save and a merge deadlock to lose.
     paths-ignore:
@@ -83,6 +83,10 @@ jobs:
       # turns a run into pass/fail lines is tested on every change.
       - name: self-test the load report
         run: node --test infra/load/report.test.mjs
+      # The production-dependency gate (#730): its decisions (threshold, expiry, stale, fail-closed) are tested on
+      # every change; the audit itself runs in its own job below.
+      - name: self-test the dependency audit gate
+        run: node --test infra/ci/audit-gate.test.mjs
       - id: filter
         run: |
           if [ "${{ github.event_name }}" != 'pull_request' ]; then
@@ -614,7 +618,7 @@ jobs:
         run: docker compose -f infra/docker/docker-compose.yml down -v
 
   # apps/admin's journeys against the REAL core (#285, admin task 2.6 / #118). The Prism variant in
-  # `auth-e2e` above stays the required one; this job is ADVISORY — not in branch protection's list —
+  # `auth-e2e` above stays the gate (itself not yet required: plan D6); this job is ADVISORY — not in the list —
   # until it has a week of green runs, so a core regression shows here without blocking every merge.
   #
   # Real staff sign-in end to end: Keycloak's staff realm issues the token, the core verifies it
@@ -753,9 +757,55 @@ jobs:
       # Static only: the profile is off by default, the dashboards are valid JSON naming datasources
       # that exist, no two services claim a host port, and Prometheus parses its config. Whether the
       # pipeline actually carries a span is the smoke test in the runbook, which needs the stack up.
+      # The SLO rule generator formats with the repo's Prettier (#730), so the check needs the workspace's deps.
+      - uses: pnpm/action-setup@v4
+        if: needs.changes.outputs.observ == 'true'
+      - uses: actions/setup-node@v4
+        if: needs.changes.outputs.observ == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        if: needs.changes.outputs.observ == 'true'
+      # Also: the SLO rules are what rules/slo.mjs generates, pass `promtool check rules`, and their unit tests
+      # (`promtool test rules`, rules/slo.test.yml) fire every burn-rate alert on a burning budget and none on a
+      # healthy one.
       - name: validate the observability stack
         if: needs.changes.outputs.observ == 'true'
         run: bash infra/observability/check.sh
+
+  # Known-vulnerable PRODUCTION dependencies (#730, plan D4). `pnpm audit --prod` resolves production
+  # dependencies from pnpm-lock.yaml (pnpm 10.34.5, the repo's packageManager) and asks the npm advisory database;
+  # infra/ci/audit-gate.mjs fails on any advisory at or above the allow-list's threshold (high) that is not on
+  # infra/security/audit-allowlist.json or whose entry has expired, reports lower severities, and reports an entry
+  # that matches nothing as stale. No install: the lockfile is the input.
+  #
+  # Unconditional, like gitleaks: an advisory can be published on any day, against a lockfile no PR touched.
+  # Advisory until it has a green history; making it required is the owner's branch-protection setting.
+  dependency-audit:
+    name: dependency audit (production)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      # `pnpm audit` exits non-zero whenever it finds anything, so its exit code says nothing; the JSON does. A
+      # lookup that never yields an audit report (registry down) fails the gate CLOSED — it does not pass.
+      - name: pnpm audit --prod (the advisory lookup, retried)
+        run: |
+          for attempt in 1 2 3; do
+            pnpm audit --prod --json > "$RUNNER_TEMP/audit.json" 2> "$RUNNER_TEMP/audit.err" || true
+            if node -e 'const a=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.exit(a.advisories&&a.metadata?0:1)' "$RUNNER_TEMP/audit.json" 2>/dev/null; then
+              echo "advisory lookup answered (attempt $attempt)"
+              exit 0
+            fi
+            echo "attempt $attempt: no audit report"; head -c 400 "$RUNNER_TEMP/audit.err"; sleep 15
+          done
+          echo 'the advisory lookup never answered; the gate will fail closed'
+      - name: production dependency gate (fails on a high+ advisory outside the allow-list)
+        run: node infra/ci/audit-gate.mjs "$RUNNER_TEMP/audit.json" infra/security/audit-allowlist.json
 
   secrets:
     name: secret scan (gitleaks)

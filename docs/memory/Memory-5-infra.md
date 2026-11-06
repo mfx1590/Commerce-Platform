@@ -1,8 +1,8 @@
 # Memory 5 — Infra & DevOps
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
-Last updated: 2026-10-08 · Contracts: `contracts-v0.1` · Branch: `infra/phase3` · Worktree: `../wt-infra`
-Status: **owner-grants follow-up** (Refs #346, 2026-10-08): the witness warns on REFUSED owner logins, not on two successes in one step. One push, its own live run is the proof (the step cannot fail the job).
+Last updated: 2026-11-06 · Contracts: `contracts-v0.1` · Branch: `infra/phase6-730` · Worktree: `../wt-infra` · Manager: **Manager session eleven** (repo-root manager; chain in Memory-main's first bullet)
+Status: **Phase 6, #730 (P6.2)** — APPROVED (A1, B1, C = #729's labels, D1); PR **#734** (draft) up; seed proven red (run 42244475449), reverted + main merged; waiting for green on the final head.
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -107,6 +107,54 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   the six-flow runbook index, and run-e2e.sh no longer grepping app configs for a browser channel.
 
 ## In progress
+
+- **#730 (P6.2) — APPROVED 2026-11-06 and BUILT.** A1: own job `dependency audit (production)`, advisory.
+  B1: `infra/observability/SLO.md` (the manager adds `docs/slo.md` as a pointer). C: #729's labels
+  (`http_status_class`, not the code; histogram `http_server_request_duration_seconds`). Checkout latency 95% < 2 s
+  (production calls the payment provider). Relay lag rule against `outbox_relay_lag_oldest_seconds{service_name=
+  "outbox-relay"}`, METRIC PENDING, REQUEST **#733** to window 14. D1: dated baseline, stale entries reported not
+  failed; per-owner lists in the PR body, the manager routes them (no REQUESTs). E (`.github/dependabot.yml` outside my
+  row) NOT answered yet → Dependabot held. Asked window 1 (via the manager) for buckets 0.3 and 2 s.
+  Built: audit-gate.mjs + 9 tests; allow-list (28); rules/slo.mjs → slo.rules.yml (72 rules) + slo.test.yml (16 cases,
+  mutation-checked), formatted through the repo's Prettier; check.sh runs generator --check + promtool check/test
+  (prom/prometheus:v3.0.1); observability job now installs deps; prometheus.yml rule_files + compose mount.
+  Proof plan: commit 1 = the work; commit 2 = SEED (root package.json + lockfile: lodash 4.17.20, a high advisory NOT in
+  the baseline) → the audit job must FAIL, ownership is red on that commit (root config — expected); commit 3 = revert.
+  **Proof DONE:** PR #734; seed 3247b2c9's run 42244475449 → `dependency audit (production)` FAIL on GHSA-35jh-r3h4-6jhm
+  only (lookup answered attempt 1; 28 baseline entries allowed); ownership red there (expected). Revert 1d7331b0, merged
+  main (1db7fefb); gate PASS locally on the merged lockfile. Next: green → "checks finished" to the manager → HOLD pushes.
+  E1 (manager, 2026-11-06): `.github/dependabot.yml` is in my row on main → added (npm prod/dev, actions, docker; weekly,
+  grouped minor+patch; majors single). Pushed after the first final head, BEFORE "checks finished" was sent.
+  REVIEW FIX (manager + Opus): Prometheus 3 normalises `le` (`2`→"2.0", `10000`→"10000.0"); `le="2"` selected 0
+  series on the live stack vs 17 for "2.0". slo.mjs `le()` + literal normalised test series; mutation (rules back to
+  "2") fails 4 burning cases. Gate tests 9→11 (non-JSON CLI, multi-path).
+  Then (manager, from #729's live run): le as regex `2(\\.0)?` (robust both ways); availability `(5xx or vector(0)) / all`
+  because OTel creates the 5xx series only on the first 5xx; healthy cases now have NO 5xx series (mutation: drop
+  the guard → 3 healthy cases got nil). Later PR, after #729 merges: infra/load/README.md still says "No OpenTelemetry yet".
+  Gotcha: Git Bash collapses `\\` in args to native Windows programs (node -e, curl, sed edits) — put regex-bearing
+  queries/scripts in a file written with Write.
+  Gotcha: no `jq` in Git Bash here — use `gh ... --jq`. Job logs while the run is in progress: `gh api .../actions/jobs/<id>/logs`.
+  Earlier plan notes: Branch `infra/phase6-730` from main `33cb5b6f`.
+  Facts: branch protection enforces 6 checks (ownership, lint+typecheck, unit, contract, gitleaks, perf) — NOT
+  `live auth + end-to-end` (D6: it becomes required after 10 green runs on main; the owner's setting). Core has NO
+  OTel yet (plan item 1, window 1, parallel); only analytics-ingest exports metrics (`analytics_ingest.ingest_delay`
+  ms histogram → Prometheus `analytics_ingest_ingest_delay_milliseconds_bucket` via collector-contrib 0.115.1's
+  prometheus exporter, unit suffixes on, resource attrs → labels). The relay computes `lag_oldest_seconds` but does
+  not export it. `docs/slo.md` is under `docs/**` = main window's path → raised with the manager.
+  Plan (details in the message to the manager): pnpm 10.34.5 `audit --prod --json` + an owned gate script with an
+  expiring allow-list (infra/security/audit-allowlist.json), fail at severity ≥ high; Dependabot weekly grouped
+  (npm prod / npm dev / github-actions / docker); 7 SLOs; recording + multi-window burn-rate rules under
+  infra/observability/rules/ with a promtool `test rules` file, run in the observability job; README D6 fix.
+  **Decisions open with the manager (A–E):** A where the audit runs (own job, recommended / step in the
+  gitleaks job); B docs/slo.md is docs/** (I write infra/observability/SLO.md, the manager points docs/slo.md at it —
+  recommended); C the core's metric names (OTel semconv `http_server_request_duration_seconds_bucket{service_name,
+  http_route, http_request_method, http_response_status_code}` + the relay gauge `outbox_relay_lag_oldest_seconds`,
+  as a REQUEST to window 1); D: **`pnpm audit --prod` already shows 28 high/critical advisories in 16 packages on main
+  33cb5b6f** (core via Medusa: proxy-addr CRITICAL, axios ×7, …; admin: next 15.5.25 CRITICAL, postcss, sharp, …) →
+  D1 (recommended): gate at ≥ high with a baseline allow-list, criticals expire 2026-11-20, highs 2026-12-06, REQUESTs
+  to the owners; E: `.github/dependabot.yml` is outside my row (`.github/workflows/**` only) → E1: the manager adds it.
+  **Built locally:** infra/ci/audit-gate.mjs + test (9/9), infra/security/audit-allowlist.json (28 entries from the
+  real report), README branch-protection section rewritten to the 6 enforced checks + D6, two stale ci.yml comments.
 
 - **#346 — DONE: PR #407 merged as `322c6f6`** (head `87347bb`, live job green ×3 on run 37641014232 attempts 1–3;
   each witness 2 successful / 0 refused owner logins). **Follow-up owed (manager: tomorrow):** `infra/ci/owner-grants.sh`

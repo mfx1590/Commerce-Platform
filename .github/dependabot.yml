@@ -1,0 +1,59 @@
+# Weekly grouped dependency updates (#730, plan D4). The audit gate (`dependency audit (production)`) says what is
+# vulnerable; this keeps the baseline in infra/security/audit-allowlist.json shrinking. Minor and patch bumps arrive as
+# ONE PR per group per week; a major bump arrives as its own PR, because it needs its owning window's review.
+version: 2
+updates:
+  # The pnpm workspace: one lockfile at the root covers every app and package.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      production:
+        dependency-type: production
+        update-types: [minor, patch]
+      development:
+        dependency-type: development
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: docker
+    directories:
+      - /apps/accounting
+      - /apps/admin
+      - /apps/analytics-ingest
+      - /apps/core
+      - /apps/feeds
+      - /apps/notifications
+      - /apps/storefront-starter
+      - /apps/storefronts/brand-a
+      - /apps/storefronts/brand-b
+      - /apps/storefronts/brand-c
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+    commit-message:
+      prefix: docker
+    groups:
+      base-images:
+        patterns: ['*']

@@ -177,6 +177,7 @@ services:
       - '--web.enable-remote-write-receiver'
     volumes:
       - ../observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../observability/rules:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
     ports:
       - '9090:9090'
