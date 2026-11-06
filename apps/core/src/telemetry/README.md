@@ -51,7 +51,7 @@ trace id that lands in our outbox; every trace is rooted at the core.
 ## The outbox envelope's `trace`
 
 `currentTraceFields()` returns `{ trace_id, request_id }` of the active request (the SERVER span's trace id and
-the `X-Request-Id`), or `undefined` outside a request or with telemetry off. `withEvents` fills an envelope's
+the request id from `requestIdOf`: a client `X-Request-Id` only in the safe shape, a generated uuid otherwise, #740), or `undefined` outside a request or with telemetry off. `withEvents` fills an envelope's
 `trace` with it when the caller set none, and never overwrites one the caller set.
 
 ## Tests

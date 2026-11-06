@@ -360,6 +360,45 @@ describe('RED metrics and the SERVER span', () => {
     }
   });
 
+  it('a failure inside the finish listener never reaches the request or the process; the span still ends (#740)', async () => {
+    spans.reset();
+    const broken = express();
+    broken.use(
+      telemetryMiddleware({
+        routes: {
+          match: () => {
+            throw new Error('matcher exploded');
+          },
+        },
+      }),
+    );
+    broken.get('/x', (_req, res) => res.json({ ok: true }));
+    const uncaught = vi.fn();
+    process.on('uncaughtException', uncaught);
+    try {
+      await request(broken).get('/x').expect(200, { ok: true });
+      await tick();
+    } finally {
+      process.off('uncaughtException', uncaught);
+    }
+    expect(uncaught).not.toHaveBeenCalled();
+    expect(spans.getFinishedSpans()).toHaveLength(1);
+  });
+
+  it('an unsafe X-Request-Id never becomes the span attribute or the context request id (#740)', async () => {
+    spans.reset();
+    const res = await request(app)
+      .post('/store/carts')
+      .set('X-Request-Id', 'dora@example.test')
+      .send({})
+      .expect(201);
+    await tick();
+    const [span] = spans.getFinishedSpans();
+    expect(res.body.request_id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(span!.attributes['http.request.id']).toBe(res.body.request_id);
+    expect(JSON.stringify(span!.attributes)).not.toContain('dora');
+  });
+
   it('a database transaction is a child span; a failure carries the SQLSTATE, never the message', async () => {
     spans.reset();
     const fake: ScopedClient = {

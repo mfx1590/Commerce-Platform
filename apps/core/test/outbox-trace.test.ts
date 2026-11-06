@@ -103,6 +103,23 @@ describe('the outbox envelope trace (#729)', () => {
     expect(write.attributes['outbox.events']).toBe(1);
   });
 
+  it('an unsafe X-Request-Id (an e-mail, an over-long string) never reaches trace.request_id (#740)', async () => {
+    for (const unsafe of ['dora@example.test', 'x'.repeat(200)]) {
+      const res = await request(app)
+        .post('/store/carts')
+        .set('X-Request-Id', unsafe)
+        .send({})
+        .expect(201);
+      const trace = res.body.trace as { trace_id: string; request_id: string };
+      expect(trace.request_id).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+      expect(JSON.stringify(trace)).not.toContain('dora');
+      expect(trace.request_id).not.toBe(unsafe);
+      expect(trace.trace_id).toMatch(/^[0-9a-f]{32}$/);
+    }
+  });
+
   it('never overwrites a trace the caller set', async () => {
     const callerTrace = { trace_id: null, request_id: 'set-by-caller' };
     const res = await request(app)

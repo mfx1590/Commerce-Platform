@@ -22,6 +22,7 @@ import {
   type Tracer,
 } from '@opentelemetry/api';
 import type { Request, RequestHandler } from 'express';
+import { requestIdOf } from '../http/request-id';
 import { coreTracer, REQUEST_ID_KEY, TRACER_NAME } from './context';
 import type { KnownStores } from './known-stores';
 import { UNMATCHED_ROUTE, type RouteMatch, type RouteMatcher } from './routes';
@@ -88,15 +89,30 @@ export function telemetryMiddleware(opts: TelemetryMiddlewareOptions): RequestHa
       { kind: SpanKind.SERVER, attributes: { 'http.request.method': method } },
       ROOT_CONTEXT,
     );
-    const header = req.headers['x-request-id'];
-    const requestId = (Array.isArray(header) ? header[0] : header)?.slice(0, 128);
-    let ctx = trace.setSpan(ROOT_CONTEXT, span);
-    if (requestId) ctx = ctx.setValue(REQUEST_ID_KEY, requestId);
+    // The id requestIdOf keeps: a client's X-Request-Id only in the safe shape, a generated uuid otherwise (#740).
+    // It reaches the span, the outbox envelope's trace.request_id and so the bus.
+    const requestId = requestIdOf(req);
+    const ctx = trace.setSpan(ROOT_CONTEXT, span).setValue(REQUEST_ID_KEY, requestId);
 
     let ended = false;
+    // Runs from the response's finish/close listeners: a throw here would be an uncaught exception, so telemetry
+    // failing never reaches the request or the process (#740 review); the span is ended either way.
     const end = (): void => {
       if (ended) return;
       ended = true;
+      try {
+        record();
+      } catch {
+        // metrics and span attributes are best effort
+      } finally {
+        try {
+          span.end();
+        } catch {
+          // nothing left to do
+        }
+      }
+    };
+    const record = (): void => {
       const match = opts.routes.match(path);
       const status = res.statusCode;
       const attributes: Attributes = {
@@ -112,11 +128,10 @@ export function telemetryMiddleware(opts: TelemetryMiddlewareOptions): RequestHa
       span.setAttributes({
         ...attributes,
         'http.response.status_code': status,
-        ...(requestId ? { 'http.request.id': requestId } : {}),
+        'http.request.id': requestId,
         ...(res.writableFinished ? {} : { 'http.aborted': true }),
       });
       if (status >= 500) span.setStatus({ code: SpanStatusCode.ERROR });
-      span.end();
     };
     res.once('finish', end);
     res.once('close', end);

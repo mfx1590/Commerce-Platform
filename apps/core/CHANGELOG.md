@@ -4,6 +4,12 @@
 
 ### 2026-11-06 · OpenTelemetry: traces and RED metrics per route and store (#729, plan D3)
 
+- **#740 review (privacy):** `requestIdOf` (`src/http/request-id.ts`) keeps a client `X-Request-Id` only when it
+  matches `/^[A-Za-z0-9._:-]{1,128}$/`; anything else is replaced by a generated uuid (written back, echoed). The id
+  reaches the outbox envelope's `trace.request_id` (and so the bus), `audit_log.request_id` and the span, so a public
+  caller can no longer put an e-mail or control characters there. The telemetry middleware uses `requestIdOf`
+  instead of reading the header; its finish/close listener can never throw (try/catch, the span always ends).
+
 - New `src/telemetry` (README): `startTelemetry()` (from `createServer()`) registers a tracer and a meter provider
   over OTLP/HTTP only when the standard `OTEL_*` environment configures an endpoint (`OTEL_SDK_DISABLED=true` wins;
   vitest sets it). An absent collector is one warning; the boot never fails.
