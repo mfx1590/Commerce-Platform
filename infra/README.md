@@ -696,31 +696,29 @@ core includes its PreSync migration Job having succeeded.
 
 ## Branch protection
 
-Required status checks on `main`, by job name:
+**Required status checks on `main` — what GitHub actually enforces** (read from the branch-protection API on
+2026-11-06, `repos/…/branches/main/protection/required_status_checks`):
 
 ```
 ownership check
-what changed
 lint + typecheck
 unit tests (with Postgres, RLS)
 contract tests (Prism)
+secret scan (gitleaks)
 storefront performance budget (bundle + Lighthouse)
-app images (build only, no push)
-terraform fmt + validate
-helm lint + template + kubeconform
-live auth + end-to-end (Keycloak, OpenFGA, Playwright)
 ```
 
-Set on GitHub under _Settings → Branches → main_: require a pull request, require these checks, and require
-branches to be up to date before merging.
+Set on GitHub under _Settings → Branches → main_ (the owner's setting, not something a PR can change): a pull
+request is required, these checks must pass, and force-pushes to `main` are blocked. Re-read the list from the API
+before quoting it; this README is not the source of truth for a repository setting.
 
-**Applied.** The repository is public, so branch protection is available and on: a pull request is required,
-these checks must pass, and force-pushes to `main` are blocked.
-
-The five checks GitHub actually enforces are a subset of the jobs — `ownership check`, `lint + typecheck`,
-`unit tests (with Postgres, RLS)`, `contract tests (Prism)` and `secret scan (gitleaks)`. The rest
-(`app images`, `helm`, `terraform`, `observability`, `live auth + end-to-end`) run on every PR and are read by
-a human; requiring all of them would make a slow job able to block an unrelated merge.
+**Everything else runs on every PR but is read by a human, not enforced** — among them `what changed`,
+`app images`, `terraform`, `helm`, `observability config`, `admin e2e against the core (advisory)` and
+**`live auth + end-to-end (Keycloak, OpenFGA, Playwright)`**. Earlier versions of this README called the live job
+required; it is not. Plan Phase 6 D6 (`docs/plan/phase6-plan.md`): it becomes a required check once it has 10
+consecutive green runs on `main`, and adding it is the owner's branch-protection change. Until then the merge queue
+can merge before it finishes, so a PR whose proof lives in that job (money, ingest, PII, leak, metrics p95) quotes
+its live runs in the body.
 
 When protection is enabled, `deploy-staging.yml` needs a **bypass allowance** — it pushes the deployed image
 tag to `main`. Add `github-actions[bot]` to the bypass list for the rule. Without it the workflow fails on the
@@ -729,15 +727,13 @@ push with a message pointing here, rather than silently leaving git and the clus
 Two things worth knowing about that list:
 
 - **Every job always runs**, even when it has nothing to do — its expensive steps are skipped instead. That is
-  what makes this list safe to require: a job skipped by a job-level `if:` reports a conclusion branch
+  what makes any job safe to require: a job skipped by a job-level `if:` reports a conclusion branch
   protection treats differently from success, and a required check that never reports blocks the PR forever.
-- **`live auth + end-to-end` is required deliberately**, per the manager's note on [auth] 1.7. It is the only
-  check that exercises the real realms and a real browser; the unit matrix covers the same behaviour but not
-  the path through Keycloak.
+- **The perf check that is required is the aggregator** (`storefront performance budget (bundle + Lighthouse)`),
+  not the per-storefront matrix legs, whose names change with the storefronts.
 
-`admin e2e against the core (advisory)` is intentionally **not** required yet (#285): the Prism variant inside
-`live auth + end-to-end` stays the gate, and the core variant joins the list after a week of green runs, so a
-core regression is visible on every PR without blocking unrelated merges in the meantime.
+`admin e2e against the core (advisory)` is intentionally **not** required yet (#285): it joins the list after a week
+of green runs, so a core regression is visible on every PR without blocking unrelated merges in the meantime.
 
 `preview deploy (placeholder)` is intentionally **not** required — it is a placeholder that will become the
 per-PR preview environment.

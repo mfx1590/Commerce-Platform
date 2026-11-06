@@ -7,8 +7,8 @@ on:
     # A memory-only push to main would otherwise run the whole pipeline with CHANGES_ALL=1 — the
     # most expensive run there is — to test nothing.
     #
-    # Deliberately NOT on `pull_request`. Branch protection requires five checks, and a workflow
-    # that does not run reports nothing, so a docs-only PR would sit "Expected — waiting for status"
+    # Deliberately NOT on `pull_request`. Branch protection requires six checks (infra/README.md → Branch
+    # protection), and a workflow that does not run reports nothing, so a docs-only PR would sit "Expected — waiting for status"
     # and could never merge. On the PR side the classifier already makes a docs-only run no-op in
     # seconds, so there is little to save and a merge deadlock to lose.
     paths-ignore:
@@ -614,7 +614,7 @@ jobs:
         run: docker compose -f infra/docker/docker-compose.yml down -v
 
   # apps/admin's journeys against the REAL core (#285, admin task 2.6 / #118). The Prism variant in
-  # `auth-e2e` above stays the required one; this job is ADVISORY — not in branch protection's list —
+  # `auth-e2e` above stays the gate (itself not yet required: plan D6); this job is ADVISORY — not in the list —
   # until it has a week of green runs, so a core regression shows here without blocking every merge.
   #
   # Real staff sign-in end to end: Keycloak's staff realm issues the token, the core verifies it

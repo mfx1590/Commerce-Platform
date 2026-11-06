@@ -1,8 +1,8 @@
 # Memory 5 — Infra & DevOps
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
-Last updated: 2026-10-08 · Contracts: `contracts-v0.1` · Branch: `infra/phase3` · Worktree: `../wt-infra`
-Status: **owner-grants follow-up** (Refs #346, 2026-10-08): the witness warns on REFUSED owner logins, not on two successes in one step. One push, its own live run is the proof (the step cannot fail the job).
+Last updated: 2026-11-06 · Contracts: `contracts-v0.1` · Branch: `infra/phase6-730` · Worktree: `../wt-infra` · Manager: **Manager session eleven** (repo-root manager; chain in Memory-main's first bullet)
+Status: **Phase 6, #730 (P6.2)** — PLAN sent to the manager, awaiting OK. Plan: docs/plan/phase6-plan.md (D3, D4, D6); tracking #731.
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -107,6 +107,28 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   the six-flow runbook index, and run-e2e.sh no longer grepping app configs for a browser channel.
 
 ## In progress
+
+- **#730 (P6.2) — PLAN, awaiting the manager's OK.** Branch `infra/phase6-730` from main `33cb5b6f`.
+  Facts: branch protection enforces 6 checks (ownership, lint+typecheck, unit, contract, gitleaks, perf) — NOT
+  `live auth + end-to-end` (D6: it becomes required after 10 green runs on main; the owner's setting). Core has NO
+  OTel yet (plan item 1, window 1, parallel); only analytics-ingest exports metrics (`analytics_ingest.ingest_delay`
+  ms histogram → Prometheus `analytics_ingest_ingest_delay_milliseconds_bucket` via collector-contrib 0.115.1's
+  prometheus exporter, unit suffixes on, resource attrs → labels). The relay computes `lag_oldest_seconds` but does
+  not export it. `docs/slo.md` is under `docs/**` = main window's path → raised with the manager.
+  Plan (details in the message to the manager): pnpm 10.34.5 `audit --prod --json` + an owned gate script with an
+  expiring allow-list (infra/security/audit-allowlist.json), fail at severity ≥ high; Dependabot weekly grouped
+  (npm prod / npm dev / github-actions / docker); 7 SLOs; recording + multi-window burn-rate rules under
+  infra/observability/rules/ with a promtool `test rules` file, run in the observability job; README D6 fix.
+  **Decisions open with the manager (A–E):** A where the audit runs (own job, recommended / step in the
+  gitleaks job); B docs/slo.md is docs/** (I write infra/observability/SLO.md, the manager points docs/slo.md at it —
+  recommended); C the core's metric names (OTel semconv `http_server_request_duration_seconds_bucket{service_name,
+  http_route, http_request_method, http_response_status_code}` + the relay gauge `outbox_relay_lag_oldest_seconds`,
+  as a REQUEST to window 1); D: **`pnpm audit --prod` already shows 28 high/critical advisories in 16 packages on main
+  33cb5b6f** (core via Medusa: proxy-addr CRITICAL, axios ×7, …; admin: next 15.5.25 CRITICAL, postcss, sharp, …) →
+  D1 (recommended): gate at ≥ high with a baseline allow-list, criticals expire 2026-11-20, highs 2026-12-06, REQUESTs
+  to the owners; E: `.github/dependabot.yml` is outside my row (`.github/workflows/**` only) → E1: the manager adds it.
+  **Built locally:** infra/ci/audit-gate.mjs + test (9/9), infra/security/audit-allowlist.json (28 entries from the
+  real report), README branch-protection section rewritten to the 6 enforced checks + D6, two stale ci.yml comments.
 
 - **#346 — DONE: PR #407 merged as `322c6f6`** (head `87347bb`, live job green ×3 on run 37641014232 attempts 1–3;
   each witness 2 successful / 0 refused owner logins). **Follow-up owed (manager: tomorrow):** `infra/ci/owner-grants.sh`
