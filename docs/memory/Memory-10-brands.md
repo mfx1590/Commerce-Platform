@@ -316,7 +316,26 @@ is in the issue; what it actually cost:
 **Gate (sequential, per the flake rule): lint, format:check, typecheck 29/29, brand A 835 passed /
 3 skipped, brand B 734, brand C 656, `sync --check` clean in all three.**
 
-**Still to do:** the bundle budgets and perf legs — **the machine**, asked for. The rails add JS to
+**PR #738** (code commit `4efd941`; head = this memory commit), `brands/phase6-728-resync` —>
+`main`, "Closes #728". Pushed with `-u` (first push of the branch).
+
+**The machine ran and is free.** Three production builds; every budgeted route within budget in all
+three brands. The two routes the rails touch: cart **A 140.4 / B 140.2 / C 140.2 kB** (budget 145),
+PDP **A 139.9 / B 139.7 / C 139.7 kB** (budget 144) — near-identical across brands, which is the
+tell that no brand is placing anything of its own. Brand C still bakes **11 `/en-US`** routes and
+zero `/en-GB`/`/de-DE`. Each README's budget block regenerated from these builds (the route list
+gained `(account)/account/deleted`), and **`--verify` re-run AFTER prettier**, because prettier
+reflows that table and `--verify` reads the route list and budget column out of it.
+
+**ONE NUMBER TO WATCH.** Brand C's perf leg is green (`bundle budget PASS, Lighthouse PASS`) but its
+**PDP LCP best run is 2202 ms against the 2500 ms budget**, worst 2370 ms — where brand C measured
+**1716 ms** in #438. ~300 ms of headroom with a ~170 ms spread on this machine. Deliberately
+unchanged: one laptop run cannot split the rails from a month of starter growth, and **#348's rule is
+that the assertion takes the best of N**, so CI's numbers on CI hardware are the ones that count —
+this PR produces them for all three brands. **Raising the budget to make room is the move #348
+forbids.** If CI agrees it is thin, it wants its own issue, not a line in #728.
+
+**Still to do:** The rails add JS to
 the PDP and cart, so the budget is the one criterion here with real uncertainty. Then one push
 (`-u`, first push of this branch), PR "Closes #728", two messages (PR up, checks finished), hold
 pushes after.
