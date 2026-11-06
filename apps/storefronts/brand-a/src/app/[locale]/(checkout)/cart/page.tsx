@@ -4,7 +4,10 @@ import { getLocale, getTranslations } from 'next-intl/server';
 import { Link } from '@/i18n/navigation';
 import { CartLine, EmptyCart } from '@/components/cart-line';
 import { TotalsTable } from '@/components/order-summary';
+import { RecommendationRail } from '@/components/recommendation-rail';
+import { analyticsConsentMode } from '@/lib/analytics/recommendation-events';
 import { getCart } from '@/lib/cart';
+import { EMPTY_RECOMMENDATIONS, loadRecommendations } from '@/lib/recommendations';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getTranslations('cart'))('title') };
@@ -14,10 +17,25 @@ export async function generateMetadata(): Promise<Metadata> {
 export const dynamic = 'force-dynamic';
 
 export default async function CartPage() {
-  const [cart, t, tCommon] = await Promise.all([
-    getCart(),
+  // The rail's anchors are the cart's own lines, so its request starts the moment the cart arrives
+  // and runs alongside the rest of the page's reads; it never throws and gives up at its deadline,
+  // so a slow or failed call renders no rail instead of holding the cart back (#609).
+  const cartRead = getCart();
+  const recommendationsRead = cartRead.then(
+    (value) =>
+      value === null || value.items.length === 0
+        ? EMPTY_RECOMMENDATIONS
+        : loadRecommendations(
+            { surface: 'cart', variantIds: value.items.map((item) => item.variant_id) },
+            { currency: value.totals.total.currency },
+          ),
+    () => EMPTY_RECOMMENDATIONS,
+  );
+  const [cart, t, tCommon, recommendations] = await Promise.all([
+    cartRead,
     getTranslations('cart'),
     getTranslations('common'),
+    recommendationsRead,
   ]);
   const locale = await getLocale();
 
@@ -49,6 +67,13 @@ export default async function CartPage() {
           {tCommon('continueShopping')}
         </Link>
       </div>
+
+      <RecommendationRail
+        surface="cart"
+        recommendations={recommendations}
+        locale={locale}
+        tracking={analyticsConsentMode() === 'analytics'}
+      />
     </div>
   );
 }

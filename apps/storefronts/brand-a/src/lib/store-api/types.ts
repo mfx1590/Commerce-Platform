@@ -53,3 +53,5 @@ export type Body<K extends OperationId> = operations[K] extends { requestBody?: 
 export type ProductPage = Result<'listProducts'>;
 export type OrderPage = Result<'listMyOrders'>;
 export type ListProductsQuery = Query<'listProducts'>;
+export type RecommendationList = Result<'listProductRecommendations'>;
+export type RecommendationKind = RecommendationList['kind'];

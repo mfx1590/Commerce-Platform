@@ -112,9 +112,10 @@ which is how brand B's first perf leg went red (#442) even though every route wa
 
 | Route                                         | First load (gzipped) | Budget             |
 | --------------------------------------------- | -------------------- | ------------------ |
+| `/[locale]/(account)/account/deleted/page`    | 130.5 kB             | 145 kB _(default)_ |
 | `/[locale]/(account)/account/orders/page`     | 130.5 kB             | 145 kB _(default)_ |
-| `/[locale]/(account)/account/page`            | 133 kB               | 145 kB _(default)_ |
-| `/[locale]/(checkout)/cart/page`              | 139.7 kB             | 145 kB             |
+| `/[locale]/(account)/account/page`            | 135 kB               | 145 kB _(default)_ |
+| `/[locale]/(checkout)/cart/page`              | 140.2 kB             | 145 kB             |
 | `/[locale]/(checkout)/checkout/address/page`  | 133.7 kB             | 139 kB             |
 | `/[locale]/(checkout)/checkout/page`          | 129.3 kB             | 145 kB _(default)_ |
 | `/[locale]/(checkout)/checkout/payment/page`  | 133.7 kB             | 145 kB _(default)_ |
@@ -126,7 +127,7 @@ which is how brand B's first perf leg went red (#442) even though every route wa
 | `/[locale]/(content)/pages/[slug]/page`       | 132.8 kB             | 145 kB _(default)_ |
 | `/[locale]/(shop)/categories/[handle]/page`   | 136.2 kB             | 141 kB             |
 | `/[locale]/(shop)/page`                       | 131.1 kB             | 136 kB             |
-| `/[locale]/(shop)/products/[handle]/page`     | 139.2 kB             | 144 kB             |
+| `/[locale]/(shop)/products/[handle]/page`     | 139.7 kB             | 144 kB             |
 | `/[locale]/(shop)/products/page`              | 136.2 kB             | 141 kB             |
 | `/_not-found/page`                            | 102.9 kB             | 145 kB _(default)_ |
 
