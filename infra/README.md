@@ -366,6 +366,10 @@ stale (delete it). It started with a dated baseline: the 28 high/critical adviso
 the gate was introduced (the two critical ones expire 2026-11-20, the rest 2026-12-06). A lookup that never answers
 fails closed.
 
+`.github/dependabot.yml` opens the updates that shrink it: every Monday, one grouped PR per group for minor and patch
+bumps (npm production, npm development, GitHub Actions, the apps' Dockerfile base images); a major bump comes as its
+own PR for the owning window to review.
+
 ## Helm
 
 ```

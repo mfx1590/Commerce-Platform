@@ -123,6 +123,8 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   **Proof DONE:** PR #734; seed 3247b2c9's run 42244475449 → `dependency audit (production)` FAIL on GHSA-35jh-r3h4-6jhm
   only (lookup answered attempt 1; 28 baseline entries allowed); ownership red there (expected). Revert 1d7331b0, merged
   main (1db7fefb); gate PASS locally on the merged lockfile. Next: green → "checks finished" to the manager → HOLD pushes.
+  E1 (manager, 2026-11-06): `.github/dependabot.yml` is in my row on main → added (npm prod/dev, actions, docker; weekly,
+  grouped minor+patch; majors single). Pushed after the first final head, BEFORE "checks finished" was sent.
   Gotcha: no `jq` in Git Bash here — use `gh ... --jq`. Job logs while the run is in progress: `gh api .../actions/jobs/<id>/logs`.
   Earlier plan notes: Branch `infra/phase6-730` from main `33cb5b6f`.
   Facts: branch protection enforces 6 checks (ownership, lint+typecheck, unit, contract, gitleaks, perf) — NOT

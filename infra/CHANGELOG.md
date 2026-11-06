@@ -13,6 +13,8 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 - `infra/observability/SLO.md` and `rules/slo.mjs` → `rules/slo.rules.yml` + `rules/slo.test.yml`: eight SLOs with
   recording rules and multi-window burn-rate alerts, checked by `promtool check rules` and `promtool test rules` in the
   `observability config` job; Prometheus loads them (`rule_files`, compose mount).
+- `.github/dependabot.yml`: weekly grouped minor/patch updates (npm production, npm development, GitHub Actions,
+  Dockerfile base images); majors as single PRs.
 - `#733`: REQUEST to window 14 for the relay lag gauge.
 
 ### Fixed
