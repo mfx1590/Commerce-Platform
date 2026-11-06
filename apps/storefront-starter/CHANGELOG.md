@@ -1,5 +1,11 @@
 # Changelog — @platform/storefront-starter
 
+## 0.15.1 — 2026-11-06 (window 3, #620: flaky perf-store-example test)
+
+- **Cause:** `validateStoreExample > refuses a wrong example loudly` parsed the 2 100-line Store API YAML four times and built two Ajv validators inside one test. That work is CPU-bound: about 0.3 s on a quiet laptop, 1.8 s inside the full suite, and past Vitest's 5 s default on a loaded CI runner. No spawn, no network, no import inside the test.
+- **Fix, not a timeout:** `scripts/perf-store-example.mjs` builds the `Store` validator once per spec text (`storeValidator`, cached in a `Map`). The test parses the spec, builds the validator and parses the overlaid spec once, at collection time, which has no per-test timeout. The test now takes 1–24 ms. Two new tests assert the cache, both that it is reused and that it is never stale.
+- The brand copies of `scripts/perf-store-example.mjs` pick this up in the next brand re-sync (window 10).
+
 ## 0.15.0 — 2026-11-05 (window 3, #609: recommendation rails)
 
 - **PDP "Frequently bought together" and cart "You may also like"** from `listProductRecommendations`, rendered with
