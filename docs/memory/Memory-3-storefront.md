@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-11-05 · Contracts: **contracts-v0.4.30** (Store API 0.5.9 has `listProductRecommendations`) · **Manager = "Manager session eleven"** (message it, never the owner). Phase 5: **#609 recommendation rails IN PROGRESS** on `storefront/phase5-609-rail` (cut `--no-track` from origin/main `2839329`). Earlier: #446 (PR #451 = `0ed6b7d`, merged 2026-10-10; code commit `1c9b14c`; issue CLOSED) — that record was local commit `a11a4680`, never pushed; it is kept on the LOCAL branch `storefront/phase3-local-a11a4680`. Still open: #358's live proof (Stripe keys). Machine NOT mine unless the manager says so.
+Last updated: 2026-11-06 · Contracts: **contracts-v0.4.30** (Store API 0.5.9 has `listProductRecommendations`) · **Manager = "Manager session eleven"** (message it, never the owner). Phase 5: **#609 recommendation rails IN PROGRESS** on `storefront/phase5-609-rail` (cut `--no-track` from origin/main `2839329`). Earlier: #446 (PR #451 = `0ed6b7d`, merged 2026-10-10; code commit `1c9b14c`; issue CLOSED) — that record was local commit `a11a4680`, never pushed; it is kept on the LOCAL branch `storefront/phase3-local-a11a4680`. Still open: #358's live proof (Stripe keys). Machine NOT mine unless the manager says so.
 
 ## Identity (does not change)
 
@@ -245,6 +245,8 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
       empty-in-empty-out test; the `SLUG` regex drops a slug with a dot.
 
 ## In progress
+
+- [ ] **#620 — flaky `perf-store-example` test, 0.15.1, branch `storefront/phase6-620`.** Cause measured: CPU-bound repeated work inside one test (4x yaml.parse of the 79 kB spec + 2 Ajv builds): 216–396 ms quiet, 1.6–1.8 s in the full suite, >5 s on a loaded runner. Fix: `storeValidator` (Map cache per spec text) + parse/compile/overlay-parse once at collection time. After (final file): the test 1–7 ms in 20/20 green file runs, slowest test in the file 60 ms; full suite 655/655 twice with it at 1 ms. Next: PR "Closes #620", report twice.
 
 - [ ] **#609 — P5.10 recommendation rails (PDP + cart), 0.15.0, branch `storefront/phase5-609-rail`.**
       Built: `listProductRecommendations` on the client (variant_ids joined with commas), `src/lib/recommendations.ts`
@@ -827,6 +829,7 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Gotchas learned
 
+- **A test timeout that only fires under load is usually CPU work inside the test (2026-11-06, #620):** compare the test alone vs inside the full suite (`--reporter=verbose`); move fixed setup (YAML parses, schema compiles) to collection time, which has no per-test timeout, instead of raising the timeout.
 - **`.then(ok, fail)` does not catch what `ok` throws (2026-11-05, #727 review):** a never-throws helper needs `.then(ok).catch(fail)`, and a 200 body is untrusted input — validate the shape before touching `.items`.
 - **Another session's Prism can hold :4010 with an OLD store spec (2026-11-05):** `/store/recommendations` answered
   NO_PATH_MATCHED. Playwright reuses an existing :4010 locally, so point `MOCK_API_URL` at a private Prism

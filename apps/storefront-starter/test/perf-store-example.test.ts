@@ -7,6 +7,7 @@ import {
   overlayStoreExample,
   readStoreExample,
   STORE_EXAMPLE_PATH,
+  storeValidator,
   validateStoreExample,
 } from '../scripts/perf-store-example.mjs';
 
@@ -34,11 +35,21 @@ type Spec = {
   components: { examples: Record<string, { value: Record<string, unknown> }> };
 };
 
+/**
+ * #620: the spec is parsed ONCE and the Store validator built ONCE, here at collection time, which
+ * has no per-test timeout. Both are CPU-bound (a 2 000-line YAML, an Ajv over the whole spec): one
+ * test used to parse the spec four times and build two validators, about 0.3 s on a quiet laptop,
+ * 1.8 s inside the full suite and over 5 s on a loaded CI runner — Vitest's default timeout. The
+ * tests below now only validate, and `storeValidator` caching is itself asserted. The overlay test's
+ * YAML parse of the overlaid spec is done here for the same reason (it measured up to 1.7 s).
+ */
+const PARSED = parse(SPEC) as Spec;
+storeValidator(SPEC);
+
 /** Brand A's own example, re-dressed as a one-locale US brand. */
 function brandC(): Record<string, unknown> {
-  const spec = parse(SPEC) as Spec;
   return {
-    ...spec.components.examples.StoreBrandA!.value,
+    ...structuredClone(PARSED.components.examples.StoreBrandA!.value),
     code: 'brand-c',
     name: 'Brand C',
     default_currency: 'USD',
@@ -49,9 +60,12 @@ function brandC(): Record<string, unknown> {
   };
 }
 
+const OVERLAY_EXAMPLE = brandC();
+const OVERLAID = overlayStoreExample(SPEC, OVERLAY_EXAMPLE);
+const PARSED_OVERLAID = parse(OVERLAID) as Spec;
+
 /** The 200 example `GET /store` answers with in a spec (after Prism-style $ref resolution). */
-function storeExampleIn(specText: string): unknown {
-  const spec = parse(specText) as Spec;
+function storeExampleIn(spec: Spec): unknown {
   const content = (
     spec.paths['/store']!.get!.responses['200'] as {
       content: {
@@ -95,16 +109,36 @@ describe('validateStoreExample', () => {
   });
 });
 
+/**
+ * A second, tiny spec (JSON is valid YAML) whose Store wants an integer `code`: built here, at
+ * collection time, for the same reason as the real one — an Ajv build measured up to 0.9 s in the
+ * full suite.
+ */
+const TINY_SPEC = JSON.stringify({
+  components: { schemas: { Store: { properties: { code: { type: 'integer' } } } } },
+});
+const TINY_VALIDATOR = storeValidator(TINY_SPEC);
+
+describe('storeValidator', () => {
+  it('builds the validator once per spec text, so repeated validation is cheap', () => {
+    expect(storeValidator(SPEC)).toBe(storeValidator(SPEC));
+    expect(storeValidator(TINY_SPEC)).toBe(TINY_VALIDATOR);
+  });
+
+  it('a different spec text gets its own validator, never a stale one', () => {
+    expect(TINY_VALIDATOR).not.toBe(storeValidator(SPEC));
+    expect(storeValidator(TINY_SPEC)({ code: 1 })).toBe(true);
+    expect(storeValidator(SPEC)({ code: 1 })).toBe(false);
+  });
+});
+
 describe('overlayStoreExample', () => {
   it('makes GET /store answer the brand’s example, and changes nothing else', () => {
-    const example = brandC();
-    const overlaid = overlayStoreExample(SPEC, example);
-
-    expect(storeExampleIn(SPEC)).toMatchObject({ code: 'brand-a' });
-    expect(storeExampleIn(overlaid)).toEqual(example);
+    expect(storeExampleIn(PARSED)).toMatchObject({ code: 'brand-a' });
+    expect(storeExampleIn(PARSED_OVERLAID)).toEqual(OVERLAY_EXAMPLE);
 
     const before = SPEC.split('\n');
-    const after = overlaid.split('\n');
+    const after = OVERLAID.split('\n');
     expect(after).toHaveLength(before.length);
     expect(after.filter((line, i) => line !== before[i])).toHaveLength(1);
   });
