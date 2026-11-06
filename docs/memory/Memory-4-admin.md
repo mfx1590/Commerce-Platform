@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-11-01 · Contracts: Admin API 0.4.26 on main · Branch: `admin/phase5-608` · Manager: "Manager session ten" (local_3c029c3c…; report there) · Status: IDLE — #693 MERGED 720e1834 (#642), #675 MERGED ae4fbffd (#608)
+Last updated: 2026-11-06 · Contracts: see main · Branch: `admin/phase6-security` (from main 33cb5b6f) · Manager: "Manager session eleven" (local_3be8fff4…; report there) · Status: SECURITY task assigned — nothing built yet; start from In progress (fresh session)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -557,6 +557,35 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **NEXT SESSION STARTS HERE — Phase 6 SECURITY task (priority), 2026-11-06.** Manager is now **"Manager
+  session eleven"** (local_3be8fff4-518f-456e-b5ad-b3d6844bc9fe); report there. Phase 6 plan:
+  docs/plan/phase6-plan.md, tracking #731; the audit finding is window 5's #730. The previous session
+  stopped at 86 % context BEFORE building anything: only the branch exists.
+  Branch `admin/phase6-security` from origin/main 33cb5b6f (local, no upstream; first push
+  `git push -u origin admin/phase6-security`). Setup still to do: `pnpm install --frozen-lockfile`,
+  `pnpm -r --filter "./packages/*" build`.
+  ONE PR, TWO commits:
+  1. Dependencies. `pnpm audit --prod` finds a CRITICAL advisory in apps/admin's `next` 15.5.25, plus HIGH
+     ones in postcss 8.4.31, sharp 0.35.4, source-map-js 1.2.1 and zod 4.x.
+     - Bump `next` (and eslint-config-next) to the LOWEST patched 15.5.x the advisory names. If none
+       exists on 15.5: message the manager with the options BEFORE going to 16.
+     - Bump the other vulnerable packages where they are DIRECT apps/admin deps. If only transitive:
+       LIST them for the manager (the manager does root overrides).
+     - Run `pnpm audit --prod --filter @platform/admin` before AND after and paste both counts.
+     - The admin suite, the local e2e and the bundle sizes stay green.
+  2. Security headers in apps/admin/next.config.mjs:
+     - A strict CSP: no inline script unless nonce-based, `frame-ancestors 'none'`, connect only to the
+       core API and the OTel origins (or none).
+     - HSTS in production, X-Content-Type-Options nosniff, Referrer-Policy
+       strict-origin-when-cross-origin, a Permissions-Policy denying camera/microphone/geolocation, and
+       no X-Powered-By.
+     - Pattern: the storefronts' `src/lib/csp.ts` + its test. Pin EVERY header in a test.
+     - The BI, AI editor (copy drafts) and onboarding pages must still work under the CSP, with no
+       console CSP violations in the admin e2e.
+  Review: Fable (security). Message the manager twice: PR up, then checks finished; hold pushes after.
+  Admin e2e and bundle runs need THE MACHINE: ask the manager first. Check the 5-hour usage before
+  each e2e / full-suite run (stop at 80 %). Full admin unit suite: if the default worker count times
+  out under background load, `npx vitest run --maxWorkers=4` is the clean proof (see Gotchas).
 - **#642 — store-view rail entry for BI (2026-11-02, Manager session ten).** Branch admin/phase5-642 from
   main d6ed17ee. `STORE_SECTIONS` + `bi` after Orders, VIEWER (queryMetrics viewer on store:*); the
   page is window 12's (#604) and they wrap it in StoreSectionGuard id="bi" after this lands. Tests:
