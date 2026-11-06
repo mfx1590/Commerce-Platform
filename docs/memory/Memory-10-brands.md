@@ -18,6 +18,41 @@ Brands A, B and C are all on main. Current task: **#728**.
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
+- **#728 · re-sync A/B/C for the #609 recommendation rails — MERGED as `7304bf03`** (PR **#738**,
+  code `4efd941`). #728 closed. One preserved-file port per brand (`analyticsConsentMode` in
+  `next.config.mjs`); no brand places the rail itself; brand C's own `en-US.json` brought 139 → 189
+  keys verbatim with 13 US-English candidates listed in LAUNCH 12.2; both new envs left **unset**
+  with the CDP coupling recorded in all three LAUNCH files; 8.3 in all three, window 3's text.
+  Budgets measured on the machine: cart **140.2-140.4 kB** / PDP **139.7-139.9 kB** against 145 and
+  144 — near-identical across brands.
+
+### The LCP flag was right to raise and pointed at the WRONG BRAND
+
+I measured brand **C** locally, got a PDP LCP best of 2202 ms against the 2500 ms budget, and flagged
+brand C as thin. **CI run 42248423247 says brand C is fine and brand A is the problem:**
+
+| brand | LCP best / 2nd | state |
+| --- | --- | --- |
+| C | 1820 / 1858 ms | ~650 ms margin; my 2202 ms was laptop noise after three builds |
+| B | 1713 / 1943 ms | fine |
+| **A** | **2267 / 2262 ms** | **3 of 5 runs are 2711-2719 ms, over budget. It passes only because the gate takes the best of 5.** |
+
+**Why I looked at the wrong one: I measured where I had a baseline, not where the risk was.** Brand C
+was the only brand I had a prior number for (1716 ms, #438), so I ran C — sampling where comparison
+was easy. Brand A is the oldest, heaviest brand (two locales, its own hero rendering from #330) and
+was always the likelier suspect; I never measured it because I had nothing to compare it to.
+**Next time: measure the brand most likely to be slow, or all of them, and treat "where I have a
+baseline" as a convenience rather than a reason.**
+
+What *was* right: refusing to touch the budget, and flagging the number instead of letting the PASS
+swallow it. #348's "the assertion takes the best of N" is exactly the hole brand A is sitting in —
+3 of 5 runs over budget and a green gate. The manager confirmed the refusal to widen was correct.
+
+**#739 is filed for me in wave 2:** find what brand A loads that B and C do not, and fix the cause,
+with **the worst run under budget**. Not started — the manager hands it out with wave 2. Brand A's
+own `src/brand/**` and its preserved `lighthouserc.json` are the places to look first, plus whatever
+#330's hero rendering costs that the other brands do not pay.
+
 - **#438 · 3.2 brand C by script — ON MAIN.** PR **#444** landed through the manager's **PR #452 =
   `2a8cb16`** (`integration/brand-c-images` = my `d38c176` plus one manager image commit: the nine
   `COPY` lines, brand C's Dockerfile on 3103, the bake target and the compose service — REQUEST
@@ -281,7 +316,17 @@ when every check has finished.
 - Budget: **manager + two build slots**, one of which is mine. (CLAUDE.md still says one window;
   the owner's instruction is the current one.)
 
-## In progress — #728 · re-sync A/B/C for the #609 recommendation rails (2026-11-06)
+## In progress — nothing. #728 is MERGED; idle until wave 2 (2026-11-06)
+
+**Next, when the manager hands out wave 2: #739** — brand A's PDP LCP. See the Done entry above for
+the CI numbers and for why I measured the wrong brand. Acceptance is **the worst run under budget**,
+not the best, so #348's best-of-N is not available as a way out.
+
+**This memory commit sits on `brands/phase6-728-resync`, whose PR is already merged** — carry it onto
+wave 2's branch (`git cherry-pick`) as the #438 record had to be carried onto this one, or it never
+reaches main.
+
+## (the plan, kept for the trail) #728 · re-sync A/B/C for the #609 recommendation rails
 
 Re-sync of all three brands onto `origin/main` to pick up #727 (`0391a388`). Window 3's pick-up list
 is in the issue; what it actually cost:
