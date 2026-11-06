@@ -2,6 +2,21 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-11-06 · OpenTelemetry: traces and RED metrics per route and store (#729, plan D3)
+
+- New `src/telemetry` (README): `startTelemetry()` (from `createServer()`) registers a tracer and a meter provider
+  over OTLP/HTTP only when the standard `OTEL_*` environment configures an endpoint (`OTEL_SDK_DISABLED=true` wins;
+  vitest sets it). An absent collector is one warning; the boot never fails.
+- `telemetryMiddleware`, first in `mountCoreMiddleware` after the request id (`/health` skipped):
+  `http.server.request.duration` (s), `core.http.requests`, `core.http.errors` (5xx only), labelled ONLY by the
+  contract route template (else `unmatched`), method, status class and `store_id` (publishable key's store; an admin
+  `{storeId}` only when the registry knows it, else `none`). SERVER span `<METHOD> <template>`, rooted at the core
+  (an inbound `traceparent` is ignored).
+- `src/lib/db.ts`: every transaction of a scoped client is a `db.transaction` span (no SQL; SQLSTATE on failure).
+- Dependencies: `@opentelemetry/api` 1.9.1, `sdk-metrics` / `sdk-trace` / `context-async-hooks` / `resources`
+  2.12.0, `exporter-metrics-otlp-http` / `exporter-trace-otlp-http` 0.223.0 (pnpm also moves Medusa's own
+  `@opentelemetry/*` 2.11.0 resolutions to 2.12.0).
+
 ### 2026-11-05 · a flake in the erasure PII check (#721)
 
 - `test/customers-api.test.ts` (DELETE /store/customers/me): the erased customer's outbox and audit docs are checked

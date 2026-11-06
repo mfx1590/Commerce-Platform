@@ -9,6 +9,7 @@ import {
   loadDotenv,
 } from '@platform/db';
 import type { OrganizationContext, ScopedClient, TenantContext } from '@platform/db';
+import { traceScopedClient } from '../telemetry';
 
 type Pool = ReturnType<typeof createPool>;
 
@@ -47,12 +48,12 @@ export function getPool(): Pool {
 
 /** Store scope: rows of the given store(s). What every Store API and store-scoped Admin API request uses. */
 export function tenantClient(ctx: TenantContext): ScopedClient {
-  return createTenantClient(ready(), ctx);
+  return traceScopedClient(createTenantClient(ready(), ctx));
 }
 
 /** Organization (HQ) scope: every store. Only after an organization-level permission check. */
 export function organizationClient(ctx: OrganizationContext): ScopedClient {
-  return createOrganizationClient(ready(), ctx);
+  return traceScopedClient(createOrganizationClient(ready(), ctx));
 }
 
 export async function closePool(): Promise<void> {
