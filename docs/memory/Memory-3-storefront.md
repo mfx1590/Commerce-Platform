@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-11-06 · Contracts: **contracts-v0.4.30** (Store API 0.5.9 has `listProductRecommendations`) · **Manager = "Manager session eleven"** (message it, never the owner). Phase 5: **#609 recommendation rails IN PROGRESS** on `storefront/phase5-609-rail` (cut `--no-track` from origin/main `2839329`). Earlier: #446 (PR #451 = `0ed6b7d`, merged 2026-10-10; code commit `1c9b14c`; issue CLOSED) — that record was local commit `a11a4680`, never pushed; it is kept on the LOCAL branch `storefront/phase3-local-a11a4680`. Still open: #358's live proof (Stripe keys). Machine NOT mine unless the manager says so.
+Last updated: 2026-11-06 · Contracts: **contracts-v0.4.30** (Store API 0.5.9 has `listProductRecommendations`) · **Manager = "Manager session eleven"** (message it, never the owner). **QUIET (manager: stay idle).** Phase 6 (#731): **#620 DONE — PR #732 merged = `3404252d`** (2026-11-06; flaky perf-store-example test; issue closed by hand, the keyword did not link). Phase 5: **#609 DONE — PR #727 merged = `0391a388`** (2026-11-05; rails + analytics; brand re-sync filed for window 10). Earlier: #446 (PR #451 = `0ed6b7d`, 2026-10-10) — recorded in local commit `a11a4680`, kept on LOCAL branch `storefront/phase3-local-a11a4680`. Still open: #358's live proof (Stripe keys). Machine NOT mine.
 
 ## Identity (does not change)
 
@@ -248,7 +248,7 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 - [ ] **#620 — flaky `perf-store-example` test, 0.15.1, branch `storefront/phase6-620`.** Cause measured: CPU-bound repeated work inside one test (4x yaml.parse of the 79 kB spec + 2 Ajv builds): 216–396 ms quiet, 1.6–1.8 s in the full suite, >5 s on a loaded runner. Fix: `storeValidator` (Map cache per spec text) + parse/compile/overlay-parse once at collection time. After (final file): the test 1–7 ms in 20/20 green file runs, slowest test in the file 60 ms; full suite 655/655 twice with it at 1 ms. Next: PR "Closes #620", report twice.
 
-- [ ] **#609 — P5.10 recommendation rails (PDP + cart), 0.15.0, branch `storefront/phase5-609-rail`.**
+- [x] **#609 — DONE, PR #727 merged = `0391a388` (2026-11-05). P5.10 recommendation rails (PDP + cart), 0.15.0, branch `storefront/phase5-609-rail`.**
       Built: `listProductRecommendations` on the client (variant_ids joined with commas), `src/lib/recommendations.ts`
       (never throws; 300 ms deadline that also aborts; `RECOMMENDATIONS_TIMEOUT_MS`), `RecommendationRail` (unchanged
       `ProductCard`; returns null when empty) + client `RecommendationTracker` (IntersectionObserver view once, delegated
