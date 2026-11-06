@@ -34,15 +34,23 @@ const BROWSE = `${CORE}, http_request_method="GET", http_route=~"/store|/store/p
 const ADMIN_METRICS = `${CORE}, http_route=~"/admin/metrics|/admin/metrics/query"`;
 const COMPLETE = `${CORE}, http_request_method="POST", http_route="/store/carts/{cartId}/complete"`;
 
+/**
+ * A bucket boundary as Prometheus 3 STORES it: classic-histogram `le` labels are normalised at scrape, so an integer
+ * boundary is written with `.0` (`2` -> "2.0", `10000` -> "10000.0") and `le="2"` selects nothing (checked on the
+ * compose Prometheus v3.0.1, 2026-11-06). The tests in slo.test.yml spell the normalised form out literally, so a
+ * regression here empties the burning cases and fails `promtool test rules`.
+ */
+const le = (n) => (Number.isInteger(n) ? n.toFixed(1) : String(n));
+
 const reqRate = (sel, w) => `sum(rate(http_server_request_duration_seconds_count{${sel}}[${w}]))`;
 
 /** An availability SLI: the share of requests answered with a 5xx. */
 const availability = (sel) => (w) =>
   `${reqRate(`${sel}, http_status_class="5xx"`, w)}\n/\n${reqRate(sel, w)}`;
 
-/** A latency SLI: the share of requests slower than `le` seconds (a bucket boundary). */
-const latency = (sel, le) => (w) =>
-  `1 - (\n  sum(rate(http_server_request_duration_seconds_bucket{${sel}, le="${le}"}[${w}]))\n  /\n  ${reqRate(sel, w)}\n)`;
+/** A latency SLI: the share of requests slower than `seconds` (a bucket boundary). */
+const latency = (sel, seconds) => (w) =>
+  `1 - (\n  sum(rate(http_server_request_duration_seconds_bucket{${sel}, le="${le(seconds)}"}[${w}]))\n  /\n  ${reqRate(sel, w)}\n)`;
 
 /**
  * Every SLO. `target` is the good-event share over 28 days; the error budget is 1 − target. `source` says
@@ -61,7 +69,7 @@ export const SLOS = [
     summary: 'Store API browse (GET /store, product list, product detail): 95% under 500 ms',
     target: 0.95,
     source: 'owner target p95 < 500 ms (infra/load/reports/2026-10-06.md)',
-    error: latency(BROWSE, '0.5'),
+    error: latency(BROWSE, 0.5),
   },
   {
     name: 'admin-api-availability',
@@ -75,7 +83,7 @@ export const SLOS = [
     summary: 'Admin metrics API (/admin/metrics, /admin/metrics/query): 95% under 300 ms',
     target: 0.95,
     source: 'Integration 5 metrics p95 < 300 ms (#612)',
-    error: latency(ADMIN_METRICS, '0.3'),
+    error: latency(ADMIN_METRICS, 0.3),
   },
   {
     name: 'checkout-availability',
@@ -90,7 +98,7 @@ export const SLOS = [
     target: 0.95,
     source:
       'manager 2026-11-06: in production complete calls the payment provider, which the mock-backed load run does not measure',
-    error: latency(COMPLETE, '2'),
+    error: latency(COMPLETE, 2),
   },
   {
     name: 'analytics-ingest-lag',
@@ -99,7 +107,7 @@ export const SLOS = [
     target: 0.95,
     source: 'Integration 5 ingest lag p95 < 10 s (#612)',
     error: (w) =>
-      `1 - (\n  sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000"}[${w}]))\n  /\n  sum(rate(analytics_ingest_ingest_delay_milliseconds_count[${w}]))\n)`,
+      `1 - (\n  sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="${le(10000)}"}[${w}]))\n  /\n  sum(rate(analytics_ingest_ingest_delay_milliseconds_count[${w}]))\n)`,
   },
   {
     name: 'outbox-relay-lag',
@@ -169,7 +177,8 @@ export function generate() {
 
 /**
  * Synthetic input series per SLO: `bad` is the share of bad events (or, for the relay, whether every minute is
- * bad). One request a second; the rules only see ratios, so the absolute rate does not matter.
+ * bad). One request a second; the rules only see ratios, so the absolute rate does not matter. Every `le` is the
+ * literal Prometheus 3 stores ("2.0", not "2"), written out here rather than taken from `le()`, so the tests check it.
  */
 function inputSeries(slo, bad) {
   const per = (n) => `0+${n}x240`; // 4 h of one-minute samples
@@ -223,7 +232,7 @@ function inputSeries(slo, bad) {
       return hist(
         core,
         'http_route="/store/carts/{cartId}/complete", http_request_method="POST", http_status_class="2xx"',
-        '2',
+        '2.0',
       );
     case 'analytics-ingest-lag':
       return [
@@ -234,7 +243,7 @@ function inputSeries(slo, bad) {
         },
         {
           series:
-            'analytics_ingest_ingest_delay_milliseconds_bucket{service_name="analytics-ingest", le="10000"}',
+            'analytics_ingest_ingest_delay_milliseconds_bucket{service_name="analytics-ingest", le="10000.0"}',
           values: per(good),
         },
       ];

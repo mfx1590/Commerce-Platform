@@ -455,7 +455,7 @@
               'values': '0+60x240',
             },
             {
-              'series': 'http_server_request_duration_seconds_bucket{service_name="core", store_id="s1", http_route="/store/carts/{cartId}/complete", http_request_method="POST", http_status_class="2xx", le="2"}',
+              'series': 'http_server_request_duration_seconds_bucket{service_name="core", store_id="s1", http_route="/store/carts/{cartId}/complete", http_request_method="POST", http_status_class="2xx", le="2.0"}',
               'values': '0+0x240',
             },
           ],
@@ -507,7 +507,7 @@
               'values': '0+60x240',
             },
             {
-              'series': 'http_server_request_duration_seconds_bucket{service_name="core", store_id="s1", http_route="/store/carts/{cartId}/complete", http_request_method="POST", http_status_class="2xx", le="2"}',
+              'series': 'http_server_request_duration_seconds_bucket{service_name="core", store_id="s1", http_route="/store/carts/{cartId}/complete", http_request_method="POST", http_status_class="2xx", le="2.0"}',
               'values': '0+60x240',
             },
           ],
@@ -540,7 +540,7 @@
               'values': '0+60x240',
             },
             {
-              'series': 'analytics_ingest_ingest_delay_milliseconds_bucket{service_name="analytics-ingest", le="10000"}',
+              'series': 'analytics_ingest_ingest_delay_milliseconds_bucket{service_name="analytics-ingest", le="10000.0"}',
               'values': '0+0x240',
             },
           ],
@@ -592,7 +592,7 @@
               'values': '0+60x240',
             },
             {
-              'series': 'analytics_ingest_ingest_delay_milliseconds_bucket{service_name="analytics-ingest", le="10000"}',
+              'series': 'analytics_ingest_ingest_delay_milliseconds_bucket{service_name="analytics-ingest", le="10000.0"}',
               'values': '0+60x240',
             },
           ],

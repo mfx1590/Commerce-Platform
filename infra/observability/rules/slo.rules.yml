@@ -509,7 +509,7 @@ groups:
       - record: slo:error_ratio:5m
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le="2"}[5m]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le="2.0"}[5m]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete"}[5m]))
           )
@@ -518,7 +518,7 @@ groups:
       - record: slo:error_ratio:30m
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le="2"}[30m]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le="2.0"}[30m]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete"}[30m]))
           )
@@ -527,7 +527,7 @@ groups:
       - record: slo:error_ratio:1h
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le="2"}[1h]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le="2.0"}[1h]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete"}[1h]))
           )
@@ -536,7 +536,7 @@ groups:
       - record: slo:error_ratio:2h
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le="2"}[2h]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le="2.0"}[2h]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete"}[2h]))
           )
@@ -545,7 +545,7 @@ groups:
       - record: slo:error_ratio:6h
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le="2"}[6h]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le="2.0"}[6h]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete"}[6h]))
           )
@@ -554,7 +554,7 @@ groups:
       - record: slo:error_ratio:1d
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le="2"}[1d]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le="2.0"}[1d]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete"}[1d]))
           )
@@ -563,7 +563,7 @@ groups:
       - record: slo:error_ratio:3d
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le="2"}[3d]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le="2.0"}[3d]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete"}[3d]))
           )
@@ -618,7 +618,7 @@ groups:
       - record: slo:error_ratio:5m
         expr: |
           1 - (
-            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000"}[5m]))
+            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000.0"}[5m]))
             /
             sum(rate(analytics_ingest_ingest_delay_milliseconds_count[5m]))
           )
@@ -627,7 +627,7 @@ groups:
       - record: slo:error_ratio:30m
         expr: |
           1 - (
-            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000"}[30m]))
+            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000.0"}[30m]))
             /
             sum(rate(analytics_ingest_ingest_delay_milliseconds_count[30m]))
           )
@@ -636,7 +636,7 @@ groups:
       - record: slo:error_ratio:1h
         expr: |
           1 - (
-            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000"}[1h]))
+            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000.0"}[1h]))
             /
             sum(rate(analytics_ingest_ingest_delay_milliseconds_count[1h]))
           )
@@ -645,7 +645,7 @@ groups:
       - record: slo:error_ratio:2h
         expr: |
           1 - (
-            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000"}[2h]))
+            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000.0"}[2h]))
             /
             sum(rate(analytics_ingest_ingest_delay_milliseconds_count[2h]))
           )
@@ -654,7 +654,7 @@ groups:
       - record: slo:error_ratio:6h
         expr: |
           1 - (
-            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000"}[6h]))
+            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000.0"}[6h]))
             /
             sum(rate(analytics_ingest_ingest_delay_milliseconds_count[6h]))
           )
@@ -663,7 +663,7 @@ groups:
       - record: slo:error_ratio:1d
         expr: |
           1 - (
-            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000"}[1d]))
+            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000.0"}[1d]))
             /
             sum(rate(analytics_ingest_ingest_delay_milliseconds_count[1d]))
           )
@@ -672,7 +672,7 @@ groups:
       - record: slo:error_ratio:3d
         expr: |
           1 - (
-            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000"}[3d]))
+            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000.0"}[3d]))
             /
             sum(rate(analytics_ingest_ingest_delay_milliseconds_count[3d]))
           )

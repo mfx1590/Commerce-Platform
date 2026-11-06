@@ -125,6 +125,9 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   main (1db7fefb); gate PASS locally on the merged lockfile. Next: green → "checks finished" to the manager → HOLD pushes.
   E1 (manager, 2026-11-06): `.github/dependabot.yml` is in my row on main → added (npm prod/dev, actions, docker; weekly,
   grouped minor+patch; majors single). Pushed after the first final head, BEFORE "checks finished" was sent.
+  REVIEW FIX (manager + Opus): Prometheus 3 normalises `le` (`2`→"2.0", `10000`→"10000.0"); `le="2"` selected 0
+  series on the live stack vs 17 for "2.0". slo.mjs `le()` + literal normalised test series; mutation (rules back to
+  "2") fails 4 burning cases. Gate tests 9→11 (non-JSON CLI, multi-path).
   Gotcha: no `jq` in Git Bash here — use `gh ... --jq`. Job logs while the run is in progress: `gh api .../actions/jobs/<id>/logs`.
   Earlier plan notes: Branch `infra/phase6-730` from main `33cb5b6f`.
   Facts: branch protection enforces 6 checks (ownership, lint+typecheck, unit, contract, gitleaks, perf) — NOT

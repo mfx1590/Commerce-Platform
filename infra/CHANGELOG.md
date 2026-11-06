@@ -17,6 +17,12 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
   Dockerfile base images); majors as single PRs.
 - `#733`: REQUEST to window 14 for the relay lag gauge.
 
+### Fixed (#730 review)
+
+- The checkout-latency and ingest-lag SLIs selected `le="2"` / `le="10000"`, which Prometheus 3 stores as `"2.0"` /
+  `"10000.0"`: the recordings would have been empty and the alerts silent. The rules now use the stored form, and the
+  promtool series spell it literally. Two more gate self-tests: non-JSON audit output, and a multi-path advisory.
+
 ### Fixed
 
 - `infra/README.md` → Branch protection lists the six checks GitHub enforces; `live auth + end-to-end` is not one

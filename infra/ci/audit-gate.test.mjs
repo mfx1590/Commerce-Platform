@@ -1,7 +1,11 @@
 // Self-test for audit-gate.mjs (#730). Runs in the `changes` job:  node --test infra/ci/audit-gate.test.mjs
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { DEFAULT_ALLOWLIST, advisoriesOf, evaluate, render } from './audit-gate.mjs';
 
 const adv = (id, pkg, severity, app = 'apps__core') => ({
@@ -92,6 +96,32 @@ test('a report that is not a pnpm audit report fails closed', () => {
     /advisory lookup failed/,
   );
   assert.throws(() => advisoriesOf(null), /advisory lookup failed/);
+});
+
+test('output that is not JSON at all (pnpm printed an error) fails the CLI closed', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'audit-gate-'));
+  const file = join(dir, 'audit.json');
+  writeFileSync(file, 'ERR_PNPM_AUDIT_BAD_RESPONSE  The audit endpoint responded with 503');
+  const gate = fileURLToPath(new URL('./audit-gate.mjs', import.meta.url));
+  const run = spawnSync(process.execPath, [gate, file], {
+    encoding: 'utf8',
+    env: { ...process.env, GITHUB_STEP_SUMMARY: '' },
+  });
+  assert.equal(run.status, 1);
+});
+
+test('an advisory found on several paths names every app and version once', () => {
+  const a = adv('GHSA-multi', 'shared', 'high');
+  a.findings = [
+    {
+      version: '1.0.0',
+      paths: ['apps__core>x>shared', 'apps__admin>y>shared', 'apps__core>z>shared'],
+    },
+    { version: '1.2.0', paths: ['apps__admin>w>shared'] },
+  ];
+  const [found] = advisoriesOf(report(a));
+  assert.deepEqual(found.apps, ['apps/core', 'apps/admin']);
+  assert.deepEqual(found.versions, ['1.0.0', '1.2.0']);
 });
 
 test('an unknown threshold is refused', () => {
