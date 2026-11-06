@@ -9,7 +9,7 @@ Branch prefix → allowed write paths. Everything else is read-only for that bra
 | `auth/` | 2 — Auth & RBAC | `packages/auth-sdk/**`, `infra/keycloak/**`, `infra/openfga/**`, `apps/core/src/modules/hq-rbac/**` |
 | `storefront/` | 3 — Storefront starter & UI kit | `apps/storefront-starter/**`, `packages/ui/**` |
 | `admin/` | 4 — Admin application | `apps/admin/**` |
-| `infra/` | 5 — Infra & DevOps | `infra/**`, `.github/workflows/**`, `**/Dockerfile`, `.dockerignore` |
+| `infra/` | 5 — Infra & DevOps | `infra/**`, `.github/workflows/**`, `.github/dependabot.yml`, `**/Dockerfile`, `.dockerignore` |
 | `cms/` | 6 — CMS & landing pages | `cms/*`, `cms/src/**`, `cms/scripts/**`, `cms/test/**` (the cms/brand-*/** content folders belong to brands/), `apps/storefront-starter/src/app/[locale]/(content)/**`, `apps/storefront-starter/src/app/api/cms/**`, `apps/storefront-starter/src/lib/cms/**`, `apps/storefront-starter/test/cms-*` |
 | `payments/` | 7 — Payments, tax, fraud | `apps/core/src/modules/payments/**`, `apps/core/src/modules/tax/**`, `apps/core/src/modules/fraud/**` |
 | `shipping/` | 8 — Shipping & fulfillment | `apps/core/src/modules/fulfillment/**`, `apps/core/src/modules/shipping/**` |

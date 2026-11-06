@@ -24,6 +24,13 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
   - **Open, small:** #728 (window 10: brands re-sync for the rails), #670 (per-locale copy, a contract change), #611 (later wave), #647/#439 (infra), #497 (RLS backfills on RDS, main). Nits recorded in Memory-12/-16 and on the PRs.
   - **TOMORROW: plan Phase 6.** Input: `docs/plan/phase6-inventory.md` (what exists, what is missing, owners, 12 candidate tasks buildable without accounts). Write `docs/plan/phase6-plan.md` with decisions and waves (≤ 3 build windows), post a tracking issue, then hand out wave 1. Likely wave 1: #620 → make `live auth + end-to-end` required (the infra README claims it already is); #497; dependency scanning; core OpenTelemetry + SLOs/alerts; a backup/restore drill. The Anthropic gift credit expires 11-10.
   - **Usage at end of day:** 5h ~30%, weekly 20%, Fable 19% (weekly reset 11-10 14:00 UTC).
+  - **UPDATE 11-06: PHASE 6 STARTED.** Plan `docs/plan/phase6-plan.md` (D1 laptop-provable only; D2 no service split until measured; D3 core OTel + SLO rules; D4 security baseline as code; D5 DR drill; D6 live job required after 10 green main runs, the owner's repo setting; D7 cloud target from a cost model with the owner; D8 brand D onboarding timed). Tracking **#731**. Wave 1 handed out:
+    - window 1 → #729 core OpenTelemetry (PLAN first; machine for k6; Fable review);
+    - window 5 `local_57a087f5-afda-4432-8ce0-9893833402f3` (**Opus 5.5**, reactivated) → #730 dependency scanning + docs/slo.md + promtool rules (PLAN first; Opus review);
+    - window 10 `local_4f212ed4-839d-47e1-bd72-2a8f81787315` (**Opus 5**, reactivated) → #728 brands re-sync (machine for perf legs; Opus review);
+    - window 3 → #620 starter flake (Opus review);
+    - manager → #497 via an agent in ../wt-contracts on integration/phase6-497 (not pushed yet; Fable review).
+    - **Gotcha:** `get_session` returns a session's MODEL. Use it instead of asking the owner.
 - **2026-11-02 ~21:15 local: HANDOVER TO MANAGER SESSION ELEVEN (session ten at about 80% context). READ THIS FIRST; it supersedes the bullets below where they differ.** Phase 5, wave 3 DONE; follow-ups running.
   - **Owner standing orders:** "continue until you hit the limit" (11-02). "The manager decides" next tasks (11-02). AI features are ON by default (11-01). Stop at 80% of the 5h limit; at 85% weekly hand out no new tasks and tell the owner (weekly 75% at handover).
   - **Done in session ten:**
