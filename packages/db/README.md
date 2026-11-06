@@ -28,6 +28,44 @@ The outbox table lives in `packages/events/migrations/0100_outbox.sql` and is ap
 To change the schema: add a new file, never edit an applied one. Feature windows propose via PR (window 1) or a
 `CONTRACT CHANGE:` issue.
 
+## Migrations on managed Postgres (#497, db 0.3.22)
+
+**Role model.** Locally and in CI the migration role (`DATABASE_URL`, user `platform`) is the docker superuser.
+On managed Postgres (RDS, Neon; infra/terraform/modules/postgres) it is the master user: owner of the database and of
+every object the migrations create, `CREATEDB` and `CREATEROLE`, but **not superuser and not `BYPASSRLS`**. Every
+tenant table has row-level security ENABLED and FORCED, so that owner obeys the tenant policies like `platform_app`
+does, and a migration sets no tenant context: a plain `UPDATE` / `INSERT … SELECT` in a migration sees **zero
+rows** there and silently does nothing (or a later `SET NOT NULL` fails). `test/managed-postgres-migrations.test.ts`
+runs every migration as such a role, so the assumption is tested, not inherited from the local superuser.
+
+**Rule for every data backfill in a migration.** Lift FORCE on exactly the tables the statement reads or writes,
+run it set-based as the owner, and restore FORCE in the same file:
+
+```sql
+ALTER TABLE customer NO FORCE ROW LEVEL SECURITY;
+INSERT INTO … SELECT … FROM customer …;   -- idempotent (WHERE NOT EXISTS / IS NULL), every store, no context needed
+ALTER TABLE customer FORCE ROW LEVEL SECURITY;
+```
+
+Why this and not the alternatives: an owner bypasses row security unless FORCE is set, and every managed migration
+role owns the tables, so this works on any provider. DDL is transactional and `ALTER TABLE` holds an ACCESS EXCLUSIVE
+lock until COMMIT, so no other session ever sees the table unforced, and `platform_app` (never an owner) is under
+the policies either way. A SECURITY DEFINER function does not help without a `BYPASSRLS` owner, which Neon cannot
+create and our RDS role model does not have; iterating per tenant with `set_config('app.organization_id', …)` cannot
+even list the organizations (`organization` is forced too). The runner enforces the second half: it refuses to
+commit a migration that leaves any table in schema public with RLS enabled but not forced. A superuser is unaffected.
+
+**No `SET app.*` clause on functions.** Postgres 15+ lets only a superuser create a function whose `SET` clause
+names a placeholder parameter (`app.scope`). A function that must elevate the scope sets it in its body with
+`set_config('app.scope', 'organization', true)` after saving `current_setting('app.scope', true)`, and restores it
+before **every** `RETURN` (mind that `PERFORM` resets `FOUND`). An error aborts the (sub)transaction and reverts
+the setting, so no exit path leaves the session elevated. See 0207.
+
+**Editing an applied migration.** The runner identifies a migration by its file name only — no checksum — and never
+reads an applied file again. So an in-place edit changes fresh databases only; when one is unavoidable (0190–0197 for
+#497 could not run on managed Postgres at all), the end state must equal the old one, and a new migration restates
+any changed definition so already-migrated databases converge (0207). Otherwise: add a new file.
+
 ## Tests
 
 `test/rls.test.ts` creates a throwaway database, migrates it, seeds two stores, and proves with the `platform_app`
@@ -54,8 +92,8 @@ gains that item's pool rows, so the mapping is guarded in the database: only org
 that is already mapped or change a mapping (trigger `guard_variant_stock_item`, 42501 otherwise, a missing scope
 included). Row security for the pool uses the kinds `pool_self`, `pool` and `pool_ledger` (see the migration): a
 store-scoped session reaches a pool row only when one of its own stores maps the item, and a ledger row only when it
-is also attributed to one of its stores; organization scope sees all. The backfill runs as the migration role, which
-must bypass row security (it does locally and in CI), and maps every existing variant 1:1.
+is also attributed to one of its stores; organization scope sees all. The backfill runs as the migration role with FORCE lifted
+for its own transaction (see "Migrations on managed Postgres") and maps every existing variant 1:1.
 
 Step 2 (0191, db 0.3.5) rekeys the stock tables onto the item:
 

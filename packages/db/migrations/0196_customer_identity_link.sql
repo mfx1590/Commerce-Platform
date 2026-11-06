@@ -39,12 +39,15 @@ CREATE UNIQUE INDEX customer_identity_subject_key ON customer_identity (organiza
 --      such candidate exists; two or more → no merge (ambiguity is never guessed). The candidates are locked
 --      before they are counted, and a guest another transaction merged first is never merged again (condition 2);
 --    - the customer row is pointed at the identity (customer.identity_id).
+-- Managed Postgres (#497, db 0.3.22): the organization scope is set in the body with set_config(..., true) and
+-- restored before every return, NOT with a function-level `SET app.scope` clause — Postgres 15+ refuses that clause
+-- (42501, a placeholder parameter) to a migration role that is not superuser. An error aborts the (sub)transaction,
+-- which reverts the setting, so no exit path leaves the session elevated (the clause's guarantee, kept).
 CREATE OR REPLACE FUNCTION app.link_customer_identity(
   p_customer_id uuid, p_subject text, p_email_hash text
 ) RETURNS uuid
 LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = public, pg_temp
-SET app.scope = 'organization' AS $$
+SET search_path = public, pg_temp AS $$
 DECLARE
   v_org uuid := current_setting('app.organization_id')::uuid;
   v_store_ids text := coalesce(current_setting('app.store_ids', true), '');
@@ -55,7 +58,9 @@ DECLARE
   v_guest uuid;
   v_guests integer;
   v_merged integer;
+  v_scope text := current_setting('app.scope', true);
 BEGIN
+  PERFORM set_config('app.scope', 'organization', true);
   IF p_subject IS NULL OR p_subject = '' THEN
     RAISE EXCEPTION 'link_customer_identity: a subject is required';
   END IF;
@@ -100,6 +105,7 @@ BEGIN
   END IF;
   UPDATE customer SET identity_id = v_identity
    WHERE id = p_customer_id AND organization_id = v_org AND identity_id IS DISTINCT FROM v_identity;
+  PERFORM set_config('app.scope', coalesce(v_scope, ''), true);
   RETURN v_identity;
 END $$;
 
@@ -110,8 +116,7 @@ END $$;
 CREATE OR REPLACE FUNCTION app.unlink_customer_identity(p_customer_id uuid)
 RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = public, pg_temp
-SET app.scope = 'organization' AS $$
+SET search_path = public, pg_temp AS $$
 DECLARE
   v_org uuid := current_setting('app.organization_id')::uuid;
   v_store_ids text := coalesce(current_setting('app.store_ids', true), '');
@@ -119,7 +124,10 @@ DECLARE
   v_customer_org uuid;
   v_customer_store uuid;
   v_identity uuid;
+  v_deleted boolean;
+  v_scope text := current_setting('app.scope', true);
 BEGIN
+  PERFORM set_config('app.scope', 'organization', true);
   SELECT c.id, c.organization_id, c.store_id, c.identity_id
     INTO v_customer, v_customer_org, v_customer_store, v_identity
     FROM customer c WHERE c.id = p_customer_id FOR NO KEY UPDATE;
@@ -129,6 +137,7 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
   IF v_identity IS NULL THEN
+    PERFORM set_config('app.scope', coalesce(v_scope, ''), true);
     RETURN false;
   END IF;
   UPDATE customer SET identity_id = NULL WHERE id = p_customer_id;
@@ -136,7 +145,9 @@ BEGIN
    WHERE ci.id = v_identity
      AND NOT EXISTS (SELECT 1 FROM customer c WHERE c.identity_id = v_identity)
      AND NOT EXISTS (SELECT 1 FROM customer_identity m WHERE m.merged_into_id = v_identity);
-  RETURN FOUND;
+  v_deleted := FOUND; -- before PERFORM, which resets FOUND
+  PERFORM set_config('app.scope', coalesce(v_scope, ''), true);
+  RETURN v_deleted;
 END $$;
 
 -- 0110's pattern for a callable SECURITY DEFINER function: nobody but the application role may call it.
