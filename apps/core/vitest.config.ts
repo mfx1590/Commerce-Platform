@@ -14,6 +14,8 @@ export default defineConfig({
       DATABASE_URL_APP:
         process.env.DATABASE_URL_APP ??
         'postgres://platform_app:platform_app@localhost:5433/platform',
+      // #729: no test exports telemetry, whatever the developer's .env says; src/telemetry tests use in-memory exporters.
+      OTEL_SDK_DISABLED: 'true',
     },
   },
 });

@@ -5,6 +5,7 @@ import { createValidator, makeEvent, toOutboxRow, type Validator } from '@platfo
 import type { AggregateType, EventEnvelope, EventTopic, LatestPayloads } from '@platform/events';
 import type { Queryable } from '@platform/db';
 import type { Actor } from '../lib/audit';
+import { currentTraceFields, inSpan } from '../telemetry';
 
 let validator: Validator | undefined;
 
@@ -76,9 +77,13 @@ export async function buildEvent<T extends EventTopic>(
  * inserts the rows into `outbox` on the caller's
  * transaction. A failing envelope throws before any insert, which aborts the caller's transaction — so an
  * invalid event can never leave a half-committed state change behind.
+ * An envelope without `trace` gets the current request's `{ trace_id, request_id }` (#729, src/telemetry; nothing
+ * outside a request or with telemetry off); a `trace` the caller set is never overwritten.
  */
-export async function withEvents(tx: Queryable, events: EventEnvelope[]): Promise<void> {
-  if (events.length === 0) return;
+export async function withEvents(tx: Queryable, input: EventEnvelope[]): Promise<void> {
+  if (input.length === 0) return;
+  const trace = currentTraceFields();
+  const events = trace ? input.map((e) => (e.trace ? e : { ...e, trace })) : input;
   const v = getValidator();
   for (const e of events) {
     const r = v.validateEnvelope(e);
@@ -88,23 +93,25 @@ export async function withEvents(tx: Queryable, events: EventEnvelope[]): Promis
         'actor: a customer id on a topic the bus keeps forever (#707); write the actor with id null, or move the topic to the 30-day class',
       ]);
   }
-  for (const e of events) {
-    const row = toOutboxRow(e);
-    await tx.query(
-      `INSERT INTO outbox (id, organization_id, store_id, topic, version, aggregate_type, aggregate_id, payload, headers, occurred_at)
+  await inSpan('outbox.write', { 'outbox.events': events.length }, async () => {
+    for (const e of events) {
+      const row = toOutboxRow(e);
+      await tx.query(
+        `INSERT INTO outbox (id, organization_id, store_id, topic, version, aggregate_type, aggregate_id, payload, headers, occurred_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [
-        row.id,
-        row.organization_id,
-        row.store_id,
-        row.topic,
-        row.version,
-        row.aggregate_type,
-        row.aggregate_id,
-        JSON.stringify(row.payload),
-        JSON.stringify(row.headers),
-        row.occurred_at,
-      ],
-    );
-  }
+        [
+          row.id,
+          row.organization_id,
+          row.store_id,
+          row.topic,
+          row.version,
+          row.aggregate_type,
+          row.aggregate_id,
+          JSON.stringify(row.payload),
+          JSON.stringify(row.headers),
+          row.occurred_at,
+        ],
+      );
+    }
+  });
 }
