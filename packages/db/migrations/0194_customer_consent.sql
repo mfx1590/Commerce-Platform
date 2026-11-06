@@ -23,6 +23,10 @@ REVOKE UPDATE ON customer_consent FROM platform_app;
 -- Backfill (decided): one ledger row per existing projection, so the ledger is complete from day one. Idempotent:
 -- a customer with any ledger row for the purpose is skipped. recorded_at = the projection's own timestamp
 -- (`at`), never now(); source from the block (unknown/missing → 'import'); policy_version 'pre-ledger'.
+-- Managed Postgres (#497, db 0.3.22): run as the table owner with FORCE lifted for this transaction only (0190's
+-- note), so the statement sees every store's customers without a tenant context; FORCE is back right after it.
+ALTER TABLE customer NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE customer_consent NO FORCE ROW LEVEL SECURITY;
 INSERT INTO customer_consent (organization_id, store_id, customer_id, purpose, granted, source, policy_version, recorded_at)
 SELECT c.organization_id, c.store_id, c.id, 'marketing_email',
        (c.consent->'marketing_email'->>'granted')::boolean,
@@ -34,3 +38,5 @@ FROM customer c
 WHERE c.status <> 'erased'
   AND jsonb_typeof(c.consent->'marketing_email'->'granted') = 'boolean'
   AND NOT EXISTS (SELECT 1 FROM customer_consent x WHERE x.customer_id = c.id AND x.purpose = 'marketing_email');
+ALTER TABLE customer FORCE ROW LEVEL SECURITY;
+ALTER TABLE customer_consent FORCE ROW LEVEL SECURITY;

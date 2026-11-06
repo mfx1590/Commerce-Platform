@@ -17,6 +17,16 @@
 -- reservation stays `store`. So a store sees the pool row of an item it maps — including the `reserved` total —
 -- and never another store's reservation rows or movements, nor a movement no store caused.
 
+-- 0. Managed Postgres (#497, db 0.3.22): every data step below runs as the table owner with FORCE lifted for this
+--    transaction only (0190's note); FORCE is back on all seven tables at the end of the file.
+ALTER TABLE store NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE product NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE product_variant NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE stock_item NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE inventory_level NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE reservation NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE stock_movement NO FORCE ROW LEVEL SECURITY;
+
 -- 1. Variants created since 0190 (same idempotent statement), then the column is mandatory.
 ALTER TABLE product_variant DISABLE TRIGGER set_updated_at;
 SELECT app.backfill_stock_items();
@@ -30,16 +40,21 @@ ALTER TABLE product_variant ALTER COLUMN stock_item_id SET NOT NULL;
 --    return AND on error, so no exit path can leave the session elevated. A variant that arrives already mapped
 --    is left alone here; whether the session may do that is 0190's guard_variant_stock_item, which fires first
 --    (trigger names sort) and sees the value the session sent.
+-- Managed Postgres (#497, db 0.3.22): the organization scope is set in the body with set_config(..., true) and
+-- restored before every return, NOT with a function-level `SET app.scope` clause — Postgres 15+ refuses that clause
+-- (42501, a placeholder parameter) to a migration role that is not superuser. An error aborts the (sub)transaction,
+-- which reverts the setting, so no exit path leaves the session elevated (the clause's guarantee, kept).
 CREATE OR REPLACE FUNCTION app.variant_stock_item() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = public, pg_temp
-SET app.scope = 'organization' AS $$
+SET search_path = public, pg_temp AS $$
 DECLARE
   item_sku text := NEW.sku;
+  v_scope text := current_setting('app.scope', true);
 BEGIN
   IF NEW.stock_item_id IS NOT NULL THEN
     RETURN NEW;
   END IF;
+  PERFORM set_config('app.scope', 'organization', true);
   IF EXISTS (SELECT 1 FROM stock_item si WHERE si.organization_id = NEW.organization_id AND si.sku = NEW.sku) THEN
     SELECT s.code || ':' || NEW.sku INTO item_sku FROM store s WHERE s.id = NEW.store_id;
   END IF;
@@ -54,6 +69,7 @@ BEGIN
     RAISE EXCEPTION 'a new variant''s product must belong to the variant''s own store'
       USING ERRCODE = 'insufficient_privilege';
   END IF;
+  PERFORM set_config('app.scope', coalesce(v_scope, ''), true);
   RETURN NEW;
 END $$;
 -- It can only run as a trigger; nobody needs to call it.
@@ -100,3 +116,12 @@ ALTER TABLE stock_movement ADD CONSTRAINT stock_movement_store_attribution_check
 CREATE INDEX stock_movement_stock_item_idx ON stock_movement (stock_item_id, warehouse_id, created_at DESC);
 SELECT app.apply_rls('stock_movement', 'pool_ledger');
 -- Still append-only for the application role (0009's REVOKE UPDATE, DELETE is untouched).
+
+-- 7. FORCE back on (step 0).
+ALTER TABLE store FORCE ROW LEVEL SECURITY;
+ALTER TABLE product FORCE ROW LEVEL SECURITY;
+ALTER TABLE product_variant FORCE ROW LEVEL SECURITY;
+ALTER TABLE stock_item FORCE ROW LEVEL SECURITY;
+ALTER TABLE inventory_level FORCE ROW LEVEL SECURITY;
+ALTER TABLE reservation FORCE ROW LEVEL SECURITY;
+ALTER TABLE stock_movement FORCE ROW LEVEL SECURITY;
