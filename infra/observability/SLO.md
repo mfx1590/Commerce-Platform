@@ -51,12 +51,14 @@ The core's series are window 1's OpenTelemetry metrics (#729), exported through 
 template, else `unmatched`), `http_request_method`, `http_status_class` (`2xx`…`5xx`) and `store_id`.
 
 - **Availability** = 1 − (5xx requests ÷ all requests), from the histogram's `_count`, filtered by `http_route`.
+  OTel creates the 5xx series on the first 5xx, so a core that has never failed has none. `or vector(0)` makes that a
+  ratio of 0, not "no data", and a promtool case with no 5xx series at all checks it.
 - **Latency** = the share of requests under the threshold, from `_bucket{le="<threshold>"} ÷ _count`. **A
   threshold must be a bucket boundary**: #729's histogram needs `0.3`, `0.5` and `2` among its boundaries (asked of
   window 1 through the manager; all three are present on the compose stack, 2026-11-06). **Prometheus 3 normalises
   `le` at scrape**: an integer boundary is stored as `"2.0"`, not `"2"`, and `le="2"` selects nothing. So the rules
-  write the stored form (`le="2.0"`, `le="10000.0"`), and the promtool tests use the same literals, so a regression to
-  `"2"` fails them.
+  match both spellings (`le=~"2(\\.0)?"`, `le=~"10000(\\.0)?"`). The promtool tests use the stored literals, so a
+  regression to an exact `"2"` fails them.
 - **Ingest lag** = the share of events under 10 000 ms in `analytics_ingest_ingest_delay_milliseconds` (the SDK's
   default millisecond buckets include 10000).
 - **Relay lag** = the share of one-minute samples in which the gauge is below 10.

@@ -5,49 +5,70 @@ groups:
     rules:
       - record: slo:error_ratio:5m
         expr: |
-          sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/store(/.*)?", http_status_class="5xx"}[5m]))
+          (
+            sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/store(/.*)?", http_status_class="5xx"}[5m]))
+            or vector(0)
+          )
           /
           sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/store(/.*)?"}[5m]))
         labels:
           slo: store-api-availability
       - record: slo:error_ratio:30m
         expr: |
-          sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/store(/.*)?", http_status_class="5xx"}[30m]))
+          (
+            sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/store(/.*)?", http_status_class="5xx"}[30m]))
+            or vector(0)
+          )
           /
           sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/store(/.*)?"}[30m]))
         labels:
           slo: store-api-availability
       - record: slo:error_ratio:1h
         expr: |
-          sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/store(/.*)?", http_status_class="5xx"}[1h]))
+          (
+            sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/store(/.*)?", http_status_class="5xx"}[1h]))
+            or vector(0)
+          )
           /
           sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/store(/.*)?"}[1h]))
         labels:
           slo: store-api-availability
       - record: slo:error_ratio:2h
         expr: |
-          sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/store(/.*)?", http_status_class="5xx"}[2h]))
+          (
+            sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/store(/.*)?", http_status_class="5xx"}[2h]))
+            or vector(0)
+          )
           /
           sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/store(/.*)?"}[2h]))
         labels:
           slo: store-api-availability
       - record: slo:error_ratio:6h
         expr: |
-          sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/store(/.*)?", http_status_class="5xx"}[6h]))
+          (
+            sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/store(/.*)?", http_status_class="5xx"}[6h]))
+            or vector(0)
+          )
           /
           sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/store(/.*)?"}[6h]))
         labels:
           slo: store-api-availability
       - record: slo:error_ratio:1d
         expr: |
-          sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/store(/.*)?", http_status_class="5xx"}[1d]))
+          (
+            sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/store(/.*)?", http_status_class="5xx"}[1d]))
+            or vector(0)
+          )
           /
           sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/store(/.*)?"}[1d]))
         labels:
           slo: store-api-availability
       - record: slo:error_ratio:3d
         expr: |
-          sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/store(/.*)?", http_status_class="5xx"}[3d]))
+          (
+            sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/store(/.*)?", http_status_class="5xx"}[3d]))
+            or vector(0)
+          )
           /
           sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/store(/.*)?"}[3d]))
         labels:
@@ -101,7 +122,7 @@ groups:
       - record: slo:error_ratio:5m
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="GET", http_route=~"/store|/store/products|/store/products/\\{handle\\}", le="0.5"}[5m]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="GET", http_route=~"/store|/store/products|/store/products/\\{handle\\}", le=~"0\\.5"}[5m]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="GET", http_route=~"/store|/store/products|/store/products/\\{handle\\}"}[5m]))
           )
@@ -110,7 +131,7 @@ groups:
       - record: slo:error_ratio:30m
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="GET", http_route=~"/store|/store/products|/store/products/\\{handle\\}", le="0.5"}[30m]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="GET", http_route=~"/store|/store/products|/store/products/\\{handle\\}", le=~"0\\.5"}[30m]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="GET", http_route=~"/store|/store/products|/store/products/\\{handle\\}"}[30m]))
           )
@@ -119,7 +140,7 @@ groups:
       - record: slo:error_ratio:1h
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="GET", http_route=~"/store|/store/products|/store/products/\\{handle\\}", le="0.5"}[1h]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="GET", http_route=~"/store|/store/products|/store/products/\\{handle\\}", le=~"0\\.5"}[1h]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="GET", http_route=~"/store|/store/products|/store/products/\\{handle\\}"}[1h]))
           )
@@ -128,7 +149,7 @@ groups:
       - record: slo:error_ratio:2h
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="GET", http_route=~"/store|/store/products|/store/products/\\{handle\\}", le="0.5"}[2h]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="GET", http_route=~"/store|/store/products|/store/products/\\{handle\\}", le=~"0\\.5"}[2h]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="GET", http_route=~"/store|/store/products|/store/products/\\{handle\\}"}[2h]))
           )
@@ -137,7 +158,7 @@ groups:
       - record: slo:error_ratio:6h
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="GET", http_route=~"/store|/store/products|/store/products/\\{handle\\}", le="0.5"}[6h]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="GET", http_route=~"/store|/store/products|/store/products/\\{handle\\}", le=~"0\\.5"}[6h]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="GET", http_route=~"/store|/store/products|/store/products/\\{handle\\}"}[6h]))
           )
@@ -146,7 +167,7 @@ groups:
       - record: slo:error_ratio:1d
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="GET", http_route=~"/store|/store/products|/store/products/\\{handle\\}", le="0.5"}[1d]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="GET", http_route=~"/store|/store/products|/store/products/\\{handle\\}", le=~"0\\.5"}[1d]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="GET", http_route=~"/store|/store/products|/store/products/\\{handle\\}"}[1d]))
           )
@@ -155,7 +176,7 @@ groups:
       - record: slo:error_ratio:3d
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="GET", http_route=~"/store|/store/products|/store/products/\\{handle\\}", le="0.5"}[3d]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="GET", http_route=~"/store|/store/products|/store/products/\\{handle\\}", le=~"0\\.5"}[3d]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="GET", http_route=~"/store|/store/products|/store/products/\\{handle\\}"}[3d]))
           )
@@ -209,49 +230,70 @@ groups:
     rules:
       - record: slo:error_ratio:5m
         expr: |
-          sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin(/.*)?", http_status_class="5xx"}[5m]))
+          (
+            sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin(/.*)?", http_status_class="5xx"}[5m]))
+            or vector(0)
+          )
           /
           sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin(/.*)?"}[5m]))
         labels:
           slo: admin-api-availability
       - record: slo:error_ratio:30m
         expr: |
-          sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin(/.*)?", http_status_class="5xx"}[30m]))
+          (
+            sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin(/.*)?", http_status_class="5xx"}[30m]))
+            or vector(0)
+          )
           /
           sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin(/.*)?"}[30m]))
         labels:
           slo: admin-api-availability
       - record: slo:error_ratio:1h
         expr: |
-          sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin(/.*)?", http_status_class="5xx"}[1h]))
+          (
+            sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin(/.*)?", http_status_class="5xx"}[1h]))
+            or vector(0)
+          )
           /
           sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin(/.*)?"}[1h]))
         labels:
           slo: admin-api-availability
       - record: slo:error_ratio:2h
         expr: |
-          sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin(/.*)?", http_status_class="5xx"}[2h]))
+          (
+            sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin(/.*)?", http_status_class="5xx"}[2h]))
+            or vector(0)
+          )
           /
           sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin(/.*)?"}[2h]))
         labels:
           slo: admin-api-availability
       - record: slo:error_ratio:6h
         expr: |
-          sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin(/.*)?", http_status_class="5xx"}[6h]))
+          (
+            sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin(/.*)?", http_status_class="5xx"}[6h]))
+            or vector(0)
+          )
           /
           sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin(/.*)?"}[6h]))
         labels:
           slo: admin-api-availability
       - record: slo:error_ratio:1d
         expr: |
-          sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin(/.*)?", http_status_class="5xx"}[1d]))
+          (
+            sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin(/.*)?", http_status_class="5xx"}[1d]))
+            or vector(0)
+          )
           /
           sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin(/.*)?"}[1d]))
         labels:
           slo: admin-api-availability
       - record: slo:error_ratio:3d
         expr: |
-          sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin(/.*)?", http_status_class="5xx"}[3d]))
+          (
+            sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin(/.*)?", http_status_class="5xx"}[3d]))
+            or vector(0)
+          )
           /
           sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin(/.*)?"}[3d]))
         labels:
@@ -305,7 +347,7 @@ groups:
       - record: slo:error_ratio:5m
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_route=~"/admin/metrics|/admin/metrics/query", le="0.3"}[5m]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_route=~"/admin/metrics|/admin/metrics/query", le=~"0\\.3"}[5m]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin/metrics|/admin/metrics/query"}[5m]))
           )
@@ -314,7 +356,7 @@ groups:
       - record: slo:error_ratio:30m
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_route=~"/admin/metrics|/admin/metrics/query", le="0.3"}[30m]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_route=~"/admin/metrics|/admin/metrics/query", le=~"0\\.3"}[30m]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin/metrics|/admin/metrics/query"}[30m]))
           )
@@ -323,7 +365,7 @@ groups:
       - record: slo:error_ratio:1h
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_route=~"/admin/metrics|/admin/metrics/query", le="0.3"}[1h]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_route=~"/admin/metrics|/admin/metrics/query", le=~"0\\.3"}[1h]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin/metrics|/admin/metrics/query"}[1h]))
           )
@@ -332,7 +374,7 @@ groups:
       - record: slo:error_ratio:2h
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_route=~"/admin/metrics|/admin/metrics/query", le="0.3"}[2h]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_route=~"/admin/metrics|/admin/metrics/query", le=~"0\\.3"}[2h]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin/metrics|/admin/metrics/query"}[2h]))
           )
@@ -341,7 +383,7 @@ groups:
       - record: slo:error_ratio:6h
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_route=~"/admin/metrics|/admin/metrics/query", le="0.3"}[6h]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_route=~"/admin/metrics|/admin/metrics/query", le=~"0\\.3"}[6h]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin/metrics|/admin/metrics/query"}[6h]))
           )
@@ -350,7 +392,7 @@ groups:
       - record: slo:error_ratio:1d
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_route=~"/admin/metrics|/admin/metrics/query", le="0.3"}[1d]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_route=~"/admin/metrics|/admin/metrics/query", le=~"0\\.3"}[1d]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin/metrics|/admin/metrics/query"}[1d]))
           )
@@ -359,7 +401,7 @@ groups:
       - record: slo:error_ratio:3d
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_route=~"/admin/metrics|/admin/metrics/query", le="0.3"}[3d]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_route=~"/admin/metrics|/admin/metrics/query", le=~"0\\.3"}[3d]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_route=~"/admin/metrics|/admin/metrics/query"}[3d]))
           )
@@ -413,49 +455,70 @@ groups:
     rules:
       - record: slo:error_ratio:5m
         expr: |
-          sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", http_status_class="5xx"}[5m]))
+          (
+            sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", http_status_class="5xx"}[5m]))
+            or vector(0)
+          )
           /
           sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete"}[5m]))
         labels:
           slo: checkout-availability
       - record: slo:error_ratio:30m
         expr: |
-          sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", http_status_class="5xx"}[30m]))
+          (
+            sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", http_status_class="5xx"}[30m]))
+            or vector(0)
+          )
           /
           sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete"}[30m]))
         labels:
           slo: checkout-availability
       - record: slo:error_ratio:1h
         expr: |
-          sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", http_status_class="5xx"}[1h]))
+          (
+            sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", http_status_class="5xx"}[1h]))
+            or vector(0)
+          )
           /
           sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete"}[1h]))
         labels:
           slo: checkout-availability
       - record: slo:error_ratio:2h
         expr: |
-          sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", http_status_class="5xx"}[2h]))
+          (
+            sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", http_status_class="5xx"}[2h]))
+            or vector(0)
+          )
           /
           sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete"}[2h]))
         labels:
           slo: checkout-availability
       - record: slo:error_ratio:6h
         expr: |
-          sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", http_status_class="5xx"}[6h]))
+          (
+            sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", http_status_class="5xx"}[6h]))
+            or vector(0)
+          )
           /
           sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete"}[6h]))
         labels:
           slo: checkout-availability
       - record: slo:error_ratio:1d
         expr: |
-          sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", http_status_class="5xx"}[1d]))
+          (
+            sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", http_status_class="5xx"}[1d]))
+            or vector(0)
+          )
           /
           sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete"}[1d]))
         labels:
           slo: checkout-availability
       - record: slo:error_ratio:3d
         expr: |
-          sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", http_status_class="5xx"}[3d]))
+          (
+            sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", http_status_class="5xx"}[3d]))
+            or vector(0)
+          )
           /
           sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete"}[3d]))
         labels:
@@ -509,7 +572,7 @@ groups:
       - record: slo:error_ratio:5m
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le="2.0"}[5m]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le=~"2(\\.0)?"}[5m]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete"}[5m]))
           )
@@ -518,7 +581,7 @@ groups:
       - record: slo:error_ratio:30m
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le="2.0"}[30m]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le=~"2(\\.0)?"}[30m]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete"}[30m]))
           )
@@ -527,7 +590,7 @@ groups:
       - record: slo:error_ratio:1h
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le="2.0"}[1h]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le=~"2(\\.0)?"}[1h]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete"}[1h]))
           )
@@ -536,7 +599,7 @@ groups:
       - record: slo:error_ratio:2h
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le="2.0"}[2h]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le=~"2(\\.0)?"}[2h]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete"}[2h]))
           )
@@ -545,7 +608,7 @@ groups:
       - record: slo:error_ratio:6h
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le="2.0"}[6h]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le=~"2(\\.0)?"}[6h]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete"}[6h]))
           )
@@ -554,7 +617,7 @@ groups:
       - record: slo:error_ratio:1d
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le="2.0"}[1d]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le=~"2(\\.0)?"}[1d]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete"}[1d]))
           )
@@ -563,7 +626,7 @@ groups:
       - record: slo:error_ratio:3d
         expr: |
           1 - (
-            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le="2.0"}[3d]))
+            sum(rate(http_server_request_duration_seconds_bucket{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete", le=~"2(\\.0)?"}[3d]))
             /
             sum(rate(http_server_request_duration_seconds_count{service_name="core", http_request_method="POST", http_route="/store/carts/{cartId}/complete"}[3d]))
           )
@@ -618,7 +681,7 @@ groups:
       - record: slo:error_ratio:5m
         expr: |
           1 - (
-            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000.0"}[5m]))
+            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le=~"10000(\\.0)?"}[5m]))
             /
             sum(rate(analytics_ingest_ingest_delay_milliseconds_count[5m]))
           )
@@ -627,7 +690,7 @@ groups:
       - record: slo:error_ratio:30m
         expr: |
           1 - (
-            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000.0"}[30m]))
+            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le=~"10000(\\.0)?"}[30m]))
             /
             sum(rate(analytics_ingest_ingest_delay_milliseconds_count[30m]))
           )
@@ -636,7 +699,7 @@ groups:
       - record: slo:error_ratio:1h
         expr: |
           1 - (
-            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000.0"}[1h]))
+            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le=~"10000(\\.0)?"}[1h]))
             /
             sum(rate(analytics_ingest_ingest_delay_milliseconds_count[1h]))
           )
@@ -645,7 +708,7 @@ groups:
       - record: slo:error_ratio:2h
         expr: |
           1 - (
-            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000.0"}[2h]))
+            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le=~"10000(\\.0)?"}[2h]))
             /
             sum(rate(analytics_ingest_ingest_delay_milliseconds_count[2h]))
           )
@@ -654,7 +717,7 @@ groups:
       - record: slo:error_ratio:6h
         expr: |
           1 - (
-            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000.0"}[6h]))
+            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le=~"10000(\\.0)?"}[6h]))
             /
             sum(rate(analytics_ingest_ingest_delay_milliseconds_count[6h]))
           )
@@ -663,7 +726,7 @@ groups:
       - record: slo:error_ratio:1d
         expr: |
           1 - (
-            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000.0"}[1d]))
+            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le=~"10000(\\.0)?"}[1d]))
             /
             sum(rate(analytics_ingest_ingest_delay_milliseconds_count[1d]))
           )
@@ -672,7 +735,7 @@ groups:
       - record: slo:error_ratio:3d
         expr: |
           1 - (
-            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="10000.0"}[3d]))
+            sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le=~"10000(\\.0)?"}[3d]))
             /
             sum(rate(analytics_ingest_ingest_delay_milliseconds_count[3d]))
           )

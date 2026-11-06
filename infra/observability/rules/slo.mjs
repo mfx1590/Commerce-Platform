@@ -35,22 +35,27 @@ const ADMIN_METRICS = `${CORE}, http_route=~"/admin/metrics|/admin/metrics/query
 const COMPLETE = `${CORE}, http_request_method="POST", http_route="/store/carts/{cartId}/complete"`;
 
 /**
- * A bucket boundary as Prometheus 3 STORES it: classic-histogram `le` labels are normalised at scrape, so an integer
- * boundary is written with `.0` (`2` -> "2.0", `10000` -> "10000.0") and `le="2"` selects nothing (checked on the
- * compose Prometheus v3.0.1, 2026-11-06). The tests in slo.test.yml spell the normalised form out literally, so a
- * regression here empties the burning cases and fails `promtool test rules`.
+ * A bucket-boundary matcher. Prometheus 3 NORMALISES classic-histogram `le` labels at scrape: an integer boundary is
+ * stored with `.0` (`2` -> "2.0", `10000` -> "10000.0"), so `le="2"` selects nothing (checked on the compose
+ * Prometheus v3.0.1 and on #729's live run, 2026-11-06). The regex matches both spellings. The tests in slo.test.yml
+ * spell the stored form out literally, so a regression to an exact "2" empties the burning cases and fails
+ * `promtool test rules`.
  */
-const le = (n) => (Number.isInteger(n) ? n.toFixed(1) : String(n));
+const le = (n) =>
+  `le=~"${Number.isInteger(n) ? `${n}(\\\\.0)?` : String(n).replace('.', '\\\\.')}"`;
 
 const reqRate = (sel, w) => `sum(rate(http_server_request_duration_seconds_count{${sel}}[${w}]))`;
 
-/** An availability SLI: the share of requests answered with a 5xx. */
+/**
+ * An availability SLI: the share of requests answered with a 5xx. OTel creates the 5xx series on the first 5xx, so
+ * until then it does not exist; `or vector(0)` makes that a ratio of 0, not "no data" (which would record nothing).
+ */
 const availability = (sel) => (w) =>
-  `${reqRate(`${sel}, http_status_class="5xx"`, w)}\n/\n${reqRate(sel, w)}`;
+  `(\n  ${reqRate(`${sel}, http_status_class="5xx"`, w)}\n  or vector(0)\n)\n/\n${reqRate(sel, w)}`;
 
 /** A latency SLI: the share of requests slower than `seconds` (a bucket boundary). */
 const latency = (sel, seconds) => (w) =>
-  `1 - (\n  sum(rate(http_server_request_duration_seconds_bucket{${sel}, le="${le(seconds)}"}[${w}]))\n  /\n  ${reqRate(sel, w)}\n)`;
+  `1 - (\n  sum(rate(http_server_request_duration_seconds_bucket{${sel}, ${le(seconds)}}[${w}]))\n  /\n  ${reqRate(sel, w)}\n)`;
 
 /**
  * Every SLO. `target` is the good-event share over 28 days; the error budget is 1 − target. `source` says
@@ -107,7 +112,7 @@ export const SLOS = [
     target: 0.95,
     source: 'Integration 5 ingest lag p95 < 10 s (#612)',
     error: (w) =>
-      `1 - (\n  sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{le="${le(10000)}"}[${w}]))\n  /\n  sum(rate(analytics_ingest_ingest_delay_milliseconds_count[${w}]))\n)`,
+      `1 - (\n  sum(rate(analytics_ingest_ingest_delay_milliseconds_bucket{${le(10000)}}[${w}]))\n  /\n  sum(rate(analytics_ingest_ingest_delay_milliseconds_count[${w}]))\n)`,
   },
   {
     name: 'outbox-relay-lag',
@@ -205,15 +210,21 @@ function inputSeries(slo, bad) {
         'checkout-availability':
           'http_route="/store/carts/{cartId}/complete", http_request_method="POST"',
       }[slo.name];
+      // Healthy: NO 5xx series at all, as on a live core that has never answered a 5xx (OTel creates the series on
+      // the first one). The ratio must still be 0 and nothing may fire.
       return [
         {
           series: `http_server_request_duration_seconds_count{${core}${route}, http_status_class="2xx"}`,
           values: per(good),
         },
-        {
-          series: `http_server_request_duration_seconds_count{${core}${route}, http_status_class="5xx"}`,
-          values: per(60 - good),
-        },
+        ...(good < 60
+          ? [
+              {
+                series: `http_server_request_duration_seconds_count{${core}${route}, http_status_class="5xx"}`,
+                values: per(60 - good),
+              },
+            ]
+          : []),
       ];
     }
     case 'store-api-latency':

@@ -20,8 +20,10 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 ### Fixed (#730 review)
 
 - The checkout-latency and ingest-lag SLIs selected `le="2"` / `le="10000"`, which Prometheus 3 stores as `"2.0"` /
-  `"10000.0"`: the recordings would have been empty and the alerts silent. The rules now use the stored form, and the
-  promtool series spell it literally. Two more gate self-tests: non-JSON audit output, and a multi-path advisory.
+  `"10000.0"`: the recordings would have been empty and the alerts silent. The rules now match both spellings
+  (`le=~"2(\\.0)?"`), and the promtool series spell the stored form literally. The availability SLIs read a missing
+  5xx series (none exists before the first 5xx) as 0 (`or vector(0)`) instead of recording nothing; the healthy
+  promtool cases have no 5xx series at all. Two more gate self-tests: non-JSON audit output, and a multi-path advisory.
 
 ### Fixed
 

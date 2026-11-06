@@ -128,6 +128,11 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   REVIEW FIX (manager + Opus): Prometheus 3 normalises `le` (`2`→"2.0", `10000`→"10000.0"); `le="2"` selected 0
   series on the live stack vs 17 for "2.0". slo.mjs `le()` + literal normalised test series; mutation (rules back to
   "2") fails 4 burning cases. Gate tests 9→11 (non-JSON CLI, multi-path).
+  Then (manager, from #729's live run): le as regex `2(\\.0)?` (robust both ways); availability `(5xx or vector(0)) / all`
+  because OTel creates the 5xx series only on the first 5xx; healthy cases now have NO 5xx series (mutation: drop
+  the guard → 3 healthy cases got nil). Later PR, after #729 merges: infra/load/README.md still says "No OpenTelemetry yet".
+  Gotcha: Git Bash collapses `\\` in args to native Windows programs (node -e, curl, sed edits) — put regex-bearing
+  queries/scripts in a file written with Write.
   Gotcha: no `jq` in Git Bash here — use `gh ... --jq`. Job logs while the run is in progress: `gh api .../actions/jobs/<id>/logs`.
   Earlier plan notes: Branch `infra/phase6-730` from main `33cb5b6f`.
   Facts: branch protection enforces 6 checks (ownership, lint+typecheck, unit, contract, gitleaks, perf) — NOT

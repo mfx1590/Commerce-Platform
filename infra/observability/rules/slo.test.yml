@@ -65,10 +65,6 @@
               'series': 'http_server_request_duration_seconds_count{service_name="core", store_id="s1", http_route="/store/products", http_request_method="GET", http_status_class="2xx"}',
               'values': '0+60x240',
             },
-            {
-              'series': 'http_server_request_duration_seconds_count{service_name="core", store_id="s1", http_route="/store/products", http_request_method="GET", http_status_class="5xx"}',
-              'values': '0+0x240',
-            },
           ],
         'alert_rule_test':
           [
@@ -238,10 +234,6 @@
             {
               'series': 'http_server_request_duration_seconds_count{service_name="core", store_id="s1", http_route="/admin/orders", http_request_method="GET", http_status_class="2xx"}',
               'values': '0+60x240',
-            },
-            {
-              'series': 'http_server_request_duration_seconds_count{service_name="core", store_id="s1", http_route="/admin/orders", http_request_method="GET", http_status_class="5xx"}',
-              'values': '0+0x240',
             },
           ],
         'alert_rule_test':
@@ -416,10 +408,6 @@
             {
               'series': 'http_server_request_duration_seconds_count{service_name="core", store_id="s1", http_route="/store/carts/{cartId}/complete", http_request_method="POST", http_status_class="2xx"}',
               'values': '0+60x240',
-            },
-            {
-              'series': 'http_server_request_duration_seconds_count{service_name="core", store_id="s1", http_route="/store/carts/{cartId}/complete", http_request_method="POST", http_status_class="5xx"}',
-              'values': '0+0x240',
             },
           ],
         'alert_rule_test':
