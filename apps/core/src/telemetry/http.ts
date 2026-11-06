@@ -29,9 +29,13 @@ import { telemetryActive } from './sdk';
 
 export const NO_STORE = 'none';
 
-/** Seconds; the semantic-conventions default boundaries for http.server.request.duration. */
+/**
+ * Seconds: the semantic-conventions defaults plus 0.3 and 2. A latency SLO can only be read at a bucket boundary,
+ * and window 5's Prometheus rules (docs/slo.md) use 0.5 s (store browse), 0.3 s (admin metrics API) and 2 s (checkout
+ * complete). Pinned by telemetry.test.ts: do not drop a boundary without changing those rules.
+ */
 export const DURATION_BUCKETS = [
-  0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10,
+  0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.3, 0.5, 0.75, 1, 2, 2.5, 5, 7.5, 10,
 ];
 
 const METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);

@@ -31,7 +31,7 @@ the boot never fails and no request waits on an export (batch span processor, pe
 | `http.status_class`   | `1xx` … `5xx`                                                                                                                                                                                                                    |
 | `store_id`            | Store API: the store of the publishable key. Admin: the `{storeId}` path parameter when it is a store of the registry (`known-stores.ts`, refreshed lazily every 60 s), so a made-up uuid cannot mint a series. `none` otherwise |
 
-- `http.server.request.duration` — histogram, seconds, the semantic-conventions buckets (5 ms … 10 s).
+- `http.server.request.duration` — histogram, seconds; buckets EXACTLY 0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.3, 0.5, 0.75, 1, 2, 2.5, 5, 7.5, 10 (the semantic-conventions defaults plus 0.3 and 2: the SLO thresholds 0.3 s, 0.5 s and 2 s must be bucket boundaries; pinned by a test).
 - `core.http.requests` — counter. `core.http.errors` — counter, **5xx only**; a 4xx (429 included) is visible
   through `http.status_class` and is not an error, for metrics and for the span status alike.
 - Prometheus names (collector): `http_server_request_duration_seconds_{bucket,sum,count}`,

@@ -12,6 +12,8 @@
   contract route template (else `unmatched`), method, status class and `store_id` (publishable key's store; an admin
   `{storeId}` only when the registry knows it, else `none`). SERVER span `<METHOD> <template>`, rooted at the core
   (an inbound `traceparent` is ignored).
+- `http.server.request.duration` buckets: the semantic-conventions defaults plus 0.3 and 2 s (window 5's SLO
+  thresholds 0.3 / 0.5 / 2 s must be bucket boundaries), pinned by a test.
 - `src/lib/db.ts`: every transaction of a scoped client is a `db.transaction` span (no SQL; SQLSTATE on failure).
 - Dependencies: `@opentelemetry/api` 1.9.1, `sdk-metrics` / `sdk-trace` / `context-async-hooks` / `resources`
   2.12.0, `exporter-metrics-otlp-http` / `exporter-trace-otlp-http` 0.223.0 (pnpm also moves Medusa's own

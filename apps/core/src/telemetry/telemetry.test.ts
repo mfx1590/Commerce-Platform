@@ -21,6 +21,7 @@ import type { StoreContext } from '../http/tenant';
 import {
   compileRouteMatcher,
   currentTraceFields,
+  DURATION_BUCKETS,
   knownStoreSet,
   samplerFromEnv,
   startTelemetry,
@@ -262,6 +263,17 @@ describe('RED metrics and the SERVER span', () => {
     expect(points('core.http.requests')).toEqual(expected);
     expect(points('http.server.request.duration')).toEqual(expected);
     expect(byName.get('http.server.request.duration')!.descriptor.unit).toBe('s');
+    // Pinned as a literal (window 5's SLO rules read 0.3 s, 0.5 s and 2 s at bucket boundaries): an edit of
+    // DURATION_BUCKETS that drops one fails here, on the exported data, not only on the constant.
+    const SLO_BUCKETS = [
+      0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.3, 0.5, 0.75, 1, 2, 2.5, 5, 7.5, 10,
+    ];
+    expect(DURATION_BUCKETS).toEqual(SLO_BUCKETS);
+    for (const d of byName.get('http.server.request.duration')!.dataPoints) {
+      expect((d.value as { buckets: { boundaries: number[] } }).buckets.boundaries).toEqual(
+        SLO_BUCKETS,
+      );
+    }
     expect(points('core.http.errors')).toEqual([
       {
         'http.route': 'unmatched',
