@@ -168,6 +168,19 @@ export class StoreApiClient {
     });
   }
 
+  /** `kind` in the response is the kind SERVED: `popular` when a co-occurrence anchor had none. */
+  listProductRecommendations(
+    query?: Query<'listProductRecommendations'>,
+    options?: RequestOptions,
+  ): Promise<Result<'listProductRecommendations'>> {
+    // `variant_ids` is an array in the contract and one comma-separated value on the wire.
+    const { variant_ids: variantIds, ...rest } = query ?? {};
+    return this.request('GET', '/store/recommendations', {
+      query: { ...rest, variant_ids: variantIds?.join(',') },
+      options,
+    });
+  }
+
   // ── cart ─────────────────────────────────────────────────────────────────────────────────────
   createCart(body: Body<'createCart'>, options?: RequestOptions): Promise<Result<'createCart'>> {
     return this.request('POST', '/store/carts', { body, options });
