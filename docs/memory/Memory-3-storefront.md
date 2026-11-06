@@ -246,7 +246,7 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## In progress
 
-- [ ] **#620 — flaky `perf-store-example` test, 0.15.1, branch `storefront/phase6-620`.** Cause measured: CPU-bound repeated work inside one test (4x yaml.parse of the 79 kB spec + 2 Ajv builds): 216–396 ms quiet, 1.6–1.8 s in the full suite, >5 s on a loaded runner. Fix: `storeValidator` (Map cache per spec text) + parse/compile/overlay-parse once at collection time. After (final file): the test 1–7 ms in 20/20 green file runs, slowest test in the file 60 ms; full suite 655/655 twice with it at 1 ms. Next: PR "Closes #620", report twice.
+- [x] **#620 — DONE, PR #732 merged = `3404252d`. Flaky `perf-store-example` test, 0.15.1, branch `storefront/phase6-620`.** Cause measured: CPU-bound repeated work inside one test (4x yaml.parse of the 79 kB spec + 2 Ajv builds): 216–396 ms quiet, 1.6–1.8 s in the full suite, >5 s on a loaded runner. Fix: `storeValidator` (Map cache per spec text) + parse/compile/overlay-parse once at collection time. After (final file): the test 1–7 ms in 20/20 green file runs, slowest test in the file 60 ms; full suite 655/655 twice with it at 1 ms. Next: PR "Closes #620", report twice.
 
 - [ ] **#609 — P5.10 recommendation rails (PDP + cart), 0.15.0, branch `storefront/phase5-609-rail`.**
       Built: `listProductRecommendations` on the client (variant_ids joined with commas), `src/lib/recommendations.ts`
