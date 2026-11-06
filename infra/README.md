@@ -347,6 +347,25 @@ poison message.
 For this to produce anything, the apps must emit spans — which is the snippet above, and belongs to
 the app windows.
 
+### SLOs and burn-rate alerts (#730)
+
+The SLOs are in [`infra/observability/SLO.md`](observability/SLO.md) (`docs/slo.md` points there). Their rules are
+code: `infra/observability/rules/slo.mjs` generates `rules/slo.rules.yml` (recording rules
+`slo:error_ratio:<window>` and multi-window burn-rate alerts `SLOBurn_<slo>_page|ticket`, loaded by
+`prometheus.yml`, mounted into the compose Prometheus) and `rules/slo.test.yml`. `check.sh` — the
+`observability config` job — fails on a hand edit of either YAML file, on `promtool check rules`, and on
+`promtool test rules`. The core's SLIs wait for #729's metrics; the relay's for #733.
+
+### Production dependencies (#730)
+
+`dependency audit (production)` runs on every PR: `pnpm audit --prod --json`, then `infra/ci/audit-gate.mjs`
+against `infra/security/audit-allowlist.json`. The allow-list's `threshold` (today `high`) is the lowest severity
+that fails. Every entry names the advisory (GHSA), the package, its versions, the owning app and window, a reason
+and an **`expires`** date; an expired entry fails the gate, an entry that matches nothing any more is reported as
+stale (delete it). It started with a dated baseline: the 28 high/critical advisories present on main `33cb5b6f` when
+the gate was introduced (the two critical ones expire 2026-11-20, the rest 2026-12-06). A lookup that never answers
+fails closed.
+
 ## Helm
 
 ```
@@ -570,21 +589,22 @@ kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.pas
 `.github/workflows/ci.yml`. `ownership` is first and stays first; `scripts/check-ownership.sh`
 belongs to the main window.
 
-| job              | runs when   | what it does                                                                                                                                                                                                       |
-| ---------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ownership`      | always      | `check-ownership.sh` + its self-test                                                                                                                                                                               |
-| `changes`        | always      | classifies the diff into `code` / `images` / `terraform` / `e2e` / `helm` / `observ` / `perf`                                                                                                                      |
-| `lint-typecheck` | `code`      | lint, format, typecheck, generated-file drift                                                                                                                                                                      |
-| `unit`           | `code`      | `pnpm test` with Postgres, then migrate + seed                                                                                                                                                                     |
-| `contract`       | `code`      | `pnpm test:contract` against Prism                                                                                                                                                                                 |
-| `perf-app`       | `perf`      | one entry per storefront in `perf_apps`: build its workspace deps, Prism on 127.0.0.1:4010, `pnpm --filter <storefront> perf` (its own bundle budget + Lighthouse, exit 1 if either is over)                       |
-| `perf`           | always      | the required check: green only if the classifier succeeded and every `perf-app` entry passed; says so when no storefront changed                                                                                   |
-| `images`         | `images`    | builds all six images through bake, then `smoke-images.sh`. Never pushes                                                                                                                                           |
-| `auth-e2e`       | `e2e`       | Keycloak (both realms), OpenFGA, Redis and Postgres from compose; the live auth suites; a real `apps/core` boot; `apps/*` journeys on Prism, `apps/storefronts/*` on the kept core (below)                         |
-| `admin-e2e-core` | `e2e`       | **advisory** (#285): `fga:seed`, a kept core with real Keycloak tokens and OpenFGA (no dev tokens), then `apps/admin` journeys with `E2E_API=core` on :3200                                                        |
-| `helm`           | `helm`      | `infra/helm/check.sh` (lint, render every app/env, kubeconform, then `check-values.sh`); `check-values.test.sh`; `node --test infra/deploy/keycloak/derive-customers-realm.test.mjs` (the derived customers realm) |
-| `terraform`      | `terraform` | `infra/terraform/check.sh`                                                                                                                                                                                         |
-| `preview`        | PRs         | placeholder until 2.4b                                                                                                                                                                                             |
+| job                | runs when   | what it does                                                                                                                                                                                                                      |
+| ------------------ | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ownership`        | always      | `check-ownership.sh` + its self-test                                                                                                                                                                                              |
+| `changes`          | always      | classifies the diff into `code` / `images` / `terraform` / `e2e` / `helm` / `observ` / `perf`                                                                                                                                     |
+| `lint-typecheck`   | `code`      | lint, format, typecheck, generated-file drift                                                                                                                                                                                     |
+| `unit`             | `code`      | `pnpm test` with Postgres, then migrate + seed                                                                                                                                                                                    |
+| `contract`         | `code`      | `pnpm test:contract` against Prism                                                                                                                                                                                                |
+| `perf-app`         | `perf`      | one entry per storefront in `perf_apps`: build its workspace deps, Prism on 127.0.0.1:4010, `pnpm --filter <storefront> perf` (its own bundle budget + Lighthouse, exit 1 if either is over)                                      |
+| `perf`             | always      | the required check: green only if the classifier succeeded and every `perf-app` entry passed; says so when no storefront changed                                                                                                  |
+| `images`           | `images`    | builds all six images through bake, then `smoke-images.sh`. Never pushes                                                                                                                                                          |
+| `auth-e2e`         | `e2e`       | Keycloak (both realms), OpenFGA, Redis and Postgres from compose; the live auth suites; a real `apps/core` boot; `apps/*` journeys on Prism, `apps/storefronts/*` on the kept core (below)                                        |
+| `admin-e2e-core`   | `e2e`       | **advisory** (#285): `fga:seed`, a kept core with real Keycloak tokens and OpenFGA (no dev tokens), then `apps/admin` journeys with `E2E_API=core` on :3200                                                                       |
+| `helm`             | `helm`      | `infra/helm/check.sh` (lint, render every app/env, kubeconform, then `check-values.sh`); `check-values.test.sh`; `node --test infra/deploy/keycloak/derive-customers-realm.test.mjs` (the derived customers realm)                |
+| `dependency-audit` | always      | **advisory** (#730): `pnpm audit --prod` (pnpm 10.34.5) → `infra/ci/audit-gate.mjs`, fails on a high/critical production advisory not on `infra/security/audit-allowlist.json` or past its entry's expiry; stale entries reported |
+| `terraform`        | `terraform` | `infra/terraform/check.sh`                                                                                                                                                                                                        |
+| `preview`          | PRs         | placeholder until 2.4b                                                                                                                                                                                                            |
 
 **`perf` is a gate, not a report** (#257, #283). For each storefront it measures, `scripts/perf.mjs` runs that
 storefront's own bundle budget and Lighthouse CI against its own `lighthouserc.json`, and exits non-zero if either is

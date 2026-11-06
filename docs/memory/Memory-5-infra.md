@@ -2,7 +2,7 @@
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
 Last updated: 2026-11-06 · Contracts: `contracts-v0.1` · Branch: `infra/phase6-730` · Worktree: `../wt-infra` · Manager: **Manager session eleven** (repo-root manager; chain in Memory-main's first bullet)
-Status: **Phase 6, #730 (P6.2)** — PLAN sent to the manager, awaiting OK. Plan: docs/plan/phase6-plan.md (D3, D4, D6); tracking #731.
+Status: **Phase 6, #730 (P6.2)** — APPROVED (A1, B1, C = #729's labels, D1); built; pushing a draft with a seeded-vulnerability commit, then its revert.
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -108,7 +108,19 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
-- **#730 (P6.2) — PLAN, awaiting the manager's OK.** Branch `infra/phase6-730` from main `33cb5b6f`.
+- **#730 (P6.2) — APPROVED 2026-11-06 and BUILT.** A1: own job `dependency audit (production)`, advisory.
+  B1: `infra/observability/SLO.md` (the manager adds `docs/slo.md` as a pointer). C: #729's labels
+  (`http_status_class`, not the code; histogram `http_server_request_duration_seconds`). Checkout latency 95% < 2 s
+  (production calls the payment provider). Relay lag rule against `outbox_relay_lag_oldest_seconds{service_name=
+  "outbox-relay"}`, METRIC PENDING, REQUEST **#733** to window 14. D1: dated baseline, stale entries reported not
+  failed; per-owner lists in the PR body, the manager routes them (no REQUESTs). E (`.github/dependabot.yml` outside my
+  row) NOT answered yet → Dependabot held. Asked window 1 (via the manager) for buckets 0.3 and 2 s.
+  Built: audit-gate.mjs + 9 tests; allow-list (28); rules/slo.mjs → slo.rules.yml (72 rules) + slo.test.yml (16 cases,
+  mutation-checked), formatted through the repo's Prettier; check.sh runs generator --check + promtool check/test
+  (prom/prometheus:v3.0.1); observability job now installs deps; prometheus.yml rule_files + compose mount.
+  Proof plan: commit 1 = the work; commit 2 = SEED (root package.json + lockfile: lodash 4.17.20, a high advisory NOT in
+  the baseline) → the audit job must FAIL, ownership is red on that commit (root config — expected); commit 3 = revert.
+  Earlier plan notes: Branch `infra/phase6-730` from main `33cb5b6f`.
   Facts: branch protection enforces 6 checks (ownership, lint+typecheck, unit, contract, gitleaks, perf) — NOT
   `live auth + end-to-end` (D6: it becomes required after 10 green runs on main; the owner's setting). Core has NO
   OTel yet (plan item 1, window 1, parallel); only analytics-ingest exports metrics (`analytics_ingest.ingest_delay`

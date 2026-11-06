@@ -2,6 +2,24 @@
 
 Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/Dockerfile`.
 
+## Unreleased — Phase 6
+
+### Added (#730, P6.2 — dependency scanning and SLOs as rules)
+
+- CI job `dependency audit (production)` (advisory, every PR): `pnpm audit --prod` + `infra/ci/audit-gate.mjs`, failing
+  on a high/critical production advisory outside `infra/security/audit-allowlist.json` or past its entry's expiry
+  (self-test in the `changes` job). The allow-list starts with a dated baseline of the 28 high/critical advisories on
+  main `33cb5b6f`.
+- `infra/observability/SLO.md` and `rules/slo.mjs` → `rules/slo.rules.yml` + `rules/slo.test.yml`: eight SLOs with
+  recording rules and multi-window burn-rate alerts, checked by `promtool check rules` and `promtool test rules` in the
+  `observability config` job; Prometheus loads them (`rule_files`, compose mount).
+- `#733`: REQUEST to window 14 for the relay lag gauge.
+
+### Fixed
+
+- `infra/README.md` → Branch protection lists the six checks GitHub enforces; `live auth + end-to-end` is not one
+  (plan D6). Two `ci.yml` comments said otherwise.
+
 ## Unreleased — Phase 3
 
 ### Fixed (Refs #346 — the owner-logins witness warned on the wrong thing)
