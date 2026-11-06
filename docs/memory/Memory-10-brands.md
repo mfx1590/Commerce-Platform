@@ -2,21 +2,54 @@
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
 Last updated: 2026-10-08 · Contracts: contracts-v0.4.12 · Branch: `brands/phase3` (at main 2e35674) · Status: **ALL MERGED, nothing open (2026-10-08).** #374 (#377), #372 (#379), #382 (#391), #348's change (#388), #386 (#408 = `dea7575`), #330's rendering (#411 = `f83073e`). **#348 remains reopened: its 30-leg count restarts at `f83073e`**, recorded on the issue, counted by the manager — `numberOfRuns: 5` and `maxNumericValue: 2500` must not move until it completes. REQUESTs **#389 and #390 are FIXED** (window 3). **Budget from 2026-10-08: manager + TWO build windows at a time** (was one).
 
-## Identity (does not change)
-Owned paths (write):
-- `apps/storefronts/<brand>/**`
-- `cms/<brand>/**`
-Reads:
-- packages/ui
-- apps/storefront-starter (read only)
-Never touches:
-- the starter
-- other brands
+## Identity
+
+Window **10 (brands)**. I write only `apps/storefronts/<brand>/**` and `cms/brand-*/**`
+(docs/ownership.md row `brands/`). My memory file is this one. The starter is window 3's — read it,
+never edit it; file a REQUEST. `**/Dockerfile` is window 5's.
+
+**Phase 6.** Branch **`brands/phase6-728-resync`**, cut `--no-track` from `origin/main`. Plan:
+`docs/plan/phase6-plan.md`, tracking **#731**. The manager is **Manager session eleven** (repo root);
+the chain since my last task is the first bullet of `docs/memory/Memory-main.md`.
+
+Brands A, B and C are all on main. Current task: **#728**.
 
 ## Mission — Phase 2 (Commerce complete, brand 1 live)
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
+- **#438 · 3.2 brand C by script — ON MAIN.** PR **#444** landed through the manager's **PR #452 =
+  `2a8cb16`** (`integration/brand-c-images` = my `d38c176` plus one manager image commit: the nine
+  `COPY` lines, brand C's Dockerfile on 3103, the bake target and the compose service — REQUEST
+  **#439 items 6-8**). GitHub marked **#444 merged and #438 closed**. **All 18 checks green on that
+  head**, including `app images` (brand C's image builds), both brand e2e legs and brand C's perf
+  leg. `brands/phase3` fast-forwarded to `2a8cb16`; the manifest check now reports
+  *"every app Dockerfile copies all 16 workspace manifests"* over **10** Dockerfiles.
+  Gate after the merge, run **sequentially**: lint, format:check, typecheck 23/23, brand A **791**
+  / 3 skipped, brand B **690**, brand C **612**.
+
+  **What the task was actually worth.** Brand C exists, but the value was everything generating it
+  **found** — defects that cloning brand B could not have surfaced, because brand B's locale is one
+  of the starter's two and so every literal it inherited happened to be right. In order of severity:
+  the generated app **could not render a single page** (`messages/<locale>.json` imported unguarded;
+  `next build` fails with `Cannot find module './en-US.json'`), **and the one test for it passed
+  anyway** because it asserted a hard-coded catalogue pair. Then: the perf gate measuring two 404s
+  and calling it a score; blind substitution writing **false statements about the starter**; a pure
+  module's tests not covering the CLI adapter where the bug actually was; the generator's own
+  location reddening the perf job; a brand already in the seed being sent to the onboarding wizard;
+  and the content set being **half** of what two documents claimed it was.
+  It produced **four REQUESTs that all landed** — #441 (five parts), #446, #447, #449 — and
+  `ONBOARDING-GAPS.md` now runs to **24 traps**, with § 1's "a script can do all of this" annotated
+  twice: once for the locale assumptions, once because it called the content set fixed.
+
+  **Five of my own claims were corrected by measurement rather than left standing**, each in the
+  commit history and the PR body rather than quietly edited: the warm-up mechanism (307 + chunk
+  discovery, not a 404); "trap 20 does not affect CI" (it reds the **perf** job — I checked the live
+  job and generalised from one job); "brand C has no e2e coverage" (45/6 in CI once #445 landed); a
+  preservation a multi-path `git checkout` had silently restored after I said it was dropped; and the
+  content set. **Two habits changed as a result:** run the three suites **sequentially** for a gate
+  signal worth trusting, and verify generator output by **running the validator on it**, never by
+  reading it — both came from being wrong in a way reading could not catch.
 - **#437 · 3.1 brand B, and #442 its review fixes — ON MAIN.** PR #442's commits landed through the
   manager's **PR #443 = `933d484`** (`integration/brand-b-images` = my `9ae927a` plus one manager
   commit `0ca819c`: the eight Dockerfile `COPY` lines, brand B's own Dockerfile on port 3102, the
@@ -248,7 +281,91 @@ when every check has finished.
 - Budget: **manager + two build slots**, one of which is mine. (CLAUDE.md still says one window;
   the owner's instruction is the current one.)
 
-## In progress — #438 · 3.2 Brand C by script (generator + brand C generated, 2026-10-09)
+## In progress — #728 · re-sync A/B/C for the #609 recommendation rails (2026-11-06)
+
+Re-sync of all three brands onto `origin/main` to pick up #727 (`0391a388`). Window 3's pick-up list
+is in the issue; what it actually cost:
+
+- **The only preserved-file port was `next.config.mjs`**: `analyticsConsentMode(process.env)` plus
+  its import, in all three. `sync --check` reported exactly that one file drifted in each brand, and
+  is clean now. Everything else in the list arrived by sync.
+- **No brand places the rail itself.** The criterion says a brand overriding the PDP or cart must —
+  none of the three preserves a route file (checked `starter-preserved.json`, not assumed), so all
+  three take the starter's pages with both placements. Verified: `RecommendationRail` x2 in each
+  brand's PDP and cart, plus `recommendation-{rail,tracker}.tsx` and
+  `src/lib/{recommendations.ts,analytics/consent-mode.mjs}`.
+- **Brand C's own `en-US.json` was 50 keys behind** — 139 → 189. It is brand C's file, not the
+  starter's, so no sync ever brings it keys: a month of starter growth (the `account` route group,
+  48 keys) plus this task's `recommendations` (2). **Caught by my own
+  `test/brand-locale.test.ts`** and by the starter's `i18n.test.ts`. That is the standing cost of a
+  brand owning a catalogue, and the test is what makes it visible rather than silent fallback.
+  Copied **verbatim on purpose**: brand C already said "delivery" (×9), "Postal code" and "Region",
+  all inherited, so Americanising only the new keys would have the account form say "ZIP code" while
+  checkout said "Postal code". LAUNCH 12.2 now carries the **13 concrete candidates** instead of a
+  word count, for the owner's one review pass.
+- **Neither new env is set, deliberately.** Nothing in the repo sets `ENGAGEMENT_CDP_CONSENT_MODE`
+  or a per-store override, so the engagement side is on its `analytics` default and the storefront's
+  default matches — **they already agree**. Setting it would invent a region policy that LAUNCH 8.1
+  (still ⛔ for A and C) has not decided. **The coupling is recorded in all three LAUNCH files:**
+  the day anyone sets `ENGAGEMENT_CDP_CONSENT_MODE_<STORE_CODE>=strict`,
+  `STOREFRONT_ANALYTICS_CONSENT_MODE` must follow, or the browser keeps emitting events the CDP has
+  been told to refuse and nothing says so.
+- **LAUNCH 8.3** in all three, window 3's text verbatim. A had the row; B and C gained one so "8.3"
+  means the same thing in all three — B's numbering jumps 8.1 → 8.3 and the note says why.
+
+**Gate (sequential, per the flake rule): lint, format:check, typecheck 29/29, brand A 835 passed /
+3 skipped, brand B 734, brand C 656, `sync --check` clean in all three.**
+
+**PR #738** (code commit `4efd941`; head = this memory commit), `brands/phase6-728-resync` —>
+`main`, "Closes #728". Pushed with `-u` (first push of the branch).
+
+**The machine ran and is free.** Three production builds; every budgeted route within budget in all
+three brands. The two routes the rails touch: cart **A 140.4 / B 140.2 / C 140.2 kB** (budget 145),
+PDP **A 139.9 / B 139.7 / C 139.7 kB** (budget 144) — near-identical across brands, which is the
+tell that no brand is placing anything of its own. Brand C still bakes **11 `/en-US`** routes and
+zero `/en-GB`/`/de-DE`. Each README's budget block regenerated from these builds (the route list
+gained `(account)/account/deleted`), and **`--verify` re-run AFTER prettier**, because prettier
+reflows that table and `--verify` reads the route list and budget column out of it.
+
+**ONE NUMBER TO WATCH.** Brand C's perf leg is green (`bundle budget PASS, Lighthouse PASS`) but its
+**PDP LCP best run is 2202 ms against the 2500 ms budget**, worst 2370 ms — where brand C measured
+**1716 ms** in #438. ~300 ms of headroom with a ~170 ms spread on this machine. Deliberately
+unchanged: one laptop run cannot split the rails from a month of starter growth, and **#348's rule is
+that the assertion takes the best of N**, so CI's numbers on CI hardware are the ones that count —
+this PR produces them for all three brands. **Raising the budget to make room is the move #348
+forbids.** If CI agrees it is thin, it wants its own issue, not a line in #728.
+
+**Still to do:** The rails add JS to
+the PDP and cart, so the budget is the one criterion here with real uncertainty. Then one push
+(`-u`, first push of this branch), PR "Closes #728", two messages (PR up, checks finished), hold
+pushes after.
+
+### The setup trap that cost the first hour
+
+`pnpm build --filter './packages/*'` is **not** "rebuild everything". `@platform/cms` lives in
+**`cms/`**, not under `packages/`, so its `dist/` stayed a month stale and
+`(0, resolveDataset) is not a function` failed **35 tests in the starter and 36-38 in every brand**.
+It reads exactly like window 3 having shipped a broken starter. `pnpm --filter @platform/cms build`
+fixed all of it at once. Sibling of [[pnpm install after lockfile merge]]: after switching branches,
+a stale workspace `dist` looks like another window's broken code. **Diagnose by running the
+STARTER's own suite first** — it failed identically, which located the cause outside the brands in
+one step.
+
+
+
+**NEXT, when this window is activated** (the manager's list, not started):
+
+1. **Re-sync A/B/C for #451** (= `0ed6b7d`, window 3's #446): `route-origin`, `seo` and
+   `cms-content` now take the locale from routing. **That unblocks the thing I could not do** — B
+   and C can finally set `SUPPORTED_LOCALES` for vitest, so their unit suites test their own locale
+   instead of the starter's. Brand C's own `test/brand-locale.test.ts` can then shrink to what the
+   starter does not cover, and the four tests #446 named stop being a reason to leave the env alone.
+2. **#412 — the LAUNCH.md gate rows.**
+
+Order matters (trap 21): merge main, re-sync, **then** `pnpm install` without `--frozen-lockfile`.
+And take the gate **sequentially**, one brand at a time (the flake pattern below).
+
+## (the plan, kept for the trail) #438 · 3.2 Brand C by script
 
 ### STATE: steps 1, 2 and the generator are DONE and green. Nothing pushed.
 

@@ -1,6 +1,6 @@
 {
   "lighthouserc.json": "9c19e6598450478a87f5cb35527fe640ff3f9bab",
-  "next.config.mjs": "344656b76011a82241f3ce49c76898d330f0c26d",
+  "next.config.mjs": "af03c76f19ed99ebf5e8d050f1077d60f52dfbf7",
   "playwright.config.ts": "f8d599ba1c78e07a4bb9038cc79ae3d287f61c74",
   "scripts/start.mjs": "7553b64f3c896650d19f2bcdd32ad8b5092e5edf",
   "src/brand/components/index.ts": "1235fdbcd8a20cd5e09c0f3cf0e16e2a6ba40890",
