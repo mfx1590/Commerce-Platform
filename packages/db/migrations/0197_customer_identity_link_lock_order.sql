@@ -9,12 +9,15 @@
 -- ambiguity: no merge, as decided on #504) — no lock cycle is possible, and a guest is still never merged twice
 -- (the merge UPDATE keeps `merged_into_id IS NULL`). The re-point also carries `organization_id = v_org`
 -- (defense in depth; RLS already covered it). Everything else is 0196's function unchanged.
+-- Managed Postgres (#497, db 0.3.22): the organization scope is set in the body with set_config(..., true) and
+-- restored before every return, NOT with a function-level `SET app.scope` clause — Postgres 15+ refuses that clause
+-- (42501, a placeholder parameter) to a migration role that is not superuser. An error aborts the (sub)transaction,
+-- which reverts the setting, so no exit path leaves the session elevated (the clause's guarantee, kept).
 CREATE OR REPLACE FUNCTION app.link_customer_identity(
   p_customer_id uuid, p_subject text, p_email_hash text
 ) RETURNS uuid
 LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = public, pg_temp
-SET app.scope = 'organization' AS $$
+SET search_path = public, pg_temp AS $$
 DECLARE
   v_org uuid := current_setting('app.organization_id')::uuid;
   v_store_ids text := coalesce(current_setting('app.store_ids', true), '');
@@ -27,7 +30,9 @@ DECLARE
   v_rows_all integer;
   v_rows_locked integer;
   v_merged integer;
+  v_scope text := current_setting('app.scope', true);
 BEGIN
+  PERFORM set_config('app.scope', 'organization', true);
   IF p_subject IS NULL OR p_subject = '' THEN
     RAISE EXCEPTION 'link_customer_identity: a subject is required';
   END IF;
@@ -80,6 +85,7 @@ BEGIN
   END IF;
   UPDATE customer SET identity_id = v_identity
    WHERE id = p_customer_id AND organization_id = v_org AND identity_id IS DISTINCT FROM v_identity;
+  PERFORM set_config('app.scope', coalesce(v_scope, ''), true);
   RETURN v_identity;
 END $$;
 

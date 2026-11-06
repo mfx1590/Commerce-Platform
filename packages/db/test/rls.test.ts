@@ -1411,7 +1411,11 @@ describe('customer_consent backfill (0194) on a database that already has projec
       fileURLToPath(new URL('../migrations/0194_customer_consent.sql', import.meta.url)),
       'utf8',
     );
-    const backfill = sql.slice(sql.indexOf('INSERT INTO customer_consent'));
+    // the statement alone: since 0.3.22 it sits between the FORCE lift and restore (#497)
+    const backfill = sql.slice(
+      sql.indexOf('INSERT INTO customer_consent'),
+      sql.indexOf('ALTER TABLE customer FORCE ROW LEVEL SECURITY'),
+    );
     expect(backfill.startsWith('INSERT INTO customer_consent (organization_id')).toBe(true);
     const again = await pre.owner.query(backfill);
     expect(again.rowCount).toBe(0);
