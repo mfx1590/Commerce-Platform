@@ -2,16 +2,17 @@
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
 Last updated: 2026-10-08 · Contracts: contracts-v0.4.12 · Branch: `brands/phase3` (at main 2e35674) · Status: **ALL MERGED, nothing open (2026-10-08).** #374 (#377), #372 (#379), #382 (#391), #348's change (#388), #386 (#408 = `dea7575`), #330's rendering (#411 = `f83073e`). **#348 remains reopened: its 30-leg count restarts at `f83073e`**, recorded on the issue, counted by the manager — `numberOfRuns: 5` and `maxNumericValue: 2500` must not move until it completes. REQUESTs **#389 and #390 are FIXED** (window 3). **Budget from 2026-10-08: manager + TWO build windows at a time** (was one).
 
-## Identity (does not change)
-Owned paths (write):
-- `apps/storefronts/<brand>/**`
-- `cms/<brand>/**`
-Reads:
-- packages/ui
-- apps/storefront-starter (read only)
-Never touches:
-- the starter
-- other brands
+## Identity
+
+Window **10 (brands)**. I write only `apps/storefronts/<brand>/**` and `cms/brand-*/**`
+(docs/ownership.md row `brands/`). My memory file is this one. The starter is window 3's — read it,
+never edit it; file a REQUEST. `**/Dockerfile` is window 5's.
+
+**Phase 6.** Branch **`brands/phase6-728-resync`**, cut `--no-track` from `origin/main`. Plan:
+`docs/plan/phase6-plan.md`, tracking **#731**. The manager is **Manager session eleven** (repo root);
+the chain since my last task is the first bullet of `docs/memory/Memory-main.md`.
+
+Brands A, B and C are all on main. Current task: **#728**.
 
 ## Mission — Phase 2 (Commerce complete, brand 1 live)
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
@@ -280,7 +281,58 @@ when every check has finished.
 - Budget: **manager + two build slots**, one of which is mine. (CLAUDE.md still says one window;
   the owner's instruction is the current one.)
 
-## In progress — nothing. #438 is MERGED (2026-10-10)
+## In progress — #728 · re-sync A/B/C for the #609 recommendation rails (2026-11-06)
+
+Re-sync of all three brands onto `origin/main` to pick up #727 (`0391a388`). Window 3's pick-up list
+is in the issue; what it actually cost:
+
+- **The only preserved-file port was `next.config.mjs`**: `analyticsConsentMode(process.env)` plus
+  its import, in all three. `sync --check` reported exactly that one file drifted in each brand, and
+  is clean now. Everything else in the list arrived by sync.
+- **No brand places the rail itself.** The criterion says a brand overriding the PDP or cart must —
+  none of the three preserves a route file (checked `starter-preserved.json`, not assumed), so all
+  three take the starter's pages with both placements. Verified: `RecommendationRail` x2 in each
+  brand's PDP and cart, plus `recommendation-{rail,tracker}.tsx` and
+  `src/lib/{recommendations.ts,analytics/consent-mode.mjs}`.
+- **Brand C's own `en-US.json` was 50 keys behind** — 139 → 189. It is brand C's file, not the
+  starter's, so no sync ever brings it keys: a month of starter growth (the `account` route group,
+  48 keys) plus this task's `recommendations` (2). **Caught by my own
+  `test/brand-locale.test.ts`** and by the starter's `i18n.test.ts`. That is the standing cost of a
+  brand owning a catalogue, and the test is what makes it visible rather than silent fallback.
+  Copied **verbatim on purpose**: brand C already said "delivery" (×9), "Postal code" and "Region",
+  all inherited, so Americanising only the new keys would have the account form say "ZIP code" while
+  checkout said "Postal code". LAUNCH 12.2 now carries the **13 concrete candidates** instead of a
+  word count, for the owner's one review pass.
+- **Neither new env is set, deliberately.** Nothing in the repo sets `ENGAGEMENT_CDP_CONSENT_MODE`
+  or a per-store override, so the engagement side is on its `analytics` default and the storefront's
+  default matches — **they already agree**. Setting it would invent a region policy that LAUNCH 8.1
+  (still ⛔ for A and C) has not decided. **The coupling is recorded in all three LAUNCH files:**
+  the day anyone sets `ENGAGEMENT_CDP_CONSENT_MODE_<STORE_CODE>=strict`,
+  `STOREFRONT_ANALYTICS_CONSENT_MODE` must follow, or the browser keeps emitting events the CDP has
+  been told to refuse and nothing says so.
+- **LAUNCH 8.3** in all three, window 3's text verbatim. A had the row; B and C gained one so "8.3"
+  means the same thing in all three — B's numbering jumps 8.1 → 8.3 and the note says why.
+
+**Gate (sequential, per the flake rule): lint, format:check, typecheck 29/29, brand A 835 passed /
+3 skipped, brand B 734, brand C 656, `sync --check` clean in all three.**
+
+**Still to do:** the bundle budgets and perf legs — **the machine**, asked for. The rails add JS to
+the PDP and cart, so the budget is the one criterion here with real uncertainty. Then one push
+(`-u`, first push of this branch), PR "Closes #728", two messages (PR up, checks finished), hold
+pushes after.
+
+### The setup trap that cost the first hour
+
+`pnpm build --filter './packages/*'` is **not** "rebuild everything". `@platform/cms` lives in
+**`cms/`**, not under `packages/`, so its `dist/` stayed a month stale and
+`(0, resolveDataset) is not a function` failed **35 tests in the starter and 36-38 in every brand**.
+It reads exactly like window 3 having shipped a broken starter. `pnpm --filter @platform/cms build`
+fixed all of it at once. Sibling of [[pnpm install after lockfile merge]]: after switching branches,
+a stale workspace `dist` looks like another window's broken code. **Diagnose by running the
+STARTER's own suite first** — it failed identically, which located the cause outside the brands in
+one step.
+
+
 
 **NEXT, when this window is activated** (the manager's list, not started):
 

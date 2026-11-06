@@ -28,6 +28,7 @@ import type * as ContentModule from '@/lib/cms/content';
 import { createContentContext, getContent } from '@/lib/cms/content';
 import { documentMetadata } from '@/lib/cms/metadata';
 import type { CmsReader } from '@/lib/cms/reader';
+import { defaultLocale } from '@/i18n/routing';
 import { getProduct } from '@/lib/catalog';
 import type { Product, Store } from '@/lib/store-api';
 
@@ -150,12 +151,15 @@ describe('/pages/[slug]', () => {
   });
 
   it('builds metadata from the seo fields, canonical and hreflang', async () => {
-    useCms('en-GB', reader({ page: async () => pageFixture }));
-    const metadata = await pageMetadata({ params: params('en-GB', 'about') });
+    // In the app's default locale, not the starter's (#446): hreflang lists the configured ones.
+    useCms(defaultLocale, reader({ page: async () => pageFixture }));
+    const metadata = await pageMetadata({ params: params(defaultLocale, 'about') });
     expect(metadata.title).toBe('About Brand A');
     expect(metadata.description).toBe(pageFixture.seo!.metaDescription);
-    expect(metadata.alternates?.canonical).toBe('/en-GB/pages/about');
-    expect(metadata.alternates?.languages).toMatchObject({ 'en-GB': '/en-GB/pages/about' });
+    expect(metadata.alternates?.canonical).toBe(`/${defaultLocale}/pages/about`);
+    expect(metadata.alternates?.languages).toMatchObject({
+      [defaultLocale]: `/${defaultLocale}/pages/about`,
+    });
     expect(metadata.robots).toBeUndefined();
 
     const ctx = createContentContext({ locale: 'en-GB', images: IMAGES });

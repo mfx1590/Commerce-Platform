@@ -1,5 +1,6 @@
 import { EMBED_HOSTS } from '@platform/cms';
 import createNextIntlPlugin from 'next-intl/plugin';
+import { analyticsConsentMode } from './src/lib/analytics/consent-mode.mjs';
 
 /**
  * Brand C's identity lives here as *runtime defaults*, not source edits: `next build`, `next dev`
@@ -79,6 +80,13 @@ const frameHosts = Object.values(EMBED_HOSTS)
  * (`src/instrumentation.ts`). Exactly `1` or nothing.
  */
 const localImages = process.env.E2E_LOCAL_IMAGES === '1' ? '1' : '';
+
+// Ported from the starter at the #728 re-sync (#727, #609). An unknown analytics consent mode fails
+// `next build` and `next start` HERE rather than at the first render: a typo such as `strcit` must
+// never quietly mean the open mode. This file is PRESERVED, so the sync cannot bring the call --
+// `sync --check` reports next.config.mjs as drifted until it is ported by hand, which is how this
+// arrived.
+analyticsConsentMode(process.env);
 
 /** @type {import('next').NextConfig} */
 const config = {
