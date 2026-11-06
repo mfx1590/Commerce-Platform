@@ -99,11 +99,17 @@ CREATE TRIGGER guard_variant_stock_item BEFORE INSERT OR UPDATE OF stock_item_id
 -- Idempotent: it only touches variants whose stock_item_id is still NULL. Runs as the migration role, in
 -- organization scope for its own duration (the function-level SET is restored on return and on error) so the
 -- guard above lets it map.
+-- Managed Postgres (#497, db 0.3.22): the organization scope is set in the body with set_config(..., true) and
+-- restored before every return, NOT with a function-level `SET app.scope` clause — Postgres 15+ refuses that clause
+-- (42501, a placeholder parameter) to a migration role that is not superuser. An error aborts the (sub)transaction,
+-- which reverts the setting, so no exit path leaves the session elevated (the clause's guarantee, kept).
 CREATE OR REPLACE FUNCTION app.backfill_stock_items() RETURNS integer
-LANGUAGE plpgsql SET app.scope = 'organization' AS $$
+LANGUAGE plpgsql AS $$
 DECLARE
   n integer;
+  v_scope text := current_setting('app.scope', true);
 BEGIN
+  PERFORM set_config('app.scope', 'organization', true);
   WITH todo AS MATERIALIZED (
     SELECT v.id AS variant_id, v.organization_id, v.barcode,
            p.title || CASE WHEN v.title <> '' AND v.title <> p.title THEN ' — ' || v.title ELSE '' END AS name,
@@ -127,12 +133,28 @@ BEGIN
   UPDATE product_variant v SET stock_item_id = t.item_id
   FROM todo t WHERE v.id = t.variant_id AND EXISTS (SELECT 1 FROM made m WHERE m.id = t.item_id);
   GET DIAGNOSTICS n = ROW_COUNT;
+  PERFORM set_config('app.scope', coalesce(v_scope, ''), true);
   RETURN n;
 END $$;
 REVOKE EXECUTE ON FUNCTION app.backfill_stock_items() FROM PUBLIC, platform_app;
 
 -- product_variant's set_updated_at trigger would stamp every variant with the migration's time; a backfill is not
 -- an edit of the variant.
+--
+-- Managed Postgres (#497, db 0.3.22): the migration role owns these tables but does not bypass row security, and
+-- FORCE makes an owner obey the policies — with no tenant context it would see no variant and map nothing. So the
+-- tables the backfill reads and writes drop FORCE for this transaction only and get it back before the end of the
+-- file (DDL is transactional and ALTER TABLE holds an ACCESS EXCLUSIVE lock until COMMIT: no other session ever
+-- sees them unforced, and platform_app, never an owner, is subject to the policies either way). A no-op for a
+-- superuser. The runner refuses to commit a migration that leaves a table unforced.
+ALTER TABLE store NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE product NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE product_variant NO FORCE ROW LEVEL SECURITY;
+ALTER TABLE stock_item NO FORCE ROW LEVEL SECURITY;
 ALTER TABLE product_variant DISABLE TRIGGER set_updated_at;
 SELECT app.backfill_stock_items();
 ALTER TABLE product_variant ENABLE TRIGGER set_updated_at;
+ALTER TABLE store FORCE ROW LEVEL SECURITY;
+ALTER TABLE product FORCE ROW LEVEL SECURITY;
+ALTER TABLE product_variant FORCE ROW LEVEL SECURITY;
+ALTER TABLE stock_item FORCE ROW LEVEL SECURITY;
