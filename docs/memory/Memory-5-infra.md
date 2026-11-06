@@ -2,7 +2,7 @@
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
 Last updated: 2026-11-06 · Contracts: `contracts-v0.1` · Branch: `infra/phase6-730` · Worktree: `../wt-infra` · Manager: **Manager session eleven** (repo-root manager; chain in Memory-main's first bullet)
-Status: **Phase 6, #730 (P6.2)** — APPROVED (A1, B1, C = #729's labels, D1); built; pushing a draft with a seeded-vulnerability commit, then its revert.
+Status: **Phase 6, #730 (P6.2)** — APPROVED (A1, B1, C = #729's labels, D1); PR **#734** (draft) up; seed proven red (run 42244475449), reverted + main merged; waiting for green on the final head.
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -120,6 +120,10 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   (prom/prometheus:v3.0.1); observability job now installs deps; prometheus.yml rule_files + compose mount.
   Proof plan: commit 1 = the work; commit 2 = SEED (root package.json + lockfile: lodash 4.17.20, a high advisory NOT in
   the baseline) → the audit job must FAIL, ownership is red on that commit (root config — expected); commit 3 = revert.
+  **Proof DONE:** PR #734; seed 3247b2c9's run 42244475449 → `dependency audit (production)` FAIL on GHSA-35jh-r3h4-6jhm
+  only (lookup answered attempt 1; 28 baseline entries allowed); ownership red there (expected). Revert 1d7331b0, merged
+  main (1db7fefb); gate PASS locally on the merged lockfile. Next: green → "checks finished" to the manager → HOLD pushes.
+  Gotcha: no `jq` in Git Bash here — use `gh ... --jq`. Job logs while the run is in progress: `gh api .../actions/jobs/<id>/logs`.
   Earlier plan notes: Branch `infra/phase6-730` from main `33cb5b6f`.
   Facts: branch protection enforces 6 checks (ownership, lint+typecheck, unit, contract, gitleaks, perf) — NOT
   `live auth + end-to-end` (D6: it becomes required after 10 green runs on main; the owner's setting). Core has NO
