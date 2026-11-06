@@ -126,9 +126,29 @@ record. See `ONBOARDING-GAPS.md`.
 
 ## 8. Analytics and consent
 
-| #   | Item                                                    | Owner | Verify                                | Now |
-| --- | ------------------------------------------------------- | ----- | ------------------------------------- | --- |
-| 8.1 | A consent decision for `sf_attribution` (30-day cookie) | owner | a banner exists, or a recorded ruling | ⛔  |
+| #   | Item                                                    | Owner   | Verify                                                                                                         | Now |
+| --- | ------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------- | --- |
+| 8.1 | A consent decision for `sf_attribution` (30-day cookie) | owner   | a banner exists, or a recorded ruling                                                                          | ⛔  |
+| 8.3 | The recommendation rails' analytics events              | 10 / 12 | `recommendation_viewed` / `recommendation_clicked` on `window.dataLayer`, and a `platform:analytics` DOM event | ✅  |
+
+**8.3 — where the rails' events go.** The starter's recommendation rails emit
+`recommendation_viewed` / `recommendation_clicked` to `window.dataLayer` plus a `platform:analytics`
+DOM event; the launch sink subscribes there (#609, #725). Picked up by this brand at the #728
+re-sync; the rails themselves are the starter's `src/components/recommendation-{rail,tracker}.tsx`
+and this brand does not override the PDP or cart, so it places nothing itself.
+
+**Neither new env is set, deliberately.** `RECOMMENDATIONS_TIMEOUT_MS` keeps its 300 ms default, and
+`STOREFRONT_ANALYTICS_CONSENT_MODE` keeps `analytics` — which is **already the mode this brand's
+store runs in**: nothing in the repo sets `ENGAGEMENT_CDP_CONSENT_MODE` or a per-store
+`ENGAGEMENT_CDP_CONSENT_MODE_<STORE_CODE>`, so the engagement side is on its `analytics` default too
+and the two agree. Setting the storefront value now would be inventing a region policy that 8.1
+above has not decided.
+**The coupling to remember:** these two must name the same mode. The day anyone sets
+`ENGAGEMENT_CDP_CONSENT_MODE_<STORE_CODE>=strict` for this store, `STOREFRONT_ANALYTICS_CONSENT_MODE`
+has to be set to `strict` with it — the browser would otherwise keep emitting events the CDP has
+been told not to accept, and nothing fails to say so.
+
+There is no 8.2 here: brand A's 8.2 is its consent-banner row, which this brand's 8.1 prose above covers instead. 8.3 keeps brand A's number so the three brands can be read side by side.
 
 Same unresolved item as brand A's 8.1, and the UK rules (PECR) are not identical to the EU's.
 

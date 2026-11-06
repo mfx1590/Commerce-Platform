@@ -7,6 +7,8 @@ import { notFound } from 'next/navigation';
 import { VariantPicker } from '@/components/variant-picker';
 import { JsonLd } from '@/components/json-ld';
 import { ProductReviews } from '@/components/product-reviews';
+import { RecommendationRail } from '@/components/recommendation-rail';
+import { analyticsConsentMode } from '@/lib/analytics/recommendation-events';
 import { brandConfig } from '@/brand/config';
 import { getProduct } from '@/lib/catalog';
 import { getCurrency } from '@/lib/i18n';
@@ -20,6 +22,7 @@ import {
   productJsonLd,
 } from '@/lib/seo';
 import { fromProductMetadata } from '@/lib/reviews';
+import { EMPTY_RECOMMENDATIONS, loadRecommendations } from '@/lib/recommendations';
 import { isNotFound } from '@/lib/store-api';
 import { defaultSelection, findVariant, mediaFor } from '@/lib/variant';
 
@@ -75,10 +78,21 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
 
 export default async function ProductDetailPage({ params }: { params: Params }) {
   const { handle, locale: routeLocale } = await params;
-  const [product, t, tCommon] = await Promise.all([
-    loadProduct(handle),
+  // The rail needs the product's id, so its request starts the moment the product arrives and runs
+  // alongside the rest of the page's reads. `loadRecommendations` never throws and gives up at its
+  // deadline, so a slow or failed call costs at most that deadline and renders no rail (#609).
+  const currency = getStoreOrNull().then(getCurrency);
+  const productRead = currency.then((value) => loadProduct(handle, value));
+  const recommendationsRead = Promise.all([productRead, currency]).then(
+    ([anchor, value]) =>
+      loadRecommendations({ surface: 'pdp', productId: anchor.id }, { currency: value }),
+    () => EMPTY_RECOMMENDATIONS,
+  );
+  const [product, t, tCommon, recommendations] = await Promise.all([
+    productRead,
     getTranslations('pdp'),
     getTranslations('common'),
+    recommendationsRead,
   ]);
 
   const locale = await getLocale();
@@ -209,6 +223,13 @@ export default async function ProductDetailPage({ params }: { params: Params }) 
           <p className="whitespace-pre-line text-muted-foreground">{product.description}</p>
         </section>
       )}
+
+      <RecommendationRail
+        surface="pdp"
+        recommendations={recommendations}
+        locale={locale}
+        tracking={analyticsConsentMode() === 'analytics'}
+      />
     </article>
   );
 }
