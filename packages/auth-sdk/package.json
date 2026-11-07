@@ -39,7 +39,7 @@
   "devDependencies": {
     "@openfga/syntax-transformer": "0.2.2",
     "@platform/analytics-ingest": "workspace:*",
-    "@types/node": "^20.19.0",
+    "@types/node": "^26.6.6",
     "tsx": "^4.23.13",
     "typescript": "^5.8.0",
     "vitest": "^3.2.0",
