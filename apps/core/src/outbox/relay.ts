@@ -92,7 +92,7 @@ export interface RelayPassResult {
   unstamped: number;
   failed_topics: string[];
   duration_ms: number;
-  /** Unpublished rows of this organization after the pass (app.outbox_lag). */
+  /** Unpublished rows of this organization after the pass (the relay's own backlog, #733). */
   lag_rows: number;
   /** Age of the oldest unpublished row after the pass, null when none. */
   lag_oldest_seconds: number | null;
@@ -125,9 +125,13 @@ async function lagOf(
   organizationId: string,
   now: Date,
 ): Promise<Pick<RelayPassResult, 'lag_rows' | 'lag_oldest_seconds'>> {
+  // The relay's OWN backlog, read through its organization-scoped transaction (RLS): the rows it publishes. Not
+  // app.outbox_lag(), which relies on its SECURITY DEFINER owner bypassing RLS and reads 0 rows on managed Postgres
+  // (#737); the pass line and the lag gauge (#733) must not say "no lag" while the relay is behind. The partial
+  // outbox_unpublished_idx (seq WHERE published_at IS NULL) keeps this to the backlog.
   const r = await q.query<{ rows: string; oldest: Date | null }>(
-    `SELECT coalesce(sum(unpublished), 0)::text AS rows, min(oldest_occurred_at) AS oldest
-     FROM app.outbox_lag() WHERE organization_id = $1`,
+    `SELECT count(*)::text AS rows, min(occurred_at) AS oldest
+     FROM outbox WHERE published_at IS NULL AND organization_id = $1`,
     [organizationId],
   );
   const row = r.rows[0];
