@@ -79,7 +79,10 @@ pass in one transaction on an **organization-scoped** client (never a raw pool):
    `KafkaJSProtocolError:NOT_LEADER_FOR_PARTITION`, … — never the message), `published_at` stays NULL and the next
    pass sends them again. Rows whose envelope no longer validates: `last_error = invalid_envelope`, never sent.
 5. Commit, then one JSON line: `{ relay, organization_id, batch, published, failed, invalid, failed_topics,
-duration_ms, lag_rows, lag_oldest_seconds }` (lag from `app.outbox_lag()`); counts, ids and seconds only.
+duration_ms, lag_rows, lag_oldest_seconds }`; counts, ids and seconds only. The lag is the relay's OWN backlog
+   (`count(*)`, `min(occurred_at)` of its organization's unpublished rows, through its organization-scoped transaction,
+   served by `outbox_unpublished_idx`), not `app.outbox_lag()`: that function relies on its owner bypassing RLS and
+   reads 0 rows on managed Postgres (#737, packages/db), so it could say "no lag" while the relay is behind (#733).
 
 **At-least-once, dedupe by `outbox_id`.** A crash after the send and before the commit rolls the pass back: the
 rows are still unpublished and go out again with the same `outbox_id`. Every consumer dedupes on that header
@@ -107,6 +110,30 @@ the CLI arguments); the bus part against the local Redpanda on a prefixed `store
 partitions (every row arrives, per store in `seq` order on one partition, organization scope keyed by the
 organization, a republish after a crash reaches the bus twice with the same `outbox_id` and dedupes to once;
 skipped with the reason when the broker is down, deletes its topic afterwards).
+
+### The lag gauge (#733)
+
+The relay CLI exports one OpenTelemetry gauge for window 5's relay-lag SLO (infra/observability/SLO.md,
+`infra/observability/rules/slo.rules.yml`): `outbox_relay.lag_oldest`, unit `s`, which the collector turns into
+**`outbox_relay_lag_oldest_seconds{service_name="outbox-relay"}`** in Prometheus (unit suffix, and `service.name` as
+a label through `resource_to_telemetry_conversion`). Checked end to end against the compose collector and
+Prometheus.
+
+- **Telemetry:** the core's `startTelemetry` (`src/telemetry`, the standard `OTEL_*` env) under
+  `OTEL_SERVICE_NAME`, default `outbox-relay`. It is OFF without an OTLP endpoint (the meter is a no-op), and an
+  absent collector never stops the relay (a background exporter, one warning). `shutdown()` runs after the loop
+  stops and flushes the last reading.
+- **Value, computed when the meter collects** (`relay-metrics.ts`): the age of the oldest unpublished row the last
+  COMPLETED pass saw, so it keeps growing while that row stays unpublished; 0 with no backlog. **Stalled-loop
+  floor:** when no pass has completed for longer than max(3 × `--interval-ms`, 10 s), the value is at least the time
+  since the last completed pass. A pass that throws is not a completed pass. A relay that hangs after a pass that
+  saw an empty backlog therefore cannot report 0 while rows pile up.
+- **No attributes of its own:** one relay process serves one organization (`CORE_ORGANIZATION_ID`), and the SLO
+  rule takes `max()` over replicas. No per-row, per-store or per-organization label.
+- **A relay that is DOWN exports nothing:** the series goes absent and the SLO rule evaluates to nothing. An
+  `absent()` alert is window 5's (noted on #733).
+- Tests: `relay-metrics.test.ts` (name, unit, no attributes, growth between passes, the floor, its threshold) and
+  `relay.test.ts` (the lag is this organization's backlog only, read directly).
 
 ### Timeouts (a hung broker never holds the lock)
 
