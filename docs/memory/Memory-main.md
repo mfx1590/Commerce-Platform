@@ -30,6 +30,12 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
     5. The Dependabot PRs #743, #746-#750 (two majors: sdk-trace 3.0, @types/node 26): review one by one; the production group may overlap the overrides.
     6. The cost model + cloud target with the owner (D7).
     7. Wave 3: brand D onboarding.
+  - **OWNER IDEA 2026-11-07, PARKED until the app is complete (do not start):**
+    - (1) A Higgsfield integration inside the platform to generate product ad content (images and video per product, for ads).
+    - (2) A platform MCP server (`apps/mcp`: a thin layer over the permission-scoped Admin API, metrics, reports and the AI gateway; per-user Keycloak OAuth, so each Claude user has their own staff permissions; read-only first, writes later with human confirmation) so Claude can drive everything.
+    - Goal: control and create "from 0 to 100" through one dashboard.
+    - Open questions when it starts: the data-processing terms with Anthropic and Higgsfield, the Higgsfield account and costs (owner), and who may use it (HQ only, or store admins too).
+    - Recorded on #611.
   - **Remaining audit baseline** (expires 12-06): axios (window 2, via @openfga/sdk), @graphql-tools/utils 10, lodash, zod (Medusa-internal; need upstream releases), plus window 4's admin set.
   - **Gotchas today:**
     - Dependabot opens PRs as soon as `.github/dependabot.yml` is on main, not only on Mondays.
