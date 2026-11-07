@@ -39,3 +39,12 @@ export {
   type ReplayOptions,
   type ReplaySummary,
 } from './replay';
+
+// The relay's lag gauge (#733): outbox_relay.lag_oldest (s) → outbox_relay_lag_oldest_seconds{service_name="outbox-relay"}.
+export {
+  createRelayLagState,
+  LAG_GAUGE_NAME,
+  registerRelayLagGauge,
+  stalledAfterMs,
+  type RelayLagState,
+} from './relay-metrics';
