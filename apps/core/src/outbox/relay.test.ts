@@ -357,6 +357,25 @@ describe('relayOnce (database, recording publisher)', () => {
     expect(await unpublished(hqB)).toEqual([]);
   });
 
+  it('lag (#733): the relay’s own organization-scoped backlog, read from the outbox directly (not app.outbox_lag, #737); another organization’s rows never count', async () => {
+    await emit(hqB, [null, null], 'lag-b'); // ORG_B's backlog: not ours
+    const [mine] = await emit(hq, [storeA], 'lag-a');
+    await hq.query("UPDATE outbox SET occurred_at = now() - interval '42 seconds' WHERE id = $1", [
+      mine,
+    ]);
+    const down = new Error('connect ECONNREFUSED');
+    down.name = 'KafkaJSNumberOfRetriesExceeded';
+    const r = await relayOnce(hq, recording({ 'store.updated': down }).publisher, {
+      organizationId: ORG,
+      log: quiet,
+    });
+    expect(r).toMatchObject({ failed: 1, lag_rows: 1 });
+    expect(r.lag_oldest_seconds).toBeGreaterThanOrEqual(42);
+    expect(r.lag_oldest_seconds).toBeLessThan(120);
+    await drain(hq);
+    await drain(hqB);
+  });
+
   it('batch size bounds a pass; the loop runs back to back until the batch is short, then stops on abort', async () => {
     await emit(hq, [storeA, storeB, storeA, storeB, storeA], 'loop');
     const { publisher, sent } = recording();
