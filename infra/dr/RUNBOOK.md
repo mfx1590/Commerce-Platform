@@ -81,7 +81,7 @@ Every number below is taken at backup time and compared, **exactly**, with the r
 | Rows per table                         | `count(*)` for all 217 tables, in both schemas (`public`, `medusa`)                                                                                                                                                                                       |
 | Rows per store                         | `count(*) GROUP BY store_id` / `organization_id` for every table that has one (129 columns)                                                                                                                                                               |
 | Content checksum ("the seed checksum") | `md5` of every row's text in a fixed order, per table. Same session settings both sides (UTC, ISO dates, `extra_float_digits = 3`)                                                                                                                        |
-| Sequences, roles, RLS policies         | `pg_sequences.last_value`, the role list, `count(*) FROM pg_policies`                                                                                                                                                                                     |
+| Sequences, roles, RLS policies         | `pg_sequences.last_value` (not snapshot-bound: see the failure table), the role list, `count(*) FROM pg_policies`                                                                                                                                         |
 | ClickHouse rows                        | `count() … FINAL` per table (a background merge must not change the number), plus `count()` of every view, which proves the models still work                                                                                                             |
 | ClickHouse events per topic            | `uniqExact(event_id)` per `topic` in `raw_events`                                                                                                                                                                                                         |
 | ClickHouse access                      | `analytics_ro` logs in and reads `raw_events`                                                                                                                                                                                                             |
@@ -92,46 +92,55 @@ Every number below is taken at backup time and compared, **exactly**, with the r
 
 ## Measured
 
-Both runs: window 5, branch `infra/phase6-741`, `node infra/dr/drill.mjs all`, exit 0, **CHECKS GREEN**, teardown
-left no `commerce-dr` container or volume.
+Three runs of `node infra/dr/drill.mjs all`. All exited 0 with **CHECKS GREEN**, and each teardown left no
+`commerce-dr` container or volume.
 
-|                      | Run 1 (2026-11-07 09:08Z)                                                                                                                                                                     | Run 2 (2026-11-07 09:15Z)                                                                                                 |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Code                 | the first permission check (see below)                                                                                                                                                        | **the code this runbook describes** (`drill.mjs` as merged)                                                               |
-| Backup               | 44 s (Postgres dump 1.6 MB; folder 2.9 MB)                                                                                                                                                    | 49 s (same sizes)                                                                                                         |
-| **RTO**              | **100 s** = stack up 58 s + data 27 s + checks 15 s                                                                                                                                           | **109 s** = stack up 60 s + data 35 s + checks 14 s                                                                       |
-| **RPO (measured)**   | 150 739 s (~41.9 h)                                                                                                                                                                           | 151 192 s (~42.0 h)                                                                                                       |
-| Newest restored row  | Postgres 2026-11-05 15:16Z, ClickHouse 2026-11-02 18:45Z                                                                                                                                      | the same (nothing was written between the runs)                                                                           |
-| Restored and matched | 217 tables / 25 995 rows / 129 tenant columns with checksums, 8 sequences, 4 roles, 71 policies; 5 ClickHouse tables (1 138 raw events across 21 topics), 24 views, 1 MV; 2 realms; 14 tuples | the same                                                                                                                  |
-| Staff login          | `store-admin` → `sub` `seed-store-admin`                                                                                                                                                      | the same                                                                                                                  |
-| Permission check     | first tuple in the store (`seed-owner` owner `organization:hq`) allowed; an unknown user denied                                                                                               | `sub` → restored `staff_user` `…044`; `…044 store_admin store:…031` **allowed**, `…044 store_admin store:…033` **denied** |
+|                      | Run 1: window 5, 09:08Z                                                                                                                                                                       | Run 2: window 5, 09:15Z                                                                                         | **Run 3: the manager, 09:19Z (the independent hand)**       |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Code                 | the first permission check (below)                                                                                                                                                            | the linked check, `01ecf774`                                                                                    | the linked check, `01ecf774`                                |
+| Backup               | 44 s (Postgres dump 1.6 MB; folder 2.9 MB)                                                                                                                                                    | 49 s                                                                                                            | 36 s                                                        |
+| **RTO**              | **100 s** = stack up 58 + data 27 + checks 15                                                                                                                                                 | **109 s** = 60 + 35 + 14                                                                                        | **74 s** = 37 + 23 + 14                                     |
+| **RPO (measured)**   | 150 739 s (~41.9 h)                                                                                                                                                                           | 151 192 s                                                                                                       | 151 386 s                                                   |
+| Restored and matched | 217 tables / 25 995 rows / 129 tenant columns with checksums, 8 sequences, 4 roles, 71 policies; 5 ClickHouse tables (1 138 raw events across 21 topics), 24 views, 1 MV; 2 realms; 14 tuples | the same                                                                                                        | the same (217 tables / 25 995 rows / 21 topics / 14 tuples) |
+| Staff login          | `store-admin` → `sub` `seed-store-admin`                                                                                                                                                      | the same                                                                                                        | the same                                                    |
+| Permission check     | the first tuple in the store (`seed-owner` owner `organization:hq`) allowed; an unknown user denied                                                                                           | `sub` → restored `staff_user` `…044`: `store_admin store:…031` **allowed**, `store_admin store:…033` **denied** | the same as run 2                                           |
+
+All three runs are 2026-11-07, on the same laptop and the same data: the newest restored row was Postgres
+2026-11-05 15:16Z and ClickHouse 2026-11-02 18:45Z each time.
+
+**The collision guard, proven by accident.** The manager's first attempt at 09:17Z started while run 2's drill stack
+was still up. The drill refused before touching anything (`a commerce-dr stack already exists: run
+node infra/dr/drill.mjs teardown first`), and run 2 finished untouched. Run 3 started after run 2's teardown.
 
 What the numbers mean:
 
-- **RTO** is the wall clock from `compose up` of the empty drill stack to every check green. About 60 s of it is
-  the stack starting, mainly Keycloak. The data itself restores in about 30 s at dev scale. It grows with the data,
-  so re-measure it on a production-sized copy before quoting it as a production RTO.
+- **RTO** is the wall clock from `compose up` of the empty drill stack to every check green: 74–109 s here. Roughly
+  40–60 s of it is the stack starting, mainly Keycloak, and depends on how busy the laptop is. The data itself
+  restores in 23–35 s at dev scale. It grows with the data, so re-measure it on a production-sized copy before
+  quoting it as a production RTO.
 - **RPO as measured** is "how old is the newest thing we got back". On dev it mostly measures how long the stack
   has been idle: nothing was written for ~42 h, and nothing was lost. The **method's** RPO is the time between two
   backups: with a nightly `pg_dump`, up to 24 h. With RDS point-in-time recovery (launch checklist), about 5 minutes.
 - **Run 1's permission check** proved OpenFGA came back, but not its link to the login: FGA users are
-  `staff_user.id`, not the Keycloak `sub`. The linked check replaced it, and run 2 is the evidence for it.
+  `staff_user.id`, not the Keycloak `sub`. The linked check replaced it. Runs 2 and 3 are the evidence for it.
+- After run 3 the Opus review added one fix that changes no check: the ClickHouse export's temp dir in the shared
+  container is now removed on every path, a failure mid-export included.
 
-**Run 3: by the manager, from `main` after the merge (the plan's "different hand" gate).** Add a column like
-run 2's, with its report file's numbers.
+To add a run, add a column with its `report-<stamp>.json` numbers.
 
 ## When it fails
 
 The report lists every mismatch by path, e.g. `postgres.perTenant.public.orders.store_id.<id>: expected 12, got 11`.
 
-| Symptom                                               | Cause / fix                                                                                                        |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `a commerce-dr stack already exists`                  | an earlier run was interrupted: `node infra/dr/drill.mjs teardown`                                                 |
-| `port 2xxxx … is in use`                              | something else holds it. Windows may have reserved it (`netsh interface ipv4 show excludedportrange protocol=tcp`) |
-| `OPENFGA_STORE_ID is not set` / OpenFGA 400 or 404    | run `pnpm --filter @platform/auth-sdk fga:seed`                                                                    |
-| `expected one running container` for the shared stack | it is not up (ClickHouse needs `--profile analytics`). Ask before starting anything                                |
-| `clickhouse: the data kept moving`                    | the ingest is writing during the export. Retry when it is quiet                                                    |
-| A mismatch you want to inspect                        | `node infra/dr/drill.mjs restore <dir> --keep`, then connect to 25433 / 28123 / 28180 / 28081, then `teardown`     |
+| Symptom                                               | Cause / fix                                                                                                                                                                             |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `a commerce-dr stack already exists`                  | an earlier run was interrupted: `node infra/dr/drill.mjs teardown`                                                                                                                      |
+| `port 2xxxx … is in use`                              | something else holds it. Windows may have reserved it (`netsh interface ipv4 show excludedportrange protocol=tcp`)                                                                      |
+| `OPENFGA_STORE_ID is not set` / OpenFGA 400 or 404    | run `pnpm --filter @platform/auth-sdk fga:seed`                                                                                                                                         |
+| `expected one running container` for the shared stack | it is not up (ClickHouse needs `--profile analytics`). Ask before starting anything                                                                                                     |
+| `clickhouse: the data kept moving`                    | the ingest is writing during the export. Retry when it is quiet                                                                                                                         |
+| `postgres.sequences.<seq>: expected N, got M`         | a sequence's `last_value` is not bound to the snapshot, so a `nextval` elsewhere during the backup moves it. That is a false FAILURE, never a false pass. Rerun when the stack is quiet |
+| A mismatch you want to inspect                        | `node infra/dr/drill.mjs restore <dir> --keep`, then connect to 25433 / 28123 / 28180 / 28081, then `teardown`                                                                          |
 
 The backup folder stays after every run. Restoring an older one is `restore <dir>`.
 

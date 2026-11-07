@@ -404,37 +404,40 @@ async function backupClickhouse(dir) {
   const out = join(dir, 'clickhouse');
   mkdirSync(out, { recursive: true });
   // ClickHouse has no snapshot to hold: take the numbers before and after the export and retry if they moved.
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    const before = chFacts(ctr);
-    docker(['exec', ctr, 'sh', '-c', 'rm -rf /tmp/dr-ch && mkdir -p /tmp/dr-ch']);
-    const tables = chTables(ctr);
-    const order = chOrder(tables);
-    for (const t of tables) {
-      writeFileSync(
-        join(out, `${t.name}.sql`),
-        chq(ctr, `SHOW CREATE TABLE ${CH_DB}.\`${t.name}\` FORMAT TSVRaw`),
-      );
-      if (order.data.includes(t.name))
-        chq(
-          ctr,
-          `SELECT * FROM ${CH_DB}.\`${t.name}\` INTO OUTFILE '/tmp/dr-ch/${t.name}.native' FORMAT Native`,
+  // The temp dir lives in the SHARED container, so it goes on every path out, a throw included (#753 review).
+  try {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const before = chFacts(ctr);
+      docker(['exec', ctr, 'sh', '-c', 'rm -rf /tmp/dr-ch && mkdir -p /tmp/dr-ch']);
+      const tables = chTables(ctr);
+      const order = chOrder(tables);
+      for (const t of tables) {
+        writeFileSync(
+          join(out, `${t.name}.sql`),
+          chq(ctr, `SHOW CREATE TABLE ${CH_DB}.\`${t.name}\` FORMAT TSVRaw`),
         );
+        if (order.data.includes(t.name))
+          chq(
+            ctr,
+            `SELECT * FROM ${CH_DB}.\`${t.name}\` INTO OUTFILE '/tmp/dr-ch/${t.name}.native' FORMAT Native`,
+          );
+      }
+      const after = chFacts(ctr);
+      const moved = diff(before, after);
+      if (!moved.length) {
+        docker(['cp', `${ctr}:/tmp/dr-ch/.`, hostPath(out)]);
+        writeFileSync(join(out, 'tables.json'), JSON.stringify(tables, null, 2));
+        step(
+          `clickhouse: ${order.data.length} tables (+${order.views.length} views, ${order.mvs.length} MVs) exported`,
+        );
+        return { database: CH_DB, ...after };
+      }
+      step(`clickhouse: the data moved during export (${moved[0]}); attempt ${attempt} again`);
     }
-    const after = chFacts(ctr);
-    const moved = diff(before, after);
-    if (!moved.length) {
-      docker(['cp', `${ctr}:/tmp/dr-ch/.`, hostPath(out)]);
-      docker(['exec', ctr, 'rm', '-rf', '/tmp/dr-ch'], { allowFail: true });
-      writeFileSync(join(out, 'tables.json'), JSON.stringify(tables, null, 2));
-      step(
-        `clickhouse: ${order.data.length} tables (+${order.views.length} views, ${order.mvs.length} MVs) exported`,
-      );
-      return { database: CH_DB, ...after };
-    }
-    step(`clickhouse: the data moved during export (${moved[0]}); attempt ${attempt} again`);
+    throw new Error('clickhouse: the data kept moving during three exports');
+  } finally {
+    docker(['exec', ctr, 'rm', '-rf', '/tmp/dr-ch'], { allowFail: true });
   }
-  docker(['exec', ctr, 'rm', '-rf', '/tmp/dr-ch'], { allowFail: true });
-  throw new Error('clickhouse: the data kept moving during three exports');
 }
 
 function restoreClickhouse(dir) {

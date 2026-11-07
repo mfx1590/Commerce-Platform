@@ -123,6 +123,10 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   RUN 2 (09:15Z, the manager asked for it so the PR's evidence is the shipped code): GREEN with the linked check
   (…044 allowed on …031, denied on …033); RTO 109 s (60 + 35 + 14). PR #753 was already open when that ask arrived
   (messages crossed): updated in place, no second PR.
+  RUN 3 = the MANAGER (09:19Z, from 01ecf774): GREEN, RTO 74 s. Its first attempt (09:17Z) was REFUSED by my
+  collision guard while run 2 was up: proof the guard works. The Opus review fix: backupClickhouse's /tmp/dr-ch
+  in the SHARED container is now removed in a finally (a throw mid-export left it). Runbook: sequences' last_value
+  is not snapshot-bound (a false failure, never a false pass). All in ONE commit, as asked.
   fga:seed was needed first (my .env OPENFGA_STORE_ID was EMPTY; the manager OK'd it; it reused the store).
   Keep-awake was denied by the auto-mode classifier: ran the drill in the foreground (about 2.5 min).
   Gotchas: reimport.mjs's DEFAULT action deletes + re-creates the realm, so the drill calls the partial-export
