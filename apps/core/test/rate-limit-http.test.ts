@@ -76,6 +76,16 @@ describe('Store API rate limits in the middleware chain (#742)', () => {
     expect(taken.every((k) => k.startsWith(`core:rl:cart:${SEED_IDS.stores.brandA}:`))).toBe(true);
   });
 
+  it('a mixed-case path is the same operation and the same bucket in the real chain (#754 review)', async () => {
+    // the cart bucket is empty after the test above; Express routes /STORE/Carts to createCart, so must the limiter
+    const res = await request(app)
+      .post('/STORE/Carts')
+      .set('X-Publishable-Key', KEY_A)
+      .send({ currency: 'nope' });
+    expect(res.status).toBe(429);
+    expect(res.body.code).toBe('rate_limited');
+  });
+
   it('reads are never limited', async () => {
     const before = taken.length;
     for (let i = 0; i < 5; i++)

@@ -86,7 +86,11 @@ Window 1 owns the order lifecycle and the core side of the chain. Current task: 
     - The bootstrap verifier resolves `fresh` (that was the full suite's one failure).
   - Tests: rate-limit.test.ts (8), rate-limit.redis.test.ts (3; skips with a reason without Redis), store-key-cache.test.ts (6; GET /store = 1 connection warm, 2 cold), rate-limit-http.test.ts (3). Mutants: Promise.all, no revoke invalidation, no update invalidation — each fails.
   - Full suite: 1680 passed, 1 failed (bootstrap, now fixed and re-run 18/18).
-  - Next: the machine, for the pool ramp before (detached origin/main) and after, plus the burst during the k6 target run.
+  - Proof done on the laptop. Pool ceiling 166 → 345 req/s; last held step 100 → 200; laptop knee still < 400. The runner after-ramp is run 42363614128; post its table as a PR #754 COMMENT.
+  - Burst: 429 on all 9 paths; k6 normal traffic had 0 core errors. The first burst run was void (laptop suspend); the clean repeat drove the wait in-turn.
+  - PR #754 = integration/phase6-742; head 42ff0e73 after the rebase onto 63207555 (CC #744 landed by the manager).
+  - #754 review BLOCK fixed: path-case bypass. Classify on the lower-cased path; tests mutation-checked (unit and chain).
+  - README: a /64 or NAT shares one bucket, by design.
 - **#729 P6.1 core OpenTelemetry (plan D3): BUILT, PROVEN 2026-11-06, pushed for the manager's `integration/phase6-otel`.** Branch `core/phase6-otel` from origin/main `7886ec53`. No PR from this branch: the manager opens it from the integration branch, with a Fable review.
   - Commits:
     - `92bad20d` core telemetry.

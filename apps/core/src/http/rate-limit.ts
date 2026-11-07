@@ -141,7 +141,10 @@ export function rateLimitMiddleware(opts: {
   const templates = [...new Set(Object.keys(LIMITED_OPERATIONS).map((k) => k.split(' ')[1]!))];
   const routes = compileRouteMatcher(templates);
   return (req, _res, next) => {
-    const match = routes.match(req.baseUrl + req.path);
+    // Lower-cased (#754 review): Express routes match case-INSENSITIVELY (no `case sensitive routing`), so
+    // `POST /Store/CARTS` reaches the createCart route; the class must come from the same path. The templates are
+    // lower-case and the limiter never reads a parameter, so nothing is lost.
+    const match = routes.match((req.baseUrl + req.path).toLowerCase());
     const cls = match && LIMITED_OPERATIONS[`${req.method} ${match.template}`];
     const storeId = req.tenant?.storeId;
     if (!cls || !storeId) return next();

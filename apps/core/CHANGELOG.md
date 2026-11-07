@@ -13,6 +13,9 @@
   resolve is cached in-process for `CORE_STORE_KEY_CACHE_MS` (10 s; positive only; dropped on revoke / store update
   in this process): one pooled connection per request with a warm cache, where it was five (four at once).
 - `scripts/rate-limit-burst.mjs`: the burst for the proof (one client on every limited path).
+- #754 review (block): the class is matched on the LOWER-CASED path. Express routes case-insensitively, so
+  `POST /Store/CARTS` reached createCart while the case-sensitive template match let it through unlimited. Tests: mixed-case
+  cart write, complete and registerCustomer hit their lower-case twin's bucket (unit and the real chain).
 
 ### 2026-11-06 · OpenTelemetry: traces and RED metrics per route and store (#729, plan D3)
 

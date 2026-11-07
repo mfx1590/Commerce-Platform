@@ -121,6 +121,7 @@ describe('the middleware', () => {
     a.post('/store/carts', (_req, res) => res.status(201).json({ ok: true }));
     a.get('/store/carts/:id', (_req, res) => res.json({ ok: true }));
     a.post('/store/customers/me/addresses', (_req, res) => res.status(201).json({ ok: true }));
+    a.post('/store/customers', (_req, res) => res.status(201).json({ ok: true }));
     a.use(coreErrorHandler);
     return a;
   }
@@ -139,6 +140,34 @@ describe('the middleware', () => {
     expect(res.headers['retry-after']).toBe('1');
     const validate = loadSpec('store-api.yaml').schema('Error');
     expect(validate(res.body), JSON.stringify(validate.errors)).toBe(true);
+  });
+
+  it('the path case does not matter (#754 review): Express serves /Store/CARTS, so it is the same bucket', async () => {
+    const store = memoryStore();
+    const one = { burst: 1, perMinute: 60 };
+    const a = app(store, { auth: one, cart: one, checkout: one });
+    // each pair: the lower-case path takes the only token; a mixed-case spelling of the same operation is refused
+    const pairs: Array<[string, string, number]> = [
+      ['/store/carts', '/Store/CARTS', 201],
+      ['/store/carts/c1/complete', '/STORE/Carts/c1/Complete', 201],
+      ['/store/customers', '/store/Customers/', 201],
+    ];
+    for (const [lower, mixed, ok] of pairs) {
+      await request(a).post(lower).expect(ok);
+      const res = await request(a).post(mixed).expect(429);
+      expect(res.body.code).toBe('rate_limited');
+    }
+    // the mixed-case requests were classified, and into the same keys as their lower-case twins
+    expect(store.keys).toHaveLength(6);
+    for (let i = 0; i < 6; i += 2) expect(store.keys[i + 1]).toBe(store.keys[i]);
+    expect(store.keys.map((k) => k.split(':')[2])).toEqual([
+      'cart',
+      'cart',
+      'checkout',
+      'checkout',
+      'auth',
+      'auth',
+    ]);
   });
 
   it('keys by class, store and hashed client: another store or class has its own bucket; GETs and /me writes are never limited', async () => {
