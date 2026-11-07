@@ -657,27 +657,58 @@ async function restoreOpenfga(dir) {
 }
 
 /** One allowed and one denied check on the restored store, for the subject the staff login returned. */
-async function permissionCheck({ store, modelId }, sub) {
-  const keys = await fgaTuples(DRILL.fga, store);
-  const plain = keys.filter((k) => !k.condition && k.user.startsWith('user:'));
-  const own = plain.find((k) => k.user === `user:${sub}`);
-  const pick = own ?? plain[0];
-  if (!pick) throw new Error('openfga: no unconditioned user tuple to check');
-  const check = async (user) =>
+//
+// The path the core takes: the token's sub → staff_user.keycloak_subject → staff_user.id, which is the OpenFGA
+// `user:<id>` (packages/auth-sdk). So this joins the restored Keycloak, Postgres and OpenFGA: allowed on one of that
+// user's own tuples, and denied for the SAME user and relation on another object of that type (a store it does not
+// administer), not for an anonymous nobody. Endpoints are parameters so it can be dry-run against any stack.
+export async function permissionCheck({ fgaBase, store, modelId, pgUrl }, sub) {
+  const client = new (pgModule().Client)({ connectionString: pgUrl });
+  await client.connect();
+  let staffId;
+  try {
+    staffId = (
+      await client.query(
+        'SELECT id::text AS id FROM public.staff_user WHERE keycloak_subject = $1',
+        [sub],
+      )
+    ).rows[0]?.id;
+  } finally {
+    await client.end().catch(() => {});
+  }
+  if (!staffId)
+    throw new Error(`openfga: no staff_user with keycloak_subject ${sub} in the restored Postgres`);
+  const user = `user:${staffId}`;
+  const keys = await fgaTuples(fgaBase, store);
+  const own = keys.filter((k) => !k.condition && k.user === user);
+  if (!own.length) throw new Error(`openfga: the logged-in user (${user}) has no tuple to check`);
+  const pick = own[0];
+  const check = async (relation, object) =>
     (
-      await http('POST', `${DRILL.fga}/stores/${store}/check`, {
-        tuple_key: { user, relation: pick.relation, object: pick.object },
+      await http('POST', `${fgaBase}/stores/${store}/check`, {
+        tuple_key: { user, relation, object },
         authorization_model_id: modelId,
       })
     ).allowed;
-  const allowed = await check(pick.user);
-  const denied = await check('user:dr-drill-nobody');
+  const allowed = await check(pick.relation, pick.object);
+  const type = pick.object.split(':')[0];
+  const candidates = [...new Set(keys.flatMap((k) => [k.object, k.user]))].filter(
+    (o) =>
+      o.startsWith(`${type}:`) && !own.some((k) => k.relation === pick.relation && k.object === o),
+  );
+  let deniedOn = null;
+  for (const o of candidates) {
+    if (!(await check(pick.relation, o))) {
+      deniedOn = o;
+      break;
+    }
+  }
   return {
-    tuple: `${pick.user} ${pick.relation} ${pick.object}`,
-    forLoggedInUser: Boolean(own),
+    staffUserId: staffId,
+    allowedOn: `${user} ${pick.relation} ${pick.object}`,
+    deniedOn: deniedOn ? `${user} ${pick.relation} ${deniedOn}` : null,
     allowed,
-    denied: !denied,
-    ok: allowed === true && denied === false,
+    ok: allowed === true && deniedOn !== null,
     restored: tuplesDigest(keys),
   };
 }
@@ -800,7 +831,10 @@ async function restoreAndCheck(dir, { keep = false } = {}) {
     );
     const kcActual = await checkKeycloak();
     const login = await staffLogin();
-    const permission = await permissionCheck(fga, login.sub);
+    const permission = await permissionCheck(
+      { fgaBase: DRILL.fga, ...fga, pgUrl: DRILL.pg },
+      login.sub,
+    );
     // the manifest's descriptive fields are not facts a restore reproduces
     const { dumpBytes: _bytes, database: _pgDb, ...pgExpected } = manifest.postgres;
     const { database: _chDb, ...chExpected } = manifest.clickhouse;
@@ -818,7 +852,7 @@ async function restoreAndCheck(dir, { keep = false } = {}) {
       ...(permission.ok
         ? []
         : [
-            `openfga: allowed=${permission.allowed} denied=${permission.denied} on ${permission.tuple}`,
+            `openfga: allowed=${permission.allowed} on ${permission.allowedOn}; denied on ${permission.deniedOn ?? 'no object of that type'}`,
           ]),
     ];
     const tGreen = Date.now();
@@ -843,10 +877,10 @@ async function restoreAndCheck(dir, { keep = false } = {}) {
       chMigrate: access.migrated,
       login: { username: login.username, sub: login.sub, ok: login.ok },
       permission: {
-        tuple: permission.tuple,
-        forLoggedInUser: permission.forLoggedInUser,
-        allowed: permission.allowed,
-        denied: permission.denied,
+        staffUserId: permission.staffUserId,
+        allowedOn: permission.allowedOn,
+        deniedOn: permission.deniedOn,
+        ok: permission.ok,
       },
     });
   } catch (error) {

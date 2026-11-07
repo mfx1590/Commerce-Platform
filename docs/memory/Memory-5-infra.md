@@ -2,7 +2,7 @@
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
 Last updated: 2026-11-07 · Contracts: `contracts-v0.1` · Branch: `infra/phase6-741` · Worktree: `../wt-infra` · Manager: **Manager session eleven** (repo-root manager; chain in Memory-main's first bullet)
-Status: **Phase 6 wave 2, #741 (P6.3 DR drill) + #735 + load README** — APPROVED (K2, C = dependency level); BUILT and self-tested offline; ASKED the manager for the machine (drill runs).
+Status: **Phase 6 wave 2, #741 (P6.3 DR drill) + #735 + load README** — drill run 1 GREEN 2026-11-07 (RTO 100 s); machine freed; RUNBOOK written; PR up next. Run 2 = the manager, from main after the merge.
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -115,7 +115,13 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   shared container; C: password grant + FGA allowed/denied, the core end to end = a later follow-up). BUILT
   2026-11-07: drill.mjs + docker-compose.drill.yml + drill.test.mjs (6/6, changes job); #735 row (proved on
   live Prometheus at the last core sample: guarded 5xx panel = 9 routes at 0, unguarded = 0 series); load README.
-  NEXT: the machine → `node infra/dr/drill.mjs all` twice → RUNBOOK.md with the numbers → PR.
+  RUN 1 (2026-11-07 09:08Z, the only one I do; the manager's OK): GREEN. Backup 44 s; RTO 100 s (stack 58 + data 27 +
+  checks 15); RPO 150739 s = dev idleness (newest pg row 11-05 15:16Z). 217 tables / 25995 rows / 129 tenant cols,
+  21 topics, 14 tuples. Gap found: run 1's permission check was not linked to the login (FGA users are
+  staff_user.id). Fixed: sub → staff_user.keycloak_subject in the RESTORED pg → allowed …044 store_admin store …031,
+  denied …044 store_admin …033. Dry-run against the shared stack OK; run 2 (the manager) is its first drill.
+  fga:seed was needed first (my .env OPENFGA_STORE_ID was EMPTY; the manager OK'd it; it reused the store).
+  Keep-awake was denied by the auto-mode classifier: ran the drill in the foreground (about 2.5 min).
   Gotchas: reimport.mjs's DEFAULT action deletes + re-creates the realm, so the drill calls the partial-export
   endpoint itself. ch:migrate falls back to the SHARED ClickHouse URL, so the drill pins and asserts :28123. A
   Grafana dashboard edit must be a text insertion (JSON.stringify of the whole file makes prettier expand every
