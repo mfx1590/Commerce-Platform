@@ -2,6 +2,12 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-11-07 · the outbox relay exports its lag as an OTel gauge (#733, window 14; line added by the manager)
+
+- `outbox_relay.lag_oldest` (s) → `outbox_relay_lag_oldest_seconds{service_name="outbox-relay"}` from the relay CLI
+  (`startTelemetry`, `OTEL_SERVICE_NAME` default `outbox-relay`, off without `OTEL_*`), with a stalled-loop floor. The
+  relay's lag now reads its own org-scoped backlog, not `app.outbox_lag()` (#737).
+
 ### 2026-11-07 · Store API rate limits and the pool knee (#742, plan D4)
 
 - `src/http/rate-limit.ts`: a Redis token bucket per (class, store, client) on the 9 operations store-api 0.5.10

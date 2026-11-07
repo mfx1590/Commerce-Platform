@@ -17,6 +17,25 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
 - Solo operator on Claude Max 5x: ONE build window active at a time, Reviewer session for merges, strongest model only for main window + events/accounting
 
 ## Current status
+- **2026-11-07: END OF DAY, manager session eleven (repo root, ~76% context; continue tomorrow in this session or a fresh one from this bullet). READ THIS FIRST; it supersedes the bullets below where they differ.** Nothing is in flight: no loop, no queue, every window idle.
+  - **Merged in Phase 6 so far:**
+    - wave 1: #736 (#497), #738 (#728), #732 (#620), #740 (#729 OTel), #734 (#730 audit gate + SLO rules + Dependabot);
+    - wave 2: #751 (#733 relay lag gauge), #752 (root pnpm.overrides: proxy-addr CRITICAL + 10 high closed; allow-list 28 → 17), #753 (#741 DR drill + #735; three green runs, one by the manager, RTO 74-109 s), #754 (#742 rate limits + the pool knee, runner ceiling 387 → 551 req/s; #744 Store API 0.5.10).
+    - Tracking #731.
+  - **Open for tomorrow (my decisions):**
+    1. Window 4 admin security (next CRITICAL, expires 2026-11-20!) + admin headers: the owner opens a fresh window-4 session in ../wt-admin on Opus (the start message is in chat on 11-06, the brief in Memory-4 "NEXT SESSION STARTS HERE"; branch admin/phase6-security has 2 local commits).
+    2. Window 5: SLO.md relay entry → the real metric (window 14's wording, in its #751 message) + an `absent()` alert for a down relay.
+    3. Manager: #737 (outbox_lag() on managed Postgres + the #736 nits) and docs/security (threat model, PCI SAQ-A scope, SOC2-lite map).
+    4. Window 10: #739 (brand A LCP margin).
+    5. The Dependabot PRs #743, #746-#750 (two majors: sdk-trace 3.0, @types/node 26): review one by one; the production group may overlap the overrides.
+    6. The cost model + cloud target with the owner (D7).
+    7. Wave 3: brand D onboarding.
+  - **Remaining audit baseline** (expires 12-06): axios (window 2, via @openfga/sdk), @graphql-tools/utils 10, lodash, zod (Medusa-internal; need upstream releases), plus window 4's admin set.
+  - **Gotchas today:**
+    - Dependabot opens PRs as soon as `.github/dependabot.yml` is on main, not only on Mondays.
+    - The merge queue can fail on a network blip (`error connecting to api.github.com` → "MERGE FAILED … BLOCKED"); just re-run it.
+    - Two drills cannot run at once (the guard refuses a second commerce-dr stack).
+    - The ../wt-contracts worktree is detached on infra/phase6-741 with a copied .env (gitignored); switch it before the next use.
 - **2026-11-05 evening: END OF DAY, manager session eleven (`Manager session eleven`, repo root, ~50% context; it continues tomorrow). READ THIS FIRST; it supersedes the bullets below where they differ.** The owner is off until tomorrow: nothing is in flight, no loop, no queue, every window idle.
   - **Owner orders (11-05):** "you're the manager, you decide" — models for windows, backup-first dev writes, and similar calls are the manager's. Still the owner's: opening sessions, money, keys/accounts, legal, destructive data.
   - **PHASE 5 COMPLETE.** Integration 5 gate GREEN (report on #612; launch-checklist line ticked). Merged 11-04/05: #714, #715, #716 (events 0.7.1 order.placed v2, #696 closed), #717 (events 0.8.0 replay scrub-to-@2, #629), #718, #719 (#633), #720, #722, #723, #724 (#721), #726 (#725 client_events), #727 (#609 storefront rails, closed). Dev-stack proof done (backup platform-before-dev-reconcile-20261105.dump; reconcile every identity 0, cash 0 keys stated; PII sweep 0; outbox 1138 = ClickHouse 1138). The dev ledger now runs on the default group accounting.ledger.
@@ -422,6 +441,8 @@ Six new worktrees over Phase 2 (6, 7, 8, 9, 10, 17): `./scripts/new-window.sh <n
 Start messages for every window: docs/start-messages/ · Ownership map (CI-enforced): docs/ownership.md
 
 ## Contract change log
+- 2026-11-07 · CONTRACT CHANGE #744 (window 1, #742) · branch `integration/phase6-742`, PR #754 = ed002765 (manager landing 13a78fe2 + window 1's code): **Store API 0.5.10, CONTRACTS_VERSION 0.4.34**. `components.responses.TooManyRequests` (Retry-After integer ≥ 1, Error body), `'429'` on createCart, updateCart, addLineItem, updateLineItem, removeLineItem, createPaymentSession, completeCart, recoverCart, registerCustomer; `rate_limited` in Error.code and ERROR_CODES (+ STATUS 429 in apps/core, a type-completeness line as in #690). Not tagged yet (tag at the phase boundary).
+- 2026-11-06 · **events 0.7.1** (#716, #696: order.placed v2, email_hash nullable) and **0.8.0** (#717, #629: both replays scrub an erased customer's order.placed to v2) · **db 0.3.22** (#736, #497: migrations run on managed Postgres; 0207).
 - 2026-10-21 · **events-v1 = 2abe310** (window 14, Phase 4, #530–#534 + hotfix #543; PRs #535 #539 #543 #544 #546 #547; CI #537 #542): @platform/events 0.6.1 — Redpanda topics derived from EVENT_TOPICS (1 partition local/CI, 12 production; retention per ADR 0003), the outbox relay (key store_id / organization_id, outbox_id header, ordered by o.seq, at-least-once), schema registry (subject per topic+version, our offline BACKWARD checker + published.lock.json is the gate), consumer SDK (createConsumer, dedupe on outbox_id with ctx.markProcessed(tx), dlq.<groupId> without payload, replayFromDlq), the outbox:replay CLI. ADR 0003 amended (6ccd237). No contracts/db change.
 - 2026-10-20 · CONTRACT CHANGE #522 (window 1, #520) · branch `integration/tax-rates`, PR #529, **tag contracts-v0.4.26 = 4942a28**: Admin API 0.4.23 — listTaxRates (viewer), createTaxRate / updateTaxRate / deleteTaxRate (store_admin), TaxRate; activateStore requires a rate per market country (default_country ∪ active shipping-option countries; 409 details.missing_tax_countries); delete guard for an active store's last market-country rate; **db 0.3.15** — 0201 tax_rate_identity_key UNIQUE NULLS NOT DISTINCT; seed brand A DE/BE/FR.
 - 2026-10-19 · CONTRACT CHANGE #508 (window 17, REQUEST #491) · branch `integration/marketing-never-asked`, PR #515, **tag contracts-v0.4.25 = eabe8a0**: Admin API 0.4.22 — SegmentPredicate consent op gains `never_asked` (no block for the channel; a refusal or opt-out is not_granted, never never_asked). Re-consent audiences must use it.
