@@ -87,6 +87,10 @@ jobs:
       # every change; the audit itself runs in its own job below.
       - name: self-test the dependency audit gate
         run: node --test infra/ci/audit-gate.test.mjs
+      # The DR drill (#741) runs by hand (it needs the shared stack); what makes it safe is tested on every change:
+      # the drill stack's own project, ports and volumes, the restore order, the manifest diff, RPO.
+      - name: self-test the DR drill
+        run: node --test infra/dr/drill.test.mjs
       - id: filter
         run: |
           if [ "${{ github.event_name }}" != 'pull_request' ]; then

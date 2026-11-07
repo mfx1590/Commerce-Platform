@@ -1,8 +1,8 @@
 # Memory 5 — Infra & DevOps
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
-Last updated: 2026-11-06 · Contracts: `contracts-v0.1` · Branch: `infra/phase6-730` · Worktree: `../wt-infra` · Manager: **Manager session eleven** (repo-root manager; chain in Memory-main's first bullet)
-Status: **Phase 6, #730 (P6.2)** — APPROVED (A1, B1, C = #729's labels, D1); PR **#734** (draft) up; seed proven red (run 42244475449), reverted + main merged; waiting for green on the final head.
+Last updated: 2026-11-07 · Contracts: `contracts-v0.1` · Branch: `infra/phase6-741` · Worktree: `../wt-infra` · Manager: **Manager session eleven** (repo-root manager; chain in Memory-main's first bullet)
+Status: **Phase 6 wave 2, #741 (P6.3 DR drill) + #735 + load README** — PR **#753** up; drill runs 1 + 2 GREEN (RTO 100 / 109 s), machine freed; waiting for CI, then "checks finished" and HOLD. Run 3 = the manager, from main after the merge.
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -31,6 +31,9 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## Done
 
+- **#730 (P6.2) — PR #734 MERGED 2026-11-06 (def6e53b).** Production-dependency audit gate (28-entry dated baseline),
+  Dependabot, 8 SLOs as Prometheus rules + promtool tests, README required checks. Review fixes: `le` regex for
+  Prometheus 3's normalised "2.0"; availability `(5xx or vector(0)) / all`.
 - **2.1 — Dockerfiles for every app + build compose + CI image job (issue #31)** — commit `69d0480`, PR #45
   **merged** into main 2026-09-05 (merge commit `7df4aa9`).
   Six `apps/<app>/Dockerfile`, `infra/docker/{entrypoint.sh,health-server.mjs,docker-compose.build.yml,smoke-images.sh}`,
@@ -108,141 +111,55 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
-- **#730 (P6.2) — APPROVED 2026-11-06 and BUILT.** A1: own job `dependency audit (production)`, advisory.
-  B1: `infra/observability/SLO.md` (the manager adds `docs/slo.md` as a pointer). C: #729's labels
-  (`http_status_class`, not the code; histogram `http_server_request_duration_seconds`). Checkout latency 95% < 2 s
-  (production calls the payment provider). Relay lag rule against `outbox_relay_lag_oldest_seconds{service_name=
-  "outbox-relay"}`, METRIC PENDING, REQUEST **#733** to window 14. D1: dated baseline, stale entries reported not
-  failed; per-owner lists in the PR body, the manager routes them (no REQUESTs). E (`.github/dependabot.yml` outside my
-  row) NOT answered yet → Dependabot held. Asked window 1 (via the manager) for buckets 0.3 and 2 s.
-  Built: audit-gate.mjs + 9 tests; allow-list (28); rules/slo.mjs → slo.rules.yml (72 rules) + slo.test.yml (16 cases,
-  mutation-checked), formatted through the repo's Prettier; check.sh runs generator --check + promtool check/test
-  (prom/prometheus:v3.0.1); observability job now installs deps; prometheus.yml rule_files + compose mount.
-  Proof plan: commit 1 = the work; commit 2 = SEED (root package.json + lockfile: lodash 4.17.20, a high advisory NOT in
-  the baseline) → the audit job must FAIL, ownership is red on that commit (root config — expected); commit 3 = revert.
-  **Proof DONE:** PR #734; seed 3247b2c9's run 42244475449 → `dependency audit (production)` FAIL on GHSA-35jh-r3h4-6jhm
-  only (lookup answered attempt 1; 28 baseline entries allowed); ownership red there (expected). Revert 1d7331b0, merged
-  main (1db7fefb); gate PASS locally on the merged lockfile. Next: green → "checks finished" to the manager → HOLD pushes.
-  E1 (manager, 2026-11-06): `.github/dependabot.yml` is in my row on main → added (npm prod/dev, actions, docker; weekly,
-  grouped minor+patch; majors single). Pushed after the first final head, BEFORE "checks finished" was sent.
-  REVIEW FIX (manager + Opus): Prometheus 3 normalises `le` (`2`→"2.0", `10000`→"10000.0"); `le="2"` selected 0
-  series on the live stack vs 17 for "2.0". slo.mjs `le()` + literal normalised test series; mutation (rules back to
-  "2") fails 4 burning cases. Gate tests 9→11 (non-JSON CLI, multi-path).
-  Then (manager, from #729's live run): le as regex `2(\\.0)?` (robust both ways); availability `(5xx or vector(0)) / all`
-  because OTel creates the 5xx series only on the first 5xx; healthy cases now have NO 5xx series (mutation: drop
-  the guard → 3 healthy cases got nil). Later PR, after #729 merges: infra/load/README.md still says "No OpenTelemetry yet".
-  Gotcha: Git Bash collapses `\\` in args to native Windows programs (node -e, curl, sed edits) — put regex-bearing
-  queries/scripts in a file written with Write.
-  Gotcha: no `jq` in Git Bash here — use `gh ... --jq`. Job logs while the run is in progress: `gh api .../actions/jobs/<id>/logs`.
-  Earlier plan notes: Branch `infra/phase6-730` from main `33cb5b6f`.
-  Facts: branch protection enforces 6 checks (ownership, lint+typecheck, unit, contract, gitleaks, perf) — NOT
-  `live auth + end-to-end` (D6: it becomes required after 10 green runs on main; the owner's setting). Core has NO
-  OTel yet (plan item 1, window 1, parallel); only analytics-ingest exports metrics (`analytics_ingest.ingest_delay`
-  ms histogram → Prometheus `analytics_ingest_ingest_delay_milliseconds_bucket` via collector-contrib 0.115.1's
-  prometheus exporter, unit suffixes on, resource attrs → labels). The relay computes `lag_oldest_seconds` but does
-  not export it. `docs/slo.md` is under `docs/**` = main window's path → raised with the manager.
-  Plan (details in the message to the manager): pnpm 10.34.5 `audit --prod --json` + an owned gate script with an
-  expiring allow-list (infra/security/audit-allowlist.json), fail at severity ≥ high; Dependabot weekly grouped
-  (npm prod / npm dev / github-actions / docker); 7 SLOs; recording + multi-window burn-rate rules under
-  infra/observability/rules/ with a promtool `test rules` file, run in the observability job; README D6 fix.
-  **Decisions open with the manager (A–E):** A where the audit runs (own job, recommended / step in the
-  gitleaks job); B docs/slo.md is docs/** (I write infra/observability/SLO.md, the manager points docs/slo.md at it —
-  recommended); C the core's metric names (OTel semconv `http_server_request_duration_seconds_bucket{service_name,
-  http_route, http_request_method, http_response_status_code}` + the relay gauge `outbox_relay_lag_oldest_seconds`,
-  as a REQUEST to window 1); D: **`pnpm audit --prod` already shows 28 high/critical advisories in 16 packages on main
-  33cb5b6f** (core via Medusa: proxy-addr CRITICAL, axios ×7, …; admin: next 15.5.25 CRITICAL, postcss, sharp, …) →
-  D1 (recommended): gate at ≥ high with a baseline allow-list, criticals expire 2026-11-20, highs 2026-12-06, REQUESTs
-  to the owners; E: `.github/dependabot.yml` is outside my row (`.github/workflows/**` only) → E1: the manager adds it.
-  **Built locally:** infra/ci/audit-gate.mjs + test (9/9), infra/security/audit-allowlist.json (28 entries from the
-  real report), README branch-protection section rewritten to the 6 enforced checks + D6, two stale ci.yml comments.
-
-- **#346 — DONE: PR #407 merged as `322c6f6`** (head `87347bb`, live job green ×3 on run 37641014232 attempts 1–3;
-  each witness 2 successful / 0 refused owner logins). **Follow-up owed (manager: tomorrow):** `infra/ci/owner-grants.sh`
-  warns when two SUCCESSFUL owner logins share a TOTP step — wrong: Keycloak refuses a reused code, so a collision is a
-  REFUSED login (LOGIN_ERROR). Make it warn on refused owner logins; "0 refused" is the evidence. Original note: Branch `infra/phase3` at main `c069172`. Built, as option (A) put to the
-  manager (removing the whole script would remove the witness the proof needs): the wait step and
-  `infra/ci/totp-barrier.sh` are deleted; the witness is kept as `infra/ci/owner-grants.sh` (report-only, flags two
-  successful owner logins in one TOTP step) with its step and the events overlay. **NOT pushed: waiting for the
-  manager's A/B/C answer.** Proof: push once, then the manager re-runs the live job twice on that head (three
-  consecutive green), with the witness quoted per run. No pushes after the first.
-
-- **#380 — DONE: PR #381 merged as `7a4abb4`** (head `acd73aa`; live job green twice: jobs 112664751867 and
-  112667098011, seed step "exported … (26 chars)"; the brand-a perf leg was red once on PDP LCP 2554 vs 2500 (#348),
-  and the manager's re-run passed). Original note: `auth-e2e` never seeded OpenFGA, so the kept core answered 503 FgaValidationError to the first real
-  staff token (brand A's order-lifecycle spec, #379). Fix: a seed-and-export step (same as admin-e2e-core) after the
-  live suites and the TOTP report, before "core boots for real"; ids masked (`::add-mask::`), asserted, `.env`
-  removed. Branch `infra/phase3` from main `5b119ff` (the old local branch is kept as `infra/phase3-old`).
-  Evidence: two consecutive green runs of the live job on the final head, URLs in the PR body. "Closes #380".
-
-- **#359 — k6 load test against the real core (Integration 2a). DONE: PR #364 merged as `ec6b158`** (final head
-  `0ba6a5b`, all 16 checks green). Report `infra/load/reports/2026-10-06.md`: target passes on laptop ×2 + runner;
-  pool knee 200–400 req/s of GET /store (ceiling ~380–390 req/s, DB_POOL_MAX=10); store lock ≥ 960/min. Laptop
-  ramps on AC never re-run (laptop stayed on battery) — offer stands: `LOAD_SKIP_TARGET=1 bash infra/load/run.sh`.
-  History below. Branch `infra/phase3` from main `c0e5202`.
-  The laptop is MINE until I report "machine free" (manager, 2026-10-06). Target: 30 orders/min for 10 min while
-  browsing at 50 rps; p95 < 500 ms for GET /store, product list, product detail; errors < 0.1%.
-  Facts found: k6 is not installed locally → run the pinned `grafana/k6` image (same binary on the laptop and in
-  CI). Core app pool `DB_POOL_MAX` default 10 (apps/core/src/lib/db.ts) with 4 connections per GET /store.
-  completeCart locks the cart FOR UPDATE, then reservations under level-row locks; the store-row lock is to be
-  located and measured. Payment session `provider: manual`; complete needs `Idempotency-Key` (minLength 8).
-  **PLAN (awaiting OK):**
-  1. `infra/load/k6/load.js`: one k6 run, two scenarios at once, using constant-arrival-rate.
-     - browse: 50 rps for 10 min, mix store 20% / list 40% / detail 30% / search 10%, tagged by route.
-     - place: 0.5 iterations per second (30/min) for 10 min, running cart → line item → email + addresses →
-       shipping options → shipping option → manual payment session → complete with Idempotency-Key.
-       Each step is tagged; a variant is picked by stock at setup.
-     - Thresholds: p95 < 500 per browse route, errors < 0.1%, plus counts of placed orders.
-  2. `infra/load/k6/ceiling.js`: a stepped placement-only ramp (30 → 60 → 120 → 240 /min, 1 min each) on one
-     store, to find where the store-row lock serialises placement. Reports the knee.
-  3. `infra/load/run.sh`, on the laptop and in CI:
-     - start a kept core with `CORE_SMOKE_KEEP=1 boot-smoke.sh` (fresh `platform_boot_smoke` DB), then
-       `top-up-stock` on that DB;
-     - run a Postgres sampler at 1 s via `pg_stat_activity` for that DB (by state, waiting, wait_event_type=Lock)
-       plus pool settings;
-     - run `docker run grafana/k6` (laptop: host.docker.internal:9000; CI: --network host), with summary JSON
-       and raw CSV;
-     - stop the core with `--stop`.
-  4. `infra/load/report.mjs`: summary + sampler → Markdown, pass/fail per target line, p50/p95/p99 per route,
-     orders/min achieved, error rate, peak connections vs pool max and time at saturation, lock waits, the
-     placement knee, and what Grafana would need (an OTel exporter in the core, pg-pool metrics, k6 → Prometheus
-     remote write). Self-test with a fixture summary.
-  5. `.github/workflows/load.yml` "load (manual)": workflow_dispatch only, uploads the summary and report.
-  6. A laptop run commits `infra/load/reports/2026-10-06.md`. One PR, "Closes #359".
-  Estimate: about 40–60 tool calls, plus 10-min runs ×2–3.
-  **APPROVED 2026-10-06** (separate load.yml; fresh kept core on its own DB; `docker run` of the pinned k6
-  image is an explicit exception; do NOT change DB_POOL_MAX or apps/core; the report states the laptop's specs;
-  the CI run on a GitHub runner is the second datapoint before merge). **Manager is now the session
-  "Project manager handoff"** (not "…takeover"): message it when the draft is up, when checks finish, and
-  "machine free". Long runs detached, output to a file, bounded polls.
-  Built (uncommitted): infra/load/{k6/lib.js,k6/load.js,k6/ceiling.js,pg-sampler.mjs,run.sh,report.mjs,
-  report.test.mjs (10 ok),README.md,.gitignore}, .github/workflows/load.yml, a ci.yml step for the report test.
-  Two smoke runs: fixed a Git Bash /tmp path mismatch (node reads /tmp as C:	mp → use `pwd -W`) and a hang
-  (kill -INT never reaches native node → the sampler now stops on a `.stop` file). The laptop shows ~7–8
-  `dial: i/o timeout` per run from k6's container to host.docker.internal; the report counts these apart from
-  what the core answered. Full laptop run started 10:53 UTC.
-  **Laptop results (2026-10-06):** run A 10:53 (clean) and run B 12:08 (target valid) both pass every target
-  line (GET /store p95 25/23 ms, list 76/69, detail 37/35, errors 0.003%/0.000%, 300 orders, 50 req/s).
-  Bottlenecks: the pool never saturated at target (busy max 8/6); the pool ramp held 100 req/s of GET /store
-  (p95 20 ms), and the knee above that is NOT measured on the laptop. The placement ceiling held 240/min on one
-  store (≥ 8× target) with no lock waits; serial floor ~840–913/min.
-  **Laptop sleeps on battery**: Modern Standby voided run 11:16 entirely and run B's ramps after 12:22. The app's
-  keep-awake doesn't hold on battery; the owner must plug in AC. Never change power settings. report.mjs now
-  detects suspends (sampler gaps > 5 s) and voids those steps. Also fixed: a Math.min(...rows) stack overflow
-  on big CSVs, and ceiling steps now anchored on the first cart_create (setup had shifted them).
-  Report: infra/load/reports/2026-10-06.md (runner column pending). Next: commit, push the draft, dispatch
-  load.yml on the draft, add the runner datapoint, message "Project manager handoff".
-  **Draft PR #364** (head d85213e had a TEMPORARY `push: branches: [infra/phase3]` trigger in load.yml, the
-  manager's option (a); remove it before ready and quote the run URLs in the body). ci.yml was all green on
-  d85213e. Runner run 1 (37476880630): every phase ran (target 32,614 requests, 0%, 301 orders; pool
-  77,243 requests), but k6 could not write /out (grafana/k6's non-root uid on a Linux bind mount) → summaries
-  lost. Fix: `--user $(id -u):$(id -g)` on Linux. Also added LOAD_SKIP_TARGET (ramps-only) and a ramps-only
-  render mode (15 tests). Laptop ramps are held until Windows shows AC (PowerLineStatus=Online); at 14:13 it
-  was still Offline although the owner was said to have plugged in.
-  **Runner run 2 (37479512779, head 9335cfe) clean:** target passes (GET /store p95 7 ms, list 41, detail 10,
-  0 of 32,108 errors, 301 orders, 50 req/s). Pool knee between 200 and 400 req/s of GET /store alone; the
-  throughput ceiling is ~380–390 req/s with all 10 connections busy. Store lock: 960/min held on one store, no
-  lock waits (≥ 32× target). The report has all three datapoints. Temporary trigger removed in its own commit;
-  main merged in the final push (35457f6+ carries the gitleaks allowlist for window 3's memory literals).
+- **#741 (P6.3 DR drill) — APPROVED 2026-11-06 (K2: partial export + realm-file users, never a 2nd KC JVM in the
+  shared container; C: password grant + FGA allowed/denied, the core end to end = a later follow-up). BUILT
+  2026-11-07: drill.mjs + docker-compose.drill.yml + drill.test.mjs (6/6, changes job); #735 row (proved on
+  live Prometheus at the last core sample: guarded 5xx panel = 9 routes at 0, unguarded = 0 series); load README.
+  RUN 1 (2026-11-07 09:08Z): GREEN. Backup 44 s; RTO 100 s (stack 58 + data 27 +
+  checks 15); RPO 150739 s = dev idleness (newest pg row 11-05 15:16Z). 217 tables / 25995 rows / 129 tenant cols,
+  21 topics, 14 tuples. Gap found: run 1's permission check was not linked to the login (FGA users are
+  staff_user.id). Fixed: sub → staff_user.keycloak_subject in the RESTORED pg → allowed …044 store_admin store …031,
+  denied …044 store_admin …033. Dry-run against the shared stack OK.
+  RUN 2 (09:15Z, the manager asked for it so the PR's evidence is the shipped code): GREEN with the linked check
+  (…044 allowed on …031, denied on …033); RTO 109 s (60 + 35 + 14). PR #753 was already open when that ask arrived
+  (messages crossed): updated in place, no second PR.
+  RUN 3 = the MANAGER (09:19Z, from 01ecf774): GREEN, RTO 74 s. Its first attempt (09:17Z) was REFUSED by my
+  collision guard while run 2 was up: proof the guard works. The Opus review fix: backupClickhouse's /tmp/dr-ch
+  in the SHARED container is now removed in a finally (a throw mid-export left it). Runbook: sequences' last_value
+  is not snapshot-bound (a false failure, never a false pass). All in ONE commit, as asked.
+  fga:seed was needed first (my .env OPENFGA_STORE_ID was EMPTY; the manager OK'd it; it reused the store).
+  Keep-awake was denied by the auto-mode classifier: ran the drill in the foreground (about 2.5 min).
+  Gotchas: reimport.mjs's DEFAULT action deletes + re-creates the realm, so the drill calls the partial-export
+  endpoint itself. ch:migrate falls back to the SHARED ClickHouse URL, so the drill pins and asserts :28123. A
+  Grafana dashboard edit must be a text insertion (JSON.stringify of the whole file makes prettier expand every
+  compact object). check.sh wants a datasource on rows too. `timestamp(last_over_time())` is the eval time, not
+  the sample's.
+  The plan as sent: Branch infra/phase6-741 from a10e54e9
+  (upstream unset). Plan:
+  - `infra/dr/drill.mjs`: backup | restore | check | teardown | all. Docker is called by spawnSync with argument
+    arrays. Backups go to C:/Users/mehdi/Desktop/commerce-platform-backups/dr-<stamp>/ (DR_BACKUP_DIR) with a
+    manifest.json.
+  - Postgres: a host connection holds REPEATABLE READ and exports a snapshot. `pg_dump -Fc --snapshot` runs inside
+    the container, then `docker cp` to the Windows path. The expected counts (per table, per store) and the seed md5
+    are computed in the same snapshot.
+  - ClickHouse: no BACKUP (it would need a config change and restart of the shared container). Instead, SHOW CREATE
+    plus Native SELECT per table. Restore tables and data first, MVs last, then the access SQL. Check
+    uniqExact(event_id) per topic.
+  - Keycloak, decision K: K1 = partial export + `kc.sh export --users same_file` inside the container (read-only;
+    falls back to K2 on an H2 lock); K2 = the realm-file users.
+  - OpenFGA: the model plus every tuple, re-created in the drill FGA.
+  - Drill compose: infra/dr/docker-compose.drill.yml, project `commerce-dr`, ports pg 25433 / ch 28123 / kc 28180 /
+    fga 28081. `down -v` runs in a finally. The script refuses on a project or port collision.
+  - Checks: the manifest must match exactly. Staff login = test-cli password grant as store-admin. Permission
+    check = an FGA check, one allowed and one denied. Decision C: also boot the core against the drill stack?
+  - RTO = drill `compose up` to checks green. RPO = backup start minus the newest restored row.
+    infra/dr/RUNBOOK.md holds the real numbers and the launch-checklist lines (RDS PITR, S3 lifecycle, the Keycloak
+    DB, the FGA datastore).
+  - drill.test.mjs runs in the changes job.
+  - #735: a Grafana "Core per route" row. The error panel uses `or 0 * requests` (the errors counter is missing
+    before the first 5xx).
+  - infra/load/README "No OpenTelemetry yet" line.
+  Machine: 2 drill runs of about 10–15 min, ASK first (asked in the plan message).
 
 ## Next
 
