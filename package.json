@@ -28,10 +28,10 @@
     "@types/node": "^20.19.0",
     "eslint": "^9.30.0",
     "eslint-config-prettier": "^10.1.0",
-    "prettier": "^3.6.0",
-    "turbo": "^2.5.0",
+    "prettier": "^3.9.10",
+    "turbo": "^2.11.10",
     "typescript": "^5.8.0",
-    "typescript-eslint": "^8.35.0",
+    "typescript-eslint": "^8.72.1",
     "vitest": "^3.2.0"
   },
   "pnpm": {
