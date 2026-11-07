@@ -92,31 +92,33 @@ Every number below is taken at backup time and compared, **exactly**, with the r
 
 ## Measured
 
-**Run 1: 2026-11-07 09:08Z, window 5, branch `infra/phase6-741`. CHECKS GREEN.**
+Both runs: window 5, branch `infra/phase6-741`, `node infra/dr/drill.mjs all`, exit 0, **CHECKS GREEN**, teardown
+left no `commerce-dr` container or volume.
 
-| What                 | Value                                                                                                                                                                                         |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Backup               | 44 s: Postgres dump 1.6 MB; folder 2.9 MB in total                                                                                                                                            |
-| **RTO**              | **100 s** = drill stack up 58 s + data restore 27 s + checks 15 s                                                                                                                             |
-| **RPO (measured)**   | 150 739 s (~41.9 h): backup start minus the newest restored row (Postgres 2026-11-05 15:16Z, ClickHouse 2026-11-02 18:45Z)                                                                    |
-| Restored and matched | 217 tables / 25 995 rows / 129 tenant columns with checksums, 8 sequences, 4 roles, 71 policies; 5 ClickHouse tables (1 138 raw events across 21 topics), 24 views, 1 MV; 2 realms; 14 tuples |
-| Staff login          | `store-admin` → `sub` `seed-store-admin`                                                                                                                                                      |
+|                      | Run 1 (2026-11-07 09:08Z)                                                                                                                                                                     | Run 2 (2026-11-07 09:15Z)                                                                                                 |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Code                 | the first permission check (see below)                                                                                                                                                        | **the code this runbook describes** (`drill.mjs` as merged)                                                               |
+| Backup               | 44 s (Postgres dump 1.6 MB; folder 2.9 MB)                                                                                                                                                    | 49 s (same sizes)                                                                                                         |
+| **RTO**              | **100 s** = stack up 58 s + data 27 s + checks 15 s                                                                                                                                           | **109 s** = stack up 60 s + data 35 s + checks 14 s                                                                       |
+| **RPO (measured)**   | 150 739 s (~41.9 h)                                                                                                                                                                           | 151 192 s (~42.0 h)                                                                                                       |
+| Newest restored row  | Postgres 2026-11-05 15:16Z, ClickHouse 2026-11-02 18:45Z                                                                                                                                      | the same (nothing was written between the runs)                                                                           |
+| Restored and matched | 217 tables / 25 995 rows / 129 tenant columns with checksums, 8 sequences, 4 roles, 71 policies; 5 ClickHouse tables (1 138 raw events across 21 topics), 24 views, 1 MV; 2 realms; 14 tuples | the same                                                                                                                  |
+| Staff login          | `store-admin` → `sub` `seed-store-admin`                                                                                                                                                      | the same                                                                                                                  |
+| Permission check     | first tuple in the store (`seed-owner` owner `organization:hq`) allowed; an unknown user denied                                                                                               | `sub` → restored `staff_user` `…044`; `…044 store_admin store:…031` **allowed**, `…044 store_admin store:…033` **denied** |
 
 What the numbers mean:
 
-- **RTO** is the wall clock from `compose up` of the empty drill stack to every check green. Most of it is the
-  stack starting, mainly Keycloak. The data itself restores in under 30 s at dev scale. It grows with the data,
+- **RTO** is the wall clock from `compose up` of the empty drill stack to every check green. About 60 s of it is
+  the stack starting, mainly Keycloak. The data itself restores in about 30 s at dev scale. It grows with the data,
   so re-measure it on a production-sized copy before quoting it as a production RTO.
 - **RPO as measured** is "how old is the newest thing we got back". On dev it mostly measures how long the stack
   has been idle: nothing was written for ~42 h, and nothing was lost. The **method's** RPO is the time between two
   backups: with a nightly `pg_dump`, up to 24 h. With RDS point-in-time recovery (launch checklist), about 5 minutes.
-- **Run 1's permission check** used an earlier version that checked the first tuple in the store (`seed-owner` on
-  `organization:hq`, allowed) and an unknown user (denied). That proved OpenFGA came back, but not the link to the
-  login. The linked check described above replaced it after run 1. It was dry-run against the shared stack (same
-  data): `…044 store_admin store:…031` allowed, `…044 store_admin store:…033` denied. **Run 2 is its first drill.**
+- **Run 1's permission check** proved OpenFGA came back, but not its link to the login: FGA users are
+  `staff_user.id`, not the Keycloak `sub`. The linked check replaced it, and run 2 is the evidence for it.
 
-**Run 2: by the manager, from `main` after the merge (the plan's "different hand" gate).** Add a row like run 1's
-here, with its report file's numbers.
+**Run 3: by the manager, from `main` after the merge (the plan's "different hand" gate).** Add a column like
+run 2's, with its report file's numbers.
 
 ## When it fails
 
