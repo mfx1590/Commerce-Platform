@@ -16,20 +16,20 @@
       "id": "GHSA-7mx3-vvmw-hjmv",
       "package": "@graphql-tools/utils",
       "severity": "high",
-      "versions": ["10.11.0", "12.0.0"],
+      "versions": ["10.11.0"],
       "apps": ["apps/core"],
       "owner": "window 1 (core)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
+      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason. Since #752 12.x is patched (override); 10.11.0 remains via @graphql-codegen/* (^10.0.0), no patched 10.x.",
       "expires": "2026-12-06"
     },
     {
       "id": "GHSA-c4qx-w738-7hr3",
       "package": "@graphql-tools/utils",
       "severity": "high",
-      "versions": ["10.11.0", "12.0.0"],
+      "versions": ["10.11.0"],
       "apps": ["apps/core"],
       "owner": "window 1 (core)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
+      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason. Since #752 12.x is patched (override); 10.11.0 remains via @graphql-codegen/* (^10.0.0), no patched 10.x.",
       "expires": "2026-12-06"
     },
     {
@@ -37,9 +37,9 @@
       "package": "axios",
       "severity": "high",
       "versions": ["1.19.0"],
-      "apps": ["apps/core"],
-      "owner": "window 1 (core)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
+      "apps": ["packages/auth-sdk"],
+      "owner": "window 2 (auth)",
+      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason. Since #752 the only remaining copy comes via packages/auth-sdk > @openfga/sdk 0.9.7, which pins axios exactly; needs an @openfga/sdk release.",
       "expires": "2026-12-06"
     },
     {
@@ -47,9 +47,9 @@
       "package": "axios",
       "severity": "high",
       "versions": ["1.19.0"],
-      "apps": ["apps/core"],
-      "owner": "window 1 (core)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
+      "apps": ["packages/auth-sdk"],
+      "owner": "window 2 (auth)",
+      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason. Since #752 the only remaining copy comes via packages/auth-sdk > @openfga/sdk 0.9.7, which pins axios exactly; needs an @openfga/sdk release.",
       "expires": "2026-12-06"
     },
     {
@@ -57,9 +57,9 @@
       "package": "axios",
       "severity": "high",
       "versions": ["1.19.0"],
-      "apps": ["apps/core"],
-      "owner": "window 1 (core)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
+      "apps": ["packages/auth-sdk"],
+      "owner": "window 2 (auth)",
+      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason. Since #752 the only remaining copy comes via packages/auth-sdk > @openfga/sdk 0.9.7, which pins axios exactly; needs an @openfga/sdk release.",
       "expires": "2026-12-06"
     },
     {
@@ -67,9 +67,9 @@
       "package": "axios",
       "severity": "high",
       "versions": ["1.19.0"],
-      "apps": ["apps/core"],
-      "owner": "window 1 (core)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
+      "apps": ["packages/auth-sdk"],
+      "owner": "window 2 (auth)",
+      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason. Since #752 the only remaining copy comes via packages/auth-sdk > @openfga/sdk 0.9.7, which pins axios exactly; needs an @openfga/sdk release.",
       "expires": "2026-12-06"
     },
     {
@@ -77,9 +77,9 @@
       "package": "axios",
       "severity": "high",
       "versions": ["1.19.0"],
-      "apps": ["apps/core"],
-      "owner": "window 1 (core)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
+      "apps": ["packages/auth-sdk"],
+      "owner": "window 2 (auth)",
+      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason. Since #752 the only remaining copy comes via packages/auth-sdk > @openfga/sdk 0.9.7, which pins axios exactly; needs an @openfga/sdk release.",
       "expires": "2026-12-06"
     },
     {
@@ -87,9 +87,9 @@
       "package": "axios",
       "severity": "high",
       "versions": ["1.19.0"],
-      "apps": ["apps/core"],
-      "owner": "window 1 (core)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
+      "apps": ["packages/auth-sdk"],
+      "owner": "window 2 (auth)",
+      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason. Since #752 the only remaining copy comes via packages/auth-sdk > @openfga/sdk 0.9.7, which pins axios exactly; needs an @openfga/sdk release.",
       "expires": "2026-12-06"
     },
     {
@@ -97,9 +97,9 @@
       "package": "axios",
       "severity": "high",
       "versions": ["1.19.0"],
-      "apps": ["apps/core"],
-      "owner": "window 1 (core)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
+      "apps": ["packages/auth-sdk"],
+      "owner": "window 2 (auth)",
+      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason. Since #752 the only remaining copy comes via packages/auth-sdk > @openfga/sdk 0.9.7, which pins axios exactly; needs an @openfga/sdk release.",
       "expires": "2026-12-06"
     },
     {
