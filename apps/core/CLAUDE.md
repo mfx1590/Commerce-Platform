@@ -64,7 +64,7 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 - Module layout: `src/modules/<name>/{index.ts,service.ts,README.md,*.test.ts}`; cross-module imports only via
   `index.ts`. See README.md "How a module gets a tenant client".
 - HTTP layer (`src/http`, mounted by `mountCoreMiddleware` ahead of Medusa): request id → telemetry (#729; only when `startTelemetry` registered) → header alias →
-  `/store` tenant context (`req.tenant`, 401) → Store API routes → optional Store API fallback proxy →
+  `/store` tenant context (`req.tenant`, 401; key resolve cached ≤ 10 s, #742) → Store API rate limits (#742; 429 `rate_limited`, fail-open) → Store API routes → optional Store API fallback proxy →
   `/admin` staff principal (`req.principal`, 401/503; `storeClientFor` 403 outside scope) → hq-rbac adapter →
   Admin API routes → `coreErrorHandler`. Route handlers are wrapped in `handle()` so `AppError` renders as the
   contract `{ code, message, details }`. `CORE_ORGANIZATION_ID` selects the organization (default: seeded HQ).

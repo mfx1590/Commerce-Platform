@@ -522,3 +522,19 @@
 ## 0.4.33 — 2026-11-02 (CONTRACT CHANGE #690, window 16)
 
 - `ERROR_CODES` gains `method_not_allowed` (405) and `payload_too_large` (413), and the Admin `Error.code` description lists them. Additive: these are the strings the engagement support server already sends. The core STATUS map gains both. Admin API version unchanged (description only).
+
+## 0.4.34 — 2026-11-07 (CONTRACT CHANGE #744, manager landing, for #742)
+
+- Store API 0.5.10 (additive): new shared response `TooManyRequests` (429). Its `Retry-After` header is an integer
+  number of seconds (minimum 1); the body is an `Error` with code `rate_limited`, and `details.retry_after_seconds`
+  repeats the header. Nine write operations document it: createCart, updateCart, addLineItem, updateLineItem,
+  removeLineItem, createPaymentSession, completeCart, recoverCart, registerCustomer. No GET operation is limited.
+- `ERROR_CODES` gains `rate_limited`, and the Store `Error.code` description lists it (before `internal`). The core
+  STATUS map gains `rate_limited: 429` (type completeness, as in #690).
+- Semantics (apps/core, #742): one token bucket per (class, store, client). The `auth` class covers registerCustomer
+  and recoverCart (burst 10, refilled at 20/min). The `cart` class covers the 6 cart writes (burst 60, refilled at
+  300/min). The `checkout` class covers completeCart (burst 10, refilled at 60/min). The limits are configurable from
+  the environment. When the limiter is unavailable (a Redis outage), requests are allowed, not refused.
+- Spec tests: the Store version pins move to 0.5.10, the closed error-list pattern accepts `rate_limited` before
+  `internal`, and a new block pins `TooManyRequests`, the exact 9 operations and the error code. Admin API (0.4.27),
+  Accounting API and events are unchanged.

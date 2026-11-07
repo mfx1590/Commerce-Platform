@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Store API
-  version: 0.5.9
+  version: 0.5.10
   description: |
     Storefront-facing API. Every request carries `X-Publishable-Key` (a `store_api_key` of type `publishable`),
     which resolves the store and sales channel; the core refuses requests without it. Customer-authenticated
@@ -15,6 +15,7 @@ info:
     0.5.5 adds `voided` to the order's `payment_status` (authorized → voided when the order is cancelled; terminal; #466, additive).
     0.5.6 adds customer self-service — updateMyAddress, deleteMyAddress (200 with the remaining addresses), requestMyExport and deleteMe (#482, additive).
     0.5.9 adds GET /store/recommendations — listProductRecommendations and RecommendationList (#607, additive).
+    0.5.10 adds 429 `rate_limited` (TooManyRequests, with Retry-After) on the 9 cart, checkout and auth writes (#744, additive).
 servers:
   - url: http://localhost:4010
     description: Prism mock (pnpm mock)
@@ -322,6 +323,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
               example: { code: conflict, message: This email already has an account, details: {} }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /store/carts/{cartId}:
     parameters:
@@ -366,6 +368,7 @@ paths:
                 withItem: { $ref: '#/components/examples/CartWithItem' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /store/carts/{cartId}/line-items:
     parameters:
@@ -404,6 +407,7 @@ paths:
                   message: Only 2 left,
                   details: { variant_id: 30000000-0000-4000-8000-000000000301, available: 2 },
                 }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /store/carts/{cartId}/line-items/{lineItemId}:
     parameters:
@@ -430,6 +434,7 @@ paths:
               examples:
                 withItem: { $ref: '#/components/examples/CartWithItem' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
     delete:
       tags: [cart]
       operationId: removeLineItem
@@ -442,6 +447,7 @@ paths:
               examples:
                 empty: { $ref: '#/components/examples/CartEmpty' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /store/carts/{cartId}/shipping-options:
     parameters:
@@ -511,6 +517,7 @@ paths:
                   amount: { amount_minor: 2918, currency: EUR },
                 }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /store/carts/{cartId}/complete:
     parameters:
@@ -593,6 +600,7 @@ paths:
                         },
                     }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /store/cart-recovery/{token}:
     parameters:
@@ -625,6 +633,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /store/orders/{orderId}:
     get:
@@ -699,6 +708,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
               example: { code: conflict, message: This email already has an account, details: {} }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /store/customers/me:
     get:
@@ -1338,6 +1348,19 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example: { code: not_found, message: Not found, details: {} }
+    TooManyRequests:
+      description: >-
+        Rate limit exceeded for this store and client (`rate_limited`). `Retry-After` says how many seconds until a
+        request of this kind can succeed again; `details.retry_after_seconds` repeats it.
+      headers:
+        Retry-After:
+          description: Seconds until a request of this kind can succeed again.
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            { code: rate_limited, message: Too many requests, details: { retry_after_seconds: 12 } }
     Conflict:
       description: The request conflicts with the current state
       content:
@@ -1364,7 +1387,7 @@ components:
         code:
           {
             type: string,
-            description: 'Stable machine code: validation_error, unauthorized, forbidden, not_found, out_of_stock, payment_failed, cart_completed, price_changed, conflict, expired, internal',
+            description: 'Stable machine code: validation_error, unauthorized, forbidden, not_found, out_of_stock, payment_failed, cart_completed, price_changed, conflict, expired, rate_limited, internal',
           }
         message: { type: string }
         details: { type: object, additionalProperties: true }

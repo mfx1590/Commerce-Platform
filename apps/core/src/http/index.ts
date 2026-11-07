@@ -72,6 +72,14 @@ export type { CustomerTokenVerifier } from './customer-routes';
 export { adminRouter } from './admin-routes';
 export { moduleAdminRouters, moduleStoreRouters, moduleWebhookRouters } from './module-routers';
 export { loadSpec, openApiDir } from './openapi';
+export {
+  DEFAULT_LIMITS,
+  LIMITED_OPERATIONS,
+  rateLimitConfigFromEnv,
+  rateLimitMiddleware,
+  redisRateLimitStore,
+} from './rate-limit';
+export type { BucketRule, RateLimitClass, RateLimitConfig, RateLimitStore } from './rate-limit';
 export type { Spec, SpecFile } from './openapi';
 export {
   assertPermission,

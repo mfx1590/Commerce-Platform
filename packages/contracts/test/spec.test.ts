@@ -161,7 +161,7 @@ describe('store-api.yaml', () => {
   });
 
   it('0.3.0: listProducts and getProduct accept an optional ISO-4217 currency query', () => {
-    expect(text).toMatch(/version: 0\.5\.9/);
+    expect(text).toMatch(/version: 0\.5\.10/);
     expect(text).toMatch(/Currency:\n\s+name: currency\n\s+in: query/);
     expect(text).toMatch(/pattern: '\^\[A-Z\]\{3\}\$'/);
     for (const id of ['listProducts', 'getProduct']) {
@@ -1056,14 +1056,14 @@ describe('customer exports (contracts 0.4.23, Store API 0.5.8, Admin API 0.4.20,
       .slice(1);
 
   it('versions, and the closed error list gains expired with a shared 410 Gone in both specs', () => {
-    expect(store).toMatch(/^ {2}version: 0\.5\.9$/m);
+    expect(store).toMatch(/^ {2}version: 0\.5\.10$/m);
     expect(ERROR_CODES).toContain('expired');
     for (const [name, text] of [
       ['store', store],
       ['admin', admin],
     ] as const) {
       expect(text, name).toMatch(
-        /description: '[^']*\bconflict\b[^']*, expired, internal(, [a-z_]+)*'/,
+        /description: '[^']*\bconflict\b[^']*, expired, (rate_limited, )?internal(, [a-z_]+)*'/,
       );
       const start = text.indexOf('\n    Gone:\n');
       expect(start, name).toBeGreaterThan(text.indexOf('\n  responses:\n'));
@@ -1160,7 +1160,7 @@ describe('customer identity (contracts 0.4.24, Admin API 0.4.21, #504)', () => {
 
   it('getCustomerIdentity: HQ-only (support on organization:hq), ids only, 401 / 403 / 404', () => {
     expect(admin).toMatch(/^ {2}version: 0\.4\.27$/m);
-    expect(store).toMatch(/^ {2}version: 0\.5\.9$/m); // Store API unchanged (#504)
+    expect(store).toMatch(/^ {2}version: 0\.5\.10$/m); // 0.5.10 (#744) changed no customer-identity path
     expect(adminOps.length).toBe(140); // +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); 130 at 0.4.20; +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +2 metrics operations at 0.4.25 (#603)
     const start = admin.indexOf('\n  /admin/customer-identities/{identityId}:\n');
     expect(start).toBeGreaterThan(0);
@@ -1221,7 +1221,7 @@ describe('store tax rates (contracts 0.4.26, Admin API 0.4.23, #522 / #520)', ()
 
   it('the four operations on their paths, after the sales channels, with their x-permission and codes', () => {
     expect(admin).toMatch(/^ {2}version: 0\.4\.27$/m);
-    expect(store).toMatch(/^ {2}version: 0\.5\.9$/m); // Store API unchanged (#522)
+    expect(store).toMatch(/^ {2}version: 0\.5\.10$/m); // 0.5.10 (#744) changed no tax-rate path
     expect(adminOps.length).toBe(140); // +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); 131 at 0.4.22; +listTaxRates / createTaxRate / updateTaxRate / deleteTaxRate; +listMetrics / queryMetrics at 0.4.25 (#603)
     const list = admin.indexOf('\n  /admin/stores/{storeId}/tax-rates:\n');
     expect(list).toBeGreaterThan(admin.indexOf('\n  /admin/stores/{storeId}/sales-channels:\n'));
@@ -1690,5 +1690,43 @@ describe('BI Q&A askMetrics + askMetricsFeedback (contracts 0.4.32, Admin API 0.
     expect(s).toMatch(
       /template:\n\s+type: object\n\s+additionalProperties: false\n\s+required: \[id, version\]/,
     );
+  });
+});
+
+describe('rate limits (contracts 0.4.34, Store API 0.5.10, #744)', () => {
+  const store = read('store-api.yaml');
+  const storeOps = operations(store);
+  const LIMITED = [
+    'createCart',
+    'updateCart',
+    'addLineItem',
+    'updateLineItem',
+    'removeLineItem',
+    'createPaymentSession',
+    'completeCart',
+    'recoverCart',
+    'registerCustomer',
+  ];
+  const ref429 = "'429': { $ref: '#/components/responses/TooManyRequests' }";
+
+  it('TooManyRequests carries an integer Retry-After (minimum 1) and an Error body with rate_limited', () => {
+    const start = store.indexOf('\n    TooManyRequests:\n');
+    expect(start).toBeGreaterThan(store.indexOf('\n  responses:\n'));
+    const block = store.slice(start, store.indexOf('\n    Conflict:\n', start));
+    expect(block).toMatch(/headers:\n\s+Retry-After:\n/);
+    expect(block).toMatch(/schema: \{ type: integer, minimum: 1 \}/);
+    expect(block).toContain("schema: { $ref: '#/components/schemas/Error' }");
+    expect(block).toMatch(/code: rate_limited,/);
+    expect(block).toMatch(/details: \{ retry_after_seconds: \d+ \}/);
+  });
+
+  it('exactly the 9 write operations document 429', () => {
+    const withLimit = storeOps.filter((o) => o.body.includes(ref429)).map((o) => o.id);
+    expect(withLimit.sort()).toEqual([...LIMITED].sort());
+  });
+
+  it('rate_limited is in ERROR_CODES and the Store Error.code description', () => {
+    expect(ERROR_CODES).toContain('rate_limited');
+    expect(store).toMatch(/expired, rate_limited, internal'/);
   });
 });
