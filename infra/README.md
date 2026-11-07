@@ -674,6 +674,23 @@ own database by `infra/load/run.sh`, with Postgres sampled throughout and a Mark
 a laptop or as **load (manual)** (`.github/workflows/load.yml`, `workflow_dispatch` only — never on a pull
 request). Reports worth keeping are committed under `infra/load/reports/`. Details: `infra/load/README.md`.
 
+## Backup and restore drill (manual, #741)
+
+`node infra/dr/drill.mjs all` backs up the shared dev stack's state and restores it into a FRESH stack
+(`infra/dr/docker-compose.drill.yml`, project `commerce-dr`, ports 25433 / 28123 / 28180 / 28081, its own volumes).
+It then checks the restore against the backup's manifest, records RTO and RPO, and always runs `down -v`.
+
+- **What it backs up:** Postgres (`pg_dump -Fc` in a snapshot it holds, plus the roles), ClickHouse (DDL + Native
+  data per table), the Keycloak realms (partial export plus the realm files' users), and OpenFGA (model + tuples).
+- **What it checks:** row counts per table and per store, content checksums, ClickHouse events per topic, a staff
+  login, and one allowed and one denied permission check.
+- **What it never does:** stop or write the shared stack. It only reads it, plus two temp files in its containers'
+  `/tmp`, removed afterwards. Backups go to `DR_BACKUP_DIR`, outside git.
+
+The procedure, the measured numbers and the launch-checklist lines are in `infra/dr/RUNBOOK.md`. The drill's
+safety parts (its own project, ports and volumes; the restore order; the manifest diff) are self-tested in the
+`changes` job.
+
 ## Deploying staging
 
 `.github/workflows/deploy-staging.yml`, on every push to `main` and on demand. It builds the three app images

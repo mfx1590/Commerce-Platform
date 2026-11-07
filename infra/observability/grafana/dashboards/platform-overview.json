@@ -161,6 +161,103 @@
           "rawSql": "SELECT * FROM app.outbox_lag();"
         }
       ]
+    },
+    {
+      "id": 5,
+      "type": "row",
+      "title": "Core per route",
+      "collapsed": false,
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
+      "panels": []
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Request rate per route and store",
+      "description": "The core's own RED metrics (#729): requests per second by contract route and store.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 26 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "fillOpacity": 0, "showPoints": "never" } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "calcs": ["mean", "max"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "expr": "sum by (http_route, store_id) (rate(http_server_request_duration_seconds_count{service_name=\"core\", store_id=~\"$store\"}[5m]))",
+          "legendFormat": "{{http_route}} · {{store_id}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Error rate per route (5xx)",
+      "description": "Share of requests answered with a 5xx. core_http_errors_total only exists after the first 5xx, so a route without errors is drawn as 0 (the `or 0 *` term) instead of disappearing.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 26 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": { "fillOpacity": 0, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "calcs": ["mean", "max"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "expr": "(sum by (http_route) (rate(core_http_errors_total{service_name=\"core\", store_id=~\"$store\"}[5m])) or 0 * sum by (http_route) (rate(core_http_requests_total{service_name=\"core\", store_id=~\"$store\"}[5m]))) / clamp_min(sum by (http_route) (rate(core_http_requests_total{service_name=\"core\", store_id=~\"$store\"}[5m])), 0.001)",
+          "legendFormat": "{{http_route}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "p95 per route",
+      "description": "95th percentile of the core's request duration per route (histogram buckets 5 ms to 10 s).",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 34 },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "fillOpacity": 0, "showPoints": "never" } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "calcs": ["mean", "max"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "range": true,
+          "expr": "histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{service_name=\"core\", store_id=~\"$store\"}[5m])))",
+          "legendFormat": "{{http_route}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Responses by status class",
+      "description": "Requests per second by status class over the last 5 minutes; rate limiting (429) shows up as 4xx.",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 34 },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "options": { "showHeader": true },
+      "targets": [
+        {
+          "refId": "A",
+          "editorMode": "code",
+          "instant": true,
+          "format": "table",
+          "expr": "sum by (http_status_class) (rate(http_server_request_duration_seconds_count{service_name=\"core\", store_id=~\"$store\"}[5m]))"
+        }
+      ]
     }
   ]
 }
