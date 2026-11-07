@@ -25,6 +25,11 @@ import {
   hqRbacAdapter,
   KeycloakStaffTokenVerifier,
   loadSpec,
+  rateLimitConfigFromEnv,
+  rateLimitMiddleware,
+  redisRateLimitStore,
+  type RateLimitConfig,
+  type RateLimitStore,
   moduleAdminRouters,
   moduleStoreRouters,
   moduleWebhookRouters,
@@ -105,6 +110,11 @@ export interface CoreMiddlewareOptions {
    * registry's stores; the default labels every admin request `none`. Unused unless `startTelemetry` registered.
    */
   knownStores?: KnownStores;
+  /**
+   * Store API rate limits (#742, src/http/rate-limit.ts). createServer() passes the Redis store with the limits from
+   * the environment (unless CORE_RATE_LIMIT=off); the default is NONE, so module and HTTP tests are never limited.
+   */
+  rateLimit?: { store: RateLimitStore; config: RateLimitConfig };
 }
 
 /** The http.route values: every path of the Store and Admin API contracts. */
@@ -219,6 +229,9 @@ export function mountCoreMiddleware(
   app.use(aliasPublishableKeyHeader);
   // Store API: 401 without a valid X-Publishable-Key; req.tenant otherwise (ADR 0001).
   app.use('/store', storeContextMiddleware);
+  // Rate limits (#742): after the tenant (an unknown key is a 401 and costs no Redis call), before every Store API
+  // route — so before body parsing and customer-token verification. 429 `rate_limited` + Retry-After; fail-open.
+  if (opts.rateLimit) app.use('/store', rateLimitMiddleware(opts.rateLimit));
   // The Store API routes window 1 owns (contracts store-api.yaml: GET /store, /store/categories,
   // /store/products, /store/products/{handle}) answer here, ahead of Medusa's own routes of the same paths and
   // of its publishable-key gate — our tenant middleware is the contract's key check.
@@ -289,6 +302,12 @@ export async function createServer(opts: CreateServerOptions = {}): Promise<Core
       `[core] store api fallback: unhandled /store/* requests go to ${storeApiFallbackUrl}`,
     );
   }
+  const rateLimitConfig = rateLimitConfigFromEnv();
+  const rateLimit = rateLimitConfig
+    ? { store: redisRateLimitStore(), config: rateLimitConfig }
+    : undefined;
+  if (!rateLimit)
+    console.warn('[core] rate limit: CORE_RATE_LIMIT=off, the Store API is not rate limited');
   const app = express();
   if (opts.staffTokenVerifier) {
     mountCoreMiddleware(app, opts.staffTokenVerifier, {
@@ -297,6 +316,7 @@ export async function createServer(opts: CreateServerOptions = {}): Promise<Core
       webhookRouters: moduleWebhookRouters(),
       ...(storeApiFallbackUrl ? { storeApiFallbackUrl } : {}),
       ...(knownStores ? { knownStores } : {}),
+      ...(rateLimit ? { rateLimit } : {}),
     });
   } else {
     const auth = buildStaffAuth();
@@ -308,6 +328,7 @@ export async function createServer(opts: CreateServerOptions = {}): Promise<Core
       webhookRouters: moduleWebhookRouters(),
       ...(storeApiFallbackUrl ? { storeApiFallbackUrl } : {}),
       ...(knownStores ? { knownStores } : {}),
+      ...(rateLimit ? { rateLimit } : {}),
     });
   }
   // #265: an /admin path none of the routers above answered is the contract's 404 — decided here, before
@@ -324,6 +345,7 @@ export async function createServer(opts: CreateServerOptions = {}): Promise<Core
     shutdown: async () => {
       await shutdown();
       await telemetry.shutdown();
+      await rateLimit?.store.close?.();
       await closePool();
     },
   };

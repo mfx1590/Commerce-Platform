@@ -71,6 +71,22 @@ Window 1 owns the order lifecycle and the core side of the chain. Current task: 
 - [x] **1.1 Medusa 2 boots in apps/core (issue #1)** — 2026-09-04, commit `e36b80e`, PR #49 **merged** (merge commit `a0c02c9`). Delivered: Medusa 2.20.1 project, `medusa-config.ts` (schema `medusa`, `databaseDriverOptions` search_path pin, Redis cache/event bus, admin off), `src/server.ts` custom entry with `/health` + `X-Publishable-Key` alias ahead of Medusa, `src/lib/db.ts` (initDb/tenantClient/organizationClient), `scripts/db-medusa-migrate.ts` (role `medusa_owner`), README/CLAUDE/CHANGELOG, 3 unit tests. Verified locally: `GET /health` 200; public schema untouched (42 tables), 145 Medusa tables in `medusa`. Side issue filed: #40 REQUEST default export condition.
 
 ## In progress
+- **#742 P6.4 Store API rate limits + pool knee: BUILT 2026-11-07 (plan approved Q1–Q5), local commit; proof runs need THE MACHINE.** Branch `core/phase6-742` from origin/main `a10e54e9`.
+  - Filed: CONTRACT CHANGE #744 (store-api 0.5.10: TooManyRequests, 429 on 9 operations, `rate_limited` in the Error description AND in contracts' ERROR_CODES; addendum comment). The 4 contracts spec tests pin 0.5.9, so the lander bumps them.
+  - Filed: REQUEST #745 (redis:7 in the `unit` job, `CORE_TEST_REDIS_URL`).
+  - Local packages/contracts is patched with scratchpad apply-cc744.py and NEVER committed; the branch typechecks only with #744.
+  - Code:
+    - `src/http/rate-limit.ts`: classes auth / cart / checkout; Lua bucket on Redis TIME; fail-open with one warning.
+    - Client: CORE_CLIENT_IP_HEADER, hops from the right, IPv6 /64, sha256 hash.
+    - Mounted in mountCoreMiddleware after storeContextMiddleware, via the `rateLimit` option; createServer passes the Redis store from the environment.
+    - `ioredis` **5.11.1**, not 6.0.0: 6.0.0 would have moved Medusa's framework peer from 5.11.1 to 6.
+  - Pool:
+    - `sameTransaction` in lib/db; storeSummary runs in one transaction.
+    - `src/lib/store-key-cache.ts`: positive only, 10 s, invalidated after commit in updateStore / revokeApiKey.
+    - The bootstrap verifier resolves `fresh` (that was the full suite's one failure).
+  - Tests: rate-limit.test.ts (8), rate-limit.redis.test.ts (3; skips with a reason without Redis), store-key-cache.test.ts (6; GET /store = 1 connection warm, 2 cold), rate-limit-http.test.ts (3). Mutants: Promise.all, no revoke invalidation, no update invalidation — each fails.
+  - Full suite: 1680 passed, 1 failed (bootstrap, now fixed and re-run 18/18).
+  - Next: the machine, for the pool ramp before (detached origin/main) and after, plus the burst during the k6 target run.
 - **#729 P6.1 core OpenTelemetry (plan D3): BUILT, PROVEN 2026-11-06, pushed for the manager's `integration/phase6-otel`.** Branch `core/phase6-otel` from origin/main `7886ec53`. No PR from this branch: the manager opens it from the integration branch, with a Fable review.
   - Commits:
     - `92bad20d` core telemetry.

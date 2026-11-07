@@ -31,6 +31,7 @@ import {
 } from '../modules/catalog';
 import { storeSecretFor } from '../modules/payments';
 import { getStore, listCurrencies, listLocales, listSalesChannels } from '../modules/registry';
+import { sameTransaction } from '../lib/db';
 import { AppError, notFound, validationError } from '../lib/errors';
 import {
   CUSTOMER_STORE_PATHS,
@@ -74,12 +75,17 @@ export function paymentMethodsOf(
 
 /** `GET /store` — the store resolved from the publishable key. */
 export async function storeSummary(t: StoreContext): Promise<StoreSummary> {
-  const [store, currencies, locales, channels] = await Promise.all([
-    getStore(t.client, t.storeId),
-    listCurrencies(t.client, t.storeId),
-    listLocales(t.client, t.storeId),
-    listSalesChannels(t.client, t.storeId),
-  ]);
+  // ONE transaction, one pooled connection (#742, the pool knee): these four reads used to run in parallel, each
+  // on its own connection, so every GET /store held four at once.
+  const [store, currencies, locales, channels] = await t.client.transaction(async (tx) => {
+    const c = sameTransaction(t.client, tx);
+    return [
+      await getStore(c, t.storeId),
+      await listCurrencies(c, t.storeId),
+      await listLocales(c, t.storeId),
+      await listSalesChannels(c, t.storeId),
+    ] as const;
+  });
   const channel =
     channels.find((c) => c.id === t.salesChannelId) ??
     channels.find((c) => c.is_active && c.type === 'web') ??

@@ -2,6 +2,18 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-11-07 · Store API rate limits and the pool knee (#742, plan D4)
+
+- `src/http/rate-limit.ts`: a Redis token bucket per (class, store, client) on the 9 operations store-api 0.5.10
+  gives a 429 (CONTRACT CHANGE #744): `auth` = registerCustomer + recoverCart (10 burst, 20/min), `cart` = the 6
+  cart writes (60, 300/min), `checkout` = completeCart (10, 60/min); env `CORE_RATE_LIMIT_<CLASS>`, `CORE_RATE_LIMIT=off`,
+  `CORE_CLIENT_IP_HEADER` / `CORE_CLIENT_IP_HOPS`. 429 `rate_limited` + `Retry-After`. Fail-open on a Redis outage
+  (one warning). Mounted after the tenant, before the routes. `ioredis` 5.11.1 (the version Medusa already resolves).
+- `GET /store`: the four summary reads in one transaction (`sameTransaction`, `src/lib/db.ts`), and the publishable-key
+  resolve is cached in-process for `CORE_STORE_KEY_CACHE_MS` (10 s; positive only; dropped on revoke / store update
+  in this process): one pooled connection per request with a warm cache, where it was five (four at once).
+- `scripts/rate-limit-burst.mjs`: the burst for the proof (one client on every limited path).
+
 ### 2026-11-06 · OpenTelemetry: traces and RED metrics per route and store (#729, plan D3)
 
 - **#740 review (privacy):** `requestIdOf` (`src/http/request-id.ts`) keeps a client `X-Request-Id` only when it

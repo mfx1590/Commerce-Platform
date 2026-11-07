@@ -13,6 +13,7 @@ import {
   notFound,
   validationError,
 } from '../../lib/errors';
+import { storeKeyCache } from '../../lib/store-key-cache';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
 import { storeReadiness } from './readiness';
 import { validateStoreSettings } from './settings-schema';
@@ -364,6 +365,20 @@ export async function updateStore(
   patch: StoreInput,
   actor: Actor = SYSTEM_ACTOR,
   opts: { registrar?: StoreRegistrar } = {},
+): Promise<Store> {
+  const store = await updateStoreInTx(client, id, patch, actor, opts);
+  // #742: this process stops serving the store's keys from the resolve cache at once (status, currency); other
+  // processes within CORE_STORE_KEY_CACHE_MS. After the commit, so no request re-caches the old row meanwhile.
+  storeKeyCache.invalidateStore(id);
+  return store;
+}
+
+async function updateStoreInTx(
+  client: ScopedClient,
+  id: string,
+  patch: StoreInput,
+  actor: Actor,
+  opts: { registrar?: StoreRegistrar },
 ): Promise<Store> {
   validateStoreInput(patch, 'update');
   const organizationId = organizationOf(client);
@@ -930,6 +945,18 @@ export async function revokeApiKey(
   storeId: string,
   keyId: string,
   actor: Actor = SYSTEM_ACTOR,
+): Promise<ApiKey> {
+  const key = await revokeApiKeyInTx(client, storeId, keyId, actor);
+  // #742: a revoked key stops resolving in THIS process at once (other processes: CORE_STORE_KEY_CACHE_MS at most).
+  storeKeyCache.invalidateKey(keyId);
+  return key;
+}
+
+async function revokeApiKeyInTx(
+  client: ScopedClient,
+  storeId: string,
+  keyId: string,
+  actor: Actor,
 ): Promise<ApiKey> {
   const organizationId = organizationOf(client);
   return client.transaction(async (tx) => {
