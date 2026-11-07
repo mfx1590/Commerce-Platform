@@ -13,16 +13,6 @@
       "expires": "2026-11-20"
     },
     {
-      "id": "GHSA-jqcg-44mw-7w3h",
-      "package": "proxy-addr",
-      "severity": "critical",
-      "versions": ["2.0.7"],
-      "apps": ["apps/core"],
-      "owner": "window 1 (core)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
-      "expires": "2026-11-20"
-    },
-    {
       "id": "GHSA-7mx3-vvmw-hjmv",
       "package": "@graphql-tools/utils",
       "severity": "high",
@@ -37,16 +27,6 @@
       "package": "@graphql-tools/utils",
       "severity": "high",
       "versions": ["10.11.0", "12.0.0"],
-      "apps": ["apps/core"],
-      "owner": "window 1 (core)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
-      "expires": "2026-12-06"
-    },
-    {
-      "id": "GHSA-m9gg-hp2v-232j",
-      "package": "@grpc/grpc-js",
-      "severity": "high",
-      "versions": ["1.14.4"],
       "apps": ["apps/core"],
       "owner": "window 1 (core)",
       "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
@@ -123,90 +103,10 @@
       "expires": "2026-12-06"
     },
     {
-      "id": "GHSA-27r3-jxmh-p828",
-      "package": "body-parser",
-      "severity": "high",
-      "versions": ["1.20.6"],
-      "apps": ["apps/core"],
-      "owner": "window 1 (core)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
-      "expires": "2026-12-06"
-    },
-    {
-      "id": "GHSA-qhr7-859c-m2p7",
-      "package": "brace-expansion",
-      "severity": "high",
-      "versions": ["5.0.9"],
-      "apps": ["apps/core"],
-      "owner": "window 1 (core)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
-      "expires": "2026-12-06"
-    },
-    {
-      "id": "GHSA-6j4f-fj2g-mc7p",
-      "package": "brace-expansion",
-      "severity": "high",
-      "versions": ["5.0.9"],
-      "apps": ["apps/core"],
-      "owner": "window 1 (core)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
-      "expires": "2026-12-06"
-    },
-    {
-      "id": "GHSA-vc2v-76pw-4v95",
-      "package": "compression",
-      "severity": "high",
-      "versions": ["1.8.1"],
-      "apps": ["apps/core"],
-      "owner": "window 1 (core)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
-      "expires": "2026-12-06"
-    },
-    {
-      "id": "GHSA-q3jh-wrc6-jgq8",
-      "package": "follow-redirects",
-      "severity": "high",
-      "versions": ["1.16.0"],
-      "apps": ["apps/core"],
-      "owner": "window 1 (core)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
-      "expires": "2026-12-06"
-    },
-    {
-      "id": "GHSA-8r9p-f939-6h3c",
-      "package": "follow-redirects",
-      "severity": "high",
-      "versions": ["1.16.0"],
-      "apps": ["apps/core"],
-      "owner": "window 1 (core)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
-      "expires": "2026-12-06"
-    },
-    {
-      "id": "GHSA-mrwp-f3q8-3g9p",
-      "package": "follow-redirects",
-      "severity": "high",
-      "versions": ["1.16.0"],
-      "apps": ["apps/core"],
-      "owner": "window 1 (core)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
-      "expires": "2026-12-06"
-    },
-    {
       "id": "GHSA-r5fr-rjxr-66jc",
       "package": "lodash",
       "severity": "high",
       "versions": ["4.17.21"],
-      "apps": ["apps/core"],
-      "owner": "window 1 (core)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
-      "expires": "2026-12-06"
-    },
-    {
-      "id": "GHSA-q7qp-rjg7-q26m",
-      "package": "multer",
-      "severity": "high",
-      "versions": ["2.3.0"],
       "apps": ["apps/core"],
       "owner": "window 1 (core)",
       "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
@@ -259,16 +159,6 @@
       "versions": ["1.2.1"],
       "apps": ["apps/admin"],
       "owner": "window 4 (admin)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
-      "expires": "2026-12-06"
-    },
-    {
-      "id": "GHSA-587h-7wmj-h5pm",
-      "package": "vite",
-      "severity": "high",
-      "versions": ["7.3.6"],
-      "apps": ["apps/core"],
-      "owner": "window 1 (core)",
       "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
       "expires": "2026-12-06"
     },
