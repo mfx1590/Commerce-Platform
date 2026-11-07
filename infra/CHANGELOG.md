@@ -4,6 +4,19 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 6
 
+### Added (#741, P6.3 — backup + restore drill; #735)
+
+- `infra/dr/drill.mjs` + `docker-compose.drill.yml`: back up Postgres, ClickHouse, Keycloak and OpenFGA from the shared
+  dev stack; restore into a fresh `commerce-dr` stack; check counts, per-store counts, checksums, per-topic events, a
+  staff login and a permission check; RTO/RPO; teardown always. `infra/dr/RUNBOOK.md` has the numbers. Self-test
+  in the `changes` job.
+- Grafana: a "Core per route" row (#735): rate per route and store, the 5xx share per route (0, not "no data", before
+  the first 5xx), p95 per route, responses by status class.
+
+### Changed
+
+- `infra/load/README.md` no longer says the core has no OpenTelemetry (#729).
+
 ### Added (#730, P6.2 — dependency scanning and SLOs as rules)
 
 - CI job `dependency audit (production)` (advisory, every PR): `pnpm audit --prod` + `infra/ci/audit-gate.mjs`, failing

@@ -51,5 +51,8 @@ the k6 image. `run.sh` never starts, stops or touches the stack's containers. Ho
   the machine. The GitHub-runner run is a second datapoint, not production either.
 - **On Windows, a few connections from k6's container never open** (`dial: i/o timeout`, status 0) — Docker
   Desktop's host forwarding, not the core. The report counts them apart from what the core answered.
-- **No OpenTelemetry yet**: the core exports nothing, so pool waiting inside the core is inferred (Postgres
-  cannot see a request queued for a connection). The report lists what Grafana would need.
+- **The core's own metrics (#729) cover requests, not the pool.** With the observability profile up, Grafana's
+  "Core per route" row shows the rate, the 5xx share and p95 per route and store during a run (the core's
+  `http_server_request_duration_seconds` histogram and `core_http_requests_total` / `core_http_errors_total`). Waiting for
+  a pool connection is still inferred, since Postgres cannot see a request queued for a connection. The 2026-10-06
+  report predates #729.
