@@ -6,10 +6,11 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ### Changed (Dependabot regrouped after the red groups #743, #747, #755)
 
-- The npm groups exclude the storefront starter manifest's 19 packages and `@medusajs/*` (brand-a's sync-merge test:
-  Dependabot edits the brands' `package.json` but not their manifest). `@medusajs/*` >= 2.22 is ignored (it needs Node
-  22: execa 10). `docker/bake-action` majors are ignored (v6+ builds from the Git context; `workdir` stops
-  applying).
+- `@medusajs/*` moves as its own `medusa` group (minor/patch), outside production/development; `@medusajs/*` >= 2.22
+  is ignored (it needs Node 22: execa 10). The storefront starter manifest's 19 packages are ignored in every update
+  type: Dependabot edits the brands' `package.json` but never their manifest, so brand-a's sync-merge test makes
+  every such PR red. They move through the starter sync instead (#758), and the audit gate still covers them.
+  `docker/bake-action` majors are ignored (v6+ builds from the Git context; `workdir` stops applying).
 
 ### Changed (relay SLO is live; Dependabot ignores)
 

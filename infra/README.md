@@ -372,10 +372,11 @@ bumps (npm production, npm development, GitHub Actions, the apps' Dockerfile bas
 own PR for the owning window to review. A few majors are ignored, each with its reason in the file:
 `@types/node` and the `node` base image (they move with the Node 20 runtime, once, everywhere), and `@medusajs/*`,
 `@opentelemetry/*`, `express` and `@types/express` (they run inside Medusa's process and move with Medusa).
-Kept out of the groups, each as its own PR: the storefront starter manifest's packages (a brand's `package.json`
-must be re-synced from the starter, which Dependabot cannot do) and `@medusajs/*`. Medusa 2.22+ is ignored until
-the Node 22 move, and so is `docker/bake-action` 6+ until the workflows set `source: .`. The file names the failure
-behind each.
+`@medusajs/*` is its own `medusa` group (its packages must move together), and Medusa 2.22+ is ignored until the
+Node 22 move. The storefront starter manifest's 19 packages are ignored outright: a brand's `package.json` must be
+re-synced from the starter, which Dependabot cannot do (#758 asks for that path). The production audit gate still
+catches an advisory on any of them. `docker/bake-action` 6+ is ignored until the workflows set `source: .`. The
+file names the failure behind each.
 
 ## Helm
 

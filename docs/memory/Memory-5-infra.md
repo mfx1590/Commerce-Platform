@@ -2,7 +2,7 @@
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
 Last updated: 2026-11-09 · Contracts: `contracts-v0.1` · Branch: `infra/phase6-relay-slo` · Worktree: `../wt-infra` · Manager: **Manager session eleven** (repo-root manager; chain in Memory-main's first bullet)
-Status: **#756 (relay SLO) green, waiting for review.** Then the Dependabot regroup PR (manager addendum 2026-11-09), stacked on #756 (branch infra/phase6-dependabot-groups, PR base = infra/phase6-relay-slo).
+Status: **#756 MERGED (f545f649).** #757 (the Dependabot regroup, base main) has its review fix pushed; waiting for the manager's re-check. REQUEST #758 filed for window 10.
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -124,6 +124,12 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
     turbo stops at the first failure, so other breakages may be masked; the regrouped PRs' CI is the real test.
   The config excludes the 19 starter-manifest packages + @medusajs/* from both npm groups, ignores
   @medusajs/* >= 2.22.0, and ignores bake-action majors. NO YAML anchors (GitHub's parser may not take them).
+  REVIEW (manager + Opus, #756 merged f545f649, #757 retargeted to main): (1) a `medusa` group (patterns
+  @medusajs/*, minor/patch) so cli/framework/medusa/draft-order move together, and the >=2.22.0 ignore stays;
+  (2) the 19 starter packages are IGNORED in every update type, since excluded single PRs are red by construction
+  and would starve the open-PR limit. That freezes typescript/vitest/yaml/react/@types/node workspace-wide until
+  REQUEST #758 (window 10: starter → sync-from-starter → brands' manifests) lands. The audit gate still covers
+  them.
 - **Relay SLO live + `SLOAbsent_outbox_relay_lag` + Dependabot ignores (2026-11-09).** SLO.md uses window 14's
   wording for #733's gauge; the core rows are marked live (#729 merged). The alert is `absent()` with `for: 5m`, on
   top of the collector's prometheus exporter `metric_expiration` (default 5m), so it pages ~10 min after the relay
