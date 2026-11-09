@@ -31,7 +31,7 @@
     "clean": "rm -rf dist .turbo"
   },
   "dependencies": {
-    "pg": "^8.16.0"
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@types/node": "^20.19.0",
