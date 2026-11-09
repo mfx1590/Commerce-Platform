@@ -17,6 +17,38 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
 - Solo operator on Claude Max 5x: ONE build window active at a time, Reviewer session for merges, strongest model only for main window + events/accounting
 
 ## Current status
+- **2026-11-09 ~15:00 local: HANDOVER TO MANAGER SESSION TWELVE (session eleven at ~84% context). READ THIS FIRST; it supersedes the bullets below where they differ.** Phase 6 (plan `docs/plan/phase6-plan.md`, tracking **#731**), waves 1-2 merged.
+  - **Owner orders (still in force):**
+    - the manager decides: models for windows, backup-first dev writes, scope;
+    - still the owner's: opening sessions, money, keys/accounts, legal, destructive data;
+    - stop at 80% of the 5h limit; at 85% weekly hand out nothing new;
+    - AI features ON by default;
+    - every message to a window is a billed turn.
+  - **Merged since the 11-07 bullet:** #756 f545f649 (the relay SLO + absent() alert + Dependabot major ignores), #757 4c4983b9 (the Dependabot regroup: a medusa group; the 19 starter-manifest packages IGNORED until REQUEST #758; Medusa >=2.22 ignored until Node 22; bake-action majors ignored). Closed the Dependabot majors #748/#749/#750 with reasons.
+  - **IN FLIGHT at handover:**
+    - **Window 4** `local_ba04edc7-bf7c-44ae-b99c-d04db21bcf7c` (Opus 5.5, opened 11-09): admin security on admin/phase6-security.
+      - Commit 1: next ^15.5.28 (fixes the CRITICAL GHSA-2464 + p3m5) and zod ^4.6.6; it deletes the next/sharp allow-list entries and admin's zod 4.5.4.
+      - Commit 2: CSP + headers via src/lib/csp.ts.
+      - Needs THE MACHINE after window 10, for the admin e2e + bundle. FABLE review.
+      - The CRITICAL's allow-list entry expires **2026-11-20**. IMPORTANT: the same next GHSA-2464 / p3m5 / sharp advisories are ALSO present via apps/storefront-starter (next 15.5.25), and so in the 3 brands via the sync. The gate matches by advisory id, so the entry stays until ALL copies are bumped.
+      - **Window 3** (`local_b1b6ea6c-…`) was given the starter's next ^15.5.28 on 11-09 (branch storefront/phase6-next-15528, Opus review). Then **window 10** re-syncs the brands. Only after all three: the manager (or window 5) removes the next/sharp entries from infra/security/audit-allowlist.json (window 5's file; window 4 correctly refused to edit it).
+    - **Window 10** `local_4f212ed4-…` (Opus 5): #739 brand A LCP. Cause: two self-hosted woff2 faces (90.6 kB = 453 ms simulated; the LCP is text). DECIDED: reproducible subsetting from the committed OFL files (a pinned dev-only subsetter, e.g. subset-font; Newsreader wght 500; per-locale glyphs; a check that the output equals a fresh build); keep the pairing. HOLDS THE MACHINE (a bounding experiment, then the build). Opus review; it stops and asks if the ceiling cannot clear the worst run.
+    - **#737** (manager's): an AGENT of session eleven is building it in ../wt-contracts on branch `integration/phase6-737` (outbox_lag() on managed Postgres + the #736 nits: the 0190 comment and a SAVEPOINT error-path test). If session eleven is gone before it reports, check that branch: if committed, push it, open the PR "Closes #737" and get a FABLE review (RLS); if not, redo it from the issue.
+  - **Next, after those:**
+    1. The manager's root overrides PR for postcss (next pins 8.4.31 exactly) + source-map-js; prove it with the admin build/e2e; remove their allow-list entries (expire 12-06).
+    2. docs/security (threat model, PCI SAQ-A scope, SOC2-lite controls map; plan D4).
+    3. The cost model + cloud target with the owner (D7; money: ask).
+    4. D6: `live auth + end-to-end` required once there are 10 green main runs (the owner's repo setting).
+    5. #758 (window 10: the dependency path for the starter-synced packages; until then those 19 get no Dependabot bumps).
+    6. The Node 22 move (Medusa 2.22+), bake-action v7 (window 5).
+    7. Wave 3: brand D onboarding, timed (10 + 4 + 5), and a scheduled k6 regression.
+    8. Remaining audit baseline: axios via @openfga/sdk (window 2), @graphql-tools/utils 10, lodash, zod (Medusa-internal).
+  - **Sessions:**
+    - window 1 `local_36325de4-…` (Opus), window 3 `local_b1b6ea6c-b7eb-4582-89dc-70e5b2508595` (Opus), window 4 (above), window 5 `local_57a087f5-afda-4432-8ce0-9893833402f3` (Opus 5.5), window 10 (above), window 12 `local_90c118d5-…` (Opus), window 14 `local_47d82451-…` (Opus 5.5), window 15 `local_b03fe526-…` (Opus 5.5), window 16 `local_f0321a20-…` (Opus), window 17 `local_24e0c77f-47bf-45a3-a189-acb715458c0b` (FABLE: message only when needed).
+    - The old window-4 session `local_7caabd48-…` is retired (told to stay idle).
+    - `get_session` shows any session's model.
+  - **Parked owner idea (do NOT start before the app is complete):** Higgsfield ad content + a platform MCP server, "Claude prepares, the owner approves" (#611; auto-memory owner-idea-higgsfield-and-platform-mcp).
+  - **Shared stack:** the observability profile is UP (Grafana 3400, Prometheus 9090, collector 4318, Tempo 3420). ../wt-contracts holds a copied .env (gitignored).
 - **2026-11-07: END OF DAY, manager session eleven (repo root, ~76% context; continue tomorrow in this session or a fresh one from this bullet). READ THIS FIRST; it supersedes the bullets below where they differ.** Nothing is in flight: no loop, no queue, every window idle.
   - **Merged in Phase 6 so far:**
     - wave 1: #736 (#497), #738 (#728), #732 (#620), #740 (#729 OTel), #734 (#730 audit gate + SLO rules + Dependabot);
@@ -35,7 +67,9 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
     - window 10 → #739;
     - manager → #737 via an agent on integration/phase6-737 (../wt-contracts), with Fable review.
     - Closed the Dependabot majors #748 (sdk-trace 3), #749 (@types/node 26) and #750 (react-table 9), with reasons.
-    - Window 4's fresh session is STILL NOT opened (the next CRITICAL expires 11-20).
+    - Window 4's fresh session was OPENED by the owner 11-09: `local_ba04edc7-bf7c-44ae-b99c-d04db21bcf7c` ("Window 4 Admin security: dependencies and headers", Opus 5.5; the start message from chat 11-09; Fable review).
+    - #756 MERGED f545f649 (the relay SLO + absent() alert + Dependabot major ignores). #757 (the Dependabot regroup) is retargeted to main; window 5 is adding a medusa group and ignoring the 19 starter-manifest packages, plus a REQUEST to window 10. #739 decision: reproducible font subsetting from the committed OFL files (Newsreader wght 500 + per-locale subset), keep the pairing; window 10 holds the machine.
+    - New follow-ups on #731: the Node 22 move (Medusa 2.22+ needs it), bake-action v7, a dependency path for the starter-synced packages.
     - The loop is running.
   - **OWNER IDEA 2026-11-07, PARKED until the app is complete (do not start):**
     - (1) A Higgsfield integration inside the platform to generate product ad content (images and video per product, for ads).
