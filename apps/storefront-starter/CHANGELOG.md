@@ -1,5 +1,10 @@
 # Changelog — @platform/storefront-starter
 
+## 0.15.2 — 2026-11-09 (window 3, #731: next security bump)
+
+- **`next` ^15.5.4 → ^15.5.28** (resolves to 15.5.29). This fixes GHSA-2464-fhr4-w9xw (critical) and GHSA-p3m5-59mp-jv5r (high), which affect next ≤ 15.5.27 and were patched in 15.5.28. next's optional `sharp` now resolves to **0.35.5**, which fixes GHSA-wq5f-xc86-pv6w (high, sharp < 0.35.5); next 15.5.28+ requires `^0.34.3 || ^0.35.5`, so the vulnerable 0.35.4 cannot be selected. No code change: the unit suite, lint and typecheck pass unchanged.
+- Only the starter's importer moves in `pnpm-lock.yaml`. The brands reach this through window 10's next re-sync; until then they still lock next 15.5.25 and sharp 0.35.4, as the admin does until window 4's PR.
+
 ## 0.15.1 — 2026-11-06 (window 3, #620: flaky perf-store-example test)
 
 - **Cause:** `validateStoreExample > refuses a wrong example loudly` parsed the 2 100-line Store API YAML four times and built two Ajv validators inside one test. That work is CPU-bound: about 0.3 s on a quiet laptop, 1.8 s inside the full suite, and past Vitest's 5 s default on a loaded CI runner. No spawn, no network, no import inside the test.
