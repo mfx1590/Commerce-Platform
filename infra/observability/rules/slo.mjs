@@ -119,10 +119,20 @@ export const SLOS = [
     summary: 'Outbox relay: the oldest unpublished row is younger than 10 s in 99% of minutes',
     target: 0.99,
     source:
-      "derived from #612's 10 s end-to-end ingest budget, which includes the relay — METRIC PENDING (window 14 exports the gauge)",
+      "derived from #612's 10 s end-to-end ingest budget, which includes the relay; the gauge is the relay CLI's (#733)",
     // The gauge is sampled per minute; a minute is bad when the oldest unpublished row is 10 s or older.
     error: (w) =>
       `1 - avg_over_time((max(outbox_relay_lag_oldest_seconds{service_name="outbox-relay"}) < bool 10)[${w}:1m])`,
+    // A relay that is DOWN exports nothing, so the error ratio above evaluates to nothing and no burn alert can fire.
+    // This one pages instead. `for: 5m` on top of the collector's 5 min metric_expiration pages ~10 min after the
+    // relay dies: about 2.5% of the 28-day budget (403 min), in line with the 1h page (2%). A restart or deploy
+    // re-exports within one 15 s export interval, so it never pages.
+    absent: {
+      series: 'outbox_relay_lag_oldest_seconds{service_name="outbox-relay"}',
+      for: '5m',
+      summary:
+        'Outbox relay: no lag gauge for 5 minutes, so the relay is down or not exporting (its SLO cannot be measured)',
+    },
   },
 ];
 
@@ -176,9 +186,26 @@ export function generate() {
         "          runbook: 'infra/observability/SLO.md'",
       );
     }
+    if (slo.absent) {
+      L.push(
+        `      - alert: ${absentName(slo)}`,
+        `        expr: absent(${slo.absent.series})`,
+        `        for: ${slo.absent.for}`,
+        '        labels:',
+        '          severity: page',
+        `          slo: ${slo.name}`,
+        '        annotations:',
+        `          summary: ${JSON.stringify(slo.absent.summary)}`,
+        `          target: '${slo.target}'`,
+        `          source: ${JSON.stringify(slo.source)}`,
+        "          runbook: 'infra/observability/SLO.md'",
+      );
+    }
   }
   return `${L.join('\n')}\n`;
 }
+
+const absentName = (slo) => `SLOAbsent_${slo.name.replace(/-/g, '_')}`;
 
 /**
  * Synthetic input series per SLO: `bad` is the share of bad events (or, for the relay, whether every minute is
@@ -305,6 +332,8 @@ export function generateTests() {
           alertname: alertName(slo, 'ticket'),
           exp_alerts: [expAlert(slo, 'ticket')],
         },
+        // a burning relay is still a running one: the series is there, so "down" must not fire
+        ...(slo.absent ? [{ eval_time: '90m', alertname: absentName(slo), exp_alerts: [] }] : []),
       ],
     });
     tests.push({
@@ -314,6 +343,7 @@ export function generateTests() {
       alert_rule_test: [
         { eval_time: '90m', alertname: alertName(slo, 'page'), exp_alerts: [] },
         { eval_time: '90m', alertname: alertName(slo, 'ticket'), exp_alerts: [] },
+        ...(slo.absent ? [{ eval_time: '90m', alertname: absentName(slo), exp_alerts: [] }] : []),
       ],
       promql_expr_test: [
         {
@@ -323,6 +353,34 @@ export function generateTests() {
         },
       ],
     });
+    if (slo.absent) {
+      // Up for 10 minutes, then gone. The series goes stale 5 min after its last sample (Prometheus' lookback; in
+      // the stack, the collector's metric_expiration comes first), so it is absent from ~15m and fires from ~20m.
+      tests.push({
+        name: `${slo.name}: a relay that goes DOWN pages; a running one does not`,
+        interval: '1m',
+        input_series: [{ series: slo.absent.series, values: '1x10' }],
+        alert_rule_test: [
+          { eval_time: '12m', alertname: absentName(slo), exp_alerts: [] },
+          {
+            eval_time: '30m',
+            alertname: absentName(slo),
+            exp_alerts: [
+              {
+                // absent() keeps the selector's equality matchers as labels
+                exp_labels: { severity: 'page', slo: slo.name, service_name: 'outbox-relay' },
+                exp_annotations: {
+                  summary: slo.absent.summary,
+                  target: String(slo.target),
+                  source: slo.source,
+                  runbook: 'infra/observability/SLO.md',
+                },
+              },
+            ],
+          },
+        ],
+      });
+    }
   }
   // A JSON document is valid YAML, and promtool reads it as such; no YAML library is needed.
   const doc = {
