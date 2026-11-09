@@ -42,7 +42,7 @@ jobs:
       APPS: core admin storefront-starter
     steps:
       # main, as a branch and not a detached sha: this workflow commits to it.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
@@ -91,7 +91,7 @@ jobs:
         id: sha
         run: echo "value=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         if: steps.gate.outputs.configured == 'true'
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
@@ -101,7 +101,7 @@ jobs:
         if: steps.gate.outputs.configured == 'true'
         id: ecr
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
         if: steps.gate.outputs.configured == 'true'
 
       # The same bake definition CI builds with, so a staging image is built exactly the way the
