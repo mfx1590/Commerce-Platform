@@ -37,7 +37,7 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
       - #739: the subsetting MEASURED short of the 2500 worst run (the no-font ceiling is 2163/2233 ms; fonts 90.6 → 40.4 kB; worst run −135/−170 ms). Window 10 lands the subsetting as "Refs #739"; the remainder is **#762** (starter h1 render delay ~1.4 s), for window 3 after its #760.
       - Window 3's next ^15.5.28 bump = **draft PR #760** (CI only runs on PRs; it syncs the README bundle table from the CI leg, then marks ready).
       - Window 4 holds THE MACHINE now (build + e2e + bundle) and keeps the allow-list unedited (correct).
-      - #737 is up as **PR #761** (0208: the narrow owner role platform_outbox_lag; platform_app loses EXECUTE); Fable review running.
+      - #737 is up as **PR #761** (0208: the narrow owner role platform_outbox_lag; platform_app loses EXECUTE). **The Fable verdict FINDINGS → MERGE is POSTED on the PR**; session twelve: QUEUE IT (`bash scripts/merge-queue.sh "761 integration/phase6-737"`), then apply 0208 to the dev DB with a backup first.
     - **#737** (manager's): an AGENT of session eleven is building it in ../wt-contracts on branch `integration/phase6-737` (outbox_lag() on managed Postgres + the #736 nits: the 0190 comment and a SAVEPOINT error-path test). If session eleven is gone before it reports, check that branch: if committed, push it, open the PR "Closes #737" and get a FABLE review (RLS); if not, redo it from the issue.
   - **Next, after those:**
     1. The manager's root overrides PR for postcss (next pins 8.4.31 exactly) + source-map-js; prove it with the admin build/e2e; remove their allow-list entries (expire 12-06).
