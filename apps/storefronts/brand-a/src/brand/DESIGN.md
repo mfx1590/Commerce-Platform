@@ -127,6 +127,12 @@ that says so, not a grey dot.
   check. Measured after the first download, not assumed. The optical grading is the better
   typography and the budget is the stronger claim, so the budget won.
 
+  **#739 walked one step further down the same ladder: the weight axis is gone too.** The rule below
+  sets `h1-h4` at medium and nothing else uses the serif, so a 400-700 axis was paying for six
+  weights to render one. The shipped face is now **pinned to wght 500**: 56.7 kB to **20.9 kB**. The
+  400-700 source is still committed under `fonts/source/` and the pin happens at build time —
+  `fonts/README.md` has the provenance and the reasoning. Nothing about the pairing changed.
+
 - **Hanken Grotesk** is a humanist grotesque that is quiet at 14–16px and has the figure set a price
   and a size chart need. It carries body copy, navigation, labels, and every control.
 
@@ -134,8 +140,11 @@ The pairing is a serif voice over a neutral ground, which is the broadsheet rela
 deliberately **not** Inter, and deliberately not the wonky-serif-plus-geometric combination that has
 become the indie D2C default.
 
-**Self-hosted, never fetched at runtime.** The `woff2` files are committed under `src/brand/fonts/`
-and loaded with `next/font/local`, following the precedent set by `apps/admin/src/app/fonts.ts`.
+**Self-hosted, never fetched at runtime, and GENERATED since #739.** The `woff2` files under
+`src/brand/fonts/` are built from the OFL variable sources under `src/brand/fonts/source/` by
+`scripts/build-fonts.mjs`, and loaded with `next/font/local`, following the precedent set by
+`apps/admin/src/app/fonts.ts`. `test/brand-fonts.test.ts` rebuilds them and compares hashes, so a
+hand-edited binary cannot pass review.
 Three reasons: the build stays hermetic (CI and the image build never need the network), there is no
 request to `fonts.gstatic.com` on a customer's first paint, and no third party learns who is reading
 the page. Latin subsets only — brand A sells in `en-GB` and `de-DE`, both of which the Latin subset
@@ -216,7 +225,9 @@ stays a reviewable diff (the 2.1 decision, ADR 0004).
 | File                          | Carries                                                        |
 | ----------------------------- | -------------------------------------------------------------- |
 | `src/brand/fonts.ts`          | The two `next/font/local` faces and their fallbacks.           |
-| `src/brand/fonts/*.woff2`     | The font binaries and their OFL licence texts.                 |
+| `src/brand/fonts/*.woff2`     | The **generated** faces — see `fonts/README.md`.               |
+| `src/brand/fonts/source/**`   | The OFL variable sources and their licence texts.              |
+| `scripts/build-fonts.mjs`     | Builds the faces from those sources; `--check` guards them.    |
 | `src/brand/tokens.ts`         | Colour, font family, line height, radius and shadow overrides. |
 | `src/brand/config.ts`         | Name, description and canonical origin for metadata (#254).    |
 | `src/app/icon.svg`            | Favicon — Ink on Paper, square, no webfont dependency.         |
@@ -250,6 +261,19 @@ file describes how brand A looks, not what it sells.
   published number and the implementation cannot drift apart silently.
 - `:focus-visible` keeps the starter's 2px ring, re-coloured to Ink so it is visible on Paper.
 - `font-display: swap` on both faces, with a metric-compatible fallback so the swap does not reflow.
+  **Kept at `swap` on purpose after #739**, where `optional` was considered and rejected: the LCP
+  cost was font BYTES contending for simulated bandwidth, not the swap repaint (the LCP element's
+  phase table reads Load Delay 0%, Load Time 0%), so `optional` would have removed no bytes — and it
+  would have broken `e2e/visual.spec.ts`, which deliberately awaits `document.fonts.ready` because
+  the faces are the point of the theme.
+- **The faces cost 40.4 kB, down from 90.6 kB (#739).** Brand A's LCP was passing its 2500 ms budget
+  only on the best of five runs — three of five were 2711-2719 ms in CI. The faces were the **only**
+  thing brand A loaded that brands B and C did not, and `90.6 kB x 8 / 1600 kbps` = 453 ms against an
+  observed render-delay difference of 444 ms. Subsetting and instancing took the worst run from 2674
+  to **2539 ms** (PLP) and 2752 to **2582 ms** (PDP); with the faces removed entirely it is
+  2163 / 2233, so brand A sits within ~300 ms of its budget before it loads a single brand byte. The
+  remainder is the shared `h1` render delay (~1.4 s in CI for every brand) and is tracked
+  starter-side. **The budget was not widened** — #348's rule.
 - **No `<link rel="preload">` is emitted for either face, and that is a deliberate accepted cost.**
   `next/font` emits a preload only when a font's `className` or `variable` is rendered onto an
   element. Wiring through `tokens.ts` (§5) means neither is — the family reaches the page as a

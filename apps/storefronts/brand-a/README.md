@@ -191,6 +191,18 @@ in the catalogue, chosen by property at runtime, so no single product is drained
 iteration is tens of units; the shared seed is topped up to at least 25 available per variant
 (`packages/db` top-up-stock, the manager's).
 
+## Fonts (generated)
+
+`src/brand/fonts/*.woff2` are **generated** from the OFL variable sources in
+`src/brand/fonts/source/` by `node scripts/build-fonts.mjs` — **40.4 kB shipped against 90.6 kB of
+sources** (#739). Newsreader is pinned to the one weight `theme.css` uses; Hanken Grotesk's axis is
+trimmed to the 400–700 the kit actually renders; both are subset to a charset derived from brand A's
+catalogues plus whatever `Intl` emits for its locales and currency.
+
+Do not edit a binary — `test/brand-fonts.test.ts` rebuilds both faces and compares hashes, so a
+hand-placed file fails review. `src/brand/fonts/README.md` carries the provenance, the licences and
+why each trade was made.
+
 ## Performance budget (#348)
 
 `lighthouserc.json` collects **5 runs per URL**, not 3, and asserts LCP at **2500 ms**. LHCI asserts

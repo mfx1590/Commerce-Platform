@@ -1,5 +1,28 @@
 # Changelog — @platform/storefront-brand-a
 
+## Unreleased — 2026-11-09 · the shipped faces are generated and 55% smaller (#739)
+
+- **`src/brand/fonts/*.woff2` are now GENERATED** by `scripts/build-fonts.mjs` from the OFL variable
+  sources under `src/brand/fonts/source/`. **90.6 kB → 40.4 kB.** Newsreader is pinned to `wght` 500
+  — `theme.css` sets `h1-h4` at medium and nothing else uses the serif — and Hanken Grotesk's axis is
+  trimmed to 400-700, because `packages/ui` defines 400/500/600/700 and nothing anywhere asks for 300. Both are subset to a derived charset. **The pairing is untouched.**
+- `test/brand-fonts.test.ts` rebuilds both faces and compares hashes, so a hand-edited or stale
+  binary fails review. `fonts/README.md` records the source hashes, `subset-font@2.9.0` and the OFL.
+- **The charset is derived, and the derivation caught two things a list would have missed:** the
+  scan of brand A's catalogues found **U+201E**, the low-9 quote `de-DE` opens quotations with; and
+  asking `Intl` what brand A's own locales and seeded currency emit found **U+20AC**, which appears
+  in no committed string because prices are formatted at runtime — subsetting on the catalogues
+  alone would have put a tofu box on every price. Printable Latin-1 is kept as the floor for the
+  product names that arrive from the Store API.
+- **Why this is not the whole fix.** The worst run went 2674 → 2539 ms (PLP) and 2752 → 2582 ms
+  (PDP) against a 2500 ms budget, so it is still over on the worst run while passing the gate's
+  best-of-five. With the faces removed entirely the worst run is 2163 / 2233, so brand A is within
+  ~300 ms of budget before it loads a single brand byte; the remainder is the shared `h1` render
+  delay (~1.4 s in CI for every brand) and is tracked starter-side. The budget was **not** widened.
+- `display: 'swap'` is kept deliberately: the cost was font bytes contending for simulated
+  bandwidth, not the swap repaint, so `optional` would have removed no bytes and would have broken
+  `e2e/visual.spec.ts`, which awaits `document.fonts.ready` on purpose.
+
 ## Unreleased — 2026-10-08 · re-sync at main 2e35674: brand A takes the hero rendering (#330)
 
 - **Re-sync**: 209 copied, 1 merged, 10 preserved, 4 excluded (from 224 tracked starter files).
