@@ -4,6 +4,16 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 6
 
+### Changed (relay SLO is live; Dependabot ignores)
+
+- `infra/observability/SLO.md`: the relay-lag SLI reads the real gauge (#733, #751), in window 14's wording; the core's
+  SLIs are marked live (#729). No "metric pending" is left in the rules.
+- New alert `SLOAbsent_outbox_relay_lag` (page): `absent()` of the relay's gauge `for: 5m`. A down relay exports nothing,
+  so no burn alert can fire. The promtool cases: the gauge stops after 10 minutes (silent at 12m, firing at 30m), and
+  the alert is silent wherever the gauge is present.
+- `.github/dependabot.yml`: majors are ignored for `@types/node` and the `node` image (they move with the runtime), and
+  for `@medusajs/*`, `@opentelemetry/*`, `express` and `@types/express` (they move with Medusa).
+
 ### Added (#741, P6.3 — backup + restore drill; #735)
 
 - `infra/dr/drill.mjs` + `docker-compose.drill.yml`: back up Postgres, ClickHouse, Keycloak and OpenFGA from the shared
