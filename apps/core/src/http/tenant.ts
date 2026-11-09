@@ -8,6 +8,7 @@ import type { Actor } from '../lib/audit';
 import { SEED_IDS } from '@platform/db';
 import { organizationClient, tenantClient } from '../lib/db';
 import { AppError } from '../lib/errors';
+import { storeKeyCache, type CachedKeyRow } from '../lib/store-key-cache';
 import { CONTRACT_PUBLISHABLE_KEY_HEADER } from './publishable-key-alias';
 import { requestIdOf } from './request-id';
 
@@ -50,24 +51,58 @@ interface KeyRow {
   revoked_at: Date | null;
 }
 
-/** Resolves the store context for a plain key, or throws 401. */
-export async function resolveStoreContext(
-  plainKey: string | undefined,
-  requestId: string,
-): Promise<StoreContext> {
-  if (!plainKey || !plainKey.trim())
-    throw unauthorized(`${CONTRACT_PUBLISHABLE_KEY_HEADER} header is required`);
-  const organizationId = coreOrganizationId();
+/**
+ * The key's row: from the positive cache (#742, src/lib/store-key-cache.ts — at most CORE_STORE_KEY_CACHE_MS old,
+ * dropped in this process on a revoke or a store update), else from the database. Only a usable key is cached: an
+ * unknown, revoked or archived one is answered by the database every time.
+ */
+async function loadKeyRow(
+  organizationId: string,
+  keyHash: string,
+  fresh: boolean,
+): Promise<CachedKeyRow> {
+  const cacheKey = `${organizationId}:${keyHash}`;
+  const cached = fresh ? undefined : storeKeyCache.get(cacheKey);
+  if (cached) return cached;
   const hq = organizationClient({ organizationId });
   const r = await hq.query<KeyRow>(
     `SELECT k.id, k.store_id, s.code AS store_code, s.status AS store_status, s.default_currency, k.sales_channel_id, k.type, k.revoked_at
      FROM store_api_key k JOIN store s ON s.id = k.store_id
      WHERE k.key_hash = $1`,
-    [createHash('sha256').update(plainKey.trim()).digest('hex')],
+    [keyHash],
   );
   const row = r.rows[0];
   if (!row || row.revoked_at) throw unauthorized('invalid or revoked publishable key');
   if (row.store_status === 'archived') throw unauthorized('store is archived');
+  const usable: CachedKeyRow = {
+    id: row.id,
+    store_id: row.store_id,
+    store_code: row.store_code,
+    default_currency: row.default_currency,
+    sales_channel_id: row.sales_channel_id,
+    type: row.type,
+  };
+  storeKeyCache.set(cacheKey, usable);
+  return usable;
+}
+
+/**
+ * Resolves the store context for a plain key, or throws 401. `fresh` skips the resolve cache and asks the database
+ * (the bootstrap verifier: readiness is the database's truth, never a cached row).
+ */
+export async function resolveStoreContext(
+  plainKey: string | undefined,
+  requestId: string,
+  opts: { fresh?: boolean } = {},
+): Promise<StoreContext> {
+  if (!plainKey || !plainKey.trim())
+    throw unauthorized(`${CONTRACT_PUBLISHABLE_KEY_HEADER} header is required`);
+  const organizationId = coreOrganizationId();
+  const row = await loadKeyRow(
+    organizationId,
+    createHash('sha256').update(plainKey.trim()).digest('hex'),
+    opts.fresh ?? false,
+  );
   return {
     organizationId,
     storeId: row.store_id,

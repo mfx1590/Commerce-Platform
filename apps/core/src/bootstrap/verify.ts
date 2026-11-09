@@ -154,7 +154,7 @@ export async function verifyBootstrap(): Promise<VerifyResult> {
     ];
     for (const [key, storeId, currency] of expected) {
       try {
-        const ctx = await resolveStoreContext(key, 'bootstrap');
+        const ctx = await resolveStoreContext(key, 'bootstrap', { fresh: true });
         if (ctx.storeId !== storeId) {
           err(
             'seed_keys',

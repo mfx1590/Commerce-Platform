@@ -1,0 +1,85 @@
+# Weekly grouped dependency updates (#730, plan D4). The audit gate (`dependency audit (production)`) says what is
+# vulnerable; this keeps the baseline in infra/security/audit-allowlist.json shrinking. Minor and patch bumps arrive as
+# ONE PR per group per week; a major bump arrives as its own PR, because it needs its owning window's review.
+version: 2
+updates:
+  # The pnpm workspace: one lockfile at the root covers every app and package.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      production:
+        dependency-type: production
+        update-types: [minor, patch]
+      development:
+        dependency-type: development
+        update-types: [minor, patch]
+    # Majors that no PR can take on its own. Minor and patch bumps of these still arrive in the weekly groups.
+    ignore:
+      # The types must describe the Node we run: 20 everywhere (engines ">=20.11", the Dockerfiles' NODE_VERSION
+      # 20.19-alpine, CI's NODE_VERSION 20). @types/node 22 would type APIs Node 20 does not have. Remove this
+      # when the runtime moves, in the same PR as those three.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+      # Medusa majors are platform migrations (apps/core), chosen and planned, not a weekly bump.
+      - dependency-name: '@medusajs/*'
+        update-types: ['version-update:semver-major']
+      # Medusa itself depends on @opentelemetry/api 1.x and the SDK 2.x line (@medusajs/deps, workflows-sdk), in the
+      # same process as the core's own telemetry (#729). The API is a process-wide singleton: a second major is
+      # refused at registration, and the core's spans and metrics would silently go to a no-op. Move with Medusa.
+      - dependency-name: '@opentelemetry/*'
+        update-types: ['version-update:semver-major']
+      # The core's routes run on Medusa's express app (express 4 inside @medusajs/framework); a different major in
+      # apps/core, or its types, would not be the server the routes are mounted on. Move with Medusa.
+      - dependency-name: 'express'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@types/express'
+        update-types: ['version-update:semver-major']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: docker
+    directories:
+      - /apps/accounting
+      - /apps/admin
+      - /apps/analytics-ingest
+      - /apps/core
+      - /apps/feeds
+      - /apps/notifications
+      - /apps/storefront-starter
+      - /apps/storefronts/brand-a
+      - /apps/storefronts/brand-b
+      - /apps/storefronts/brand-c
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Etc/UTC
+    commit-message:
+      prefix: docker
+    groups:
+      base-images:
+        patterns: ['*']
+    ignore:
+      # The Node major moves once, everywhere (engines, CI's NODE_VERSION, @types/node above), never as a base-image
+      # bump of one Dockerfile.
+      - dependency-name: 'node'
+        update-types: ['version-update:semver-major']

@@ -33,7 +33,9 @@ import {
   resolveSchemaIds,
   type TopicPolicy,
 } from '@platform/events';
+import { metrics } from '@opentelemetry/api';
 import { closePool, getPool, initDb, organizationClient } from '../lib/db';
+import { startTelemetry } from '../telemetry';
 import { coreOrganizationId } from '../http/tenant';
 import {
   DEFAULT_BATCH_SIZE,
@@ -42,6 +44,7 @@ import {
   relayOnce,
   runRelayLoop,
 } from './relay';
+import { createRelayLagState, registerRelayLagGauge } from './relay-metrics';
 
 export const POLICY_PATH = resolve(__dirname, '../../../../infra/redpanda/topics.policy.json');
 
@@ -177,6 +180,18 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   const args = parseArgs(argv);
   const organizationId = coreOrganizationId();
   await initDb({ startDir: __dirname });
+  // #733: the core's OpenTelemetry under its own service name (OTEL_SERVICE_NAME wins). Off without an OTLP endpoint
+  // in the OTEL_* env; an absent collector never stops the relay (background exporter, one warning).
+  const telemetry = startTelemetry({
+    ...process.env,
+    OTEL_SERVICE_NAME: process.env.OTEL_SERVICE_NAME?.trim() || 'outbox-relay',
+  });
+  const lag = createRelayLagState({ intervalMs: args.intervalMs });
+  registerRelayLagGauge(metrics.getMeter('outbox-relay'), lag);
+  const passLine = (line: Parameters<typeof lag.observePass>[0]) => {
+    lag.observePass(line);
+    console.info(JSON.stringify(line));
+  };
   guardPoolClients(getPool());
   if (args.throwawayDb) {
     // before anything is read or published: a prefixed relay never touches the shared dev database
@@ -210,6 +225,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         organizationId,
         batchSize: args.batchSize,
         topicPrefix: args.topicPrefix,
+        log: passLine,
         ...(schemaIds ? { schemaIds } : {}),
       });
     } else {
@@ -230,6 +246,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
         intervalMs: args.intervalMs,
         signal: controller.signal,
         topicPrefix: args.topicPrefix,
+        log: passLine,
         ...(schemaIds ? { schemaIds } : {}),
       });
       console.info(JSON.stringify({ relay: 'outbox', state: 'stopped', ...totals }));
@@ -239,6 +256,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     process.off('SIGINT', stop);
     await publisher.disconnect().catch(() => {});
     await closePool();
+    // flushes the last gauge reading; never throws (the SDK settles both providers)
+    await telemetry.shutdown();
   }
 }
 

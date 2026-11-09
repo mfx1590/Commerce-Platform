@@ -791,7 +791,7 @@ another locale could never be warmed. A brand ships `perf/store.example.json` â€
 validates it against the spec's `Store` schema (a wrong example fails naming the problems), writes a
 temporary copy of `store-api.yaml` whose `GET /store` example is that file (one line changes;
 `scripts/perf-store-example.mjs`), starts Prism from it on `PERF_MOCK_PORT` (default 4012) and points
-the app at it. No file: the shared mock on `MOCK_API_URL` serves exactly as before.
+the app at it. No file: the shared mock on `MOCK_API_URL` serves exactly as before. The validator is built once per spec text (`storeValidator`, #620): parsing the spec and building Ajv over it is CPU-bound, so its unit tests do that work once, at collection time, and each test only validates.
 
 One command runs the whole gate and exits non-zero if **any** budget is exceeded (task 2.3):
 

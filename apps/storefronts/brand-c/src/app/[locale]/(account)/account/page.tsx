@@ -1,10 +1,15 @@
 import { Badge, buttonVariants } from '@platform/ui';
 import type { Metadata } from 'next';
 import { Link } from '@/i18n/navigation';
+import { DeleteAddressButton, EditAddressForm } from '@/components/account-address-forms';
 import { AddAddressForm, ProfileForm, SignOutButton } from '@/components/account-forms';
+import { ConsentsForm } from '@/components/account-consents';
+import { ExportsList } from '@/components/account-exports';
+import { DeleteAccountForm, RequestExportForm } from '@/components/account-privacy';
 import { AddressCard } from '@/components/order-summary';
 import { requireCustomerToken } from '@/lib/auth/require-customer';
-import { storeApi } from '@/lib/store-api';
+import { storeApi, type Result } from '@/lib/store-api';
+import { privacyPolicyVersion } from './account.config';
 
 export const metadata: Metadata = { title: 'Your account' };
 
@@ -19,9 +24,16 @@ export default async function AccountPage({
   const { error } = await searchParams;
   const token = await requireCustomerToken('/account');
 
-  const [customer, addresses] = await Promise.all([
+  const [customer, addresses, consents, exports] = await Promise.all([
     storeApi().getMe({ token, cache: 'no-store' }),
     storeApi().listMyAddresses({ token, cache: 'no-store' }),
+    // #471: through the client's generic request (the typed method is window 3's file)
+    storeApi().request<Result<'getMyConsents'>>('GET', '/store/customers/me/consents', {
+      options: { token, cache: 'no-store' },
+    }),
+    storeApi().request<Result<'listMyExports'>>('GET', '/store/customers/me/exports', {
+      options: { token, cache: 'no-store' },
+    }),
   ]);
 
   return (
@@ -72,16 +84,33 @@ export default async function AccountPage({
                   title={`${address.first_name} ${address.last_name}`}
                   address={address}
                 />
-                {address.is_default_shipping ? (
-                  <Badge variant="neutral" className="mt-2">
-                    Default delivery
-                  </Badge>
-                ) : null}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {address.is_default_shipping ? (
+                    <Badge variant="neutral">Default delivery</Badge>
+                  ) : null}
+                  {address.is_default_billing ? (
+                    <Badge variant="neutral">Default billing</Badge>
+                  ) : null}
+                </div>
+                <div className="mt-3 flex flex-wrap items-start gap-2">
+                  <EditAddressForm address={address} />
+                  <DeleteAddressButton addressId={address.id} />
+                </div>
               </li>
             ))}
           </ul>
         )}
         <AddAddressForm />
+      </section>
+
+      <section aria-labelledby="privacy" className="flex flex-col gap-6">
+        <h2 id="privacy" className="text-xl font-semibold">
+          Privacy
+        </h2>
+        <ConsentsForm items={consents.items} policyVersion={privacyPolicyVersion()} />
+        <RequestExportForm />
+        <ExportsList items={exports.items} />
+        <DeleteAccountForm />
       </section>
     </div>
   );

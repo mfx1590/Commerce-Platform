@@ -2,6 +2,50 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-11-07 · the outbox relay exports its lag as an OTel gauge (#733, window 14; line added by the manager)
+
+- `outbox_relay.lag_oldest` (s) → `outbox_relay_lag_oldest_seconds{service_name="outbox-relay"}` from the relay CLI
+  (`startTelemetry`, `OTEL_SERVICE_NAME` default `outbox-relay`, off without `OTEL_*`), with a stalled-loop floor. The
+  relay's lag now reads its own org-scoped backlog, not `app.outbox_lag()` (#737).
+
+### 2026-11-07 · Store API rate limits and the pool knee (#742, plan D4)
+
+- `src/http/rate-limit.ts`: a Redis token bucket per (class, store, client) on the 9 operations store-api 0.5.10
+  gives a 429 (CONTRACT CHANGE #744): `auth` = registerCustomer + recoverCart (10 burst, 20/min), `cart` = the 6
+  cart writes (60, 300/min), `checkout` = completeCart (10, 60/min); env `CORE_RATE_LIMIT_<CLASS>`, `CORE_RATE_LIMIT=off`,
+  `CORE_CLIENT_IP_HEADER` / `CORE_CLIENT_IP_HOPS`. 429 `rate_limited` + `Retry-After`. Fail-open on a Redis outage
+  (one warning). Mounted after the tenant, before the routes. `ioredis` 5.11.1 (the version Medusa already resolves).
+- `GET /store`: the four summary reads in one transaction (`sameTransaction`, `src/lib/db.ts`), and the publishable-key
+  resolve is cached in-process for `CORE_STORE_KEY_CACHE_MS` (10 s; positive only; dropped on revoke / store update
+  in this process): one pooled connection per request with a warm cache, where it was five (four at once).
+- `scripts/rate-limit-burst.mjs`: the burst for the proof (one client on every limited path).
+- #754 review (block): the class is matched on the LOWER-CASED path. Express routes case-insensitively, so
+  `POST /Store/CARTS` reached createCart while the case-sensitive template match let it through unlimited. Tests: mixed-case
+  cart write, complete and registerCustomer hit their lower-case twin's bucket (unit and the real chain).
+
+### 2026-11-06 · OpenTelemetry: traces and RED metrics per route and store (#729, plan D3)
+
+- **#740 review (privacy):** `requestIdOf` (`src/http/request-id.ts`) keeps a client `X-Request-Id` only when it
+  matches `/^[A-Za-z0-9._:-]{1,128}$/`; anything else is replaced by a generated uuid (written back, echoed). The id
+  reaches the outbox envelope's `trace.request_id` (and so the bus), `audit_log.request_id` and the span, so a public
+  caller can no longer put an e-mail or control characters there. The telemetry middleware uses `requestIdOf`
+  instead of reading the header; its finish/close listener can never throw (try/catch, the span always ends).
+
+- New `src/telemetry` (README): `startTelemetry()` (from `createServer()`) registers a tracer and a meter provider
+  over OTLP/HTTP only when the standard `OTEL_*` environment configures an endpoint (`OTEL_SDK_DISABLED=true` wins;
+  vitest sets it). An absent collector is one warning; the boot never fails.
+- `telemetryMiddleware`, first in `mountCoreMiddleware` after the request id (`/health` skipped):
+  `http.server.request.duration` (s), `core.http.requests`, `core.http.errors` (5xx only), labelled ONLY by the
+  contract route template (else `unmatched`), method, status class and `store_id` (publishable key's store; an admin
+  `{storeId}` only when the registry knows it, else `none`). SERVER span `<METHOD> <template>`, rooted at the core
+  (an inbound `traceparent` is ignored).
+- `http.server.request.duration` buckets: the semantic-conventions defaults plus 0.3 and 2 s (window 5's SLO
+  thresholds 0.3 / 0.5 / 2 s must be bucket boundaries), pinned by a test.
+- `src/lib/db.ts`: every transaction of a scoped client is a `db.transaction` span (no SQL; SQLSTATE on failure).
+- Dependencies: `@opentelemetry/api` 1.9.1, `sdk-metrics` / `sdk-trace` / `context-async-hooks` / `resources`
+  2.12.0, `exporter-metrics-otlp-http` / `exporter-trace-otlp-http` 0.223.0 (pnpm also moves Medusa's own
+  `@opentelemetry/*` 2.11.0 resolutions to 2.12.0).
+
 ### 2026-11-05 · a flake in the erasure PII check (#721)
 
 - `test/customers-api.test.ts` (DELETE /store/customers/me): the erased customer's outbox and audit docs are checked

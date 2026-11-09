@@ -1,0 +1,96 @@
+# The DR drill's FRESH stack (#741, plan D5): only what a restore needs, under its own project name, host ports and
+# volumes, so it can never touch the shared dev stack (`commerce-platform`, infra/docker/docker-compose.yml).
+# infra/dr/drill.mjs brings it up, restores into it, checks it, and always takes it down with `down -v`.
+#
+# Every host port is above 15000 (WinNAT reserves random blocks below it; infra/docker/docker-compose.yml) and bound
+# to 127.0.0.1. drill.test.mjs checks that none of them is a port of the shared stack.
+name: commerce-dr
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: platform
+      POSTGRES_DB: platform
+    ports:
+      - '127.0.0.1:25433:5432'
+    volumes:
+      - dr-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U platform -d platform']
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    environment:
+      CLICKHOUSE_DB: analytics
+      CLICKHOUSE_USER: platform
+      CLICKHOUSE_PASSWORD: platform
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1'
+    ports:
+      - '127.0.0.1:28123:8123'
+    mem_limit: 1536m
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - dr-clickhouse-data:/var/lib/clickhouse
+      - ../clickhouse/config.d/low-memory.xml:/etc/clickhouse-server/config.d/low-memory.xml:ro
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'clickhouse-client --user platform --password platform --query "SELECT 1"']
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
+  # Imports the realms the backup wrote (partial export + the realm files' users, decision K2) on first start.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: ['start-dev', '--import-realm', '--http-port=8080']
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_DB: dev-file
+      KC_HEALTH_ENABLED: 'true'
+      KC_HTTP_MANAGEMENT_PORT: '9000'
+    ports:
+      - '127.0.0.1:28180:8080'
+    volumes:
+      - dr-keycloak-data:/opt/keycloak/data
+      - ${DR_KEYCLOAK_IMPORT:?drill.mjs sets DR_KEYCLOAK_IMPORT to the backup's keycloak/ folder}:/opt/keycloak/data/import:ro
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e "GET /health/ready HTTP/1.1\r\nHost: localhost\r\n\r\n" >&3 && grep -q "UP" <&3',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+
+  # In memory, like the shared one: the drill re-creates the store, the model and every tuple from the backup.
+  openfga:
+    image: openfga/openfga:v1.8.4
+    command: ['run']
+    environment:
+      OPENFGA_DATASTORE_ENGINE: memory
+      OPENFGA_HTTP_ADDR: 0.0.0.0:8080
+      OPENFGA_PLAYGROUND_ENABLED: 'false'
+      OPENFGA_LOG_FORMAT: text
+    ports:
+      - '127.0.0.1:28081:8080'
+    healthcheck:
+      test: ['CMD', '/openfga', 'version']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  dr-postgres-data:
+  dr-clickhouse-data:
+  dr-keycloak-data:

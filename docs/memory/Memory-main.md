@@ -17,6 +17,38 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
 - Solo operator on Claude Max 5x: ONE build window active at a time, Reviewer session for merges, strongest model only for main window + events/accounting
 
 ## Current status
+- **2026-11-07: END OF DAY, manager session eleven (repo root, ~76% context; continue tomorrow in this session or a fresh one from this bullet). READ THIS FIRST; it supersedes the bullets below where they differ.** Nothing is in flight: no loop, no queue, every window idle.
+  - **Merged in Phase 6 so far:**
+    - wave 1: #736 (#497), #738 (#728), #732 (#620), #740 (#729 OTel), #734 (#730 audit gate + SLO rules + Dependabot);
+    - wave 2: #751 (#733 relay lag gauge), #752 (root pnpm.overrides: proxy-addr CRITICAL + 10 high closed; allow-list 28 → 17), #753 (#741 DR drill + #735; three green runs, one by the manager, RTO 74-109 s), #754 (#742 rate limits + the pool knee, runner ceiling 387 → 551 req/s; #744 Store API 0.5.10).
+    - Tracking #731.
+  - **Open for tomorrow (my decisions):**
+    1. Window 4 admin security (next CRITICAL, expires 2026-11-20!) + admin headers: the owner opens a fresh window-4 session in ../wt-admin on Opus (the start message is in chat on 11-06, the brief in Memory-4 "NEXT SESSION STARTS HERE"; branch admin/phase6-security has 2 local commits).
+    2. Window 5: SLO.md relay entry → the real metric (window 14's wording, in its #751 message) + an `absent()` alert for a down relay.
+    3. Manager: #737 (outbox_lag() on managed Postgres + the #736 nits) and docs/security (threat model, PCI SAQ-A scope, SOC2-lite map).
+    4. Window 10: #739 (brand A LCP margin).
+    5. The Dependabot PRs #743, #746-#750 (two majors: sdk-trace 3.0, @types/node 26): review one by one; the production group may overlap the overrides.
+    6. The cost model + cloud target with the owner (D7).
+    7. Wave 3: brand D onboarding.
+  - **UPDATE 11-09 (owner: "go ahead"):**
+    - window 5 → the relay SLO.md entry + an `absent()` alert + Dependabot ignore rules, then the triage of the RED grouped Dependabot PRs #743/#747/#755 (find the breaking packages, exclude them in dependabot.yml);
+    - window 10 → #739;
+    - manager → #737 via an agent on integration/phase6-737 (../wt-contracts), with Fable review.
+    - Closed the Dependabot majors #748 (sdk-trace 3), #749 (@types/node 26) and #750 (react-table 9), with reasons.
+    - Window 4's fresh session is STILL NOT opened (the next CRITICAL expires 11-20).
+    - The loop is running.
+  - **OWNER IDEA 2026-11-07, PARKED until the app is complete (do not start):**
+    - (1) A Higgsfield integration inside the platform to generate product ad content (images and video per product, for ads).
+    - (2) A platform MCP server (`apps/mcp`: a thin layer over the permission-scoped Admin API, metrics, reports and the AI gateway; per-user Keycloak OAuth, so each Claude user has their own staff permissions; read-only first, writes later with human confirmation) so Claude can drive everything.
+    - Goal: control and create "from 0 to 100" through one dashboard.
+    - Open questions when it starts: the data-processing terms with Anthropic and Higgsfield, the Higgsfield account and costs (owner), and who may use it (HQ only, or store admins too).
+    - Recorded on #611.
+  - **Remaining audit baseline** (expires 12-06): axios (window 2, via @openfga/sdk), @graphql-tools/utils 10, lodash, zod (Medusa-internal; need upstream releases), plus window 4's admin set.
+  - **Gotchas today:**
+    - Dependabot opens PRs as soon as `.github/dependabot.yml` is on main, not only on Mondays.
+    - The merge queue can fail on a network blip (`error connecting to api.github.com` → "MERGE FAILED … BLOCKED"); just re-run it.
+    - Two drills cannot run at once (the guard refuses a second commerce-dr stack).
+    - The ../wt-contracts worktree is detached on infra/phase6-741 with a copied .env (gitignored); switch it before the next use.
 - **2026-11-05 evening: END OF DAY, manager session eleven (`Manager session eleven`, repo root, ~50% context; it continues tomorrow). READ THIS FIRST; it supersedes the bullets below where they differ.** The owner is off until tomorrow: nothing is in flight, no loop, no queue, every window idle.
   - **Owner orders (11-05):** "you're the manager, you decide" — models for windows, backup-first dev writes, and similar calls are the manager's. Still the owner's: opening sessions, money, keys/accounts, legal, destructive data.
   - **PHASE 5 COMPLETE.** Integration 5 gate GREEN (report on #612; launch-checklist line ticked). Merged 11-04/05: #714, #715, #716 (events 0.7.1 order.placed v2, #696 closed), #717 (events 0.8.0 replay scrub-to-@2, #629), #718, #719 (#633), #720, #722, #723, #724 (#721), #726 (#725 client_events), #727 (#609 storefront rails, closed). Dev-stack proof done (backup platform-before-dev-reconcile-20261105.dump; reconcile every identity 0, cash 0 keys stated; PII sweep 0; outbox 1138 = ClickHouse 1138). The dev ledger now runs on the default group accounting.ledger.
@@ -31,6 +63,10 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
     - window 3 → #620 starter flake (Opus review);
     - manager → #497 via an agent in ../wt-contracts on integration/phase6-497 (not pushed yet; Fable review).
     - **Gotcha:** `get_session` returns a session's MODEL. Use it instead of asking the owner.
+  - **UPDATE 11-06 evening: WAVE 1 MERGED** except window 4: #736 1c6762dc (#497; the dev DB is migrated with 0101 + 0207 after backup platform-before-0207-20261106.dump; 71/71 RLS tables forced), #738 7304bf03 (#728), #732 (#620), #740 8a210e17 (#729 OTel; request-id hardening: a client X-Request-Id is kept only if it matches /^[A-Za-z0-9._:-]{1,128}$/), #734 def6e53b (#730: audit gate, a 28-entry baseline expiring 11-20 / 12-06, SLO rules with the le regex and `or vector(0)`, Dependabot; a dependabot/ ownership row on main). docs/slo.md pointer added. Filed: #737 (outbox_lag on managed Postgres, mine), #739 (brand A LCP margin, window 10), #733 (relay gauge, window 14).
+    - **Window 4:** the old session `local_7caabd48-…` stopped at 86% context; its brief is in Memory-4 "NEXT SESSION STARTS HERE", and branch admin/phase6-security has 2 local unpushed commits. The owner opens a FRESH window-4 session (the start message was given in chat). Not yet opened.
+    - **OWNER 11-06 evening: "after the current tasks are done we finish for today."** Hand out NOTHING new. Let #741, #742, #733 and the overrides finish through merge, then write the end-of-day handover, delete the loop and report. #737, docs/security, the cost model, #739 and window 4 wait for tomorrow.
+    - **WAVE 2 handed out:** #741 DR drill + #735 → window 5; #742 rate limits + pool knee → window 1; #733 → window 14; root pnpm overrides for core's transitive vulnerabilities → manager via an agent on integration/phase6-overrides (../wt-contracts, not pushed yet). Next for the manager: #737, docs/security, the cost model; #739 → window 10 when the machine is free. Observability profile UP on the shared stack (Grafana 3400, Prometheus 9090, collector 4318, Tempo 3420).
 - **2026-11-02 ~21:15 local: HANDOVER TO MANAGER SESSION ELEVEN (session ten at about 80% context). READ THIS FIRST; it supersedes the bullets below where they differ.** Phase 5, wave 3 DONE; follow-ups running.
   - **Owner standing orders:** "continue until you hit the limit" (11-02). "The manager decides" next tasks (11-02). AI features are ON by default (11-01). Stop at 80% of the 5h limit; at 85% weekly hand out no new tasks and tell the owner (weekly 75% at handover).
   - **Done in session ten:**
@@ -418,6 +454,8 @@ Six new worktrees over Phase 2 (6, 7, 8, 9, 10, 17): `./scripts/new-window.sh <n
 Start messages for every window: docs/start-messages/ · Ownership map (CI-enforced): docs/ownership.md
 
 ## Contract change log
+- 2026-11-07 · CONTRACT CHANGE #744 (window 1, #742) · branch `integration/phase6-742`, PR #754 = ed002765 (manager landing 13a78fe2 + window 1's code): **Store API 0.5.10, CONTRACTS_VERSION 0.4.34**. `components.responses.TooManyRequests` (Retry-After integer ≥ 1, Error body), `'429'` on createCart, updateCart, addLineItem, updateLineItem, removeLineItem, createPaymentSession, completeCart, recoverCart, registerCustomer; `rate_limited` in Error.code and ERROR_CODES (+ STATUS 429 in apps/core, a type-completeness line as in #690). Not tagged yet (tag at the phase boundary).
+- 2026-11-06 · **events 0.7.1** (#716, #696: order.placed v2, email_hash nullable) and **0.8.0** (#717, #629: both replays scrub an erased customer's order.placed to v2) · **db 0.3.22** (#736, #497: migrations run on managed Postgres; 0207).
 - 2026-10-21 · **events-v1 = 2abe310** (window 14, Phase 4, #530–#534 + hotfix #543; PRs #535 #539 #543 #544 #546 #547; CI #537 #542): @platform/events 0.6.1 — Redpanda topics derived from EVENT_TOPICS (1 partition local/CI, 12 production; retention per ADR 0003), the outbox relay (key store_id / organization_id, outbox_id header, ordered by o.seq, at-least-once), schema registry (subject per topic+version, our offline BACKWARD checker + published.lock.json is the gate), consumer SDK (createConsumer, dedupe on outbox_id with ctx.markProcessed(tx), dlq.<groupId> without payload, replayFromDlq), the outbox:replay CLI. ADR 0003 amended (6ccd237). No contracts/db change.
 - 2026-10-20 · CONTRACT CHANGE #522 (window 1, #520) · branch `integration/tax-rates`, PR #529, **tag contracts-v0.4.26 = 4942a28**: Admin API 0.4.23 — listTaxRates (viewer), createTaxRate / updateTaxRate / deleteTaxRate (store_admin), TaxRate; activateStore requires a rate per market country (default_country ∪ active shipping-option countries; 409 details.missing_tax_countries); delete guard for an active store's last market-country rate; **db 0.3.15** — 0201 tax_rate_identity_key UNIQUE NULLS NOT DISTINCT; seed brand A DE/BE/FR.
 - 2026-10-19 · CONTRACT CHANGE #508 (window 17, REQUEST #491) · branch `integration/marketing-never-asked`, PR #515, **tag contracts-v0.4.25 = eabe8a0**: Admin API 0.4.22 — SegmentPredicate consent op gains `never_asked` (no block for the channel; a refusal or opt-out is not_granted, never never_asked). Re-consent audiences must use it.
@@ -492,6 +530,8 @@ On the REAL dev stack, with every write additive (backups before each step), plu
 **What Phase 2 must fix first:** core 2.1 cart + 2.2 placement (unblocks the real checkout, storefront 2.1, admin 2.2); window 1 also owns the `medusa-config.ts` ts-node noise. Window 5: #99, and a CI variant running the storefront against the core once 2.2 lands.
 
 ## Global gotchas (things every window must know)
+- **Backup before migrate: chain with `&&`, and give `docker cp` a WINDOWS path (2026-11-06, manager):** with `MSYS_NO_PATHCONV=1`, `docker cp … /c/Users/...` is taken literally ("C:\\c\\Users… does not exist"), and a `;` after it let `pnpm db:migrate` run before the dump was copied out. The dump was still in the container's /tmp and was recovered, but the order was luck. Use `docker cp <ctr>:/tmp/x.dump "C:/Users/mehdi/Desktop/commerce-platform-backups/x.dump"`, and chain dump, copy, check size, then migrate with `&&` only.
+- **"Rebuild the workspace packages" must include `cms/` (2026-11-06, window 10):** `@platform/cms` lives in `cms/`, not under `packages/`, so `pnpm -r --filter "./packages/*" build` leaves its `dist/` stale. The symptom, `(0, resolveDataset) is not a function`, failed 35+ tests in the starter and in every brand, and reads like a broken starter. Run `pnpm --filter @platform/cms build` too (or `pnpm turbo run build --filter=<app>^...`). Put this in every activation message.
 - **ClickHouse users come from SQL since #652 (2026-10-30):** `analytics_ingest` and `analytics_ro` are created by `pnpm --filter @platform/analytics-ingest ch:migrate` (data/clickhouse/access). The CLI does NOT read .env: export the root .env's `CLICKHOUSE_*` rows first, and rebuild the ingest's deps if `@platform/events` exports look missing (a stale dist). After any ClickHouse container recreate or volume reset, run ch:migrate at once, or every read-only path (metrics API, BI) gets AUTHENTICATION_FAILED. A Docker Desktop single-file mount does NOT pin a deleted file: the deletion reaches the container.
 - **ClickHouse SELECT aliases shadow columns in the same statement (2026-10-27, three bugs in Phase 5):** `SELECT toString(event_id) AS event_id ... WHERE event_id IN (...)` filters on the ALIAS, not the column (ClickHouse resolves aliases everywhere in the query). Seen as "aggregate inside aggregate" (#601 mart_cash_daily), wrong WHERE results (#602), and a DATA-LOSS path in #623's erasure rewrite (nothing re-inserted, then the DELETE removed the customer's orders; caught by the live run). Rule: never alias a computed value to a source column's name; prefer raw columns, or a renaming subquery. Any DELETE must be guarded by "every matched row was rewritten first".
 - **Finance API dates were a day early outside UTC (2026-10-27, #627, fix #630):** node-postgres returns a `date` column as a local-midnight Date; `toISOString()` then shifts it a day east of UTC. Integration 4's dev Odoo moves (147) are all dated entry date − 1. Rule: select `date` columns `::text`; never call toISOString() on a value read from a `date` column; pin TZ=UTC in service images.

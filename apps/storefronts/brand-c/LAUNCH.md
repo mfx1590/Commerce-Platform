@@ -152,10 +152,28 @@ generator refuses to invent them (`manualSteps`: _the media manifest has no byte
 
 ## 8. Analytics and consent
 
-| #   | Item                                                     | Owner | Verify                     | Now |
-| --- | -------------------------------------------------------- | ----- | -------------------------- | --- |
-| 8.1 | Whether brand C needs a consent banner, and of what kind | owner | a written decision         | ⛔  |
-| 8.2 | Attribution only records first-party data                | 10    | `test/attribution.test.ts` | ✅  |
+| #   | Item                                                     | Owner   | Verify                                                                                                         | Now |
+| --- | -------------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------- | --- |
+| 8.1 | Whether brand C needs a consent banner, and of what kind | owner   | a written decision                                                                                             | ⛔  |
+| 8.2 | Attribution only records first-party data                | 10      | `test/attribution.test.ts`                                                                                     | ✅  |
+| 8.3 | The recommendation rails' analytics events               | 10 / 12 | `recommendation_viewed` / `recommendation_clicked` on `window.dataLayer`, and a `platform:analytics` DOM event | ✅  |
+
+**8.3 — where the rails' events go.** The starter's recommendation rails emit
+`recommendation_viewed` / `recommendation_clicked` to `window.dataLayer` plus a `platform:analytics`
+DOM event; the launch sink subscribes there (#609, #725). Picked up by this brand at the #728
+re-sync; the rails themselves are the starter's `src/components/recommendation-{rail,tracker}.tsx`
+and this brand does not override the PDP or cart, so it places nothing itself.
+
+**Neither new env is set, deliberately.** `RECOMMENDATIONS_TIMEOUT_MS` keeps its 300 ms default, and
+`STOREFRONT_ANALYTICS_CONSENT_MODE` keeps `analytics` — which is **already the mode this brand's
+store runs in**: nothing in the repo sets `ENGAGEMENT_CDP_CONSENT_MODE` or a per-store
+`ENGAGEMENT_CDP_CONSENT_MODE_<STORE_CODE>`, so the engagement side is on its `analytics` default too
+and the two agree. Setting the storefront value now would be inventing a region policy that 8.1
+above has not decided.
+**The coupling to remember:** these two must name the same mode. The day anyone sets
+`ENGAGEMENT_CDP_CONSENT_MODE_<STORE_CODE>=strict` for this store, `STOREFRONT_ANALYTICS_CONSENT_MODE`
+has to be set to `strict` with it — the browser would otherwise keep emitting events the CDP has
+been told not to accept, and nothing fails to say so.
 
 8.1 is a **different question for C than for A or B**, and that is the point of the row. There is no
 US federal cookie-consent law and no ePrivacy/PECR equivalent; the pressure comes from state privacy
@@ -235,13 +253,29 @@ that breaks things brand B never exposed. None of it is fixable from inside this
 | #    | Item                                                              | Owner  | Verify                                                                                | Now |
 | ---- | ----------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------- | --- |
 | 12.1 | A `messages/en-US.json` exists, so pages render at all            | 10     | `test/i18n.test.ts` "for the locale next.config.mjs actually declares"                | ✅  |
-| 12.2 | That catalogue is reviewed for US English, not just copied        | owner  | 139 strings, copied from `en-GB.json`                                                 | ⛔  |
+| 12.2 | That catalogue is reviewed for US English, not just copied        | owner  | **189** strings; 13 concrete candidates listed below                                  | ⛔  |
 | 12.3 | `lighthouserc.json` measures `/en-US`, not `/en-GB`               | 10     | its two `collect.url` entries                                                         | ✅  |
 | 12.4 | The synced e2e specs address a locale brand C serves              | 3      | #441 part 4 landed (#445): the prefix comes from `src/i18n/locale-config.mjs`         | ✅  |
 | 12.5 | `scripts/e2e-server.mjs` warms a URL brand C serves               | 3      | same; CI logs `[e2e-server] ready: http://127.0.0.1:3103 is warm`                     | ✅  |
 | 12.6 | `test/i18n.test.ts` derives its expected set from the config      | 3      | #441 part 5 landed; brand C's preservation is dropped and the file is synced          | ✅  |
 | 12.7 | A backend serving brand C's OWN store — e2e and perf both         | 10 / 3 | the live job uses the kept core; `perf.mjs` overlays `perf/store.example.json` (#448) | ✅  |
 | 12.8 | `perf/store.example.json` so the perf mock serves brand C's store | 10     | `perf: bundle budget PASS, Lighthouse PASS` locally, 2026-10-09                       | ✅  |
+
+**12.2 — the US-English review now has a list, not a word count.** The catalogue grew from 139 to
+**189** strings at the #728 re-sync (the `account` route group, 48, and the `recommendations` rails,
+2). Everything new was copied from `en-GB.json` **verbatim and on purpose**: brand C's catalogue
+already said "delivery" (×9), "Postal code" and "Region", all inherited, so Americanising only the
+new keys would have made the account form say "ZIP code" while checkout still said "Postal code".
+Uniformly inherited is better than half-converted, and the review is one owner pass over these:
+
+| Inherited                       | Uses | US convention                   |
+| ------------------------------- | ---- | ------------------------------- |
+| "delivery" / "delivery address" | 9    | "shipping" / "shipping address" |
+| "Postal code"                   | 2    | "ZIP code"                      |
+| "Region"                        | 2    | "State"                         |
+
+Two strings are already Americanised and should stay: `checkout.payment.failed` and
+`checkout.review.cardFailed` say "authorized", not "authorised".
 
 12.1 is the one that mattered most: `src/i18n/request.ts` imports `messages/${locale}.json`
 **unguarded**, so before that file existed brand C threw on **every page**, in dev, in `next build`

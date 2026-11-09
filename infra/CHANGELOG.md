@@ -2,6 +2,57 @@
 
 Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/Dockerfile`.
 
+## Unreleased — Phase 6
+
+### Changed (relay SLO is live; Dependabot ignores)
+
+- `infra/observability/SLO.md`: the relay-lag SLI reads the real gauge (#733, #751), in window 14's wording; the core's
+  SLIs are marked live (#729). No "metric pending" is left in the rules.
+- New alert `SLOAbsent_outbox_relay_lag` (page): `absent()` of the relay's gauge `for: 5m`. A down relay exports nothing,
+  so no burn alert can fire. The promtool cases: the gauge stops after 10 minutes (silent at 12m, firing at 30m), and
+  the alert is silent wherever the gauge is present.
+- `.github/dependabot.yml`: majors are ignored for `@types/node` and the `node` image (they move with the runtime), and
+  for `@medusajs/*`, `@opentelemetry/*`, `express` and `@types/express` (they move with Medusa).
+
+### Added (#741, P6.3 — backup + restore drill; #735)
+
+- `infra/dr/drill.mjs` + `docker-compose.drill.yml`: back up Postgres, ClickHouse, Keycloak and OpenFGA from the shared
+  dev stack; restore into a fresh `commerce-dr` stack; check counts, per-store counts, checksums, per-topic events, a
+  staff login and a permission check; RTO/RPO; teardown always. `infra/dr/RUNBOOK.md` has the numbers. Self-test
+  in the `changes` job.
+- Grafana: a "Core per route" row (#735): rate per route and store, the 5xx share per route (0, not "no data", before
+  the first 5xx), p95 per route, responses by status class.
+
+### Changed
+
+- `infra/load/README.md` no longer says the core has no OpenTelemetry (#729).
+
+### Added (#730, P6.2 — dependency scanning and SLOs as rules)
+
+- CI job `dependency audit (production)` (advisory, every PR): `pnpm audit --prod` + `infra/ci/audit-gate.mjs`, failing
+  on a high/critical production advisory outside `infra/security/audit-allowlist.json` or past its entry's expiry
+  (self-test in the `changes` job). The allow-list starts with a dated baseline of the 28 high/critical advisories on
+  main `33cb5b6f`.
+- `infra/observability/SLO.md` and `rules/slo.mjs` → `rules/slo.rules.yml` + `rules/slo.test.yml`: eight SLOs with
+  recording rules and multi-window burn-rate alerts, checked by `promtool check rules` and `promtool test rules` in the
+  `observability config` job; Prometheus loads them (`rule_files`, compose mount).
+- `.github/dependabot.yml`: weekly grouped minor/patch updates (npm production, npm development, GitHub Actions,
+  Dockerfile base images); majors as single PRs.
+- `#733`: REQUEST to window 14 for the relay lag gauge.
+
+### Fixed (#730 review)
+
+- The checkout-latency and ingest-lag SLIs selected `le="2"` / `le="10000"`, which Prometheus 3 stores as `"2.0"` /
+  `"10000.0"`: the recordings would have been empty and the alerts silent. The rules now match both spellings
+  (`le=~"2(\\.0)?"`), and the promtool series spell the stored form literally. The availability SLIs read a missing
+  5xx series (none exists before the first 5xx) as 0 (`or vector(0)`) instead of recording nothing; the healthy
+  promtool cases have no 5xx series at all. Two more gate self-tests: non-JSON audit output, and a multi-path advisory.
+
+### Fixed
+
+- `infra/README.md` → Branch protection lists the six checks GitHub enforces; `live auth + end-to-end` is not one
+  (plan D6). Two `ci.yml` comments said otherwise.
+
 ## Unreleased — Phase 3
 
 ### Fixed (Refs #346 — the owner-logins witness warned on the wrong thing)

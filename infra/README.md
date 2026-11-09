@@ -347,6 +347,32 @@ poison message.
 For this to produce anything, the apps must emit spans — which is the snippet above, and belongs to
 the app windows.
 
+### SLOs and burn-rate alerts (#730)
+
+The SLOs are in [`infra/observability/SLO.md`](observability/SLO.md) (`docs/slo.md` points there). Their rules are
+code: `infra/observability/rules/slo.mjs` generates `rules/slo.rules.yml` (recording rules
+`slo:error_ratio:<window>` and multi-window burn-rate alerts `SLOBurn_<slo>_page|ticket`, loaded by
+`prometheus.yml`, mounted into the compose Prometheus) and `rules/slo.test.yml`. `check.sh` — the
+`observability config` job — fails on a hand edit of either YAML file, on `promtool check rules`, and on
+`promtool test rules`. The core's SLIs come from #729's metrics and the relay's from #733's gauge. A relay that is down exports
+nothing, so `SLOAbsent_outbox_relay_lag` pages when that gauge has been missing for 5 minutes.
+
+### Production dependencies (#730)
+
+`dependency audit (production)` runs on every PR: `pnpm audit --prod --json`, then `infra/ci/audit-gate.mjs`
+against `infra/security/audit-allowlist.json`. The allow-list's `threshold` (today `high`) is the lowest severity
+that fails. Every entry names the advisory (GHSA), the package, its versions, the owning app and window, a reason
+and an **`expires`** date; an expired entry fails the gate, an entry that matches nothing any more is reported as
+stale (delete it). It started with a dated baseline: the 28 high/critical advisories present on main `33cb5b6f` when
+the gate was introduced (the two critical ones expire 2026-11-20, the rest 2026-12-06). A lookup that never answers
+fails closed.
+
+`.github/dependabot.yml` opens the updates that shrink it: every Monday, one grouped PR per group for minor and patch
+bumps (npm production, npm development, GitHub Actions, the apps' Dockerfile base images); a major bump comes as its
+own PR for the owning window to review. A few majors are ignored, each with its reason in the file:
+`@types/node` and the `node` base image (they move with the Node 20 runtime, once, everywhere), and `@medusajs/*`,
+`@opentelemetry/*`, `express` and `@types/express` (they run inside Medusa's process and move with Medusa).
+
 ## Helm
 
 ```
@@ -570,21 +596,22 @@ kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.pas
 `.github/workflows/ci.yml`. `ownership` is first and stays first; `scripts/check-ownership.sh`
 belongs to the main window.
 
-| job              | runs when   | what it does                                                                                                                                                                                                       |
-| ---------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ownership`      | always      | `check-ownership.sh` + its self-test                                                                                                                                                                               |
-| `changes`        | always      | classifies the diff into `code` / `images` / `terraform` / `e2e` / `helm` / `observ` / `perf`                                                                                                                      |
-| `lint-typecheck` | `code`      | lint, format, typecheck, generated-file drift                                                                                                                                                                      |
-| `unit`           | `code`      | `pnpm test` with Postgres, then migrate + seed                                                                                                                                                                     |
-| `contract`       | `code`      | `pnpm test:contract` against Prism                                                                                                                                                                                 |
-| `perf-app`       | `perf`      | one entry per storefront in `perf_apps`: build its workspace deps, Prism on 127.0.0.1:4010, `pnpm --filter <storefront> perf` (its own bundle budget + Lighthouse, exit 1 if either is over)                       |
-| `perf`           | always      | the required check: green only if the classifier succeeded and every `perf-app` entry passed; says so when no storefront changed                                                                                   |
-| `images`         | `images`    | builds all six images through bake, then `smoke-images.sh`. Never pushes                                                                                                                                           |
-| `auth-e2e`       | `e2e`       | Keycloak (both realms), OpenFGA, Redis and Postgres from compose; the live auth suites; a real `apps/core` boot; `apps/*` journeys on Prism, `apps/storefronts/*` on the kept core (below)                         |
-| `admin-e2e-core` | `e2e`       | **advisory** (#285): `fga:seed`, a kept core with real Keycloak tokens and OpenFGA (no dev tokens), then `apps/admin` journeys with `E2E_API=core` on :3200                                                        |
-| `helm`           | `helm`      | `infra/helm/check.sh` (lint, render every app/env, kubeconform, then `check-values.sh`); `check-values.test.sh`; `node --test infra/deploy/keycloak/derive-customers-realm.test.mjs` (the derived customers realm) |
-| `terraform`      | `terraform` | `infra/terraform/check.sh`                                                                                                                                                                                         |
-| `preview`        | PRs         | placeholder until 2.4b                                                                                                                                                                                             |
+| job                | runs when   | what it does                                                                                                                                                                                                                      |
+| ------------------ | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ownership`        | always      | `check-ownership.sh` + its self-test                                                                                                                                                                                              |
+| `changes`          | always      | classifies the diff into `code` / `images` / `terraform` / `e2e` / `helm` / `observ` / `perf`                                                                                                                                     |
+| `lint-typecheck`   | `code`      | lint, format, typecheck, generated-file drift                                                                                                                                                                                     |
+| `unit`             | `code`      | `pnpm test` with Postgres, then migrate + seed                                                                                                                                                                                    |
+| `contract`         | `code`      | `pnpm test:contract` against Prism                                                                                                                                                                                                |
+| `perf-app`         | `perf`      | one entry per storefront in `perf_apps`: build its workspace deps, Prism on 127.0.0.1:4010, `pnpm --filter <storefront> perf` (its own bundle budget + Lighthouse, exit 1 if either is over)                                      |
+| `perf`             | always      | the required check: green only if the classifier succeeded and every `perf-app` entry passed; says so when no storefront changed                                                                                                  |
+| `images`           | `images`    | builds all six images through bake, then `smoke-images.sh`. Never pushes                                                                                                                                                          |
+| `auth-e2e`         | `e2e`       | Keycloak (both realms), OpenFGA, Redis and Postgres from compose; the live auth suites; a real `apps/core` boot; `apps/*` journeys on Prism, `apps/storefronts/*` on the kept core (below)                                        |
+| `admin-e2e-core`   | `e2e`       | **advisory** (#285): `fga:seed`, a kept core with real Keycloak tokens and OpenFGA (no dev tokens), then `apps/admin` journeys with `E2E_API=core` on :3200                                                                       |
+| `helm`             | `helm`      | `infra/helm/check.sh` (lint, render every app/env, kubeconform, then `check-values.sh`); `check-values.test.sh`; `node --test infra/deploy/keycloak/derive-customers-realm.test.mjs` (the derived customers realm)                |
+| `dependency-audit` | always      | **advisory** (#730): `pnpm audit --prod` (pnpm 10.34.5) → `infra/ci/audit-gate.mjs`, fails on a high/critical production advisory not on `infra/security/audit-allowlist.json` or past its entry's expiry; stale entries reported |
+| `terraform`        | `terraform` | `infra/terraform/check.sh`                                                                                                                                                                                                        |
+| `preview`          | PRs         | placeholder until 2.4b                                                                                                                                                                                                            |
 
 **`perf` is a gate, not a report** (#257, #283). For each storefront it measures, `scripts/perf.mjs` runs that
 storefront's own bundle budget and Lighthouse CI against its own `lighthouserc.json`, and exits non-zero if either is
@@ -650,6 +677,23 @@ own database by `infra/load/run.sh`, with Postgres sampled throughout and a Mark
 a laptop or as **load (manual)** (`.github/workflows/load.yml`, `workflow_dispatch` only — never on a pull
 request). Reports worth keeping are committed under `infra/load/reports/`. Details: `infra/load/README.md`.
 
+## Backup and restore drill (manual, #741)
+
+`node infra/dr/drill.mjs all` backs up the shared dev stack's state and restores it into a FRESH stack
+(`infra/dr/docker-compose.drill.yml`, project `commerce-dr`, ports 25433 / 28123 / 28180 / 28081, its own volumes).
+It then checks the restore against the backup's manifest, records RTO and RPO, and always runs `down -v`.
+
+- **What it backs up:** Postgres (`pg_dump -Fc` in a snapshot it holds, plus the roles), ClickHouse (DDL + Native
+  data per table), the Keycloak realms (partial export plus the realm files' users), and OpenFGA (model + tuples).
+- **What it checks:** row counts per table and per store, content checksums, ClickHouse events per topic, a staff
+  login, and one allowed and one denied permission check.
+- **What it never does:** stop or write the shared stack. It only reads it, plus two temp files in its containers'
+  `/tmp`, removed afterwards. Backups go to `DR_BACKUP_DIR`, outside git.
+
+The procedure, the measured numbers and the launch-checklist lines are in `infra/dr/RUNBOOK.md`. The drill's
+safety parts (its own project, ports and volumes; the restore order; the manifest diff) are self-tested in the
+`changes` job.
+
 ## Deploying staging
 
 `.github/workflows/deploy-staging.yml`, on every push to `main` and on demand. It builds the three app images
@@ -696,31 +740,29 @@ core includes its PreSync migration Job having succeeded.
 
 ## Branch protection
 
-Required status checks on `main`, by job name:
+**Required status checks on `main` — what GitHub actually enforces** (read from the branch-protection API on
+2026-11-06, `repos/…/branches/main/protection/required_status_checks`):
 
 ```
 ownership check
-what changed
 lint + typecheck
 unit tests (with Postgres, RLS)
 contract tests (Prism)
+secret scan (gitleaks)
 storefront performance budget (bundle + Lighthouse)
-app images (build only, no push)
-terraform fmt + validate
-helm lint + template + kubeconform
-live auth + end-to-end (Keycloak, OpenFGA, Playwright)
 ```
 
-Set on GitHub under _Settings → Branches → main_: require a pull request, require these checks, and require
-branches to be up to date before merging.
+Set on GitHub under _Settings → Branches → main_ (the owner's setting, not something a PR can change): a pull
+request is required, these checks must pass, and force-pushes to `main` are blocked. Re-read the list from the API
+before quoting it; this README is not the source of truth for a repository setting.
 
-**Applied.** The repository is public, so branch protection is available and on: a pull request is required,
-these checks must pass, and force-pushes to `main` are blocked.
-
-The five checks GitHub actually enforces are a subset of the jobs — `ownership check`, `lint + typecheck`,
-`unit tests (with Postgres, RLS)`, `contract tests (Prism)` and `secret scan (gitleaks)`. The rest
-(`app images`, `helm`, `terraform`, `observability`, `live auth + end-to-end`) run on every PR and are read by
-a human; requiring all of them would make a slow job able to block an unrelated merge.
+**Everything else runs on every PR but is read by a human, not enforced** — among them `what changed`,
+`app images`, `terraform`, `helm`, `observability config`, `admin e2e against the core (advisory)` and
+**`live auth + end-to-end (Keycloak, OpenFGA, Playwright)`**. Earlier versions of this README called the live job
+required; it is not. Plan Phase 6 D6 (`docs/plan/phase6-plan.md`): it becomes a required check once it has 10
+consecutive green runs on `main`, and adding it is the owner's branch-protection change. Until then the merge queue
+can merge before it finishes, so a PR whose proof lives in that job (money, ingest, PII, leak, metrics p95) quotes
+its live runs in the body.
 
 When protection is enabled, `deploy-staging.yml` needs a **bypass allowance** — it pushes the deployed image
 tag to `main`. Add `github-actions[bot]` to the bypass list for the rule. Without it the workflow fails on the
@@ -729,15 +771,13 @@ push with a message pointing here, rather than silently leaving git and the clus
 Two things worth knowing about that list:
 
 - **Every job always runs**, even when it has nothing to do — its expensive steps are skipped instead. That is
-  what makes this list safe to require: a job skipped by a job-level `if:` reports a conclusion branch
+  what makes any job safe to require: a job skipped by a job-level `if:` reports a conclusion branch
   protection treats differently from success, and a required check that never reports blocks the PR forever.
-- **`live auth + end-to-end` is required deliberately**, per the manager's note on [auth] 1.7. It is the only
-  check that exercises the real realms and a real browser; the unit matrix covers the same behaviour but not
-  the path through Keycloak.
+- **The perf check that is required is the aggregator** (`storefront performance budget (bundle + Lighthouse)`),
+  not the per-storefront matrix legs, whose names change with the storefronts.
 
-`admin e2e against the core (advisory)` is intentionally **not** required yet (#285): the Prism variant inside
-`live auth + end-to-end` stays the gate, and the core variant joins the list after a week of green runs, so a
-core regression is visible on every PR without blocking unrelated merges in the meantime.
+`admin e2e against the core (advisory)` is intentionally **not** required yet (#285): it joins the list after a week
+of green runs, so a core regression is visible on every PR without blocking unrelated merges in the meantime.
 
 `preview deploy (placeholder)` is intentionally **not** required — it is a placeholder that will become the
 per-PR preview environment.

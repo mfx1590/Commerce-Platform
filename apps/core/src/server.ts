@@ -18,11 +18,18 @@ import {
   customerTokenVerifierFor,
   composeStaffTokenVerifier,
   contractsVersionHeader,
+  coreOrganizationId,
   DEV_TOKENS_FLAG,
   devTokensEnabled,
   DevTokenVerifier,
   hqRbacAdapter,
   KeycloakStaffTokenVerifier,
+  loadSpec,
+  rateLimitConfigFromEnv,
+  rateLimitMiddleware,
+  redisRateLimitStore,
+  type RateLimitConfig,
+  type RateLimitStore,
   moduleAdminRouters,
   moduleStoreRouters,
   moduleWebhookRouters,
@@ -38,7 +45,16 @@ import {
 import { openFgaStoreRegistrar } from './http/store-registrar';
 import type { StoreRegistrar } from './modules/registry';
 import { formatReport, verifyBootstrap } from './bootstrap';
-import { closePool, initDb } from './lib/db';
+import { closePool, initDb, organizationClient } from './lib/db';
+import {
+  compileRouteMatcher,
+  knownStoreSet,
+  startTelemetry,
+  telemetryActive,
+  telemetryMiddleware,
+  type KnownStores,
+  type RouteMatcher,
+} from './telemetry';
 import { registerModuleSeams } from './wiring';
 
 export interface CoreServer {
@@ -89,6 +105,24 @@ export interface CoreMiddlewareOptions {
    * Default: `@platform/auth-sdk`'s `verifyCustomerToken`.
    */
   customerTokenVerifier?: CustomerTokenVerifier;
+  /**
+   * Telemetry (#729): the stores an Admin API `{storeId}` may be labelled with. createServer() passes the
+   * registry's stores; the default labels every admin request `none`. Unused unless `startTelemetry` registered.
+   */
+  knownStores?: KnownStores;
+  /**
+   * Store API rate limits (#742, src/http/rate-limit.ts). createServer() passes the Redis store with the limits from
+   * the environment (unless CORE_RATE_LIMIT=off); the default is NONE, so module and HTTP tests are never limited.
+   */
+  rateLimit?: { store: RateLimitStore; config: RateLimitConfig };
+}
+
+/** The http.route values: every path of the Store and Admin API contracts. */
+export function contractRouteMatcher(): RouteMatcher {
+  return compileRouteMatcher([
+    ...Object.keys(loadSpec('store-api.yaml').doc.paths),
+    ...Object.keys(loadSpec('admin-api.yaml').doc.paths),
+  ]);
 }
 
 /** The staff auth src/server.ts runs: real Keycloak tokens by default, `dev:` tokens only with CORE_DEV_TOKENS=1. */
@@ -174,6 +208,16 @@ export function mountCoreMiddleware(
   const storeRegistrar = opts.storeRegistrar ?? openFgaStoreRegistrar(fga);
 
   app.use(requestIdMiddleware);
+  // Telemetry (#729): the SERVER span and RED metrics, before everything else so the auth chain and the handlers run
+  // in the span's context. A pass-through unless startTelemetry() registered providers (never in tests).
+  if (telemetryActive()) {
+    app.use(
+      telemetryMiddleware({
+        routes: contractRouteMatcher(),
+        ...(opts.knownStores ? { knownStores: opts.knownStores } : {}),
+      }),
+    );
+  }
 
   // Liveness probe: answers before any session/auth middleware, no database round trip. The body stays the bare
   // `OK`; the contracts version travels as a header (#284).
@@ -185,6 +229,9 @@ export function mountCoreMiddleware(
   app.use(aliasPublishableKeyHeader);
   // Store API: 401 without a valid X-Publishable-Key; req.tenant otherwise (ADR 0001).
   app.use('/store', storeContextMiddleware);
+  // Rate limits (#742): after the tenant (an unknown key is a 401 and costs no Redis call), before every Store API
+  // route — so before body parsing and customer-token verification. 429 `rate_limited` + Retry-After; fail-open.
+  if (opts.rateLimit) app.use('/store', rateLimitMiddleware(opts.rateLimit));
   // The Store API routes window 1 owns (contracts store-api.yaml: GET /store, /store/categories,
   // /store/products, /store/products/{handle}) answer here, ahead of Medusa's own routes of the same paths and
   // of its publishable-key gate — our tenant middleware is the contract's key check.
@@ -225,6 +272,17 @@ export async function createServer(opts: CreateServerOptions = {}): Promise<Core
   const directory = opts.directory ?? path.resolve(__dirname, '..');
   // Loads the repo-root .env (medusa-config.ts reads process.env only) and opens our platform_app pool.
   await initDb({ startDir: directory });
+  // OpenTelemetry (#729): only with an OTLP endpoint in the standard OTEL_* environment; one warning if the
+  // collector is absent, never a failed boot.
+  const telemetry = startTelemetry();
+  const knownStores = telemetry.enabled
+    ? knownStoreSet(async () => {
+        const { rows } = await organizationClient({ organizationId: coreOrganizationId() }).query<{
+          id: string;
+        }>('SELECT id FROM store');
+        return rows.map((r) => r.id);
+      })
+    : undefined;
   // Payments, carrier rates, price lists: other modules' implementations behind our seams (src/wiring.ts).
   registerModuleSeams();
   // Readiness (issue #8): migrations + seed/onboarding present, every store resolvable, Medusa schema migrated.
@@ -244,6 +302,12 @@ export async function createServer(opts: CreateServerOptions = {}): Promise<Core
       `[core] store api fallback: unhandled /store/* requests go to ${storeApiFallbackUrl}`,
     );
   }
+  const rateLimitConfig = rateLimitConfigFromEnv();
+  const rateLimit = rateLimitConfig
+    ? { store: redisRateLimitStore(), config: rateLimitConfig }
+    : undefined;
+  if (!rateLimit)
+    console.warn('[core] rate limit: CORE_RATE_LIMIT=off, the Store API is not rate limited');
   const app = express();
   if (opts.staffTokenVerifier) {
     mountCoreMiddleware(app, opts.staffTokenVerifier, {
@@ -251,6 +315,8 @@ export async function createServer(opts: CreateServerOptions = {}): Promise<Core
       storeRouters: moduleStoreRouters(),
       webhookRouters: moduleWebhookRouters(),
       ...(storeApiFallbackUrl ? { storeApiFallbackUrl } : {}),
+      ...(knownStores ? { knownStores } : {}),
+      ...(rateLimit ? { rateLimit } : {}),
     });
   } else {
     const auth = buildStaffAuth();
@@ -261,6 +327,8 @@ export async function createServer(opts: CreateServerOptions = {}): Promise<Core
       storeRouters: moduleStoreRouters(),
       webhookRouters: moduleWebhookRouters(),
       ...(storeApiFallbackUrl ? { storeApiFallbackUrl } : {}),
+      ...(knownStores ? { knownStores } : {}),
+      ...(rateLimit ? { rateLimit } : {}),
     });
   }
   // #265: an /admin path none of the routers above answered is the contract's 404 — decided here, before
@@ -276,6 +344,8 @@ export async function createServer(opts: CreateServerOptions = {}): Promise<Core
     logger,
     shutdown: async () => {
       await shutdown();
+      await telemetry.shutdown();
+      await rateLimit?.store.close?.();
       await closePool();
     },
   };

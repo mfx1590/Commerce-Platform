@@ -24,6 +24,7 @@ const STATUS: Record<ErrorCode, number> = {
   ai_unavailable: 502,
   ai_invalid_draft: 502,
   ai_tool_limit: 422,
+  rate_limited: 429,
 };
 
 /**

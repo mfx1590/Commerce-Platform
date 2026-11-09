@@ -46,6 +46,10 @@ expect violation unknown/phase1    README.md
 expect ok        core/phase1       .claude/CLAUDE.local.md
 expect ok        storefront/phase1 pnpm-lock.yaml apps/storefront-starter/package.json
 expect violation storefront/phase1 package.json
+expect ok        dependabot/npm_and_yarn/next-15.5.26 apps/admin/package.json pnpm-lock.yaml package.json   # #730: dependency bumps only
+expect ok        dependabot/docker/apps/core/node-22 apps/core/Dockerfile
+expect ok        dependabot/github_actions/actions/checkout-5 .github/workflows/ci.yml
+expect violation dependabot/npm_and_yarn/next-15.5.26 apps/admin/src/app/page.tsx
 
 echo "check-ownership self-test: $pass passed, $fail failed"
 [ $fail -eq 0 ]
