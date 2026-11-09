@@ -318,7 +318,7 @@ when every check has finished.
 
 ## In progress — #739 · brand A's thin LCP margin (2026-11-09)
 
-**PR #765** (`brands/phase6-739`), **"Refs #739", not Closes** — it removes 55% of the font bytes and
+**PR #765** (code commit `5631640b`; head = the memory commit after it), **"Refs #739", not Closes** — it removes 55% of the font bytes and
 is still over the worst-run budget. Two messages owed: PR up (sent), checks finished.
 
 ### The diagnosis, which took the whole first half and was worth it
