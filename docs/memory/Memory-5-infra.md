@@ -2,7 +2,7 @@
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
 Last updated: 2026-11-09 · Contracts: `contracts-v0.1` · Branch: `infra/phase6-relay-slo` · Worktree: `../wt-infra` · Manager: **Manager session eleven** (repo-root manager; chain in Memory-main's first bullet)
-Status: **Phase 6, relay SLO + absent alert + Dependabot ignores** (manager, 2026-11-09): built on `infra/phase6-relay-slo`; PR up next, then CI.
+Status: **#756 (relay SLO) green, waiting for review.** Then the Dependabot regroup PR (manager addendum 2026-11-09), stacked on #756 (branch infra/phase6-dependabot-groups, PR base = infra/phase6-relay-slo).
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -113,6 +113,17 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
+- **Dependabot regroup (2026-11-09).** The breaking packages, from the logs:
+  - #743 actions: docker/bake-action 5→7. v6+ uses the Git context, so `workdir: infra/docker` stops applying
+    ("lstat docker-compose.build.yml"). Fix later: `source: .` in ci.yml and deploy-staging.yml.
+  - #747 dev: @playwright/test, autoprefixer, postcss. brand-a test/sync-merge.test.ts asserts package.json ==
+    merge(starter-manifest); Dependabot edits package.json, not the manifest.
+  - #755 prod: @medusajs/* 2.22.3 (cli → execa 10.2.1, engines node>=22: medusa build "TEXT_ENCODINGS.union is
+    not a function" = Set.prototype.union; db:migrate "No exports main" in unicorn-magic; TS2345 in
+    db-medusa-migrate.ts), plus the brand-synced react, react-dom, next-intl, @stripe/*, @types/react*.
+    turbo stops at the first failure, so other breakages may be masked; the regrouped PRs' CI is the real test.
+  The config excludes the 19 starter-manifest packages + @medusajs/* from both npm groups, ignores
+  @medusajs/* >= 2.22.0, and ignores bake-action majors. NO YAML anchors (GitHub's parser may not take them).
 - **Relay SLO live + `SLOAbsent_outbox_relay_lag` + Dependabot ignores (2026-11-09).** SLO.md uses window 14's
   wording for #733's gauge; the core rows are marked live (#729 merged). The alert is `absent()` with `for: 5m`, on
   top of the collector's prometheus exporter `metric_expiration` (default 5m), so it pages ~10 min after the relay

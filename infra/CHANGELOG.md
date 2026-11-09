@@ -4,6 +4,13 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 6
 
+### Changed (Dependabot regrouped after the red groups #743, #747, #755)
+
+- The npm groups exclude the storefront starter manifest's 19 packages and `@medusajs/*` (brand-a's sync-merge test:
+  Dependabot edits the brands' `package.json` but not their manifest). `@medusajs/*` >= 2.22 is ignored (it needs Node
+  22: execa 10). `docker/bake-action` majors are ignored (v6+ builds from the Git context; `workdir` stops
+  applying).
+
 ### Changed (relay SLO is live; Dependabot ignores)
 
 - `infra/observability/SLO.md`: the relay-lag SLI reads the real gauge (#733, #751), in window 14's wording; the core's
