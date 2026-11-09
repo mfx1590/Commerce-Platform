@@ -316,7 +316,68 @@ when every check has finished.
 - Budget: **manager + two build slots**, one of which is mine. (CLAUDE.md still says one window;
   the owner's instruction is the current one.)
 
-## In progress — nothing. #728 is MERGED; idle until wave 2 (2026-11-06)
+## In progress — #739 · brand A's thin LCP margin (2026-11-09)
+
+**PR #765** (`brands/phase6-739`), **"Refs #739", not Closes** — it removes 55% of the font bytes and
+is still over the worst-run budget. Two messages owed: PR up (sent), checks finished.
+
+### The diagnosis, which took the whole first half and was worth it
+
+Brand A was passing 2500 ms only on the gate's **best of five** (3 of 5 CI runs at 2711-2719). Done
+from **#738's CI artifacts via `gh run download`** — no machine, and CI's own evidence rather than a
+laptop's, which is the lesson from #728 where my laptop pointed me at the wrong brand.
+
+- **LCP element is TEXT** (the same synced `<h1>` in A, B and C) and its phase table reads
+  **Load Delay 0%, Load Time 0%** — so no resource load gates it. All of the A-vs-C gap is **render
+  delay, +444 ms**.
+- Brand A loads **exactly two things** B and C do not: its faces, **90.6 kB** (the whole request
+  difference, 23 req / 262 kB vs 21 / 171 kB).
+- **`90.6 kB x 8 / 1600 kbps` = 453 ms** against the observed 444. Nine ms apart.
+- Ruled out, not assumed: TTFB (458/461), main-thread (A *lower*), bootup, CSS (1 kB), images, rails.
+
+**So the cost is BYTES contending for simulated bandwidth, not the `swap` repaint** — which killed
+the fix I walked in expecting. `display: 'optional'` removes no bytes **and** breaks
+`e2e/visual.spec.ts`, which awaits `document.fonts.ready` on purpose.
+
+### The three-column table (same machine, 5 runs each)
+
+| | before 90.6 kB | after 40.4 kB | ceiling 0 kB |
+| --- | --- | --- | --- |
+| PLP worst | 2674 | **2539** | 2163 |
+| PDP worst | 2752 | **2582** | 2233 |
+
+**Byte-to-ms is SUB-LINEAR**: bytes predicted 257 ms, delivered 135-170. So more subsetting has
+diminishing returns — measured the next cut too (drop the Latin-1 floor: 40.4 -> 26.1 kB, ~45 ms
+real) and refused it: product names come from the Store API, so it would tofu the first "Café".
+
+**The structural finding, moved starter-side by the manager:** the no-font ceiling is 2163/2233, so
+**brand A is within ~300 ms of budget before it loads a single brand byte** (brand C's CI worst is
+2008). A worst-run 2500 is not reachable with the pairing; the shared `h1` render delay is ~1.4 s in
+CI for every brand.
+
+### What shipped
+
+`src/brand/fonts/*.woff2` are **generated** by `scripts/build-fonts.mjs` from OFL variable sources in
+`src/brand/fonts/source/`. Serif **pinned to wght 500** (theme.css sets h1-h4 at medium, nothing else
+uses it): 56.7 -> 20.9 kB. Sans **trimmed to 400-700** (`packages/ui` defines 400/500/600/700, the
+starter renders all four, **nothing asks for 300**): 33.9 -> 19.5 kB. Pairing untouched; budget not
+widened (#348).
+
+**The charset is derived and the derivation caught two things a list misses:** the catalogue scan
+found **U+201E** (de-DE opens quotations with it); asking **`Intl`** what brand A's locales + its
+**seeded** currency emit found **U+20AC**, which is in *no committed string* because prices are
+formatted at runtime — catalogue-only subsetting would have tofu'd **every price on every product
+page**. Locales from `next.config.mjs`, currency from `packages/db`'s seed.
+
+`subset-font@2.9.0` (BSD-3, harfbuzz-wasm, **no install scripts**, exact version; survives re-syncs
+because `merge-package-json.mjs` keeps brand-only keys). `fonts/README.md` holds the hashes, tool
+version and OFL. **`test/brand-fonts.test.ts` (13 tests) rebuilds and compares hashes — proved by
+swapping one binary for the other**, which fails naming the file.
+
+Gate: lint, format:check, typecheck 29/29, brand A **848** / 3 skipped (835 before), B **734**,
+C **656**, sync --check clean x3.
+
+## (kept for the trail) #728 is MERGED; idle until wave 2 (2026-11-06)
 
 **Next, when the manager hands out wave 2: #739** — brand A's PDP LCP. See the Done entry above for
 the CI numbers and for why I measured the wrong brand. Acceptance is **the worst run under budget**,
