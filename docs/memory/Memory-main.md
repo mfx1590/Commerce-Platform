@@ -35,7 +35,9 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
     - window 10 → #739;
     - manager → #737 via an agent on integration/phase6-737 (../wt-contracts), with Fable review.
     - Closed the Dependabot majors #748 (sdk-trace 3), #749 (@types/node 26) and #750 (react-table 9), with reasons.
-    - Window 4's fresh session is STILL NOT opened (the next CRITICAL expires 11-20).
+    - Window 4's fresh session was OPENED by the owner 11-09: `local_ba04edc7-bf7c-44ae-b99c-d04db21bcf7c` ("Window 4 Admin security: dependencies and headers", Opus 5.5; the start message from chat 11-09; Fable review).
+    - #756 MERGED f545f649 (the relay SLO + absent() alert + Dependabot major ignores). #757 (the Dependabot regroup) is retargeted to main; window 5 is adding a medusa group and ignoring the 19 starter-manifest packages, plus a REQUEST to window 10. #739 decision: reproducible font subsetting from the committed OFL files (Newsreader wght 500 + per-locale subset), keep the pairing; window 10 holds the machine.
+    - New follow-ups on #731: the Node 22 move (Medusa 2.22+ needs it), bake-action v7, a dependency path for the starter-synced packages.
     - The loop is running.
   - **OWNER IDEA 2026-11-07, PARKED until the app is complete (do not start):**
     - (1) A Higgsfield integration inside the platform to generate product ad content (images and video per product, for ads).
