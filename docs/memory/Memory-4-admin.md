@@ -557,6 +557,22 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **Phase 6 security — STATUS 2026-11-09 (session after the brief below).** Merged main f545f649,
+  install + packages + cms built. BUILT, local, unpushed: **6c5145b1** deps (next ^15.5.28, zod
+  ^4.6.6; lock resolves next 15.5.28, sharp 0.35.5, zod 4.6.7 deduped for every consumer) and
+  **adf49924** headers (src/lib/security/{csp.ts,static-headers.mjs,index.ts}; middleware sets the
+  nonce CSP, /auth/error now matched + public; root layout `await connection()`; next.config
+  headers() + poweredByHeader false; test/security-headers.test.ts 15; e2e/csp.spec.ts).
+  Audit (root `pnpm audit --prod --json`, apps__admin paths — pnpm 10 has no audit --filter):
+  before 1 crit / 6 high / 4 mod, after 0 / 3 / 2 (postcss 8.4.31 + source-map-js, pinned exactly
+  by next → manager's root override). Allow-list NOT edited: infra/** is window 5's (ownership
+  check refuses it) and no entry is stale — next GHSA-2464/p3m5 + sharp still via
+  apps/storefront-starter (next 15.5.25, window 3), zod via core 4.2.0. All told to the manager.
+  eslint-config-next is not a dependency anywhere. Gate: unit 1017/1017 (--maxWorkers=4), lint,
+  typecheck, ownership OK. Manager APPROVED design + no allow-list edits (window 3 bumps the starter). Draft PR first; machine
+  after window 10 (build, mock e2e incl. csp.spec,
+  bundle). Next: run → push -u → PR "Refs #731" → message manager (PR + head), then checks.
+  Decision for review: connect-src 'self' only (the browser never calls the core).
 - **NEXT SESSION STARTS HERE — Phase 6 SECURITY task (priority), 2026-11-06.** Manager is now **"Manager
   session eleven"** (local_3be8fff4-518f-456e-b5ad-b3d6844bc9fe); report there. Phase 6 plan:
   docs/plan/phase6-plan.md, tracking #731; the audit finding is window 5's #730. The previous session
