@@ -557,6 +557,20 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **PR #763 (Phase 6 security) — machine run 2026-11-09, READY for Fable review.** Machine handed over
+  by the manager and freed after. Build OK, every route ƒ (main had only /_not-found static).
+  Mock e2e csp + store-admin + copy-draft + rail: 25 passed / 2 skipped (owner + core-only). The
+  csp spec CAUGHT a real violation: zod 4's Function("") JIT probe at schema construction →
+  **60231978** `src/instrumentation-client.ts` presets `globalThis.__zod_globalConfig.jitless` (importing
+  `config` from zod/v4/core cost ~3.5 kB on every first load; the preset ~60 B), pinned by
+  test/zod-jitless.test.ts (child-process control; mutation-checked). Bundle vs origin/main
+  (scratch worktree build): shared 102 → 103 kB, middleware 34.2 → 35 kB, +1 kB on 32 routes, +2-3 kB
+  on 15 form pages (likely zod 4.5 → 4.6 + next 15.5.28; not split out). Unit 1019/1019. Shared
+  mock-admin container on :4011 serves the root checkout's spec (cmp identical) — reused.
+  Next: manager's "checks finished" message, then hold all pushes until the merge.
+  **Gotchas:** `git worktree remove` of a scratch worktree with node_modules fails "Filename too
+  long" AFTER deregistering it; delete with `rd /s /q "\?<path>"` (no prune needed). zod caches
+  natively across vi.resetModules(), so a before/after zod test needs a child process.
 - **Phase 6 security — STATUS 2026-11-09 (session after the brief below).** Merged main f545f649,
   install + packages + cms built. BUILT, local, unpushed: **6c5145b1** deps (next ^15.5.28, zod
   ^4.6.6; lock resolves next 15.5.28, sharp 0.35.5, zod 4.6.7 deduped for every consumer) and
