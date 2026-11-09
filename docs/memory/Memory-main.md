@@ -30,6 +30,13 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
     5. The Dependabot PRs #743, #746-#750 (two majors: sdk-trace 3.0, @types/node 26): review one by one; the production group may overlap the overrides.
     6. The cost model + cloud target with the owner (D7).
     7. Wave 3: brand D onboarding.
+  - **UPDATE 11-09 (owner: "go ahead"):**
+    - window 5 → the relay SLO.md entry + an `absent()` alert + Dependabot ignore rules, then the triage of the RED grouped Dependabot PRs #743/#747/#755 (find the breaking packages, exclude them in dependabot.yml);
+    - window 10 → #739;
+    - manager → #737 via an agent on integration/phase6-737 (../wt-contracts), with Fable review.
+    - Closed the Dependabot majors #748 (sdk-trace 3), #749 (@types/node 26) and #750 (react-table 9), with reasons.
+    - Window 4's fresh session is STILL NOT opened (the next CRITICAL expires 11-20).
+    - The loop is running.
   - **OWNER IDEA 2026-11-07, PARKED until the app is complete (do not start):**
     - (1) A Higgsfield integration inside the platform to generate product ad content (images and video per product, for ads).
     - (2) A platform MCP server (`apps/mcp`: a thin layer over the permission-scoped Admin API, metrics, reports and the AI gateway; per-user Keycloak OAuth, so each Claude user has their own staff permissions; read-only first, writes later with human confirmation) so Claude can drive everything.
