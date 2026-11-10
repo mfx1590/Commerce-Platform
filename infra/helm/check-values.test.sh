@@ -52,6 +52,14 @@ case_ 'dev: the seeded dev key is fine'                        pass "grep -q 'pk
 
 # Each brand's own storefront values get the same SITE_URL rule as the starter's (#439).
 case_ 'brand B staging: SITE_URL on another host'             fail "sed -i 's#https://brand-b.staging.example.com#https://shop.staging.example.com#' storefront-brand-b/values-staging.yaml"
+# The analytics ingest: one replica, Recreate, no HPA (#647). The sed ranges stay inside one block, because the
+# ingress block also holds `enabled: false`; the last case shows that ingress line does not count.
+case_ 'ingest: replicaCount 2'                                 fail "sed -i 's/^replicaCount: 1/replicaCount: 2/' analytics-ingest/values-staging.yaml"
+case_ 'ingest: replicaCount missing (chart default 2)'         fail "sed -i '/^replicaCount:/d' analytics-ingest/values-dev.yaml"
+case_ 'ingest: autoscaling enabled'                            fail "sed -i '/^autoscaling:/,/^[a-z]/ s/enabled: false/enabled: true/' analytics-ingest/values-staging.yaml"
+case_ 'ingest: strategy RollingUpdate'                         fail "sed -i 's/type: Recreate/type: RollingUpdate/' analytics-ingest/values-staging.yaml"
+case_ 'ingest: strategy missing (chart default RollingUpdate)' fail "sed -i '/^strategy:/,+1d' analytics-ingest/values-dev.yaml"
+case_ 'ingest: only ingress says enabled: false'               fail "sed -i '/^autoscaling:/,+1d' analytics-ingest/values-staging.yaml"
 if [ "$fail" -ne 0 ]; then
   echo '== check-values.sh self-test FAILED'
   exit 1

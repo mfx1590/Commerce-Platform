@@ -70,6 +70,36 @@ for values in "$VALUES"/*/values-*.yaml; do
   fi
 done
 
+# The analytics ingest stays ONE replica, rolled out with Recreate, never autoscaled (#647; its README → "Deploying").
+# It is the single member of its consumer group: a second member (a rolling update's surge pod, an HPA replica) exits
+# on SecondReplicaError. Every analytics-ingest values file must say so in block style; a missing line fails, because
+# the chart's defaults are replicaCount 2 and RollingUpdate.
+top_block_value() { # <block> <key> <file>: the value of `<key>:` indented under the top-level `<block>:`
+  awk -v b="$1" -v k="$2:" '
+    $0 ~ ("^" b ":[[:space:]]*$") { inb = 1; next }
+    inb && /^[^[:space:]#]/ { inb = 0 }
+    inb && $1 == k { v = $2; gsub(/\047/, "", v); print v; exit }' "$3"
+}
+for values in "$VALUES"/analytics-ingest/values-*.yaml; do
+  name="analytics-ingest/$(basename "$values")"
+  replicas="$(sed -n -E 's/^replicaCount:[[:space:]]*([0-9]+).*/\1/p' "$values")"
+  hpa="$(top_block_value autoscaling enabled "$values")"
+  strategy="$(top_block_value strategy type "$values")"
+  echo "== $name: replicaCount=${replicas:-<unset>} autoscaling.enabled=${hpa:-<unset>} strategy.type=${strategy:-<unset>}"
+  if [ "$replicas" != 1 ]; then
+    echo "FAIL $name: replicaCount must be 1 (one consumer-group member)"
+    fail=1
+  fi
+  if [ "$hpa" != false ]; then
+    echo "FAIL $name: autoscaling.enabled must be false"
+    fail=1
+  fi
+  if [ "$strategy" != Recreate ]; then
+    echo "FAIL $name: strategy.type must be Recreate (a surge pod exits on SecondReplicaError)"
+    fail=1
+  fi
+done
+
 if [ "$fail" -ne 0 ]; then
   echo "== values checks FAILED ($VALUES)"
   exit 1

@@ -152,6 +152,15 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U platform -d platform"
           --health-interval 5s --health-timeout 3s --health-retries 20
+      # #745: the Redis halves of the rate limits (the core's Store API token bucket, #742; the AI gateway's limiter,
+      # #605/#669). Host port 6381, as in the compose stack, so packages/ai's limiter test reaches it through its
+      # default URL and no job-wide REDIS_URL changes what any other test does.
+      redis:
+        image: redis:7-alpine
+        ports: ['6381:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
     steps:
       - uses: actions/checkout@v7
         if: needs.changes.outputs.code == 'true'
@@ -173,6 +182,22 @@ jobs:
         if: needs.changes.outputs.code == 'true'
       - run: pnpm test
         if: needs.changes.outputs.code == 'true'
+      # Both Redis blocks skip themselves when no Redis answers, and inside `pnpm test` they cannot see one:
+      # turbo's strict env mode passes a task only the env turbo.json declares (CORE_TEST_REDIS_URL is not), and a
+      # cache hit replays an earlier run's output. So they run here, directly, and require-live-tests fails the
+      # step unless every test under each named block PASSED: skipped, todo or missing is a failure (#745).
+      - name: the Redis rate limits (core token bucket, AI limiter) — and they really ran
+        if: needs.changes.outputs.code == 'true'
+        env:
+          CORE_TEST_REDIS_URL: redis://127.0.0.1:6381
+        run: |
+          pnpm --filter @platform/core exec vitest run src/http/rate-limit.redis.test.ts \
+            --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/core-redis.json"
+          node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/core-redis.json" 'the Redis token bucket (#742)'
+          pnpm --filter @platform/ai exec vitest run test/limiter.test.ts \
+            --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/ai-redis.json"
+          node infra/ci/require-live-tests.mjs "$RUNNER_TEMP/ai-redis.json" \
+            'Redis limiter (local Redis, prefixed keys, self-cleaning)' 'Redis key layout (#669)'
       - name: migrate + seed against a fresh database (smoke)
         if: needs.changes.outputs.code == 'true'
         run: pnpm db:migrate && pnpm db:seed

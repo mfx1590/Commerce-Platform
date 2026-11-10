@@ -2,7 +2,7 @@
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
 Last updated: 2026-11-10 · Contracts: `contracts-v0.1` · Branch: `infra/phase6-bake-v7` · Worktree: `../wt-infra` · Manager: **Manager session twelve** (repo-root manager; chain in Memory-main's first bullet)
-Status: **#772 (#745 Redis in unit) on its three runs; #773 (#647) green, in review; #439 built on infra/phase6-439-lists (a+b+c approved; d stays with #342).**
+Status: **2026-11-10, Manager session twelve.** #767, #772 and #773 MERGED. #776 (#439): three green runs on 674e8caa, then main merged (docs-only conflicts, one green run on the new head per the manager's ruling). NEXT: 'service images hygiene' (item 1 is a FALSE finding: notifications DOES serve GET /health on $PORT=9005, see src/main.ts listen + src/server.ts; TZ=UTC in every image + a check; the check-image-lists header; Memory names #776), then PROPOSE the scheduled k6 SLO regression before building.
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -35,6 +35,8 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   cherry-picked: checkout 7, setup-node 7, pnpm 6, cache 6, …), c1705131 (v7 + `source: .`; its run 1 failed: v7 has
   no `workdir`), 58e95293 (bake runs from the repo root; docker-bake.hcl's BAKE_CONTEXT, default `../..`). Three green
   runs on 58e95293 (run 42794052816, attempts 1-3). #759 closed as superseded. #764 closed (stale, old config).
+- **#647 = PR #773 MERGED 2026-11-10 (b5e0ca8a).** The chart's `strategy` value; analytics-ingest values (1 replica,
+  no HPA, Recreate, :9004 /health, ingress off); the check-values rule + 6 fixtures. Not deployed (no ArgoCD app).
 - **Relay SLO + down-relay alert + Dependabot ignores: PR #756 MERGED 2026-11-09 (f545f649).**
 - **Dependabot regroup: PR #757 MERGED 2026-11-09 (4c4983b9).** A medusa group; Medusa >=2.22 ignored (Node 22);
   the 19 starter packages ignored (REQUEST #758, window 10); bake-action majors ignored.
@@ -120,13 +122,23 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
-- **#439 (2026-11-10), approved a+b+c past the budget.** The engagement Dockerfile (from notifications': deps/build
+- **#439 = PR #776 (2026-11-10), branch infra/phase6-439-lists, code commit 674e8caa; three green runs on it (run
+  42806080501, attempts 1-3, all 11 images smoke-tested). Approved a+b+c past the budget.** The engagement Dockerfile (from notifications': deps/build
   stages, then a worker runtime with no HEALTHCHECK and EXPOSE 4040), a compose service and bake target, terraform
   var.apps += engagement, feeds, storefront-brand-{a,b,c}, the smoke list += brand-b, brand-c, engagement, and the
   new infra/ci/check-image-lists.sh in `changes` (on main's files it fails: terraform missing 4, smoke missing 2).
   Helm values/storefront-brand-{a,b,c}; check-values' storefront rules widened to storefront*/ (+1 fixture). 16 helm
   combos pass. `app images` gains a target, so three runs on one head. Gotcha: under pipefail, `diff | sed` ended the
   list check at the first mismatch; it now uses `{ diff … || true; }`.
+- **#745 = PR #772 (2026-11-10), branch infra/phase6-745-redis-ci, code commit 57d4c0f5.** Three green runs on
+  ade369a0 (run 42804681881, attempts 1-3; the Redis step logged 3/3, 4/4, 1/1). The Opus review says MERGE; the
+  queue skipped it on Memory-5/CHANGELOG conflicts from #773, so main was merged in (one green run on that head
+  suffices: the manager's ruling for a docs-only merge of main). A redis:7-alpine service on 6381:6379 in `unit`, plus
+  a direct step running the core's rate-limit.redis.test.ts (CORE_TEST_REDIS_URL) and packages/ai limiter.test.ts,
+  pinned by require-live-tests on 'the Redis token bucket (#742)', 'Redis limiter (local Redis, prefixed keys,
+  self-cleaning)' and 'Redis key layout (#669)'. WHY direct: turbo is strict env mode (test env = DATABASE_URL* only),
+  so CORE_TEST_REDIS_URL never reaches `pnpm test`, and a turbo cache hit replays an old output. Closes controls C-31
+  and C-59 (docs/security is the manager's).
 - **Dependabot regroup (2026-11-09).** The breaking packages, from the logs:
   - #743 actions: docker/bake-action 5→7. v6+ uses the Git context, so `workdir: infra/docker` stops applying
     ("lstat docker-compose.build.yml"). DONE in #767.

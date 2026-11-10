@@ -1,6 +1,6 @@
 # Memory 10 — Brand storefronts (A, B, C…)
 Window: 10 · Key: `brands` · Branch prefix: `brands/` · Model: Sonnet
-Last updated: 2026-10-08 · Contracts: contracts-v0.4.12 · Branch: `brands/phase3` (at main 2e35674) · Status: **ALL MERGED, nothing open (2026-10-08).** #374 (#377), #372 (#379), #382 (#391), #348's change (#388), #386 (#408 = `dea7575`), #330's rendering (#411 = `f83073e`). **#348 remains reopened: its 30-leg count restarts at `f83073e`**, recorded on the issue, counted by the manager — `numberOfRuns: 5` and `maxNumericValue: 2500` must not move until it completes. REQUESTs **#389 and #390 are FIXED** (window 3). **Budget from 2026-10-08: manager + TWO build windows at a time** (was one).
+Last updated: 2026-11-10 · Contracts: contracts-v0.4.12 · Branch: `brands/phase3` (at main 2e35674) · Status: **ALL MERGED, nothing open (2026-10-08).** #374 (#377), #372 (#379), #382 (#391), #348's change (#388), #386 (#408 = `dea7575`), #330's rendering (#411 = `f83073e`). **#348 remains reopened: its 30-leg count restarts at `f83073e`**, recorded on the issue, counted by the manager — `numberOfRuns: 5` and `maxNumericValue: 2500` must not move until it completes. REQUESTs **#389 and #390 are FIXED** (window 3). **Budget from 2026-10-08: manager + TWO build windows at a time** (was one).
 
 ## Identity
 
@@ -18,6 +18,14 @@ Brands A, B and C are all on main. Current task: **#728**.
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
+
+- **#739 · brand A's font bytes and its thin LCP margin — PR #765 MERGED as `1668c90f`** (code
+  `7adab23b`; the manager's message said `5951a451`, which is a merge commit *inside* the branch, not
+  main's merge). **"Refs #739", not Closes:** 90.6 → 40.8 kB took 135–170 ms off the worst run and
+  brand A is still over 2500 on the worst run. The remainder is starter-side — the shared `h1` render
+  delay, ~1.4 s in CI for *every* brand — and the manager filed it with my numbers. The visual-suite
+  tolerance I flagged (`maxDiffPixelRatio: 0.002` absorbing a 700→500 heading change) is now
+  **#766, window 3's**.
 - **#728 · re-sync A/B/C for the #609 recommendation rails — MERGED as `7304bf03`** (PR **#738**,
   code `4efd941`). #728 closed. One preserved-file port per brand (`analyticsConsentMode` in
   `next.config.mjs`); no brand places the rail itself; brand C's own `en-US.json` brought 139 → 189
@@ -316,10 +324,72 @@ when every check has finished.
 - Budget: **manager + two build slots**, one of which is mine. (CLAUDE.md still says one window;
   the owner's instruction is the current one.)
 
-## In progress — #739 · brand A's thin LCP margin (2026-11-09)
+## In progress — #731 · the next 15.5.29 / sharp 0.35.5 re-sync (2026-11-10)
 
-**PR #765** (code commit `7adab23b` after the BLOCK fixes; first round was `5631640b`), **"Refs #739", not Closes** — it removes 55% of the font bytes and
-is still over the worst-run budget. Two messages owed: PR up (sent), checks finished.
+**PR #769**, head **`db006668`**, branch `brands/phase6-next-resync`, **"Refs #731"**. Picks up window
+3's **#760** (merged `134022bf`). Brands A, B and C: `next` `^15.5.4` → `^15.5.28` (resolves
+**15.5.29**, carries **sharp 0.35.5**), clearing GHSA-2464-fhr4-w9xw (critical, **allow-list entry
+expires 2026-11-20**), -p3m5 and -wq5f. Code-only task: **window 3 holds the machine for #762.**
+
+**The bump has to go through `scripts/sync-from-starter.mjs`.** `next` is a starter-manifest package,
+so `package.json` and `scripts/starter-manifest.json` move in one step; a hand edit of the dependency
+leaves the manifest on the old specifier and `test/sync-merge.test.ts:234` fails. #760's PR body step
+1 is wrong about this (its steps 2–4 are right) — the manager caught it before I started.
+
+Done so far: sync ×3 (239 copied / 1 merged / 10 preserved / 4 excluded, identical per brand, no
+preserved drift), non-frozen `pnpm install`, CHANGELOG line ×3, gate green (lint, format:check,
+typecheck 29/29, A **854** / B **736** / C **658** — each +2 from the starter's #620 validator-cache
+pickup — `sync --check` clean ×3, ownership clean), rebased onto `origin/main`, pushed, PR open.
+
+**Second commit `db006668`** (first `bc1784b1`; `d3b3ec74` merges main's #770/#767). Verdict was
+already **Opus MERGE** with 19/19 green on `f9737a3e`; the manager queues on green if the diff is
+only this.
+
+- **Bundle tables done, from this PR's own perf legs.** PDP **A 140.8 / B 140.6 / C 140.6** of 144,
+  cart **141.3 / 141.1 / 141.1** of 145, every route inside budget, `bundle budget PASS` ×3, no
+  budget touched.
+- **Two of my tests were failing OTHER windows' PRs.** `brand-fonts.test.ts` › "fresh build of the
+  committed sources" re-subsets both faces through harfbuzz-wasm — ~3.5 s warm, **5855 then 5884 ms
+  against vitest's default 5000** when turbo has no cache and all 29 tasks start at once (any PR
+  touching root `package.json` or the lockfile). Turbo then cancels another package's suite. Both
+  that test and the two `brand-i18n-seo.test.ts` cases rendering the real `app/[locale]/layout`
+  (5078 ms once) now carry **30 s**.
+- Brand C's README gate line 583 → 658 passed; the lockfile-churn line is in the PR body.
+
+### Three things worth keeping from this round
+
+1. **Without the machine, the bundle numbers are in the perf leg's log** — `bundle-budget` in check
+   mode prints its own figure per route (`✓ /route — 140.8 kB (budget 144 kB)`). Do **not** read
+   them off `next build`'s "First Load JS" column: the script adds every parent layout's entry
+   chunks and gzips at level 9, so it reads ~1.6 kB higher per `[locale]` route, by design. Render
+   the table by importing the brand's own `markdownTable` and then run prettier.
+2. **Prettier does not converge on a multi-line comment between a test callback and a trailing
+   timeout argument.** `--write` re-flowed my comment onto one line in the wrong order and `--check`
+   still failed; I had to restore the file and put the explanation **above** the `it(`. Check
+   `format:check`'s exit code, not its tail: `cmd | tail` returns tail's status, which is how I
+   nearly committed a mangled file after an `&& echo OK` that was never conditional on prettier.
+3. **`it.each(...)(name, fn, timeout)` does honour the third argument** — verified with a throwaway
+   probe at `timeout: 1` on both call shapes (both failed with `Test timed out in 1ms`) rather than
+   assumed, since a timeout that silently does nothing is the whole failure mode being fixed.
+
+**Brand A's LCP on this PR's leg, noted for #739's remainder and #762:** PDP five runs **2015 /
+2012 / 2008 / 2006 / 2011** — all inside 2500, where #738 had three of five at 2711–2719. PLP best
+2007, **worst 3194**, and that worst run's CPU benchmark index was **432 against ~2650** for the
+other four, i.e. a contended runner rather than a slower page. So "worst run under budget" holds on
+the PDP, not yet on the PLP, and for a reason that is probably not the app. Re-read on the next
+green run before treating it as fixed.
+
+Evidence for the done condition, in the PR body: `pnpm why next -r` → **one** version (15.5.29, five
+importers: admin, starter, A, B, C), `pnpm why sharp -r` → **one** (0.35.5). Local only: a stale
+`node_modules/.pnpm/next@15.5.25…` directory still links sharp 0.35.4 — an orphan pnpm has not
+pruned, reachable from no importer, and absent from the lockfile.
+
+**Next after this merges:** window 3's **#762** adds `experimental.inlineCss: true` to the
+**starter's** `next.config.mjs` (−187/−265 ms worst-run LCP). That file is **PRESERVED** in every
+brand, so it never arrives through a sync — it is a small hand-applied change per brand from me,
+with the brand perf legs as proof. **Wait for #762 to merge.** Then **#758**, the dependency path
+for the 19 starter-synced packages so Dependabot can bump them again. Think about #758 while CI
+runs; do not start it.
 
 ### #765 was BLOCKED, and the review was right about something I asserted
 
@@ -397,9 +467,11 @@ CI for every brand.
 ### What shipped
 
 `src/brand/fonts/*.woff2` are **generated** by `scripts/build-fonts.mjs` from OFL variable sources in
-`src/brand/fonts/source/`. Serif **pinned to wght 500** (theme.css sets h1-h4 at medium, nothing else
-uses it): 56.7 -> 20.9 kB. Sans **trimmed to 400-700** (`packages/ui` defines 400/500/600/700, the
-starter renders all four, **nothing asks for 300**): 33.9 -> 19.5 kB. Pairing untouched; budget not
+`src/brand/fonts/source/`. Serif **pinned to wght 500**: 56.7 -> 21.1 kB. (The first version of this
+line said "theme.css sets h1-h4 at medium, nothing else uses it" — that was the misreading the
+BLOCK caught: an element rule loses to `.font-bold`, so 33 headings really rendered 700/600. Medium
+is now **enforced** via `h1[class]` + `font-synthesis-weight: none`.) Sans **trimmed to 400-700** (`packages/ui` defines 400/500/600/700, the
+starter renders all four, **nothing asks for 300**): 33.9 -> 19.6 kB. Pairing untouched; budget not
 widened (#348).
 
 **The charset is derived and the derivation caught two things a list misses:** the catalogue scan
@@ -413,8 +485,9 @@ because `merge-package-json.mjs` keeps brand-only keys). `fonts/README.md` holds
 version and OFL. **`test/brand-fonts.test.ts` (13 tests) rebuilds and compares hashes — proved by
 swapping one binary for the other**, which fails naming the file.
 
-Gate: lint, format:check, typecheck 29/29, brand A **848** / 3 skipped (835 before), B **734**,
-C **656**, sync --check clean x3.
+Gate: lint, format:check, typecheck 29/29, brand A **852** / 3 skipped (835 before), B **734**,
+C **656**, sync --check clean x3. (`brand-fonts.test.ts` ended at **17** tests, not the 13 of the
+first round.)
 
 ## (kept for the trail) #728 is MERGED; idle until wave 2 (2026-11-06)
 

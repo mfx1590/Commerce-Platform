@@ -17,6 +17,29 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
   NOT deployed: ArgoCD Applications and the deploy-staging list stay with #342.
 - `docker-compose.build.yml`'s header no longer says bake must run from `infra/docker` (BAKE_CONTEXT, #767).
 
+### Added (#745: the Redis halves of the rate limits run in CI)
+
+- The `unit` job gets a `redis:7-alpine` service on host port 6381 (the compose port, so `packages/ai`'s limiter test
+  finds it by default). A new step runs `apps/core/src/http/rate-limit.redis.test.ts` (with `CORE_TEST_REDIS_URL`)
+  and `packages/ai/test/limiter.test.ts` directly, and `require-live-tests.mjs` fails it unless every test under the
+  three pinned blocks PASSED:
+  - `the Redis token bucket (#742)`;
+  - `Redis limiter (local Redis, prefixed keys, self-cleaning)`;
+  - `Redis key layout (#669)`.
+- Proven both ways locally: 8/8 with Redis; with none, vitest exits 0 (all skipped) and the pin fails. Directly, not
+  through `pnpm test`, because turbo's strict env mode would not pass `CORE_TEST_REDIS_URL`.
+
+### Added (#647: the analytics ingest's Helm values, one replica with Recreate)
+
+- `platform-app` chart: a `strategy` value, rendered into the Deployment only when set (default `{}`: Kubernetes'
+  RollingUpdate, unchanged for every app).
+- `infra/helm/values/analytics-ingest/values-{dev,staging}.yaml`: `replicaCount: 1`, `autoscaling.enabled: false`,
+  `strategy.type: Recreate`, port 9004 with `/health` for all three probes, no ingress, ClickHouse and bus settings, the
+  password and erasure key through ExternalSecrets. Not yet deployed: no ArgoCD Application, and deploy-staging does
+  not build the image.
+- `check-values.sh`: every analytics-ingest values file must keep those three lines (block style), with six
+  self-test fixtures, including one where only the ingress block says `enabled: false`.
+
 ### Changed (actions: one PR for the majors and bake-action v7)
 
 - `docker/bake-action` v7 with `source: .` (the checkout) in `ci.yml` and `deploy-staging.yml`; v6+ otherwise builds
