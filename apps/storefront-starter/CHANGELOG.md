@@ -3,6 +3,7 @@
 ## 0.15.2 — 2026-11-09 (window 3, #731: next security bump)
 
 - **`next` ^15.5.4 → ^15.5.28** (resolves to 15.5.29). This fixes GHSA-2464-fhr4-w9xw (critical) and GHSA-p3m5-59mp-jv5r (high), which affect next ≤ 15.5.27 and were patched in 15.5.28. next's optional `sharp` now resolves to **0.35.5**, which fixes GHSA-wq5f-xc86-pv6w (high, sharp < 0.35.5); next 15.5.28+ requires `^0.34.3 || ^0.35.5`, so the vulnerable 0.35.4 cannot be selected. No code change: the unit suite, lint and typecheck pass unchanged.
+- **Bundle:** every route grows by 0.5–1.4 kB with next 15.5.29, and all stay within budget. The tightest are the PDP (141.1 of 144 kB) and the cart (141.6 of 145 kB). The README table is synced from the CI perf leg of draft PR #760 (run 42621594671, Next.js 15.5.29 on ubuntu): there was no machine slot for a local build.
 - Only the starter's importer moves in `pnpm-lock.yaml`. The brands reach this through window 10's next re-sync; until then they still lock next 15.5.25 and sharp 0.35.4, as the admin does until window 4's PR.
 
 ## 0.15.1 — 2026-11-06 (window 3, #620: flaky perf-store-example test)
