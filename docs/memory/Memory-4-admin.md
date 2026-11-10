@@ -1,6 +1,6 @@
 # Memory 4 — Admin application
 Window: 4 · Key: `admin` · Branch prefix: `admin/` · Model: Opus (Memory-main, owner decision 2026-09-04)
-Last updated: 2026-11-01 · Contracts: Admin API 0.4.26 on main · Branch: `admin/phase5-608` · Manager: "Manager session ten" (local_3c029c3c…; report there) · Status: #642 — PR up (see In progress); #675 MERGED ae4fbffd
+Last updated: 2026-11-06 · Contracts: see main · Branch: `admin/phase6-security` (from main 33cb5b6f) · Manager: "Manager session eleven" (local_3be8fff4…; report there) · Status: SECURITY task assigned — nothing built yet; start from In progress (fresh session)
 
 ## Identity (does not change)
 Owned paths (write):
@@ -557,10 +557,90 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **PR #763 review round 2 (2026-11-10).** Core leg was red again at csp.spec.ts:109: "Onboard the
+  brand" is on the wizard's LAST step. **f4214ed0**: the owner case walks steps 1-3 as
+  hq-onboarding.spec does and asserts the review button WITHOUT clicking it (Next is client-only, so
+  it writes nothing). Machine given by Manager twelve, freed after. Proven locally in core mode:
+  csp.spec 3/3 (own core on :9000). First local attempt got 503 "authorization service
+  unavailable": this worktree's .env OpenFGA ids were stale (the shared store was recreated 10-25).
+  `pnpm --filter @platform/auth-sdk fga:seed` (recorded recovery: reuses the store, new model, 0
+  tuples written) fixed it; the core is read at startup, so restart it. TaskStop left the core's node
+  alive again; killed by command line (wt-admin + tsx). Next: all checks green → message the manager.
+- **PR #763 review fix (2026-11-10).** Manager is now **"Manager session twelve"**
+  (local_d36f20d9-945f-4f06-ae74-778b5d585388); eleven stood down. Verdict: the design PASSES, one
+  BLOCK: `admin e2e against the core (advisory)` red at csp.spec.ts:97. It waited for a /bi/live poll,
+  but LiveTiles polls only when the server's live query answered, and the core CI job has no
+  ClickHouse. **6a623a23**: the spec fetches /bi/live from the page (any status; a CSP block rejects).
+  Nits taken: production with KEYCLOAK_URL unset/malformed THROWS in the middleware (raw
+  process.env, not env.ts's default; NOT in env.ts, since `next build` in the image job has no
+  KEYCLOAK_URL); the upgrade-insecure-requests comment is reworded. Unit tests 1020/1020. No machine
+  (window 10 holds it): CI's core leg is the proof. Next: message the manager the head, then again
+  when ALL checks are green; the queue follows without a second review if the diff is only this.
+- **PR #763 (Phase 6 security) — machine run 2026-11-09, READY for Fable review.** Machine handed over
+  by the manager and freed after. Build OK, every route ƒ (main had only /_not-found static).
+  Mock e2e csp + store-admin + copy-draft + rail: 25 passed / 2 skipped (owner + core-only). The
+  csp spec CAUGHT a real violation: zod 4's Function("") JIT probe at schema construction →
+  **60231978** `src/instrumentation-client.ts` presets `globalThis.__zod_globalConfig.jitless` (importing
+  `config` from zod/v4/core cost ~3.5 kB on every first load; the preset ~60 B), pinned by
+  test/zod-jitless.test.ts (child-process control; mutation-checked). Bundle vs origin/main
+  (scratch worktree build): shared 102 → 103 kB, middleware 34.2 → 35 kB, +1 kB on 32 routes, +2-3 kB
+  on 15 form pages (likely zod 4.5 → 4.6 + next 15.5.28; not split out). Unit 1019/1019. Shared
+  mock-admin container on :4011 serves the root checkout's spec (cmp identical) — reused.
+  Next: manager's "checks finished" message, then hold all pushes until the merge.
+  **Gotchas:** `git worktree remove` of a scratch worktree with node_modules fails "Filename too
+  long" AFTER deregistering it; delete with `rd /s /q "\\?\<full path>"` (no prune needed). zod caches
+  natively across vi.resetModules(), so a before/after zod test needs a child process.
+- **Phase 6 security — STATUS 2026-11-09 (session after the brief below).** Merged main f545f649,
+  install + packages + cms built. BUILT, local, unpushed: **6c5145b1** deps (next ^15.5.28, zod
+  ^4.6.6; lock resolves next 15.5.28, sharp 0.35.5, zod 4.6.7 deduped for every consumer) and
+  **adf49924** headers (src/lib/security/{csp.ts,static-headers.mjs,index.ts}; middleware sets the
+  nonce CSP, /auth/error now matched + public; root layout `await connection()`; next.config
+  headers() + poweredByHeader false; test/security-headers.test.ts 15; e2e/csp.spec.ts).
+  Audit (root `pnpm audit --prod --json`, apps__admin paths — pnpm 10 has no audit --filter):
+  before 1 crit / 6 high / 4 mod, after 0 / 3 / 2 (postcss 8.4.31 + source-map-js, pinned exactly
+  by next → manager's root override). Allow-list NOT edited: infra/** is window 5's (ownership
+  check refuses it) and no entry is stale — next GHSA-2464/p3m5 + sharp still via
+  apps/storefront-starter (next 15.5.25, window 3), zod via core 4.2.0. All told to the manager.
+  eslint-config-next is not a dependency anywhere. Gate: unit 1017/1017 (--maxWorkers=4), lint,
+  typecheck, ownership OK. Manager APPROVED design + no allow-list edits (window 3 bumps the starter). Draft PR first; machine
+  after window 10 (build, mock e2e incl. csp.spec,
+  bundle). Next: run → push -u → PR "Refs #731" → message manager (PR + head), then checks.
+  Decision for review: connect-src 'self' only (the browser never calls the core).
+- **NEXT SESSION STARTS HERE — Phase 6 SECURITY task (priority), 2026-11-06.** Manager is now **"Manager
+  session eleven"** (local_3be8fff4-518f-456e-b5ad-b3d6844bc9fe); report there. Phase 6 plan:
+  docs/plan/phase6-plan.md, tracking #731; the audit finding is window 5's #730. The previous session
+  stopped at 86 % context BEFORE building anything: only the branch exists.
+  Branch `admin/phase6-security` from origin/main 33cb5b6f (local, no upstream; first push
+  `git push -u origin admin/phase6-security`). Setup still to do: `pnpm install --frozen-lockfile`,
+  `pnpm -r --filter "./packages/*" build`.
+  ONE PR, TWO commits:
+  1. Dependencies. `pnpm audit --prod` finds a CRITICAL advisory in apps/admin's `next` 15.5.25, plus HIGH
+     ones in postcss 8.4.31, sharp 0.35.4, source-map-js 1.2.1 and zod 4.x.
+     - Bump `next` (and eslint-config-next) to the LOWEST patched 15.5.x the advisory names. If none
+       exists on 15.5: message the manager with the options BEFORE going to 16.
+     - Bump the other vulnerable packages where they are DIRECT apps/admin deps. If only transitive:
+       LIST them for the manager (the manager does root overrides).
+     - Run `pnpm audit --prod --filter @platform/admin` before AND after and paste both counts.
+     - The admin suite, the local e2e and the bundle sizes stay green.
+  2. Security headers in apps/admin/next.config.mjs:
+     - A strict CSP: no inline script unless nonce-based, `frame-ancestors 'none'`, connect only to the
+       core API and the OTel origins (or none).
+     - HSTS in production, X-Content-Type-Options nosniff, Referrer-Policy
+       strict-origin-when-cross-origin, a Permissions-Policy denying camera/microphone/geolocation, and
+       no X-Powered-By.
+     - Pattern: the storefronts' `src/lib/csp.ts` + its test. Pin EVERY header in a test.
+     - The BI, AI editor (copy drafts) and onboarding pages must still work under the CSP, with no
+       console CSP violations in the admin e2e.
+  Review: Fable (security). Message the manager twice: PR up, then checks finished; hold pushes after.
+  Admin e2e and bundle runs need THE MACHINE: ask the manager first. Check the 5-hour usage before
+  each e2e / full-suite run (stop at 80 %). Full admin unit suite: if the default worker count times
+  out under background load, `npx vitest run --maxWorkers=4` is the clean proof (see Gotchas).
 - **#642 — store-view rail entry for BI (2026-11-02, Manager session ten).** Branch admin/phase5-642 from
   main d6ed17ee. `STORE_SECTIONS` + `bi` after Orders, VIEWER (queryMetrics viewer on store:*); the
   page is window 12's (#604) and they wrap it in StoreSectionGuard id="bi" after this lands. Tests:
   navigation / role-access lists + rail.spec (e2e not run locally; CI runs it). Gate 1002/1002. PR next.
+  **PR #693 MERGED = 720e1834 (2026-11-02)**; #642 closed. IDLE until the manager sends a task (this note is
+  a local commit, pushed with the next task's first push).
 - **#608 — AI product copy drafts, the admin editor (P5.9), 2026-11-01.** Manager is now **"Manager
   session ten"** (local_3c029c3c-f2f4-4f0a-882d-a79c0d74d28f); report there. Branch admin/phase5-608
   from origin/main 423a50d3 (Admin API 0.4.26: draftProductCopy store_staff, ProductCopyDraft; 422
