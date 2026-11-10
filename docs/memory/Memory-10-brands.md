@@ -19,6 +19,12 @@ Brand A real storefront from the starter: theme/layout from Figma, real CMS cont
 
 ## Done
 
+- **#731's brands half — PR #769 MERGED as `53ac2c93`** (code `bc1784b1` + `db006668`). All three
+  brands on **next 15.5.29 / sharp 0.35.5**; with #771 the production audit allow-list on main is
+  **EMPTY**. The timeout fix in it unblocked #771 and the Dependabot PRs. Bundle tables came from
+  this PR's own perf legs (no machine): PDP **A 140.8 / B 140.6 / C 140.6** of 144, cart **141.3 /
+  141.1 / 141.1** of 145.
+
 - **#739 · brand A's font bytes and its thin LCP margin — PR #765 MERGED as `1668c90f`** (code
   `7adab23b`; the manager's message said `5951a451`, which is a merge commit *inside* the branch, not
   main's merge). **"Refs #739", not Closes:** 90.6 → 40.8 kB took 135–170 ms off the worst run and
@@ -324,170 +330,58 @@ when every check has finished.
 - Budget: **manager + two build slots**, one of which is mine. (CLAUDE.md still says one window;
   the owner's instruction is the current one.)
 
-## In progress — #731 · the next 15.5.29 / sharp 0.35.5 re-sync (2026-11-10)
+## In progress — #758 · a dependency path for the 19 starter-synced packages (2026-11-10)
 
-**PR #769**, head **`db006668`**, branch `brands/phase6-next-resync`, **"Refs #731"**. Picks up window
-3's **#760** (merged `134022bf`). Brands A, B and C: `next` `^15.5.4` → `^15.5.28` (resolves
-**15.5.29**, carries **sharp 0.35.5**), clearing GHSA-2464-fhr4-w9xw (critical, **allow-list entry
-expires 2026-11-20**), -p3m5 and -wq5f. Code-only task: **window 3 holds the machine for #762.**
+**Proposal sent to the manager; waiting for a go before building.** Code-only, no machine. Nothing
+on a branch yet — cut `brands/phase6-758` from `origin/main` when the go arrives.
 
-**The bump has to go through `scripts/sync-from-starter.mjs`.** `next` is a starter-manifest package,
-so `package.json` and `scripts/starter-manifest.json` move in one step; a hand edit of the dependency
-leaves the manifest on the old specifier and `test/sync-merge.test.ts:234` fails. #760's PR body step
-1 is wrong about this (its steps 2–4 are right) — the manager caught it before I started.
+**The diagnosis, verified in memory rather than argued.** A Dependabot PR is not red because the
+manifest is stale. It is red because brand A's `test/sync-merge.test.ts:234` calls
+`mergePackageJson(manifest, brand, manifest)` — manifest as **both** starter and previous-starter —
+and the merge rule "the starter wins for a shared key" then reads the version out of the manifest
+and demands the brand match it. Brand A and its manifest both say postcss `^8.5.6`; set the brand to
+`^8.5.99` as Dependabot would and the merge returns `^8.5.6`.
 
-Done so far: sync ×3 (239 copied / 1 merged / 10 preserved / 4 excluded, identical per brand, no
-preserved drift), non-frozen `pnpm install`, CHANGELOG line ×3, gate green (lint, format:check,
-typecheck 29/29, A **854** / B **736** / C **658** — each +2 from the starter's #620 validator-cache
-pickup — `sync --check` clean ×3, ownership clean), rebased onto `origin/main`, pushed, PR open.
+**The fact the fix rests on:** `previousStarter` is used ONLY for key membership (`key in
+previousStarter`). The merge never reads a manifest VALUE. The manifest's versions are authoritative
+nowhere except in that one comparison.
 
-**Second commit `db006668`** (first `bc1784b1`; `d3b3ec74` merges main's #770/#767). Verdict was
-already **Opus MERGE** with 19/19 green on `f9737a3e`; the manager queues on green if the diff is
-only this.
+**Proposed (all in my paths):** ignore the version string for a dependency key both the manifest and
+the brand declare, keep everything else byte-exact; give **brands B and C the same test**, which
+they have never had (only brand A has `test/sync-merge.test.ts` — #758's acceptance assumes an
+invariant two brands lack); document the manual starter-bump procedure in each README. Version
+authority stays with the live starter via `sync --check` (keys AND values, on demand, deliberately
+not in CI — it reddened window 3's PRs twice).
 
-- **Bundle tables done, from this PR's own perf legs.** PDP **A 140.8 / B 140.6 / C 140.6** of 144,
-  cart **141.3 / 141.1 / 141.1** of 145, every route inside budget, `bundle budget PASS` ×3, no
-  budget touched.
-- **Two of my tests were failing OTHER windows' PRs.** `brand-fonts.test.ts` › "fresh build of the
-  committed sources" re-subsets both faces through harfbuzz-wasm — ~3.5 s warm, **5855 then 5884 ms
-  against vitest's default 5000** when turbo has no cache and all 29 tasks start at once (any PR
-  touching root `package.json` or the lockfile). Turbo then cancels another package's suite. Both
-  that test and the two `brand-i18n-seo.test.ts` cases rendering the real `app/[locale]/layout`
-  (5078 ms once) now carry **30 s**.
-- Brand C's README gate line 583 → 658 passed; the lockfile-churn line is in the PR body.
+**Checked, not asserted:** five mutations against the narrowed check and today's byte-exact one give
+**identical** results — dropped synced dependency, changed synced script body and a reordered
+dependency block all CAUGHT; a hand-added brand dependency and an edited `dev` port caught by
+neither, because the merge keeps brand-only keys and `dev` is identity (the port is covered by the
+next test asserting `dev` contains 3101). The narrowing opens no new hole.
 
-### Three things worth keeping from this round
+**Needs from others:** window 5 removes the 19 starter-package `ignore` entries from
+`.github/dependabot.yml` — *after* my change is on main, or the PRs stay red; nothing from window 3.
+Rejected: a CI job pushing fix-up commits onto Dependabot branches (write creds on an unreviewed bot
+branch), dropping versions from the manifest (`--check`'s drift report needs them), and a
+`bump-starter-dep.mjs` as the primary path — **a script of mine cannot make a starter edit legal**;
+bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
-1. **Without the machine, the bundle numbers are in the perf leg's log** — `bundle-budget` in check
-   mode prints its own figure per route (`✓ /route — 140.8 kB (budget 144 kB)`). Do **not** read
-   them off `next build`'s "First Load JS" column: the script adds every parent layout's entry
-   chunks and gzips at level 9, so it reads ~1.6 kB higher per `[locale]` route, by design. Render
-   the table by importing the brand's own `markdownTable` and then run prettier.
-2. **Prettier does not converge on a multi-line comment between a test callback and a trailing
-   timeout argument.** `--write` re-flowed my comment onto one line in the wrong order and `--check`
-   still failed; I had to restore the file and put the explanation **above** the `it(`. Check
-   `format:check`'s exit code, not its tail: `cmd | tail` returns tail's status, which is how I
-   nearly committed a mangled file after an `&& echo OK` that was never conditional on prettier.
-3. **`it.each(...)(name, fn, timeout)` does honour the third argument** — verified with a throwaway
-   probe at `timeout: 1` on both call shapes (both failed with `Test timed out in 1ms`) rather than
-   assumed, since a timeout that silently does nothing is the whole failure mode being fixed.
+## Queue after #758 (manager, 2026-11-10)
 
-**Brand A's LCP on this PR's leg, noted for #739's remainder and #762:** PDP five runs **2015 /
-2012 / 2008 / 2006 / 2011** — all inside 2500, where #738 had three of five at 2711–2719. PLP best
-2007, **worst 3194**, and that worst run's CPU benchmark index was **432 against ~2650** for the
-other four, i.e. a contended runner rather than a slower page. So "worst run under budget" holds on
-the PDP, not yet on the PLP, and for a reason that is probably not the app. Re-read on the next
-green run before treating it as fixed.
-
-Evidence for the done condition, in the PR body: `pnpm why next -r` → **one** version (15.5.29, five
-importers: admin, starter, A, B, C), `pnpm why sharp -r` → **one** (0.35.5). Local only: a stale
-`node_modules/.pnpm/next@15.5.25…` directory still links sharp 0.35.4 — an orphan pnpm has not
-pruned, reachable from no importer, and absent from the lockfile.
-
-**Next after this merges:** window 3's **#762** adds `experimental.inlineCss: true` to the
-**starter's** `next.config.mjs` (−187/−265 ms worst-run LCP). That file is **PRESERVED** in every
-brand, so it never arrives through a sync — it is a small hand-applied change per brand from me,
-with the brand perf legs as proof. **Wait for #762 to merge.** Then **#758**, the dependency path
-for the 19 starter-synced packages so Dependabot can bump them again. Think about #758 while CI
-runs; do not start it.
-
-### #765 was BLOCKED, and the review was right about something I asserted
-
-**I misread the cascade.** I wrote "theme.css sets h1-h4 at medium and nothing else uses the serif",
-so pinning the serif to 500 "costs nothing visible". `theme.css` is an **element** rule (0,0,1);
-Tailwind's `.font-bold` is a **class** (0,1,0) and **outranks it**. So 33 synced headings — the LCP
-`<h1>` among them — had been rendering real **700/600** for brand A's whole life while theme.css and
-DESIGN.md §3 said medium. Pinning to 500 made it visible and my PR called it invisible.
-
-**Measured in a browser** (the review's one unverified item), PDP `h1`, same build and page load:
-this branch **500** / rule deleted at runtime **700** / main's variable face **700 with synthesis
-auto**. The crops are visibly different.
-
-**Decision (manager): keep the pin, make medium ENFORCED.** `fonts.ts` now declares what the files
-carry (serif `'500'`, sans `'400 700'` — declaring `'400 700'` against a 500-only file is what made
-it silent: the browser believed 700 existed and reached for nothing). `theme.css` uses
-**`h1[class]`** — (0,1,1) beats a utility's (0,1,0) **without `!important`** — written against
-`[class]` not against `.font-bold` by name, because the rule is "a serif heading is medium". The
-headings are SYNCED markup and not mine to edit (ADR 0004), hence specificity here, not 33 upstream
-edits. Plus **`font-synthesis-weight: none`** — **the weight property ONLY**, because the
-`font-synthesis` shorthand also kills synthetic *italic* and brand A ships no italic face, so every
-`<em>` would silently go upright.
-
-**Three lessons worth keeping:**
-
-1. **An element rule never beats a utility class.** Any brand styling that must override synced
-   Tailwind markup needs specificity, not just a declaration. Check with `getComputedStyle` in a
-   browser, not by reading the stylesheet.
-2. **A test that mirrors a declaration asserts nothing.** `brand-theme.test.ts` checked the weights
-   `fonts.ts` declared against a literal copy of those same weights, so it happily passed while the
-   declaration and the shipped binary disagreed. Updated, with that noted in the test.
-3. **`maxDiffPixelRatio: 0.002` sleeps through a 700->500 heading change.** Only the PDP baseline
-   failed (and only because of #728's rail); `home` and `plp` came back byte-identical. The comment
-   above that setting already records a previous tightening from 0.01 after a *typeface swap* slipped
-   through — a weight change is smaller still. I regenerated all three rather than leave stale-but-
-   passing baselines, and did **not** tighten the ratio (that needs jitter data).
-
-Also in this round: the four typographic characters (`’ ‘ – …`) at a measured 0.39 kB — "Men’s" was
-falling back per glyph; totals are now **40.8 kB**; and the stale figures the review listed.
-
-### The diagnosis, which took the whole first half and was worth it
-
-Brand A was passing 2500 ms only on the gate's **best of five** (3 of 5 CI runs at 2711-2719). Done
-from **#738's CI artifacts via `gh run download`** — no machine, and CI's own evidence rather than a
-laptop's, which is the lesson from #728 where my laptop pointed me at the wrong brand.
-
-- **LCP element is TEXT** (the same synced `<h1>` in A, B and C) and its phase table reads
-  **Load Delay 0%, Load Time 0%** — so no resource load gates it. All of the A-vs-C gap is **render
-  delay, +444 ms**.
-- Brand A loads **exactly two things** B and C do not: its faces, **90.6 kB** (the whole request
-  difference, 23 req / 262 kB vs 21 / 171 kB).
-- **`90.6 kB x 8 / 1600 kbps` = 453 ms** against the observed 444. Nine ms apart.
-- Ruled out, not assumed: TTFB (458/461), main-thread (A *lower*), bootup, CSS (1 kB), images, rails.
-
-**So the cost is BYTES contending for simulated bandwidth, not the `swap` repaint** — which killed
-the fix I walked in expecting. `display: 'optional'` removes no bytes **and** breaks
-`e2e/visual.spec.ts`, which awaits `document.fonts.ready` on purpose.
-
-### The three-column table (same machine, 5 runs each)
-
-| | before 90.6 kB | after 40.4 kB | ceiling 0 kB |
-| --- | --- | --- | --- |
-| PLP worst | 2674 | **2539** | 2163 |
-| PDP worst | 2752 | **2582** | 2233 |
-
-**Byte-to-ms is SUB-LINEAR**: bytes predicted 257 ms, delivered 135-170. So more subsetting has
-diminishing returns — measured the next cut too (drop the Latin-1 floor: 40.4 -> 26.1 kB, ~45 ms
-real) and refused it: product names come from the Store API, so it would tofu the first "Café".
-
-**The structural finding, moved starter-side by the manager:** the no-font ceiling is 2163/2233, so
-**brand A is within ~300 ms of budget before it loads a single brand byte** (brand C's CI worst is
-2008). A worst-run 2500 is not reachable with the pairing; the shared `h1` render delay is ~1.4 s in
-CI for every brand.
-
-### What shipped
-
-`src/brand/fonts/*.woff2` are **generated** by `scripts/build-fonts.mjs` from OFL variable sources in
-`src/brand/fonts/source/`. Serif **pinned to wght 500**: 56.7 -> 21.1 kB. (The first version of this
-line said "theme.css sets h1-h4 at medium, nothing else uses it" — that was the misreading the
-BLOCK caught: an element rule loses to `.font-bold`, so 33 headings really rendered 700/600. Medium
-is now **enforced** via `h1[class]` + `font-synthesis-weight: none`.) Sans **trimmed to 400-700** (`packages/ui` defines 400/500/600/700, the
-starter renders all four, **nothing asks for 300**): 33.9 -> 19.6 kB. Pairing untouched; budget not
-widened (#348).
-
-**The charset is derived and the derivation caught two things a list misses:** the catalogue scan
-found **U+201E** (de-DE opens quotations with it); asking **`Intl`** what brand A's locales + its
-**seeded** currency emit found **U+20AC**, which is in *no committed string* because prices are
-formatted at runtime — catalogue-only subsetting would have tofu'd **every price on every product
-page**. Locales from `next.config.mjs`, currency from `packages/db`'s seed.
-
-`subset-font@2.9.0` (BSD-3, harfbuzz-wasm, **no install scripts**, exact version; survives re-syncs
-because `merge-package-json.mjs` keeps brand-only keys). `fonts/README.md` holds the hashes, tool
-version and OFL. **`test/brand-fonts.test.ts` (13 tests) rebuilds and compares hashes — proved by
-swapping one binary for the other**, which fails naming the file.
-
-Gate: lint, format:check, typecheck 29/29, brand A **852** / 3 skipped (835 before), B **734**,
-C **656**, sync --check clean x3. (`brand-fonts.test.ts` ended at **17** tests, not the 13 of the
-first round.)
+- **#762 is DEAD, do not wait for it.** Window 3 measured `experimental.inlineCss` and it moved
+  nothing beyond noise; closed as a known limit. **There is no next.config change for the brands.**
+  (My earlier note that it would be a hand-applied per-brand change is moot.)
+- **#739 stays OPEN** until two more normal-runner CI runs show brand A's **PLP** worst run inside
+  2500. My PDP figures (2015/2012/2008/2006/2011) are recorded on it; the 3194 ms PLP outlier is the
+  run whose CPU benchmark index came back 432 against ~2650.
+- **#781 is MERGED:** the visual suite now lives in the **starter** (`e2e/visual.spec.ts`, full page
+  at **0.0001** + element shots at **0.002**, no starter baselines committed). After the next sync
+  brand A needs the **5 new element baselines** and its full pages re-checked at 0.0001; **B and C
+  take every baseline for the first time**. Hand-off is in #781's body. **Needs the machine.**
+- **#783** (window 3, in Fable review): storefront moves to a **nonce + 'strict-dynamic' CSP** —
+  `csp.ts`, `middleware.ts`, a `[locale]/[...rest]` 404 route, `SCRIPTS.md` and tests, all **SYNCED**
+  files. When it merges the manager gives me the machine for **ONE** re-sync covering #781 + #783
+  with the brand e2e (csp spec + visual baselines). **Do not sync before that.**
 
 ## (kept for the trail) #728 is MERGED; idle until wave 2 (2026-11-06)
 
