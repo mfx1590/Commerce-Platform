@@ -557,6 +557,16 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **PR #763 review fix (2026-11-10).** Manager is now **"Manager session twelve"**
+  (local_d36f20d9-945f-4f06-ae74-778b5d585388); eleven stood down. Verdict: the design PASSES, one
+  BLOCK: `admin e2e against the core (advisory)` red at csp.spec.ts:97. It waited for a /bi/live poll,
+  but LiveTiles polls only when the server's live query answered, and the core CI job has no
+  ClickHouse. **6a623a23**: the spec fetches /bi/live from the page (any status; a CSP block rejects).
+  Nits taken: production with KEYCLOAK_URL unset/malformed THROWS in the middleware (raw
+  process.env, not env.ts's default; NOT in env.ts, since `next build` in the image job has no
+  KEYCLOAK_URL); the upgrade-insecure-requests comment is reworded. Unit tests 1020/1020. No machine
+  (window 10 holds it): CI's core leg is the proof. Next: message the manager the head, then again
+  when ALL checks are green; the queue follows without a second review if the diff is only this.
 - **PR #763 (Phase 6 security) — machine run 2026-11-09, READY for Fable review.** Machine handed over
   by the manager and freed after. Build OK, every route ƒ (main had only /_not-found static).
   Mock e2e csp + store-admin + copy-draft + rail: 25 passed / 2 skipped (owner + core-only). The
@@ -569,7 +579,7 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   mock-admin container on :4011 serves the root checkout's spec (cmp identical) — reused.
   Next: manager's "checks finished" message, then hold all pushes until the merge.
   **Gotchas:** `git worktree remove` of a scratch worktree with node_modules fails "Filename too
-  long" AFTER deregistering it; delete with `rd /s /q "\?<path>"` (no prune needed). zod caches
+  long" AFTER deregistering it; delete with `rd /s /q "\\?\<full path>"` (no prune needed). zod caches
   natively across vi.resetModules(), so a before/after zod test needs a child process.
 - **Phase 6 security — STATUS 2026-11-09 (session after the brief below).** Merged main f545f649,
   install + packages + cms built. BUILT, local, unpushed: **6c5145b1** deps (next ^15.5.28, zod
