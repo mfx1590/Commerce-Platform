@@ -630,7 +630,7 @@
                       {
                         'summary': 'Outbox relay: the oldest unpublished row is younger than 10 s in 99% of minutes: error budget burning at 14.4× (1h/5m) or 6× (6h/30m)',
                         'target': '0.99',
-                        'source': "derived from #612's 10 s end-to-end ingest budget, which includes the relay — METRIC PENDING (window 14 exports the gauge)",
+                        'source': "derived from #612's 10 s end-to-end ingest budget, which includes the relay; the gauge is the relay CLI's (#733)",
                         'runbook': 'infra/observability/SLO.md',
                       },
                   },
@@ -647,12 +647,13 @@
                       {
                         'summary': 'Outbox relay: the oldest unpublished row is younger than 10 s in 99% of minutes: error budget burning at 3× (1d/2h) or 1× (3d/6h)',
                         'target': '0.99',
-                        'source': "derived from #612's 10 s end-to-end ingest budget, which includes the relay — METRIC PENDING (window 14 exports the gauge)",
+                        'source': "derived from #612's 10 s end-to-end ingest budget, which includes the relay; the gauge is the relay CLI's (#733)",
                         'runbook': 'infra/observability/SLO.md',
                       },
                   },
                 ],
             },
+            { 'eval_time': '90m', 'alertname': 'SLOAbsent_outbox_relay_lag', 'exp_alerts': [] },
           ],
       },
       {
@@ -673,6 +674,7 @@
               'alertname': 'SLOBurn_outbox_relay_lag_ticket',
               'exp_alerts': [],
             },
+            { 'eval_time': '90m', 'alertname': 'SLOAbsent_outbox_relay_lag', 'exp_alerts': [] },
           ],
         'promql_expr_test':
           [
@@ -681,6 +683,43 @@
               'eval_time': '90m',
               'exp_samples':
                 [{ 'labels': 'slo:error_ratio:1h{slo="outbox-relay-lag"}', 'value': 0 }],
+            },
+          ],
+      },
+      {
+        'name': 'outbox-relay-lag: a relay that goes DOWN pages; a running one does not',
+        'interval': '1m',
+        'input_series':
+          [
+            {
+              'series': 'outbox_relay_lag_oldest_seconds{service_name="outbox-relay"}',
+              'values': '1x10',
+            },
+          ],
+        'alert_rule_test':
+          [
+            { 'eval_time': '12m', 'alertname': 'SLOAbsent_outbox_relay_lag', 'exp_alerts': [] },
+            {
+              'eval_time': '30m',
+              'alertname': 'SLOAbsent_outbox_relay_lag',
+              'exp_alerts':
+                [
+                  {
+                    'exp_labels':
+                      {
+                        'severity': 'page',
+                        'slo': 'outbox-relay-lag',
+                        'service_name': 'outbox-relay',
+                      },
+                    'exp_annotations':
+                      {
+                        'summary': 'Outbox relay: no lag gauge for 5 minutes, so the relay is down or not exporting (its SLO cannot be measured)',
+                        'target': '0.99',
+                        'source': "derived from #612's 10 s end-to-end ingest budget, which includes the relay; the gauge is the relay CLI's (#733)",
+                        'runbook': 'infra/observability/SLO.md',
+                      },
+                  },
+                ],
             },
           ],
       },

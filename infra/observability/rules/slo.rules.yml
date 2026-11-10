@@ -842,7 +842,7 @@ groups:
         annotations:
           summary: 'Outbox relay: the oldest unpublished row is younger than 10 s in 99% of minutes: error budget burning at 14.4× (1h/5m) or 6× (6h/30m)'
           target: '0.99'
-          source: "derived from #612's 10 s end-to-end ingest budget, which includes the relay — METRIC PENDING (window 14 exports the gauge)"
+          source: "derived from #612's 10 s end-to-end ingest budget, which includes the relay; the gauge is the relay CLI's (#733)"
           runbook: 'infra/observability/SLO.md'
       - alert: SLOBurn_outbox_relay_lag_ticket
         expr: |
@@ -864,5 +864,16 @@ groups:
         annotations:
           summary: 'Outbox relay: the oldest unpublished row is younger than 10 s in 99% of minutes: error budget burning at 3× (1d/2h) or 1× (3d/6h)'
           target: '0.99'
-          source: "derived from #612's 10 s end-to-end ingest budget, which includes the relay — METRIC PENDING (window 14 exports the gauge)"
+          source: "derived from #612's 10 s end-to-end ingest budget, which includes the relay; the gauge is the relay CLI's (#733)"
+          runbook: 'infra/observability/SLO.md'
+      - alert: SLOAbsent_outbox_relay_lag
+        expr: absent(outbox_relay_lag_oldest_seconds{service_name="outbox-relay"})
+        for: 5m
+        labels:
+          severity: page
+          slo: outbox-relay-lag
+        annotations:
+          summary: 'Outbox relay: no lag gauge for 5 minutes, so the relay is down or not exporting (its SLO cannot be measured)'
+          target: '0.99'
+          source: "derived from #612's 10 s end-to-end ingest budget, which includes the relay; the gauge is the relay CLI's (#733)"
           runbook: 'infra/observability/SLO.md'
