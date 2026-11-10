@@ -1,5 +1,5 @@
 import createMiddleware from 'next-intl/middleware';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { routing } from '@/i18n/routing';
 import {
   ATTRIBUTION_COOKIE,
@@ -8,7 +8,13 @@ import {
   parseAttribution,
   readTouch,
 } from '@/lib/attribution';
-import { contentSecurityPolicy } from '@/lib/csp';
+import {
+  CSP_HEADER,
+  NONCE_HEADER,
+  contentSecurityPolicy,
+  newNonce,
+  parseFrameHosts,
+} from '@/lib/csp';
 import { siteOrigin } from '@/lib/site-origin';
 
 /**
@@ -33,28 +39,66 @@ const intlMiddleware = createMiddleware(routing);
  */
 const UNIDENTIFIED_USER_AGENT = 'unidentified';
 
-function withUserAgent(request: NextRequest): NextRequest {
-  if (request.headers.get('user-agent')) return request;
+/**
+ * The campaign embed origins (#782), vetted once per process: a refused entry (wildcard, path,
+ * non-https…) is logged once, by value and reason, and never reaches a policy. The list is a
+ * build-time constant (next.config.mjs, from window 6's `EMBED_HOSTS`), so the first request is
+ * this process's boot as far as the list is concerned.
+ */
+let frameHosts: string[] | undefined;
+function vettedFrameHosts(): string[] {
+  if (frameHosts === undefined) {
+    const parsed = parseFrameHosts(process.env.CSP_FRAME_HOSTS);
+    for (const { entry, reason } of parsed.refused) {
+      console.warn(`[csp] CSP_FRAME_HOSTS entry refused (${reason}): ${entry}`);
+    }
+    frameHosts = parsed.hosts;
+  }
+  return frameHosts;
+}
+
+/** A path with a file extension: a static file, or a missing one Next answers with its 404. */
+const FILE_PATH = /\/[^/]*\.[a-zA-Z0-9]+$/;
+
+/**
+ * The request the render sees: a named user agent (#274), and this response's nonce on
+ * `Content-Security-Policy`, which is where Next reads it to stamp its own scripts (#782).
+ */
+function forwardedRequest(request: NextRequest, nonce: string, policy: string): NextRequest {
   const headers = new Headers(request.headers);
-  headers.set('user-agent', UNIDENTIFIED_USER_AGENT);
+  if (!headers.get('user-agent')) headers.set('user-agent', UNIDENTIFIED_USER_AGENT);
+  headers.set(NONCE_HEADER, nonce);
+  headers.set(CSP_HEADER, policy);
   return new NextRequest(request, { headers });
 }
 
 export default function middleware(request: NextRequest) {
-  // next-intl forwards the request headers it is given to the render, so the default set here is
-  // what the page's renderer reads. Everything below still looks at the request as it arrived.
-  const response = intlMiddleware(withUserAgent(request));
+  // A new nonce per response, built from this deployment's environment (see src/lib/csp.ts for why
+  // this cannot live in next.config.mjs). It goes on the response for the browser and on the
+  // forwarded request for Next.
+  const nonce = newNonce();
+  const policy = contentSecurityPolicy({
+    nonce,
+    keycloakUrl: process.env.KEYCLOAK_URL,
+    frameHosts: vettedFrameHosts(),
+    pathname: request.nextUrl.pathname,
+    production: process.env.NODE_ENV === 'production',
+  });
+  const forwarded = forwardedRequest(request, nonce, policy);
 
-  // Built per request from this deployment's environment — see src/lib/csp.ts for why this cannot
-  // live in next.config.mjs. Every page response passes through here; the routes the matcher skips
-  // (`/api`, `/auth`, `/health`, static files) render no document to protect.
-  response.headers.set(
-    'Content-Security-Policy',
-    contentSecurityPolicy({
-      keycloakUrl: process.env.KEYCLOAK_URL,
-      frameHosts: process.env.CSP_FRAME_HOSTS,
-    }),
-  );
+  // A file path gets the policy and nothing else: no locale prefix, no attribution. That includes a
+  // missing file, which Next answers with its prerendered `/_not-found` page (#782).
+  if (FILE_PATH.test(request.nextUrl.pathname)) {
+    const response = NextResponse.next({ request: { headers: forwarded.headers } });
+    response.headers.set(CSP_HEADER, policy);
+    return response;
+  }
+
+  // next-intl forwards the request headers it is given to the render, so what is set above is what
+  // the page's renderer reads. Everything below still looks at the request as it arrived. Every
+  // response path, redirects included, leaves with the policy.
+  const response = intlMiddleware(forwarded);
+  response.headers.set(CSP_HEADER, policy);
 
   // The landing touch has to be recorded before the customer navigates away from the campaign URL,
   // and the middleware is the only thing that sees every request. `document.referrer` is not
@@ -86,6 +130,11 @@ export default function middleware(request: NextRequest) {
   return response;
 }
 
+/**
+ * Everything except the route handlers (see above) and Next's own build output. File paths are
+ * matched since #782 so that a missing one's 404 page also carries the policy; the branch above
+ * keeps them out of the locale and attribution logic.
+ */
 export const config = {
-  matcher: ['/((?!api|auth|r/|_next|_vercel|health|[^?]*[.][a-zA-Z0-9]+).*)'],
+  matcher: ['/((?!api|auth|r/|_next|_vercel|health).*)'],
 };

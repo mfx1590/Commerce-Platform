@@ -1,22 +1,43 @@
 /**
- * The storefront's Content-Security-Policy, built per request.
+ * The storefront's Content-Security-Policy, built per request (#782).
+ *
+ * **Scripts: a per-request nonce plus `'strict-dynamic'`, with no `'unsafe-inline'` and no
+ * `'unsafe-eval'` in production.** The middleware makes a new nonce for every response and puts it
+ * on the response's policy and on the forwarded request's. Next reads it back from the request and
+ * stamps it on its own inline bootstrap and RSC-payload scripts and its chunk `<script>` tags.
+ * `'strict-dynamic'` then trusts what those scripts load: the chunks, and Stripe.js, which
+ * `loadStripe()` inserts. Every script the storefront runs is listed, with how it is authorised,
+ * in `SCRIPTS.md`.
+ *
+ * **Why this costs no caching.** The production build prerenders exactly one page, `/_not-found`.
+ * Every `[locale]` document is already rendered per request: `force-dynamic` (home, cart, checkout,
+ * account, orders), `searchParams` (PLP, categories) or the currency cookie (PDP). So the nonce
+ * changes no route's rendering mode, which is what made it expensive for the admin (#763).
  *
  * **Why per request and not in `next.config.mjs` `headers()`:** those are evaluated once by
  * `next build` and written into the routes manifest, while the images are built **once** and
  * configured per environment at runtime (Helm sets `KEYCLOAK_URL` differently for dev and staging).
- * A build-time policy therefore carried the build machine's identity provider into every
- * environment, and `form-action` blocked sign-out everywhere it was deployed — silently, in the
- * browser only. The middleware runs per request with the deployment's own environment, so the
- * policy is built there, from this function.
+ * A build-time policy carried the build machine's identity provider into every environment. And a
+ * nonce is only worth anything if it is new on every response.
  *
  * Pure, so every directive is unit-tested.
  */
 
+export const CSP_HEADER = 'Content-Security-Policy';
+/** Request header the render can read the nonce from. Next itself reads it from `CSP_HEADER`. */
+export const NONCE_HEADER = 'x-nonce';
+
 export interface CspInput {
-  /** `KEYCLOAK_URL` — where sign-out's 303 lands, so it must be an allowed form target. */
+  /** This response's nonce (`newNonce()`). */
+  nonce: string;
+  /** `KEYCLOAK_URL`: where sign-out's 303 lands, so it must be an allowed form target. */
   keycloakUrl: string | undefined;
-  /** Space-separated `https://…` hosts campaign embeds may be framed from (window 6's list). */
-  frameHosts: string | undefined;
+  /** Campaign embed origins, already vetted by `parseFrameHosts`. */
+  frameHosts: readonly string[];
+  /** The request path: the payment funnel gets a stricter `frame-src` (`isPaymentFunnel`). */
+  pathname: string;
+  /** `NODE_ENV === 'production'`; development adds what `next dev` needs and nothing else. */
+  production: boolean;
 }
 
 const DEFAULT_KEYCLOAK = 'http://localhost:8180';
@@ -34,42 +55,114 @@ export function keycloakOrigin(url: string | undefined): string {
   }
 }
 
+/** 128 random bits, base64. Web Crypto, so it runs in the middleware's edge runtime. */
+export function newNonce(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return btoa(String.fromCharCode(...bytes));
+}
+
 /**
  * Stripe's Payment Element (#358): its script, the iframes that hold the card fields and 3-D Secure,
  * and the API the Element calls from the browser. Exactly the hosts Stripe documents for the
- * Payment Element with card payments — no wildcard, nothing wider. Card data goes from those
+ * Payment Element with card payments: no wildcard, nothing wider. Card data goes from those
  * iframes to Stripe; it never reaches this origin.
  */
 export const STRIPE_SCRIPT_HOSTS = ['https://js.stripe.com'] as const;
 export const STRIPE_FRAME_HOSTS = ['https://js.stripe.com', 'https://hooks.stripe.com'] as const;
 export const STRIPE_CONNECT_HOSTS = ['https://api.stripe.com'] as const;
 
-export function contentSecurityPolicy({ keycloakUrl, frameHosts }: CspInput): string {
-  const frames = (frameHosts ?? '').split(/\s+/).filter((host) => /^https:\/\/\S+$/.test(host));
+export interface FrameHostRefusal {
+  entry: string;
+  reason: string;
+}
+
+/**
+ * The campaign embed list (`CSP_FRAME_HOSTS`, built from window 6's `EMBED_HOSTS`), narrowed to
+ * **bare https origins**. A wildcard, a path, a query, credentials, another scheme or anything
+ * unparseable is refused and reported, never passed to the browser. A wildcard would let any
+ * subdomain be framed, and a path is not something `frame-src` can enforce the way it reads.
+ */
+export function parseFrameHosts(raw: string | undefined): {
+  hosts: string[];
+  refused: FrameHostRefusal[];
+} {
+  const hosts: string[] = [];
+  const refused: FrameHostRefusal[] = [];
+  for (const entry of (raw ?? '').split(/\s+/).filter(Boolean)) {
+    if (entry.includes('*')) {
+      refused.push({ entry, reason: 'wildcard' });
+      continue;
+    }
+    let url: URL;
+    try {
+      url = new URL(entry);
+    } catch {
+      refused.push({ entry, reason: 'not a URL' });
+      continue;
+    }
+    if (url.protocol !== 'https:') {
+      refused.push({ entry, reason: 'not https' });
+    } else if (url.username !== '' || url.password !== '') {
+      refused.push({ entry, reason: 'credentials' });
+    } else if (url.origin !== entry.replace(/\/$/, '')) {
+      refused.push({ entry, reason: 'not a bare origin (path, query or fragment)' });
+    } else if (!hosts.includes(url.origin)) {
+      hosts.push(url.origin);
+    }
+  }
+  return { hosts, refused };
+}
+
+/**
+ * Cart, checkout (every step, payment included) and order pages: the pages that handle the cart
+ * and card. Their `frame-src` is Stripe's hosts only: no campaign embeds.
+ *
+ * What this does and does NOT guarantee: a policy binds to the document it arrived with. A full
+ * load of one of these pages (a direct visit, a reload, the redirect back from 3-D Secure) gets
+ * the strict `frame-src`. A client-side navigation into the funnel (the cart link, the add-to-cart
+ * redirect) keeps the policy of the page it started from. The **script** policy is the same nonce
+ * policy everywhere, so it holds whichever way the customer arrived.
+ */
+export function isPaymentFunnel(pathname: string): boolean {
+  return /^\/[^/]+\/(cart|checkout|orders)(\/|$)/.test(pathname);
+}
+
+export function contentSecurityPolicy({
+  nonce,
+  keycloakUrl,
+  frameHosts,
+  pathname,
+  production,
+}: CspInput): string {
+  const frames = isPaymentFunnel(pathname) ? [] : frameHosts;
 
   return [
     "default-src 'self'",
+    // Only scripts carrying this response's nonce, and what they load ('strict-dynamic'). Stripe's
+    // host stays for browsers older than CSP3 (which ignore 'strict-dynamic'). There is no
+    // 'unsafe-inline' fallback, by decision (#782). `next dev` evaluates modules with eval() for
+    // React Refresh, so development alone adds 'unsafe-eval'.
+    `script-src 'nonce-${nonce}' 'strict-dynamic' ${STRIPE_SCRIPT_HOSTS.join(' ')}${production ? '' : " 'unsafe-eval'"}`,
     // The CDNs `remotePatterns` allows, plus data:/blob: for inlined placeholders.
     "img-src 'self' data: blob: https://res.cloudinary.com https://images.unsplash.com https://picsum.photos",
     "font-src 'self' data:",
     // Hero loops (#330) are Cloudinary video delivery URLs; nothing else plays media.
     "media-src 'self' https://res.cloudinary.com",
+    // Styles stay 'unsafe-inline': React writes style="" attributes and Next its own <style>.
+    // Inline style is not script execution; stated, not implied.
     "style-src 'self' 'unsafe-inline'",
-    // Not XSS protection: Next's App Router emits inline bootstrap scripts, and removing
-    // 'unsafe-inline' needs a nonce threaded through every <Script>. Stated, not implied.
-    `script-src 'self' 'unsafe-inline' ${STRIPE_SCRIPT_HOSTS.join(' ')}`,
-    // The Store API is called server-side; the browser talks to this origin — and, from the
-    // Payment Element, to Stripe's API.
+    // The Store API is called server-side; the browser talks to this origin and, from the Payment
+    // Element, to Stripe's API.
     `connect-src 'self' ${STRIPE_CONNECT_HOSTS.join(' ')}`,
-    // Campaign embeds (REQUEST #199). The sandbox on each iframe is the first layer; this stops an
-    // embed being pointed at a host nobody reviewed.
+    // Campaign embeds (REQUEST #199) everywhere except the payment funnel. The sandbox on each
+    // iframe is the first layer; this stops an embed being pointed at a host nobody reviewed.
     `frame-src 'self' ${[...STRIPE_FRAME_HOSTS, ...frames].join(' ')}`,
     // Nothing may frame us: clickjacking a checkout is the attack this prevents.
     "frame-ancestors 'none'",
     "object-src 'none'",
-    "base-uri 'self'",
+    "base-uri 'none'",
     // Chrome evaluates form-action against the URL *after* redirects, and sign-out answers 303 to
-    // the identity provider — with 'self' alone the SSO session is never ended.
+    // the identity provider: with 'self' alone the SSO session is never ended.
     `form-action 'self' ${keycloakOrigin(keycloakUrl)}`,
     'upgrade-insecure-requests',
   ].join('; ');
