@@ -332,11 +332,11 @@ jobs:
       # ACTIONS_RUNTIME_TOKEN and ACTIONS_CACHE_URL, which are available to an action but not to a
       # plain `run:` step. docker-compose.build.yml still defines every image; docker-bake.hcl only
       # adds the cache wiring. See the comments in that file.
-      # workdir matters: bake resolves a target's `context` relative to the working directory, not to
-      # the file that declares it, so `context: ../..` only means the repo root when bake runs from
-      # infra/docker. (`docker compose build` resolves it relative to the compose file, which is why
-      # the local command needs no equivalent.) `bake --print` does not resolve contexts at all, so
-      # it cannot catch this — only a real build can.
+      # The context matters: bake resolves a target's `context` relative to the working directory, not
+      # to the file that declares it. bake-action 7 has no `workdir` and runs from the repo root, so
+      # BAKE_CONTEXT=. (docker-bake.hcl; its default `../..` is for running from infra/docker).
+      # (`docker compose build` resolves it relative to the compose file, which is why the local command
+      # needs no equivalent.) `bake --print` does not resolve contexts, so only a real build catches this.
       - name: build every app image (cached, no push)
         if: needs.changes.outputs.images == 'true'
         uses: docker/bake-action@v7
@@ -345,15 +345,15 @@ jobs:
           # Pull requests read the build cache; only pushes to main write it. Exporting cost more
           # than the build saved — see the CACHE_TO comment in infra/docker/docker-bake.hcl.
           CACHE_TO: ${{ github.event_name == 'push' && '1' || '' }}
+          BAKE_CONTEXT: .
         with:
-          # bake-action 6+ builds from the Git context unless told otherwise; then `workdir` does not apply and
-          # the files resolve at the repo root (#743: "lstat docker-compose.build.yml"). `source: .` is the
-          # checkout, run from `workdir`, so `context: ../..` is the repo root as above.
+          # bake-action 6+ builds from the Git context unless told otherwise (#743: "lstat
+          # docker-compose.build.yml"); `source: .` is the checkout. It runs from the repo root (7 has no
+          # `workdir`), so the files are named from there and BAKE_CONTEXT above is `.`.
           source: .
-          workdir: infra/docker
           files: |
-            docker-compose.build.yml
-            docker-bake.hcl
+            infra/docker/docker-compose.build.yml
+            infra/docker/docker-bake.hcl
           load: true
           push: false
       # The COPY list in each Dockerfile's `deps` stage is what makes the install layer cacheable;

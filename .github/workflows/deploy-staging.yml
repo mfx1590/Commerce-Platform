@@ -111,13 +111,13 @@ jobs:
         uses: docker/bake-action@v7
         env:
           IMAGE_TAG: ${{ steps.sha.outputs.value }}
+          BAKE_CONTEXT: .
         with:
-          # the checkout, not the Git context (bake-action 6+'s default): see ci.yml's image build
+          # the checkout, from the repo root (bake-action 7: no Git context, no `workdir`): see ci.yml's image build
           source: .
-          workdir: infra/docker
           files: |
-            docker-compose.build.yml
-            docker-bake.hcl
+            infra/docker/docker-compose.build.yml
+            infra/docker/docker-bake.hcl
           targets: core admin storefront-starter
           load: true
           push: false
