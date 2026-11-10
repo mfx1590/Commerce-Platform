@@ -318,8 +318,47 @@ when every check has finished.
 
 ## In progress — #739 · brand A's thin LCP margin (2026-11-09)
 
-**PR #765** (code commit `5631640b`; head = the memory commit after it), **"Refs #739", not Closes** — it removes 55% of the font bytes and
+**PR #765** (code commit `7adab23b` after the BLOCK fixes; first round was `5631640b`), **"Refs #739", not Closes** — it removes 55% of the font bytes and
 is still over the worst-run budget. Two messages owed: PR up (sent), checks finished.
+
+### #765 was BLOCKED, and the review was right about something I asserted
+
+**I misread the cascade.** I wrote "theme.css sets h1-h4 at medium and nothing else uses the serif",
+so pinning the serif to 500 "costs nothing visible". `theme.css` is an **element** rule (0,0,1);
+Tailwind's `.font-bold` is a **class** (0,1,0) and **outranks it**. So 33 synced headings — the LCP
+`<h1>` among them — had been rendering real **700/600** for brand A's whole life while theme.css and
+DESIGN.md §3 said medium. Pinning to 500 made it visible and my PR called it invisible.
+
+**Measured in a browser** (the review's one unverified item), PDP `h1`, same build and page load:
+this branch **500** / rule deleted at runtime **700** / main's variable face **700 with synthesis
+auto**. The crops are visibly different.
+
+**Decision (manager): keep the pin, make medium ENFORCED.** `fonts.ts` now declares what the files
+carry (serif `'500'`, sans `'400 700'` — declaring `'400 700'` against a 500-only file is what made
+it silent: the browser believed 700 existed and reached for nothing). `theme.css` uses
+**`h1[class]`** — (0,1,1) beats a utility's (0,1,0) **without `!important`** — written against
+`[class]` not against `.font-bold` by name, because the rule is "a serif heading is medium". The
+headings are SYNCED markup and not mine to edit (ADR 0004), hence specificity here, not 33 upstream
+edits. Plus **`font-synthesis-weight: none`** — **the weight property ONLY**, because the
+`font-synthesis` shorthand also kills synthetic *italic* and brand A ships no italic face, so every
+`<em>` would silently go upright.
+
+**Three lessons worth keeping:**
+
+1. **An element rule never beats a utility class.** Any brand styling that must override synced
+   Tailwind markup needs specificity, not just a declaration. Check with `getComputedStyle` in a
+   browser, not by reading the stylesheet.
+2. **A test that mirrors a declaration asserts nothing.** `brand-theme.test.ts` checked the weights
+   `fonts.ts` declared against a literal copy of those same weights, so it happily passed while the
+   declaration and the shipped binary disagreed. Updated, with that noted in the test.
+3. **`maxDiffPixelRatio: 0.002` sleeps through a 700->500 heading change.** Only the PDP baseline
+   failed (and only because of #728's rail); `home` and `plp` came back byte-identical. The comment
+   above that setting already records a previous tightening from 0.01 after a *typeface swap* slipped
+   through — a weight change is smaller still. I regenerated all three rather than leave stale-but-
+   passing baselines, and did **not** tighten the ratio (that needs jitter data).
+
+Also in this round: the four typographic characters (`’ ‘ – …`) at a measured 0.39 kB — "Men’s" was
+falling back per glyph; totals are now **40.8 kB**; and the stale figures the review listed.
 
 ### The diagnosis, which took the whole first half and was worth it
 
