@@ -36,6 +36,14 @@ describe('e2eServerEnv', () => {
     expect(e2eServerEnv({ E2E_STORE_API_URL: CORE }).E2E_LOCAL_IMAGES).toBe('1');
   });
 
+  it('names the identity provider: a production build refuses its CSP without one (#783)', () => {
+    expect(e2eServerEnv({}).KEYCLOAK_URL).toBe('http://localhost:8180');
+    expect(e2eServerEnv({ KEYCLOAK_URL: '' }).KEYCLOAK_URL).toBe('http://localhost:8180');
+    expect(e2eServerEnv({ KEYCLOAK_URL: 'https://auth.ci.example' }).KEYCLOAK_URL).toBe(
+      'https://auth.ci.example',
+    );
+  });
+
   it('sets no invoice switch: the store says whether invoices are allowed (#372)', () => {
     expect('STOREFRONT_ALLOW_INVOICE' in e2eServerEnv({})).toBe(false);
   });
