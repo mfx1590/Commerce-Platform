@@ -742,22 +742,49 @@ The `Content-Security-Policy` is built **per request in the middleware** (`src/l
 environment-independent companions (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`,
 `Permissions-Policy`) stay in `next.config.mjs`.
 
-**Stripe (#358)** is allowed exactly where the Payment Element needs it and nowhere wider:
-`script-src https://js.stripe.com`, `frame-src https://js.stripe.com https://hooks.stripe.com` (the
-card fields and 3-D Secure), `connect-src https://api.stripe.com`. No wildcard.
+**Stripe (#358)** is allowed exactly as Stripe's security guide lists it for Stripe.js and nowhere wider:
 
-`frame-src` is the point of it (REQUEST #199): campaign landings embed Builder.io and Framer pages,
-and the host list is **imported from `@platform/cms`** rather than copied, because `EMBED_HOSTS` is
-what window 6's Studio validates an editor's URL against. One list, two enforcement points — a CSP
-naming different hosts would either block an embed the Studio accepted or permit one it rejected.
-This is the second layer: window 6 sandboxes every embed iframe, and that is what contains a hostile
-page; the CSP stops an embed being pointed at an unreviewed host in the first place.
+- `script-src`: `https://js.stripe.com https://*.js.stripe.com`;
+- `frame-src`: `https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com` (the card fields and 3-D Secure);
+- `connect-src`: `https://api.stripe.com`.
+
+The source is docs.stripe.com/security/guide, checked 2026-11-10; `*.js.stripe.com` is Stripe's own. Maps and Link hosts are left out because the storefront uses neither. **The Payment Element has not yet been mounted under this policy in an automated run** (no Stripe TEST key in CI); see `SCRIPTS.md`.
+
+**Scripts: a per-request nonce plus `'strict-dynamic'` (#782).** Production `script-src` is
+`'nonce-<this response>' 'strict-dynamic' https://js.stripe.com https://*.js.stripe.com`, with **no `'unsafe-inline'` and no
+`'unsafe-eval'`** (development adds `'unsafe-eval'` for React Refresh, nothing else).
+
+- **How the nonce gets to the scripts:** the middleware makes a new nonce for every response and puts it on the response's policy and on the forwarded request's. Next stamps it on its own inline bootstrap and RSC-payload scripts and its chunk tags. `'strict-dynamic'` trusts what those load, Stripe.js included (`loadStripe()`).
+- **Every script and how it is authorised is listed in [`SCRIPTS.md`](SCRIPTS.md)**, the PCI 6.4.3-style inventory. A new script needs a row there.
+- **This costs no caching:** the production build prerenders exactly one page (`/_not-found`). Every `[locale]` document was already rendered per request (`force-dynamic`, `searchParams` or the currency cookie), so no route changed rendering mode. That was the expensive part for the admin (#763).
+- **Measured:** an interleaved local A/B (both builds served at once) and the CI perf leg ×3 against main show no LCP, TBT or TTFB change beyond run-to-run noise, and bundles within 0.1 kB.
+- `e2e/csp.spec.ts` holds it on a production build: home, PLP, PDP, cart, checkout through the payment step, a CMS page, the 404s and the signed-in account page show zero CSP violations and are interactive. It also asserts a new document, with the right policy, on entering and leaving checkout.
+
+**`frame-src` (REQUEST #199, tightened by #782 and its review).** The embed host list comes from window 6's `EMBED_HOSTS` (`@platform/cms`, the list its Studio validates an editor's URL against), passed as `CSP_FRAME_HOSTS` and vetted against a strict grammar:
+
+- `https://`, a lower-case host (letters, digits, dots, hyphens; last label starts with a letter), an optional port, nothing else;
+- `https://*.<domain>` only for the site builders in `WILDCARD_EMBED_DOMAINS` (`framer.app`, `framer.website`, `builder.io`);
+- anything else is refused and logged once at start.
+
+The grammar, not `URL`, is the boundary: `URL` accepts `;` in a host, which would inject a directive.
+
+**Two zones.**
+
+- The **checkout zone** (`checkout/*`, where the Payment Element mounts, and `orders/*`, the confirmation) frames itself and Stripe only.
+- **Everything else** frames itself, Stripe and the embed hosts.
+
+**Crossing between them is a full page load, both ways** (`src/components/zone-boundary.tsx` in the root layout), because a policy binds to the document it arrived with.
+
+The residual (any site on those builders can be framed outside checkout) and the `srcdoc` consequence (inline scripts in raw-HTML embeds are now blocked) are in `SCRIPTS.md` → "Frames". Window 6 sandboxes every embed iframe, and that is what contains a hostile page.
 
 **`form-action` must list the identity provider.** Signing out POSTs to `/auth/sign-out`, which
 answers `303` to Keycloak's `end_session` endpoint, and Chrome evaluates `form-action` against the
 URL **after** redirects — with `'self'` alone it blocks the submission outright, the SSO session is
 never ended, and the customer is silently signed back in on their next visit. Nothing about the page
-looks wrong when this happens; it only shows up in the console and in the account e2e.
+looks wrong when this happens; it only shows up in the console and in the account e2e. **So in
+production a missing or malformed `KEYCLOAK_URL` fails the request** rather than falling back to a
+local default (as the admin does since #763). The e2e server, `pnpm perf` and `rail-timing` pass the
+local stack's value (`.env.example`); every deployment must set it.
 
 **Why the CSP is not in `next.config.mjs`.** It was, in task 2.2 — and `headers()` there is
 evaluated **once, by `next build`**, and written into the routes manifest. Images are built once and
@@ -769,18 +796,25 @@ for its own image. Verified by building with no `KEYCLOAK_URL` and starting with
 the header carries the staging origin. The embed host list is the one build-time input — it is code,
 not environment — and reaches the middleware as `CSP_FRAME_HOSTS` via `next.config.mjs` `env`.
 
-Routes the middleware skips get no CSP: `/api`, `/auth`, `/health`, `/r/*` and **anything with a
-file extension**. None of them renders a document today — they are JSON, redirects or the health
-probe. The gap to know about is `public/`: a static `.html` file served from there would be a real
-document with **no CSP at all**, because the matcher excludes it by extension and `next.config.mjs`
-no longer carries the policy. This app ships no `public/` directory, so nothing is exposed now. A
-brand that adds one should serve such a page as a route instead, or add its path to the matcher —
-not widen the extension rule, which exists to keep the middleware off every image and script.
+**Every document response carries the policy.**
 
-**`script-src` still needs `'unsafe-inline'`.** Next's App Router emits inline bootstrap and
-flight-data scripts, and removing that needs a per-request nonce threaded through the middleware and
-every `<Script>`. So this policy is worth having for what it does enforce — framing, plugins, form
-targets, base URI — but it is **not** XSS protection and should not be described as such.
+- **Skipped by the middleware:** `/api/…`, `/auth/…`, `/health`, `/r/…` and Next's own `/_next/…` build output, as **whole path segments**. None of them renders a document. Before the #783 review the exclusions were unanchored, so `/authors`, `/apiary` and `/healthy` skipped the middleware and rendered a 404 with no policy. `test/middleware-matcher.test.ts` pins both lists.
+- **File paths are matched since #782** (they were excluded by extension), so a missing file's 404, which Next answers with its prerendered `/_not-found` page, and anything served from `public/` get the policy too. They skip the locale and attribution logic; the cost is one regex test, a nonce and a policy string per request.
+- **Behaviour changes in #782:**
+  - an unknown `/<locale>/…` path now renders **the store's own localised 404** (the `[locale]/[...rest]` catch-all); before, it got Next's static default page;
+  - the middleware now also runs on file paths.
+- **One known limit:** `/_not-found` itself is prerendered HTML without a nonce, so its few scripts are blocked. It is static text with nothing interactive; every locale path's 404 is the dynamic, nonced one.
+
+**What the policy now enforces:**
+
+- scripts, by nonce;
+- framing (two zones, crossed by full page loads);
+- plugins (`object-src 'none'`);
+- form targets;
+- `base-uri 'none'`;
+- `frame-ancestors 'none'`.
+
+Styles stay `'unsafe-inline'` (React style attributes), which is not script execution. Subresource integrity on the chunks (Next's experimental `sri`) is a later follow-up, not part of #782.
 
 ## Performance budget
 
@@ -838,24 +872,25 @@ fails if this block drifts from it. Refresh with
 
 | Route                                         | First load (gzipped) | Budget             |
 | --------------------------------------------- | -------------------- | ------------------ |
-| `/[locale]/(account)/account/deleted/page`    | 131.1 kB             | 145 kB _(default)_ |
-| `/[locale]/(account)/account/orders/page`     | 131.1 kB             | 145 kB _(default)_ |
-| `/[locale]/(account)/account/page`            | 136.5 kB             | 145 kB _(default)_ |
-| `/[locale]/(checkout)/cart/page`              | 141.6 kB             | 145 kB             |
-| `/[locale]/(checkout)/checkout/address/page`  | 134.3 kB             | 139 kB             |
-| `/[locale]/(checkout)/checkout/page`          | 129.9 kB             | 145 kB _(default)_ |
-| `/[locale]/(checkout)/checkout/payment/page`  | 134.3 kB             | 145 kB _(default)_ |
+| `/[locale]/(account)/account/deleted/page`    | 131.2 kB             | 145 kB _(default)_ |
+| `/[locale]/(account)/account/orders/page`     | 131.2 kB             | 145 kB _(default)_ |
+| `/[locale]/(account)/account/page`            | 136.6 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/cart/page`              | 141.7 kB             | 145 kB             |
+| `/[locale]/(checkout)/checkout/address/page`  | 134.4 kB             | 139 kB             |
+| `/[locale]/(checkout)/checkout/page`          | 130 kB               | 145 kB _(default)_ |
+| `/[locale]/(checkout)/checkout/payment/page`  | 134.4 kB             | 145 kB _(default)_ |
 | `/[locale]/(checkout)/checkout/review/page`   | 135.4 kB             | 139 kB             |
-| `/[locale]/(checkout)/checkout/shipping/page` | 134.3 kB             | 145 kB _(default)_ |
-| `/[locale]/(checkout)/orders/[orderId]/page`  | 131.1 kB             | 145 kB _(default)_ |
-| `/[locale]/(content)/campaign/[slug]/page`    | 133.4 kB             | 145 kB _(default)_ |
-| `/[locale]/(content)/legal/[slug]/page`       | 133.4 kB             | 145 kB _(default)_ |
-| `/[locale]/(content)/pages/[slug]/page`       | 133.4 kB             | 145 kB _(default)_ |
-| `/[locale]/(shop)/categories/[handle]/page`   | 136.8 kB             | 141 kB             |
-| `/[locale]/(shop)/page`                       | 131.7 kB             | 136 kB             |
-| `/[locale]/(shop)/products/[handle]/page`     | 141.1 kB             | 144 kB             |
-| `/[locale]/(shop)/products/page`              | 136.8 kB             | 141 kB             |
-| `/_not-found/page`                            | 103.5 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/checkout/shipping/page` | 134.4 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/orders/[orderId]/page`  | 131.2 kB             | 145 kB _(default)_ |
+| `/[locale]/(content)/campaign/[slug]/page`    | 133.6 kB             | 145 kB _(default)_ |
+| `/[locale]/(content)/legal/[slug]/page`       | 133.6 kB             | 145 kB _(default)_ |
+| `/[locale]/(content)/pages/[slug]/page`       | 133.6 kB             | 145 kB _(default)_ |
+| `/[locale]/(shop)/categories/[handle]/page`   | 136.9 kB             | 141 kB             |
+| `/[locale]/(shop)/page`                       | 131.8 kB             | 136 kB             |
+| `/[locale]/(shop)/products/[handle]/page`     | 141.2 kB             | 144 kB             |
+| `/[locale]/(shop)/products/page`              | 136.9 kB             | 141 kB             |
+| `/[locale]/[...rest]/page`                    | 124.8 kB             | 145 kB _(default)_ |
+| `/_not-found/page`                            | 103.6 kB             | 145 kB _(default)_ |
 
 _Generated by `pnpm --filter @platform/storefront-starter bundle-budget --sync-readme`; budgets live in `bundle-budget.json`._
 <!-- bundle-budget:end -->

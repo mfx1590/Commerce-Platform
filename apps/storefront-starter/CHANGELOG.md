@@ -1,5 +1,27 @@
 # Changelog — @platform/storefront-starter
 
+## 0.16.0 — 2026-11-10 (window 3, #782: nonce-based CSP)
+
+- **`script-src` is a per-request nonce plus `'strict-dynamic'`**, with no `'unsafe-inline'` and no `'unsafe-eval'` in production. `base-uri 'none'`. The middleware forwards the nonce to Next, which stamps its scripts. No route changed rendering mode: the build prerenders only `/_not-found`, and every `[locale]` document was already dynamic.
+- **`SCRIPTS.md`**: the inventory of every script and how it is authorised, plus the "Frames" section with the residual.
+- **Frame hosts:** bare `https` origins, plus wildcards only for `WILDCARD_EMBED_DOMAINS` (`framer.app`, `framer.website`, `builder.io`). Every other wildcard, path, `http` or credentials entry is refused and logged once. The embed hosts apply everywhere except the checkout zone (see the review fixes below; this replaced an earlier per-route scoping).
+- **Behaviour changes:**
+  - an unknown `/<locale>/…` path renders the store's own localised 404 (`[locale]/[...rest]`), not Next's static default;
+  - the middleware also runs on file paths, so a missing file's 404 carries the policy.
+- **Tests:**
+  - `e2e/csp.spec.ts`, on a production build: zero violations and interactivity across home, PLP, PDP, cart, checkout through payment, a CMS page, the 404s and the signed-in account page. Mutation-checked: an un-nonced inline script fails it on every page.
+  - unit tests for the policy, the nonce, and each frame-host refusal and route.
+- **Perf:** interleaved local A/B and CI perf leg ×3 against main show no change beyond noise. The bundle table gains the `[...rest]` route (sizes from CI).
+
+- **Review fixes (#783):**
+  - **Directive injection closed.** Frame hosts must match a strict grammar (`https://`, a lower-case host whose last label starts with a letter, an optional port; `*.` only for the named builders). WHATWG `URL` accepted `;` in a host, so `https://a.example;script-src-elem` would have injected a directive. The full production policy string is now pinned per zone in a test, with each directive appearing once.
+  - **Two zones replace the per-route embed scoping.** The checkout zone (`checkout/*`, `orders/*`) frames Stripe only; everything else, cart and account included, frames Stripe and the embed hosts. Crossing between them is a full page load both ways (`src/components/zone-boundary.tsx` in the root layout; e2e asserts a new document with the right policy on entering and leaving checkout, and fails without it).
+  - **The middleware matcher's exclusions are whole path segments**: `/authors`, `/apiary` and `/healthy` used to skip it and render a 404 with no policy (`test/middleware-matcher.test.ts`).
+  - **Stripe's list follows Stripe's security guide** (checked 2026-11-10): `https://*.js.stripe.com` added to `script-src` and `frame-src`.
+  - **`form-action` fails the request in production when `KEYCLOAK_URL` is missing or malformed.** The e2e server, `pnpm perf` and `rail-timing` pass the local stack's value.
+  - The locale 404 is asserted to answer status 404. `SCRIPTS.md` says that raw-HTML (`srcdoc`) embeds no longer run inline scripts.
+  - The unused `x-nonce` request header is gone.
+
 ## 0.15.3 — 2026-11-10 (window 3, #766: visual suite tolerance)
 
 - **`e2e/visual.spec.ts` in the starter** (it was brand A's only).
