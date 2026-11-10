@@ -916,6 +916,48 @@ pnpm --filter @platform/storefront-starter test        # Vitest: client, slots, 
 pnpm --filter @platform/storefront-starter typecheck
 ```
 
+### Visual regression (#140, tolerances from #766)
+
+`e2e/visual.spec.ts` snapshots home, PLP and PDP. It is **opt-in** (`E2E_VISUAL=1`) and **local-only**: baselines are per platform (`snapshotPathTemplate` in `playwright.config.ts`), and CI's Linux rasterises fonts differently from the Windows the baselines are taken on.
+
+```bash
+E2E_VISUAL=1 pnpm --filter @platform/storefront-starter e2e visual --update-snapshots
+```
+
+Review every PNG before committing it.
+
+**Two kinds of shot, with tolerances from measurement, not feel.** On one machine and one build, 10–15 repeat runs of every shot differed by exactly **0 pixels** (both the starter and brand A).
+
+| Change                                             | full-page shot        | h1 element shot |
+| -------------------------------------------------- | --------------------- | --------------- |
+| repeat run, same build (jitter)                    | 0                     | 0               |
+| h1 weight 700 → 500 (starter)                      | 0.00022–0.00079       | 0.021–0.113     |
+| h1 typeface swapped to the sans fallback (brand A) | 0.00037–0.00080       | 0.021–0.137     |
+| old full-page tolerance                            | 0.002 (let both pass) | —               |
+| **tolerance now**                                  | **0.0001**            | **0.002**       |
+
+- The **full-page shots** use `maxDiffPixelRatio: 0.0001`, half the smallest real change measured.
+- The **element shots** use `0.002`, an order of magnitude below what they exist to catch. They are the h1 on every page, the first product card on the PLP, and the add-to-cart button on the PDP.
+- With the h1 at weight 500, all six shots fail: the three full pages (677 / 857 / 409 px) and the three h1 shots.
+
+**What it can catch:** a token, typeface, weight, size, spacing or colour change that reaches the three pages, down to a single heading weight step. The full page catches it anywhere; the element shots catch it on the h1, the card and the button even when the rest of the page dilutes it.
+
+**What it cannot catch:**
+
+- anything outside home, PLP and PDP (cart, checkout, account, content pages);
+- other viewports (desktop Chrome only, no mobile);
+- interaction states (hover, focus, open menus);
+- a change on a platform with no committed baseline, and anything at all on CI, where it does not run;
+- a change hidden by a fixture that happens to look the same;
+- a change that does not render. For example, brand A's heading face is a single subset weight, so a CSS weight change on its h1 renders identically and cannot be seen. Changing the font file is what changes the pixels.
+
+A failure means "the pixels changed", never "the design is wrong": the reviewer decides, and an accepted change is a re-taken, reviewed baseline.
+
+**Baselines per brand.** The starter commits none, because the brand sync copies every tracked starter file and a starter PNG would overwrite each brand's own. A brand takes its own with the command above.
+
+- **Synced into a brand:** `e2e/visual.spec.ts` (it replaces brand A's local copy, with the same full-page file names).
+- **Preserved per brand:** `playwright.config.ts` (where the brand's `snapshotPathTemplate` lives) and the brand's `e2e/__screenshots__/**` baselines, which the starter does not track.
+
 ### End-to-end
 
 ```bash
