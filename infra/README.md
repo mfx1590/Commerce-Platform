@@ -384,6 +384,8 @@ file names the failure behind each.
 helm/
   platform-app/            the chart: Deployment, Service, Ingress, ServiceAccount, ExternalSecret, HPA
   values/<app>/values-<env>.yaml   what differs: image, port, hostname, replicas, which secrets
+                           (storefront = the starter's chart; storefront-brand-{a,b,c} = each brand's own,
+                           #439, rendered and checked but not deployed until #342 adds their Applications)
   check.sh                 helm lint + helm template + kubeconform, no cluster needed
 argocd/
   projects/commerce-platform.yaml  the AppProject — the blast radius

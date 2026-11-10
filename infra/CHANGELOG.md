@@ -16,6 +16,19 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 - `infra/load/slo-gate.mjs` (+ test): the verdict per pass, the retry-once rule, the tracking comment and the issue body.
 - Admin-metrics latency is not covered yet: #785.
 
+### Added (#439: every image in every list; the engagement image; per-brand Helm values)
+
+- `apps/engagement/Dockerfile` (a worker: `node dist/main.js`; no HEALTHCHECK, because its one HTTP server, the
+  support API, is opt-in on 4040), plus a compose build service and a bake target.
+- terraform `var.apps` (ECR) gains `engagement`, `feeds` and `storefront-brand-{a,b,c}`, so it matches the images
+  again. `smoke-images.sh` gains `storefront-brand-{b,c}` and `engagement`.
+- `infra/ci/check-image-lists.sh` (in the `changes` job): the compose services, bake targets, terraform `var.apps` and
+  the smoke list must name the same images. On main before this it reported terraform missing 4 and smoke missing 2.
+- `infra/helm/values/storefront-brand-{a,b,c}/values-{dev,staging}.yaml`: each brand's port, host, image and its own
+  staging key path. `check-values.sh`'s SITE_URL/robots rules now cover every `storefront*` directory (+1 fixture).
+  NOT deployed: ArgoCD Applications and the deploy-staging list stay with #342.
+- `docker-compose.build.yml`'s header no longer says bake must run from `infra/docker` (BAKE_CONTEXT, #767).
+
 ### Added (#745: the Redis halves of the rate limits run in CI)
 
 - The `unit` job gets a `redis:7-alpine` service on host port 6381 (the compose port, so `packages/ai`'s limiter test

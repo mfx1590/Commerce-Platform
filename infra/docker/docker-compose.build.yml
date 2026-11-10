@@ -11,9 +11,10 @@
 # the image cache exactly like it invalidates a local `pnpm build`.
 #
 # CI does not run `docker compose build`: it runs `docker buildx bake` with this file plus
-# docker-bake.hcl, which adds the GitHub Actions build cache. Bake must be run from this directory,
-# because it resolves `context` relative to the working directory while compose resolves it relative
-# to this file. See the header of docker-bake.hcl.
+# docker-bake.hcl, which adds the GitHub Actions build cache. Bake resolves `context` relative to the
+# working directory while compose resolves it relative to this file, so docker-bake.hcl overrides every
+# target's context with BAKE_CONTEXT: `../..` (the default) from this directory, `.` from the repo root,
+# which is where CI runs it (bake-action 7 has no workdir, #767). See the header of docker-bake.hcl.
 name: commerce-platform-build
 
 x-app-build: &app-build
@@ -58,6 +59,13 @@ services:
     build:
       <<: *app-build
       dockerfile: apps/notifications/Dockerfile
+
+  # The CDP / CRM / ops worker (#439). No HEALTHCHECK on a path: its one HTTP server (support) is opt-in.
+  engagement:
+    image: commerce-platform/engagement:${IMAGE_TAG:-dev}
+    build:
+      <<: *app-build
+      dockerfile: apps/engagement/Dockerfile
 
   feeds:
     image: commerce-platform/feeds:${IMAGE_TAG:-dev}

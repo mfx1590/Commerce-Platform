@@ -98,6 +98,12 @@ target "notifications" {
   cache-to   = cache_to("notifications")
 }
 
+target "engagement" {
+  context    = BAKE_CONTEXT
+  cache-from = cache_from("engagement")
+  cache-to   = cache_to("engagement")
+}
+
 target "feeds" {
   context    = BAKE_CONTEXT
   cache-from = cache_from("feeds")
