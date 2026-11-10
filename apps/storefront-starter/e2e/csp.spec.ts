@@ -94,6 +94,18 @@ async function reloadPolicy(page: Page): Promise<string | undefined> {
   return response?.headers()['content-security-policy'];
 }
 
+/** The URL the current document was loaded at (a soft navigation does not change it). */
+async function documentUrl(page: Page): Promise<string> {
+  return page.evaluate(
+    () => (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming).name,
+  );
+}
+
+/** frame-src in the checkout zone: Stripe only. Elsewhere: Stripe plus the embed hosts. */
+const STRIPE_ONLY_FRAMES =
+  /frame-src 'self' https:\/\/js\.stripe\.com https:\/\/\*\.js\.stripe\.com https:\/\/hooks\.stripe\.com;/;
+const EMBED_FRAMES = /frame-src 'self' [^;]*https:\/\/hooks\.stripe\.com https:\/\/[^;]+;/;
+
 const REQUIRE_KEYCLOAK = process.env.E2E_REQUIRE_KEYCLOAK === '1' || Boolean(process.env.CI);
 const KEYCLOAK_URL = process.env.KEYCLOAK_URL ?? 'http://localhost:8180';
 const REALM = process.env.KEYCLOAK_REALM_CUSTOMERS ?? 'customers';
@@ -130,21 +142,39 @@ test('shop and funnel pages run under the nonce CSP with no violation, and are i
     await expect(page).toHaveURL(localeUrl('/cart$'), { timeout: SERVER_ACTION_TIMEOUT });
   });
 
-  await test.step('cart', async () => {
+  await test.step('cart: outside the checkout zone, so embeds are allowed', async () => {
     const csp = await visit(page, '/cart');
     await hydrated(page);
     await expectNoncePolicy(page, 'cart', csp);
-    expect(csp, 'cart: frame-src is Stripe only').toMatch(
-      /frame-src 'self' https:\/\/js\.stripe\.com https:\/\/hooks\.stripe\.com;/,
-    );
+    expect(csp, 'cart: frame-src lists the embed hosts').toMatch(EMBED_FRAMES);
   });
 
-  await test.step('checkout through the payment step', async () => {
+  await test.step('into checkout from the cart, by click: a NEW document with the checkout policy', async () => {
+    const document = page.waitForResponse(
+      (r) =>
+        r.request().isNavigationRequest() &&
+        r.request().frame() === page.mainFrame() &&
+        CHECKOUT_STEP.test(new URL(r.url()).pathname),
+      { timeout: NAVIGATION_TIMEOUT },
+    );
     await clickWhenReady(page, page.getByRole('link', { name: 'Checkout' }));
+    const response = await document;
     await expect(page).toHaveURL(CHECKOUT_STEP, { timeout: NAVIGATION_TIMEOUT });
+    await hydrated(page);
+    // The document itself was loaded at the checkout URL: a hard navigation, not a soft one.
+    expect(await documentUrl(page), 'the checkout document was loaded at its own URL').toBe(
+      page.url(),
+    );
+    const csp = response.headers()['content-security-policy'];
+    expect(csp, 'checkout: frame-src is Stripe only').toMatch(STRIPE_ONLY_FRAMES);
+    await expectNoncePolicy(page, 'checkout', csp);
+  });
+
+  await test.step('the payment step', async () => {
     const csp = await visit(page, '/checkout/payment');
     await hydrated(page);
     await expectNoncePolicy(page, 'checkout payment', csp);
+    expect(csp).toMatch(STRIPE_ONLY_FRAMES);
 
     const card = page.getByRole('radio', { name: /card/i });
     if ((await card.count()) > 0) {
@@ -161,14 +191,35 @@ test('shop and funnel pages run under the nonce CSP with no violation, and are i
     }
   });
 
+  await test.step('out of checkout by click: a NEW document with the embed policy again', async () => {
+    const document = page.waitForResponse(
+      (r) =>
+        r.request().isNavigationRequest() &&
+        r.request().frame() === page.mainFrame() &&
+        new URL(r.url()).pathname.endsWith('/products'),
+      { timeout: NAVIGATION_TIMEOUT },
+    );
+    await clickWhenReady(page, page.getByRole('link', { name: 'Continue shopping' }));
+    const response = await document;
+    await expect(page).toHaveURL(localeUrl('/products$'), { timeout: NAVIGATION_TIMEOUT });
+    await hydrated(page);
+    expect(await documentUrl(page), 'the products document was loaded at its own URL').toBe(
+      page.url(),
+    );
+    const csp = response.headers()['content-security-policy'];
+    expect(csp, 'products: frame-src lists the embed hosts again').toMatch(EMBED_FRAMES);
+    await expectNoncePolicy(page, 'products after checkout', csp);
+  });
+
   await test.step('a CMS page (rendered or the content 404) and the shop 404', async () => {
     const cms = await visit(page, '/pages/about');
     await hydrated(page);
     await expectNoncePolicy(page, 'CMS page', cms);
 
-    const missing = await visit(page, '/no-such-page-for-csp');
+    const missing = await page.goto(localePath('/no-such-page-for-csp'));
+    expect(missing?.status(), 'the locale 404 answers 404').toBe(404);
     await hydrated(page);
-    await expectNoncePolicy(page, 'locale 404', missing);
+    await expectNoncePolicy(page, 'locale 404', missing?.headers()['content-security-policy']);
     // The store's own localised 404 (the [...rest] catch-all), not Next's static default.
     await expect(page.getByRole('heading', { level: 1, name: 'Page not found' })).toBeVisible();
     await clickWhenReady(page, page.getByRole('link', { name: 'Back to the home page' }));
@@ -184,6 +235,18 @@ test('a missing file is answered with a policy too (the prerendered 404)', async
   const csp = response.headers()['content-security-policy'] ?? '';
   expect(csp).toMatch(/script-src 'nonce-[^']+' 'strict-dynamic'/);
   expect(csp).not.toMatch(/script-src[^;]*unsafe-inline/);
+});
+
+test('paths that merely start like a route handler still get the policy (#783)', async ({
+  request,
+}) => {
+  for (const path of ['/authors', '/apiary', '/healthy']) {
+    const response = await request.get(path, { maxRedirects: 0 });
+    expect(
+      response.headers()['content-security-policy'] ?? '',
+      `${path} (${response.status()}) carries the policy`,
+    ).toMatch(/script-src 'nonce-[^']+' 'strict-dynamic'/);
+  }
 });
 
 test('account pages run under the nonce CSP with no violation (Keycloak)', async ({

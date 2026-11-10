@@ -8,13 +8,7 @@ import {
   parseAttribution,
   readTouch,
 } from '@/lib/attribution';
-import {
-  CSP_HEADER,
-  NONCE_HEADER,
-  contentSecurityPolicy,
-  newNonce,
-  parseFrameHosts,
-} from '@/lib/csp';
+import { CSP_HEADER, contentSecurityPolicy, newNonce, parseFrameHosts } from '@/lib/csp';
 import { siteOrigin } from '@/lib/site-origin';
 
 /**
@@ -61,13 +55,13 @@ function vettedFrameHosts(): string[] {
 const FILE_PATH = /\/[^/]*\.[a-zA-Z0-9]+$/;
 
 /**
- * The request the render sees: a named user agent (#274), and this response's nonce on
- * `Content-Security-Policy`, which is where Next reads it to stamp its own scripts (#782).
+ * The request the render sees: a named user agent (#274), and this response's policy on
+ * `Content-Security-Policy`, which is where Next reads the nonce to stamp its own scripts (#782).
+ * (Next also takes it from the response's header; forwarding it as well is what Next documents.)
  */
-function forwardedRequest(request: NextRequest, nonce: string, policy: string): NextRequest {
+function forwardedRequest(request: NextRequest, policy: string): NextRequest {
   const headers = new Headers(request.headers);
   if (!headers.get('user-agent')) headers.set('user-agent', UNIDENTIFIED_USER_AGENT);
-  headers.set(NONCE_HEADER, nonce);
   headers.set(CSP_HEADER, policy);
   return new NextRequest(request, { headers });
 }
@@ -84,7 +78,7 @@ export default function middleware(request: NextRequest) {
     pathname: request.nextUrl.pathname,
     production: process.env.NODE_ENV === 'production',
   });
-  const forwarded = forwardedRequest(request, nonce, policy);
+  const forwarded = forwardedRequest(request, policy);
 
   // A file path gets the policy and nothing else: no locale prefix, no attribution. That includes a
   // missing file, which Next answers with its prerendered `/_not-found` page (#782).
@@ -131,10 +125,17 @@ export default function middleware(request: NextRequest) {
 }
 
 /**
- * Everything except the route handlers (see above) and Next's own build output. File paths are
- * matched since #782 so that a missing one's 404 page also carries the policy; the branch above
- * keeps them out of the locale and attribution logic.
+ * Everything except the route handlers (see above) and Next's own build output.
+ * - **The exclusions are whole path segments** (#783 review). The old unanchored `api|auth|health`
+ *   also skipped `/authors`, `/apiary` and `/healthy`, which then rendered a 404 page with no CSP
+ *   at all. `test/middleware-matcher.test.ts` pins both lists.
+ * - **File paths are matched since #782**, so that a missing file's 404 page also carries the
+ *   policy; the branch above keeps them out of the locale and attribution logic.
+ * - **The cost on a `public/` file:** one regex test, a nonce and a policy string per request (the
+ *   starter's `public/` holds no files; each brand's holds one SVG placeholder).
+ *
+ * A literal on purpose: Next reads `config.matcher` statically at build time.
  */
 export const config = {
-  matcher: ['/((?!api|auth|r/|_next|_vercel|health).*)'],
+  matcher: ['/((?!api/|api$|auth/|auth$|r/|_next/|_vercel/|_vercel$|health/?$).*)'],
 };

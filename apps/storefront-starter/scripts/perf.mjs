@@ -70,6 +70,9 @@ const appEnv = {
   PORT,
   SITE_URL: process.env.SITE_URL ?? APP_URL,
   ROBOTS_ALLOW_INDEXING: '1',
+  // A production server refuses to build its CSP without it (#783 review); sign-out is not
+  // measured, so the local stack's value (.env.example) is enough unless the shell names another.
+  KEYCLOAK_URL: process.env.KEYCLOAK_URL || 'http://localhost:8180',
 };
 delete appEnv.STORE_API_URL;
 

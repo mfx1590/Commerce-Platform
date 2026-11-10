@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   contentSecurityPolicy,
-  isEmbedRoute,
+  isCheckoutZone,
   keycloakOrigin,
   newNonce,
   parseFrameHosts,
@@ -11,45 +11,62 @@ import {
 
 /**
  * The storefront CSP. Every failure mode here is silent (a blocked sign-out, a blocked embed, a
- * blocked bootstrap script, or a policy the browser drops entirely), so each directive that has
- * caused or could cause one is pinned. #782 made the script policy nonce-based.
+ * blocked bootstrap script, an injected directive, or a policy the browser drops entirely), so the
+ * FULL policy string is pinned per zone. A test that parses the policy into a map would hide a
+ * duplicated or injected directive (#783 review).
  */
 
-function directives(policy: string): Map<string, string> {
-  return new Map(
-    policy.split(';').map((part) => {
-      const [name = '', ...values] = part.trim().split(/\s+/);
-      return [name, values.join(' ')];
-    }),
-  );
-}
-
+const NONCE = 'bm9uY2Utd29yZA==';
 const BASE: CspInput = {
-  nonce: 'bm9uY2Utd29yZA==',
-  keycloakUrl: undefined,
-  frameHosts: ['https://builder.io', 'https://embed.example.com'],
+  nonce: NONCE,
+  keycloakUrl: 'https://auth.example.com/realms/customers',
+  frameHosts: ['https://builder.io', 'https://*.framer.app'],
   pathname: '/en-GB/products',
   production: true,
 };
-const policy = (overrides: Partial<CspInput> = {}) =>
-  directives(contentSecurityPolicy({ ...BASE, ...overrides }));
+const csp = (overrides: Partial<CspInput> = {}) => contentSecurityPolicy({ ...BASE, ...overrides });
 
-describe('script-src (#782)', () => {
-  it('production: this response’s nonce and strict-dynamic, no unsafe-inline, no unsafe-eval', () => {
-    const scripts = policy().get('script-src') ?? '';
-    expect(scripts.split(' ')).toEqual([
-      "'nonce-bm9uY2Utd29yZA=='",
-      "'strict-dynamic'",
-      'https://js.stripe.com',
-    ]);
-    expect(scripts).not.toContain('unsafe-inline');
-    expect(scripts).not.toContain('unsafe-eval');
+const STRIPE_SCRIPTS = 'https://js.stripe.com https://*.js.stripe.com';
+const STRIPE_FRAMES = 'https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com';
+const fullPolicy = (frames: string, extraScript = '') =>
+  [
+    "default-src 'self'",
+    `script-src 'nonce-${NONCE}' 'strict-dynamic' ${STRIPE_SCRIPTS}${extraScript}`,
+    "img-src 'self' data: blob: https://res.cloudinary.com https://images.unsplash.com https://picsum.photos",
+    "font-src 'self' data:",
+    "media-src 'self' https://res.cloudinary.com",
+    "style-src 'self' 'unsafe-inline'",
+    "connect-src 'self' https://api.stripe.com",
+    `frame-src 'self' ${frames}`,
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self' https://auth.example.com",
+    'upgrade-insecure-requests',
+  ].join('; ');
+
+describe('the full production policy, per zone (#782, #783)', () => {
+  it('outside checkout: nonce + strict-dynamic, Stripe and the vetted embed hosts as frames', () => {
+    expect(csp()).toBe(fullPolicy(`${STRIPE_FRAMES} https://builder.io https://*.framer.app`));
   });
 
-  it('development adds only what next dev needs (eval for React Refresh)', () => {
-    const scripts = policy({ production: false }).get('script-src') ?? '';
-    expect(scripts).toContain("'unsafe-eval'");
-    expect(scripts).not.toContain('unsafe-inline');
+  it('the checkout zone: the same script policy, Stripe-only frames', () => {
+    expect(csp({ pathname: '/en-GB/checkout/payment' })).toBe(fullPolicy(STRIPE_FRAMES));
+  });
+
+  it('development adds only unsafe-eval (React Refresh), and never unsafe-inline', () => {
+    expect(csp({ production: false })).toBe(
+      fullPolicy(`${STRIPE_FRAMES} https://builder.io https://*.framer.app`, " 'unsafe-eval'"),
+    );
+  });
+
+  it('each directive appears exactly once, in every zone', () => {
+    for (const pathname of ['/en-GB', '/en-GB/checkout', '/en-GB/orders/x']) {
+      const names = csp({ pathname })
+        .split(';')
+        .map((part) => part.trim().split(/\s+/)[0]);
+      expect(new Set(names).size).toBe(names.length);
+    }
   });
 
   it('a nonce is 128 random bits, new every time', () => {
@@ -60,42 +77,49 @@ describe('script-src (#782)', () => {
 });
 
 describe('form-action', () => {
-  it('allows the deployment’s own identity provider, so sign-out can end the SSO session', () => {
-    // Chrome checks form-action against the URL after redirects; sign-out answers 303 to Keycloak.
-    expect(
-      policy({ keycloakUrl: 'https://auth.staging.example.com/realms/customers' }).get(
-        'form-action',
-      ),
-    ).toBe("'self' https://auth.staging.example.com");
-  });
-
-  it('follows the value it is given: the whole point of building it per request', () => {
-    expect(policy({ keycloakUrl: 'https://auth.dev.example.com' }).get('form-action')).toContain(
-      'auth.dev.example.com',
+  it('follows the deployment’s own identity provider, so sign-out can end the SSO session', () => {
+    expect(keycloakOrigin('https://auth.staging.example.com/realms/customers', true)).toBe(
+      'https://auth.staging.example.com',
     );
-    expect(
-      policy({ keycloakUrl: 'https://auth.staging.example.com' }).get('form-action'),
-    ).toContain('auth.staging.example.com');
-  });
-
-  it('falls back to the local default rather than emitting a directive the browser would reject', () => {
-    expect(keycloakOrigin(undefined)).toBe('http://localhost:8180');
-    expect(keycloakOrigin('not a url')).toBe('http://localhost:8180');
     expect(keycloakOrigin('https://auth.example.com:8443/realms/x')).toBe(
       'https://auth.example.com:8443',
     );
   });
+
+  it('production: a missing or malformed KEYCLOAK_URL throws (no silent localhost)', () => {
+    expect(() => keycloakOrigin(undefined, true)).toThrow(/KEYCLOAK_URL must be set/);
+    expect(() => keycloakOrigin('', true)).toThrow(/KEYCLOAK_URL must be set/);
+    expect(() => keycloakOrigin('not a url', true)).toThrow(/KEYCLOAK_URL must be set/);
+    expect(() => csp({ keycloakUrl: undefined })).toThrow(/KEYCLOAK_URL must be set/);
+  });
+
+  it('development falls back to the local Keycloak', () => {
+    expect(keycloakOrigin(undefined)).toBe('http://localhost:8180');
+    expect(keycloakOrigin('not a url')).toBe('http://localhost:8180');
+  });
 });
 
-describe('CSP_FRAME_HOSTS: bare https origins, and the named site-builder wildcards (#782)', () => {
-  it('accepts bare origins (a trailing slash is the same origin) and drops duplicates', () => {
+describe('CSP_FRAME_HOSTS: the frame-source grammar (#782, #783)', () => {
+  const ORIGIN = 'not an https origin (lower-case host, optional port, nothing else)';
+  const WILDCARD = 'wildcard (not https://*.<allowed site-builder domain>)';
+
+  it('accepts lower-case https origins (trailing slash dropped, port kept) without duplicates', () => {
     expect(
-      parseFrameHosts('https://builder.io https://embed.example.com:8443/ https://builder.io'),
-    ).toEqual({ hosts: ['https://builder.io', 'https://embed.example.com:8443'], refused: [] });
+      parseFrameHosts(
+        'https://builder.io https://embed.example.com:8443/ https://builder.io https://xn--bcher-kva.example',
+      ),
+    ).toEqual({
+      hosts: [
+        'https://builder.io',
+        'https://embed.example.com:8443',
+        'https://xn--bcher-kva.example',
+      ],
+      refused: [],
+    });
     expect(parseFrameHosts(undefined)).toEqual({ hosts: [], refused: [] });
   });
 
-  it('accepts a wildcard only for the named site-builder domains, exactly as written', () => {
+  it('accepts a wildcard only for the named site-builder domains', () => {
     expect(WILDCARD_EMBED_DOMAINS).toEqual(['framer.app', 'framer.website', 'builder.io']);
     expect(
       parseFrameHosts('https://*.framer.app https://*.framer.website https://*.builder.io'),
@@ -105,86 +129,75 @@ describe('CSP_FRAME_HOSTS: bare https origins, and the named site-builder wildca
     });
   });
 
-  const WILDCARD = 'wildcard (not an allowed site-builder domain)';
   it.each([
+    // Directive injection: WHATWG URL accepts these in a host; the grammar does not.
+    ['a semicolon (directive injection)', 'https://a.example;script-src-elem', ORIGIN],
+    ['a semicolon before a directive name', 'https://a.example;form-action', ORIGIN],
+    ['a comma', 'https://a.example,https://b.example', ORIGIN],
+    ['a quote', "https://a.example'unsafe-inline'", ORIGIN],
+    ['upper case', 'https://Embed.Example.com', ORIGIN],
+    ['an IDN (use its xn-- form)', 'https://bücher.example', ORIGIN],
+    ['an IPv4 literal', 'https://192.0.2.1', ORIGIN],
+    ['an IPv6 literal', 'https://[2001:db8::1]', ORIGIN],
+    ['a single-label host', 'https://localhost', ORIGIN],
+    ['a path', 'https://www.youtube.com/embed', ORIGIN],
+    ['a query', 'https://player.example.com?x=1', ORIGIN],
+    ['plain http', 'http://insecure.example.com', ORIGIN],
+    ['another scheme', 'data:text/html,hi', ORIGIN],
+    ['credentials', 'https://user:word@example.com', ORIGIN],
+    ['no scheme', 'example.com', ORIGIN],
     ['a wildcard on any other domain', 'https://*.example.com', WILDCARD],
     ['a wildcard one level too deep', 'https://*.sites.framer.app', WILDCARD],
     ['a look-alike domain', 'https://*.framer.app.evil.example', WILDCARD],
     ['a bare wildcard', '*', WILDCARD],
     ['a wildcard over http', 'http://*.framer.app', WILDCARD],
     ['a wildcard with a path', 'https://*.framer.app/embed', WILDCARD],
-    ['a path', 'https://www.youtube.com/embed', 'not a bare origin (path, query or fragment)'],
-    ['a query', 'https://player.example.com?x=1', 'not a bare origin (path, query or fragment)'],
-    ['plain http', 'http://insecure.example.com', 'not https'],
-    ['another scheme', 'data:text/html,hi', 'not https'],
-    ['credentials', 'https://user:word@example.com', 'credentials'],
-    ['not a URL', 'example.com', 'not a URL'],
   ])('refuses %s, and says why', (_, entry, reason) => {
     expect(parseFrameHosts(`https://builder.io ${entry}`)).toEqual({
       hosts: ['https://builder.io'],
       refused: [{ entry, reason }],
     });
   });
+
+  it('an injection attempt never reaches the policy string', () => {
+    const { hosts } = parseFrameHosts(
+      'https://a.example;script-src-elem https://evil.example https://a.example;form-action',
+    );
+    const policy = csp({ frameHosts: hosts });
+    expect(policy).not.toContain('script-src-elem');
+    expect(policy.match(/form-action/g)).toHaveLength(1);
+  });
 });
 
-describe('frame-src: embed hosts on embed routes only (#782)', () => {
-  const STRIPE_ONLY = "'self' https://js.stripe.com https://hooks.stripe.com";
-
+describe('the zones (#783 decision)', () => {
   it.each([
-    '/en-GB',
-    '/en-GB/',
-    '/en-GB/campaign/spring',
-    '/de-DE/pages/about',
-    '/en-GB/legal/terms',
-  ])('%s is an embed route: Stripe plus the vetted embed hosts', (pathname) => {
-    expect(isEmbedRoute(pathname)).toBe(true);
-    expect(policy({ pathname }).get('frame-src')).toBe(
-      `${STRIPE_ONLY} https://builder.io https://embed.example.com`,
-    );
-  });
-
-  it.each([
-    '/en-GB/products',
-    '/en-GB/products/classic-tee',
-    '/en-GB/categories/t-shirts',
-    '/en-GB/cart',
     '/en-GB/checkout',
+    '/en-GB/checkout/address',
     '/en-GB/checkout/payment',
     '/de-DE/checkout/review',
     '/en-GB/orders/7f8d0f60-6a4f-4a3c-9a54-3b1e2c4d5e6f',
+  ])('%s is the checkout zone: Stripe-only frames', (pathname) => {
+    expect(isCheckoutZone(pathname)).toBe(true);
+    expect(csp({ pathname })).toContain(`frame-src 'self' ${STRIPE_FRAMES};`);
+  });
+
+  it.each([
+    '/en-GB',
+    '/en-GB/products',
+    '/en-GB/products/classic-tee',
+    '/en-GB/cart',
     '/en-GB/account',
     '/en-GB/account/orders',
+    '/en-GB/campaign/spring',
+    '/en-GB/pages/checkout-help',
+    '/en-GB/checkouts',
     '/en-GB/no-such-page',
-    '/en-GB/campaigns-are-not-campaign',
+    '/checkout',
     '/no-such-file.png',
-  ])('%s frames only ourselves and Stripe', (pathname) => {
-    expect(isEmbedRoute(pathname)).toBe(false);
-    expect(policy({ pathname }).get('frame-src')).toBe(STRIPE_ONLY);
-  });
-});
-
-describe('the fixed directives', () => {
-  const fixed = policy();
-
-  it('default-src self; nothing may frame us (clickjacking a checkout)', () => {
-    expect(fixed.get('default-src')).toBe("'self'");
-    expect(fixed.get('frame-ancestors')).toBe("'none'");
-  });
-
-  it('forbids plugins and any <base> (#782: none, not self)', () => {
-    expect(fixed.get('object-src')).toBe("'none'");
-    expect(fixed.get('base-uri')).toBe("'none'");
-  });
-
-  it('plays media from this origin and Cloudinary only: the hero loops (#330)', () => {
-    expect(fixed.get('media-src')).toBe("'self' https://res.cloudinary.com");
-  });
-
-  it('lets the browser talk to this origin and to Stripe’s API only (#358)', () => {
-    expect(fixed.get('connect-src')).toBe("'self' https://api.stripe.com");
-  });
-
-  it('styles may be inline (React style attributes); that is not script execution', () => {
-    expect(fixed.get('style-src')).toBe("'self' 'unsafe-inline'");
+  ])('%s is outside it: Stripe plus the embed hosts', (pathname) => {
+    expect(isCheckoutZone(pathname)).toBe(false);
+    expect(csp({ pathname })).toContain(
+      `frame-src 'self' ${STRIPE_FRAMES} https://builder.io https://*.framer.app;`,
+    );
   });
 });
