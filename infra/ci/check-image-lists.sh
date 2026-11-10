@@ -9,6 +9,9 @@
 # Brand B and C's images existed for weeks with no ECR repository and no smoke check, because nothing compared these
 # lists. This prints each list and fails on any difference.
 #
+# Deliberately NOT compared: the Helm values directories (infra/helm/values/<app>) and deploy-staging's APPS. Those
+# list what is DEPLOYED, a subset that grows only when an environment can run the image (#342), not what is built.
+#
 #   bash infra/ci/check-image-lists.sh [repo-root]
 set -euo pipefail
 ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"

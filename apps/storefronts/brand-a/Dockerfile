@@ -86,7 +86,9 @@ RUN cp -r /repo/apps/storefronts/brand-a/.next /out/.next && test -d /out/.next
 FROM node:${NODE_VERSION} AS runtime
 ARG PNPM_VERSION
 RUN npm install -g pnpm@${PNPM_VERSION} && npm cache clean --force
+# TZ=UTC in every service image (#627: node-postgres turns a `date` column into a LOCAL midnight; launch checklist).
 ENV NODE_ENV=production \
+    TZ=UTC \
     APP_NAME=@platform/storefront-brand-a \
     PORT=3101
 WORKDIR /app
