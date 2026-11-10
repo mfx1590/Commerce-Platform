@@ -50,6 +50,8 @@ case_ 'staging: a dev key in another app'                      fail "printf '  S
 case_ 'staging: a dev key named only in a comment passes'      pass "printf '# was pk_brand-a_dev_00000000000000000000\n' >> storefront/values-staging.yaml"
 case_ 'dev: the seeded dev key is fine'                        pass "grep -q 'pk_brand-a_dev_' storefront/values-dev.yaml"
 
+# Each brand's own storefront values get the same SITE_URL rule as the starter's (#439).
+case_ 'brand B staging: SITE_URL on another host'             fail "sed -i 's#https://brand-b.staging.example.com#https://shop.staging.example.com#' storefront-brand-b/values-staging.yaml"
 if [ "$fail" -ne 0 ]; then
   echo '== check-values.sh self-test FAILED'
   exit 1

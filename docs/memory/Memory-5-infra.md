@@ -2,7 +2,7 @@
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
 Last updated: 2026-11-10 · Contracts: `contracts-v0.1` · Branch: `infra/phase6-bake-v7` · Worktree: `../wt-infra` · Manager: **Manager session twelve** (repo-root manager; chain in Memory-main's first bullet)
-Status: **Manager session TWELVE (eleven stood down), 2026-11-10.** Task 1: bake-action v7 + #759 folded in (branch infra/phase6-bake-v7); three green runs on one head (required jobs' steps change). Task 2 next: triage Dependabot #764 (production group, red on 5 jobs); overlaps with #763 (admin next/zod) and #760 (starter next/sharp). Heads-up later: remove the next/sharp audit-allowlist entries after #763/#760 + the brands re-sync.
+Status: **#772 (#745 Redis in unit) on its three runs; #773 (#647) green, in review; #439 built on infra/phase6-439-lists (a+b+c approved; d stays with #342).**
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -31,6 +31,10 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## Done
 
+- **bake-action v7 + the actions majors: PR #767 MERGED 2026-11-10 (18d8038f).** Commits: dda5e25a (Dependabot #759
+  cherry-picked: checkout 7, setup-node 7, pnpm 6, cache 6, …), c1705131 (v7 + `source: .`; its run 1 failed: v7 has
+  no `workdir`), 58e95293 (bake runs from the repo root; docker-bake.hcl's BAKE_CONTEXT, default `../..`). Three green
+  runs on 58e95293 (run 42794052816, attempts 1-3). #759 closed as superseded. #764 closed (stale, old config).
 - **Relay SLO + down-relay alert + Dependabot ignores: PR #756 MERGED 2026-11-09 (f545f649).**
 - **Dependabot regroup: PR #757 MERGED 2026-11-09 (4c4983b9).** A medusa group; Medusa >=2.22 ignored (Node 22);
   the 19 starter packages ignored (REQUEST #758, window 10); bake-action majors ignored.
@@ -116,9 +120,16 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
+- **#439 (2026-11-10), approved a+b+c past the budget.** The engagement Dockerfile (from notifications': deps/build
+  stages, then a worker runtime with no HEALTHCHECK and EXPOSE 4040), a compose service and bake target, terraform
+  var.apps += engagement, feeds, storefront-brand-{a,b,c}, the smoke list += brand-b, brand-c, engagement, and the
+  new infra/ci/check-image-lists.sh in `changes` (on main's files it fails: terraform missing 4, smoke missing 2).
+  Helm values/storefront-brand-{a,b,c}; check-values' storefront rules widened to storefront*/ (+1 fixture). 16 helm
+  combos pass. `app images` gains a target, so three runs on one head. Gotcha: under pipefail, `diff | sed` ended the
+  list check at the first mismatch; it now uses `{ diff … || true; }`.
 - **Dependabot regroup (2026-11-09).** The breaking packages, from the logs:
   - #743 actions: docker/bake-action 5→7. v6+ uses the Git context, so `workdir: infra/docker` stops applying
-    ("lstat docker-compose.build.yml"). Fix later: `source: .` in ci.yml and deploy-staging.yml.
+    ("lstat docker-compose.build.yml"). DONE in #767.
   - #747 dev: @playwright/test, autoprefixer, postcss. brand-a test/sync-merge.test.ts asserts package.json ==
     merge(starter-manifest); Dependabot edits package.json, not the manifest.
   - #755 prod: @medusajs/* 2.22.3 (cli → execa 10.2.1, engines node>=22: medusa build "TEXT_ENCODINGS.union is

@@ -87,6 +87,9 @@ jobs:
       # every change; the audit itself runs in its own job below.
       - name: self-test the dependency audit gate
         run: node --test infra/ci/audit-gate.test.mjs
+      # #439: compose services, bake targets, terraform var.apps (ECR) and the smoke list name the same images.
+      - name: the image lists agree (compose, bake, terraform, smoke)
+        run: bash infra/ci/check-image-lists.sh
       # The DR drill (#741) runs by hand (it needs the shared stack); what makes it safe is tested on every change:
       # the drill stack's own project, ports and volumes, the restore order, the manifest diff, RPO.
       - name: self-test the DR drill

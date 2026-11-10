@@ -4,6 +4,19 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 6
 
+### Added (#439: every image in every list; the engagement image; per-brand Helm values)
+
+- `apps/engagement/Dockerfile` (a worker: `node dist/main.js`; no HEALTHCHECK, because its one HTTP server, the
+  support API, is opt-in on 4040), plus a compose build service and a bake target.
+- terraform `var.apps` (ECR) gains `engagement`, `feeds` and `storefront-brand-{a,b,c}`, so it matches the images
+  again. `smoke-images.sh` gains `storefront-brand-{b,c}` and `engagement`.
+- `infra/ci/check-image-lists.sh` (in the `changes` job): the compose services, bake targets, terraform `var.apps` and
+  the smoke list must name the same images. On main before this it reported terraform missing 4 and smoke missing 2.
+- `infra/helm/values/storefront-brand-{a,b,c}/values-{dev,staging}.yaml`: each brand's port, host, image and its own
+  staging key path. `check-values.sh`'s SITE_URL/robots rules now cover every `storefront*` directory (+1 fixture).
+  NOT deployed: ArgoCD Applications and the deploy-staging list stay with #342.
+- `docker-compose.build.yml`'s header no longer says bake must run from `infra/docker` (BAKE_CONTEXT, #767).
+
 ### Changed (actions: one PR for the majors and bake-action v7)
 
 - `docker/bake-action` v7 with `source: .` (the checkout) in `ci.yml` and `deploy-staging.yml`; v6+ otherwise builds
