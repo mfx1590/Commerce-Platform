@@ -28,24 +28,43 @@ updates:
         dependency-type: development
         update-types: [minor, patch]
         exclude-patterns: ['@medusajs/*']
-    # Majors that no PR can take on its own. Minor and patch bumps of these still arrive in the weekly groups.
     ignore:
-      # The types must describe the Node we run: 20 everywhere (engines ">=20.11", the Dockerfiles' NODE_VERSION
-      # 20.19-alpine, CI's NODE_VERSION 20). @types/node 22 would type APIs Node 20 does not have. Remove this
-      # when the runtime moves, in the same PR as those three. (Today @types/node is also a starter package, ignored
-      # in full below; this rule is what stays when that one is lifted.)
+      # ==== UNTIL THE NODE 22 MOVE ====
+      # We run Node 20 everywhere: engines ">=20.11", the Dockerfiles' NODE_VERSION 20.19-alpine, CI's NODE_VERSION 20.
+      # Every entry in this block needs Node 22. It is that move's checklist: lift them in the PR that moves the
+      # runtime (engines, Dockerfiles, CI and @types/node together).
+      #
+      # @types/node: the types must describe the Node we run; 22's would type APIs Node 20 does not have. (Today
+      # @types/node is also a starter package, ignored in full further down; this rule is what stays when that one is
+      # lifted.)
       - dependency-name: '@types/node'
         update-types: ['version-update:semver-major']
+      # Medusa 2.22+ (#755, 2026-11-09): @medusajs/cli 2.22.3 depends on execa 10.2.1, which declares `node >=22`.
+      # `medusa build` failed with "TEXT_ENCODINGS.union is not a function" (Set.prototype.union is Node 22), and
+      # `medusa db:migrate` with 'No "exports" main' in unicorn-magic (execa's npm-run-path 6). The TS2345 in
+      # apps/core/scripts/db-medusa-migrate.ts that #755 also showed arrived with 2.21, NOT 2.22: 2.21 is allowed, and
+      # window 1 adapts the script with the 2.21.2 bump.
+      - dependency-name: '@medusajs/*'
+        versions: ['>=2.22.0']
+      # The OTLP exporters 0.300+ are the OpenTelemetry SDK 3 line: they need Node >= 22.15 and pull a second SDK line
+      # next to our 2.12 (#775, 2026-11-10). Under 0.x semver this is a "minor" bump, so the @opentelemetry/* major
+      # ignore below does not catch it.
+      - dependency-name: '@opentelemetry/exporter-metrics-otlp-http'
+        versions: ['>=0.300.0']
+      - dependency-name: '@opentelemetry/exporter-trace-otlp-http'
+        versions: ['>=0.300.0']
+      # @axe-core/playwright 4.14 declares node >= 22.12 (#778, 2026-11-10).
+      - dependency-name: '@axe-core/playwright'
+        versions: ['>=4.14.0']
+      # @testing-library/jest-dom 7 needs Node >= 22 (#780, closed 2026-11-10).
+      - dependency-name: '@testing-library/jest-dom'
+        update-types: ['version-update:semver-major']
+      # ==== end of the Node 22 checklist ====
+      #
+      # Majors that no PR can take on its own. Minor and patch bumps of these still arrive in the weekly groups.
       # Medusa majors are platform migrations (apps/core), chosen and planned, not a weekly bump.
       - dependency-name: '@medusajs/*'
         update-types: ['version-update:semver-major']
-      # Medusa 2.22 needs Node 22, and we run Node 20 (#755, 2026-11-09). @medusajs/cli 2.22.3 depends on execa
-      # 10.2.1, which declares `node >=22`: `medusa build` failed with "TEXT_ENCODINGS.union is not a function"
-      # (Set.prototype.union is Node 22), and `medusa db:migrate` with 'No "exports" main' in unicorn-magic
-      # (execa's npm-run-path 6). 2.22 also changed the migrate options type (TS2345 in
-      # apps/core/scripts/db-medusa-migrate.ts). Lift this together with the Node 22 move.
-      - dependency-name: '@medusajs/*'
-        versions: ['>=2.22.0']
       # Medusa itself depends on @opentelemetry/api 1.x and the SDK 2.x line (@medusajs/deps, workflows-sdk), in the
       # same process as the core's own telemetry (#729). The API is a process-wide singleton: a second major is
       # refused at registration, and the core's spans and metrics would silently go to a no-op. Move with Medusa.

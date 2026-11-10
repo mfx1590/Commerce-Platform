@@ -88,10 +88,20 @@ for dockerfile in apps/*/Dockerfile apps/storefronts/*/Dockerfile; do
   fi
 done
 
+# Every service image runs in UTC (#627): node-postgres turns a `date` column into a LOCAL midnight Date, so a
+# container in another zone shifts dates by a day. The runtime stage (after the last FROM) must set TZ=UTC.
+for dockerfile in apps/*/Dockerfile apps/storefronts/*/Dockerfile; do
+  if ! awk '/^FROM /{final=""} {final = final "\n" $0} END{print final}' "$dockerfile" | grep -qE '^[[:space:]]*(ENV[[:space:]]+)?TZ=UTC([[:space:]]|\\|$)'; then
+    fail=1
+    echo "FAIL $dockerfile"
+    echo "  missing: TZ=UTC in the runtime stage's ENV"
+  fi
+done
+
 if [ "$fail" -ne 0 ]; then
   cat >&2 <<'EOF'
 
-== image manifest lists are out of date.
+== image manifest lists are out of date, or an image does not set TZ=UTC.
 Add or remove the COPY lines in the `deps` stage of the Dockerfiles named above, so that every
 workspace package.json is copied before `pnpm install`. Keep them sorted.
 EOF
