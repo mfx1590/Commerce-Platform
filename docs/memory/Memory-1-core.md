@@ -71,6 +71,15 @@ Window 1 owns the order lifecycle and the core side of the chain. Current task: 
 - [x] **1.1 Medusa 2 boots in apps/core (issue #1)** — 2026-09-04, commit `e36b80e`, PR #49 **merged** (merge commit `a0c02c9`). Delivered: Medusa 2.20.1 project, `medusa-config.ts` (schema `medusa`, `databaseDriverOptions` search_path pin, Redis cache/event bus, admin off), `src/server.ts` custom entry with `/health` + `X-Publishable-Key` alias ahead of Medusa, `src/lib/db.ts` (initDb/tenantClient/organizationClient), `scripts/db-medusa-migrate.ts` (role `medusa_owner`), README/CLAUDE/CHANGELOG, 3 unit tests. Verified locally: `GET /health` 200; public schema untouched (42 tables), 145 Medusa tables in `medusa`. Side issue filed: #40 REQUEST default export condition.
 
 ## In progress
+- **Medusa 2.20.1 → 2.21.2 (Dependabot #774), from Manager session TWELVE (local_d36f20d9…), 2026-11-10.** Branch `core/phase6-medusa-221` from origin/main AFTER #771 merges (wait for the manager's message). CODE + CI ONLY, NO machine.
+  - migrate(): `executeAllSearch: false, executeSafeSearch: true`. From 2.21.2's migrate-search.ts: create/alter always run; the only destructive step is dropping indexes no definition declares. Safe = never drop, never prompt.
+  - 2.21 brings 2 Medusa migrations (search module, schema medusa): Migration20260903085616 (new search_index_version; search_index drops provider/status/definition_hash and adds active_version; search_index_sync renames search_index_id → search_index_version_id) and Migration20260911115931 (search_index_sync.resumable). The dev DB needs db:medusa:migrate after the merge (the manager backs up and migrates).
+  - The search module was already a default in 2.20.1, so nothing new is enabled.
+  - 2.21.0's breaking change, the strict `allowed` fields on MEDUSA's Store routes, touches only Medusa's own /store routes. Ours are mounted ahead of them.
+  - BUILT 2026-11-10 on core/phase6-medusa-221 from origin/main d38d51ff (#771 merged): the 4 packages at 2.21.2, plus the migrate flags.
+  - Lockfile: lodash only 4.18.1, @graphql-tools/utils only 12.0.2, axios only 1.20.0 (the overrides hold); Medusa's ioredis peer is still 5.11.1.
+  - Audit gate: PASS locally with 0 allow-list entries (14 moderate and 3 low, below the threshold). tsc 0, lint 0.
+  - No local medusa build and no live stack (no machine); CI's app images / live e2e / admin e2e are the proof.
 - **#742 P6.4 Store API rate limits + pool knee: BUILT 2026-11-07 (plan approved Q1–Q5), local commit; proof runs need THE MACHINE.** Branch `core/phase6-742` from origin/main `a10e54e9`.
   - Filed: CONTRACT CHANGE #744 (store-api 0.5.10: TooManyRequests, 429 on 9 operations, `rate_limited` in the Error description AND in contracts' ERROR_CODES; addendum comment). The 4 contracts spec tests pin 0.5.9, so the lander bumps them.
   - Filed: REQUEST #745 (redis:7 in the `unit` job, `CORE_TEST_REDIS_URL`).

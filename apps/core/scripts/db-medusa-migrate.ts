@@ -74,6 +74,11 @@ async function runMedusaMigrations(schema: string, medusaUrl: string): Promise<v
     skipSearch: false,
     executeAllLinks: false,
     executeSafeLinks: true,
+    // Medusa 2.21: the search-index step (`db:migrate:search`) always creates and alters indexes; these two only govern
+    // its one destructive action, dropping an index no definition declares any more. Safe = never drop, never prompt
+    // (it logs what it left), the same choice as for links; All would drop them.
+    executeAllSearch: false,
+    executeSafeSearch: true,
     logger,
     container,
   });
