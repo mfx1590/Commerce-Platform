@@ -1,36 +1,5 @@
 {
   "$comment": "Allowed production-dependency advisories for infra/ci/audit-gate.mjs (#730). threshold: the lowest severity that fails. Every entry expires; an expired one fails the gate. Delete an entry when its bump lands (the gate reports it as stale).",
   "threshold": "high",
-  "entries": [
-    {
-      "id": "GHSA-2464-fhr4-w9xw",
-      "package": "next",
-      "severity": "critical",
-      "versions": ["15.5.25"],
-      "apps": ["apps/admin"],
-      "owner": "window 4 (admin)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
-      "expires": "2026-11-20"
-    },
-    {
-      "id": "GHSA-p3m5-59mp-jv5r",
-      "package": "next",
-      "severity": "high",
-      "versions": ["15.5.25"],
-      "apps": ["apps/admin"],
-      "owner": "window 4 (admin)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
-      "expires": "2026-12-06"
-    },
-    {
-      "id": "GHSA-wq5f-xc86-pv6w",
-      "package": "sharp",
-      "severity": "high",
-      "versions": ["0.35.4"],
-      "apps": ["apps/admin"],
-      "owner": "window 4 (admin)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason.",
-      "expires": "2026-12-06"
-    }
-  ]
+  "entries": []
 }
