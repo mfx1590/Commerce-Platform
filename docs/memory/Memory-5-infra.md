@@ -122,6 +122,9 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
+- **#758 (2026-11-10), after window 10's #789 merged:** the 19 starter-package ignores are removed from
+  dependabot.yml (10 ignores left: the Node 22 block + the Medusa/OTel/express majors). The @types/node comment's
+  'ignored in full further down' parenthetical is gone. One green run is enough (config only).
 - **Service images hygiene (2026-11-10), branch infra/phase6-image-hygiene from #776's head f7ae9681 (merge main
   after #776 merges).** Item (1), the notifications HEALTHCHECK, was a FALSE finding: it serves /health on $PORT (the
   manager agreed and dropped it). TZ=UTC in 10 Dockerfiles (accounting had it) + a check-image-manifests rule (a
