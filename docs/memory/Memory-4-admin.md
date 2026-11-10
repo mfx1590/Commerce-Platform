@@ -557,6 +557,17 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#763 MERGED (2026-11-10)** = c9215997 on main (admin CSP, next 15.5.28, zod 4.6.7).
+- **#763 follow-ups (2026-11-10, Manager session twelve).** Branch `admin/phase6-security-followup`
+  from origin/main c9215997. Code-only, no machine. **3baabc1d**: middleware.test pins the
+  authenticated + refresh forward() paths (CSP on the response, the same nonce/CSP forwarded, the
+  refreshed cookie on both the response and the forwarded request; mutation-checked).
+  security-headers.test pins KEYCLOAK_URL as read per request. Build-side evidence: the built
+  .next/server/src/middleware.js keeps `process.env.KEYCLOAK_URL` (NODE_ENV is the only value
+  inlined), and Next's sandbox context.js `buildEnvironmentVariablesFrom` copies the real
+  process.env per edge invocation; the image starts with `pnpm start` = `next start`. NOT a
+  release blocker. Unit tests 1023/1023. Brand D pre-flight list: see "Brand D pre-flight" below.
+  Next: PR "Refs #731" → report the number + head, then checks finished.
 - **PR #763 review round 2 (2026-11-10).** Core leg was red again at csp.spec.ts:109: "Onboard the
   brand" is on the wizard's LAST step. **f4214ed0**: the owner case walks steps 1-3 as
   hq-onboarding.spec does and asserts the review button WITHOUT clicking it (Next is client-only, so

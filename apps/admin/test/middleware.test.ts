@@ -219,3 +219,69 @@ describe('the container liveness probe', () => {
     expect(pattern.test('/00000000-0000-4000-8000-000000000031/catalog')).toBe(true);
   });
 });
+
+/**
+ * The CSP rides on every response the gate lets through, and the forwarded request carries the
+ * same nonce for Next to stamp — on the plain pass-through AND on the refresh path, where the
+ * forwarded request must also carry the refreshed cookie (#763 review). `NextResponse.next({ request:
+ * { headers } })` hands the forwarded request headers to Next as `x-middleware-request-<name>`.
+ */
+describe('the CSP on the authenticated paths', () => {
+  const forwarded = (response: Response, name: string) =>
+    response.headers.get(`x-middleware-request-${name}`);
+  const nonceOf = (policy: string) => /'nonce-([^']+)'/.exec(policy)?.[1];
+
+  function forwardedCookie(response: Response, name: string): string | undefined {
+    for (const part of (forwarded(response, 'cookie') ?? '').split(/;\s*/)) {
+      const index = part.indexOf('=');
+      if (index > 0 && part.slice(0, index) === name) return part.slice(index + 1);
+    }
+    return undefined;
+  }
+
+  it('a valid session: the response and the forwarded request carry one nonce, and the cookie', async () => {
+    const request = await requestWith(session());
+    const sealed = request.cookies.get('admin_session.0')?.value;
+    const response = await middleware(request);
+    const policy = response.headers.get('content-security-policy') ?? '';
+
+    expect(response.headers.get('location')).toBeNull();
+    expect(nonceOf(policy)).toBeDefined();
+    expect(forwarded(response, 'x-nonce')).toBe(nonceOf(policy));
+    expect(forwarded(response, 'content-security-policy')).toBe(policy);
+    expect(forwardedCookie(response, 'admin_session.0')).toBe(sealed);
+  });
+
+  it('a refresh: the CSP survives it, and the forwarded request carries the REFRESHED token', async () => {
+    refreshTokens.mockResolvedValue(
+      session({
+        accessToken: 'access-new',
+        refreshToken: 'refresh-new',
+        expiresAt: Date.now() + 600_000,
+      }),
+    );
+
+    const response = await middleware(
+      await requestWith(session({ expiresAt: Date.now() + 1_000 })),
+    );
+    const policy = response.headers.get('content-security-policy') ?? '';
+
+    expect(refreshTokens).toHaveBeenCalled();
+    expect(response.headers.get('location')).toBeNull();
+    // The CSP and its nonce, to the browser and to Next.
+    expect(nonceOf(policy)).toBeDefined();
+    expect(forwarded(response, 'x-nonce')).toBe(nonceOf(policy));
+    expect(forwarded(response, 'content-security-policy')).toBe(policy);
+    // The browser gets the refreshed cookie...
+    const jar = setCookieJar(response);
+    await expect(
+      openSession(joinChunks((name) => jar.get(name)) as string, SECRET),
+    ).resolves.toMatchObject({ accessToken: 'access-new' });
+    // ...and so does this render: the forwarded request is built after the cookie was rewritten.
+    const onRequest = joinChunks((name) => forwardedCookie(response, name));
+    expect(onRequest).not.toBeNull();
+    await expect(openSession(onRequest as string, SECRET)).resolves.toMatchObject({
+      accessToken: 'access-new',
+    });
+  });
+});
