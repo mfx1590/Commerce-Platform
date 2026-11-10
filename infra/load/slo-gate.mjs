@@ -1,0 +1,121 @@
+#!/usr/bin/env node
+/**
+ * The scheduled k6 SLO regression's judge (plan wave 3; .github/workflows/load.yml).
+ *
+ *   node infra/load/slo-gate.mjs verdict <run-dir>
+ *       exit 0 = within the SLOs, 1 = a gate crossed (k6 exit 99), 2 = the run itself broke (no answer)
+ *   node infra/load/slo-gate.mjs render <out-dir> <run-url> <pass-1-dir> [<pass-2-dir>]
+ *       writes <out-dir>/tracking.md (one comment per scheduled run), <out-dir>/issue.md (the regression issue's
+ *       body) and <out-dir>/verdict.txt (pass | retried | breach)
+ *
+ * A run dir is what infra/load/run.sh writes: load.exit (k6's exit code) and load-summary.json. A breach counts only
+ * when the second pass breaches too (runner noise is real). A first-pass breach that the second pass clears is
+ * printed, never hidden: "retried".
+ */
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { BROWSE_ROUTES, CHECKOUT_ROUTE, FACTOR, routeP95Ms, SLO } from './k6/slo-thresholds.js';
+import { crossedThresholds, ROUTE_LABEL, routeStats } from './report.mjs';
+
+export const ISSUE_TITLE = 'load regression (scheduled k6)';
+export const TRACKING_TITLE = 'load: weekly SLO regression tracking (scheduled k6)';
+
+/** One pass: 'pass' | 'breach' | 'broken', with what k6 reported. */
+export function readPass(dir) {
+  const exitFile = join(dir, 'load.exit');
+  const summaryFile = join(dir, 'load-summary.json');
+  if (!existsSync(exitFile) || !existsSync(summaryFile))
+    return { state: 'broken', reason: 'no load.exit or load-summary.json' };
+  const code = Number(readFileSync(exitFile, 'utf8').trim());
+  const summary = JSON.parse(readFileSync(summaryFile, 'utf8'));
+  const state = code === 0 ? 'pass' : code === 99 ? 'breach' : 'broken';
+  return { state, code, summary, crossed: crossedThresholds(summary), routes: routeStats(summary) };
+}
+
+/** pass, retried (pass 1 breached, pass 2 cleared) or breach (both breached). */
+export function overall(p1, p2) {
+  if (p1.state === 'pass') return 'pass';
+  if (p1.state === 'breach' && p2?.state === 'pass') return 'retried';
+  if (p1.state === 'breach' && p2?.state === 'breach') return 'breach';
+  return 'broken';
+}
+
+const ms = (v) => (v === undefined || v === null ? '—' : `${Math.round(v)} ms`);
+const pct = (v) => (v === undefined || v === null ? '—' : `${(v * 100).toFixed(3)}%`);
+const rate = (p, metric) => p?.summary?.metrics?.[metric]?.values?.rate;
+
+const HEADLINE = {
+  pass: '✅ within the SLOs',
+  retried:
+    '⚠️ **the retry fired**: pass 1 crossed a gate, pass 2 did not, so no regression is recorded. A flaky first pass is shown, not hidden',
+  breach: '❌ **confirmed breach**: both passes crossed an SLO gate',
+  broken: '💥 the run broke before k6 could judge it (see the job log)',
+};
+
+export function table(p1, p2) {
+  const rows = [
+    `| | SLO gate | pass 1 | ${p2 ? 'pass 2 |' : ''}`,
+    `|---|---|---|${p2 ? '---|' : ''}`,
+  ];
+  for (const r of [...BROWSE_ROUTES, CHECKOUT_ROUTE]) {
+    const gate = `p95 < ${routeP95Ms(r)} ms${r === CHECKOUT_ROUTE ? ' (lower bound: manual payment provider)' : ''}`;
+    rows.push(
+      `| ${ROUTE_LABEL[r]} | ${gate} | ${ms(p1.routes?.[r]?.p95)} | ${p2 ? `${ms(p2.routes?.[r]?.p95)} |` : ''}`,
+    );
+  }
+  rows.push(
+    `| failed requests | < ${pct(SLO.errorRate)} | ${pct(rate(p1, 'http_req_failed'))} | ${p2 ? `${pct(rate(p2, 'http_req_failed'))} |` : ''}`,
+  );
+  rows.push(
+    `| failed placements | < ${pct(SLO.errorRate)} | ${pct(rate(p1, 'placement_failed'))} | ${p2 ? `${pct(rate(p2, 'placement_failed'))} |` : ''}`,
+  );
+  return rows.join('\n');
+}
+
+export function render({ runUrl, date, p1, p2 }) {
+  const v = overall(p1, p2);
+  const crossed = [p1, p2]
+    .map((p, i) =>
+      p?.crossed?.length
+        ? `- pass ${i + 1} crossed: ${p.crossed.map((c) => `\`${c}\``).join(', ')}`
+        : null,
+    )
+    .filter(Boolean)
+    .join('\n');
+  const factor =
+    FACTOR === 1
+      ? ''
+      : `\n\n> LOAD_THRESHOLD_FACTOR=${FACTOR}: the latency gates were scaled on purpose (a breach-path test).`;
+  const tracking = `### Scheduled k6 SLO regression, ${date} ([run](${runUrl}))\n\n${HEADLINE[v]}.${factor}\n\n${table(p1, p2)}${crossed ? `\n\n${crossed}` : ''}\n`;
+  const issue = `A scheduled k6 SLO regression run crossed an SLO gate on BOTH passes (${date}, [run](${runUrl})).\n\n${table(p1, p2)}\n\n${crossed}${factor}\n\nThe gates are the SLOs (infra/load/k6/slo-thresholds.js = infra/observability/rules/slo.mjs; SLO.md has the prose). The run is the owner's target (50 browse req/s + 30 orders/min, 10 min) on a fresh core and database on a GitHub runner, so compare with the last green week in the tracking issue before blaming the code. The job's artifact has the full report (report.md) and the Postgres samples.\n`;
+  return { verdict: v, tracking, issue };
+}
+
+function main([cmd, ...args]) {
+  if (cmd === 'verdict') {
+    const p = readPass(args[0]);
+    console.info(
+      `slo-gate: ${args[0]}: ${p.state}${p.crossed?.length ? ` (crossed: ${p.crossed.join('; ')})` : ''}`,
+    );
+    process.exit(p.state === 'pass' ? 0 : p.state === 'breach' ? 1 : 2);
+  }
+  if (cmd === 'render') {
+    const [out, runUrl, d1, d2] = args;
+    const p1 = readPass(d1);
+    const p2 = d2 && existsSync(d2) ? readPass(d2) : undefined;
+    const r = render({ runUrl, date: new Date().toISOString().slice(0, 10), p1, p2 });
+    mkdirSync(out, { recursive: true });
+    writeFileSync(join(out, 'tracking.md'), r.tracking);
+    writeFileSync(join(out, 'issue.md'), r.issue);
+    writeFileSync(join(out, 'verdict.txt'), `${r.verdict}\n`);
+    console.info(`slo-gate: ${r.verdict}`);
+    return;
+  }
+  console.error(
+    'usage: slo-gate.mjs verdict <run-dir> | render <out-dir> <run-url> <pass-1-dir> [<pass-2-dir>]',
+  );
+  process.exit(2);
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1]).href) main(process.argv.slice(2));

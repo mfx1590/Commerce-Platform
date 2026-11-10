@@ -118,6 +118,14 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
+- **Scheduled k6 SLO regression (2026-11-10), approved: weekly Mon 04:00 UTC; issues on confirmed breach + a tracking
+  comment per run; admin-metrics later = #785.** Branch infra/phase6-k6-slo-regression from main d38d51ff; push AFTER
+  the hygiene PR is up. k6/slo-thresholds.js (no k6 import, so Node can load it; LOAD_THRESHOLD_FACTOR scales latency
+  only) + slo-thresholds.test.mjs, which reads the le bound from slo.mjs's generated expr (no slo.mjs change). Mutation:
+  complete 1500 → 2 tests fail. slo-gate.mjs (+ test, 23 load tests in all) gives verdict 0/1/2 and render:
+  tracking.md, issue.md, verdict.txt (pass|retried|breach|broken). load.yml: pass 1 → pass 2 only on a breach; an
+  `issues` job (schedule only, issues: write). run.sh passes LOAD_THRESHOLD_FACTOR into k6. PROOF before merge: one
+  green workflow_dispatch on the PR branch, plus one with threshold_factor 0.05 showing the retry and the dry-run issue.
 - **#745 = PR #772 (2026-11-10), branch infra/phase6-745-redis-ci, code commit 57d4c0f5.** Three green runs on
   ade369a0 (run 42804681881, attempts 1-3; the Redis step logged 3/3, 4/4, 1/1). The Opus review says MERGE; the
   queue skipped it on Memory-5/CHANGELOG conflicts from #773, so main was merged in (one green run on that head

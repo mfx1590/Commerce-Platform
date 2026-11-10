@@ -83,6 +83,10 @@ jobs:
       # turns a run into pass/fail lines is tested on every change.
       - name: self-test the load report
         run: node --test infra/load/report.test.mjs
+      # The scheduled k6 SLO regression (load.yml): its gates equal the Prometheus SLO rules, and its judge applies
+      # the retry-once rule and renders the tracking comment and the regression issue.
+      - name: self-test the k6 SLO gates and their judge
+        run: node --test infra/load/slo-thresholds.test.mjs infra/load/slo-gate.test.mjs
       # The production-dependency gate (#730): its decisions (threshold, expiry, stale, fail-closed) are tested on
       # every change; the audit itself runs in its own job below.
       - name: self-test the dependency audit gate
