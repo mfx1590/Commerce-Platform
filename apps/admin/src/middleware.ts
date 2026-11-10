@@ -17,7 +17,7 @@
 
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
-import { env, isProduction, sessionSecret } from '@/lib/env';
+import { isProduction, sessionSecret } from '@/lib/env';
 import { CSP_HEADER, NONCE_HEADER, contentSecurityPolicy, newNonce } from '@/lib/security';
 import { refreshTokens, sessionIdOf, sessionIsLive } from '@/lib/auth/oidc';
 import { isSessionLive, markLive } from '@/lib/auth/liveness';
@@ -49,7 +49,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   const nonce = newNonce();
   const policy = contentSecurityPolicy({
     nonce,
-    keycloakUrl: env.keycloakUrl,
+    keycloakUrl: process.env.KEYCLOAK_URL,
     production: isProduction,
   });
   // Built when the gate lets the request through, after it has rewritten the session cookie on

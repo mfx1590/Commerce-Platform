@@ -93,10 +93,17 @@ test.describe('security headers', () => {
     await signInAsOwner(page, '/bi');
     await page.waitForURL(/\/bi/);
     await expect(page.getByRole('heading', { name: 'BI', exact: true })).toBeVisible();
-    // Let the live tiles poll at least once from the browser (connect-src 'self').
-    await page.waitForResponse((response) => /\/bi\/live/.test(response.url()), {
-      timeout: 30_000,
-    });
+    // The browser's own call to this origin (connect-src 'self'), made from the page rather than
+    // waited for: the live tiles only poll when the server's live query answered, and the
+    // core-mode job has no ClickHouse (bi.spec.ts gates those on E2E_BI_LIVE). Any HTTP status
+    // will do; a CSP block rejects the fetch, and shows in the violations below.
+    const live = await page.evaluate(() =>
+      fetch('/bi/live', { cache: 'no-store' }).then(
+        (response) => response.status,
+        (error: unknown) => `rejected: ${String(error)}`,
+      ),
+    );
+    expect(typeof live).toBe('number');
 
     await page.goto('/onboarding');
     await expect(page.getByRole('button', { name: 'Onboard the brand' })).toBeVisible();

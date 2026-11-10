@@ -97,8 +97,18 @@ describe('keycloakOrigin', () => {
     );
   });
 
-  it('falls back to the local default rather than a directive the browser would drop', () => {
+  it('in development, falls back to the local default rather than a directive the browser would drop', () => {
     expect(keycloakOrigin('not a url')).toBe('http://localhost:8180');
+    expect(keycloakOrigin(undefined)).toBe('http://localhost:8180');
+  });
+
+  it('in production, refuses to guess: unset, empty or malformed throws', () => {
+    for (const value of [undefined, '', 'not a url']) {
+      expect(() => keycloakOrigin(value, true)).toThrow(/KEYCLOAK_URL must be set/);
+    }
+    expect(() =>
+      contentSecurityPolicy({ nonce: NONCE, keycloakUrl: undefined, production: true }),
+    ).toThrow(/KEYCLOAK_URL must be set/);
   });
 });
 

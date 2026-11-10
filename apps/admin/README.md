@@ -796,6 +796,11 @@ walks list, create, update and delete through the actions plus every documented 
 - **Static headers** — `src/lib/security/static-headers.mjs` (plain ESM so next.config.mjs can
   import it): nosniff, `strict-origin-when-cross-origin`, a Permissions-Policy denying camera,
   microphone and geolocation, and HSTS when built for production. No `X-Powered-By`.
+- **`KEYCLOAK_URL` is required in production**: the CSP's `form-action` names its origin, so a
+  production server without it (or with a malformed one) answers every page with an error rather
+  than silently allowing the localhost default. Development keeps the default.
+- zod 4 probes `Function("")` when it builds an object schema; `src/instrumentation-client.ts`
+  presets its `jitless` config before any app module so the CSP reports no eval violation.
 - Pinned in `test/security-headers.test.ts`; `e2e/csp.spec.ts` fails on any CSP violation.
 
 ## When a screen cannot show what was asked for

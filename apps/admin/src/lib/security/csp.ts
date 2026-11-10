@@ -22,7 +22,10 @@ export const NONCE_HEADER = 'x-nonce';
 export interface CspInput {
   /** This response's nonce (`newNonce()`). */
   nonce: string;
-  /** `KEYCLOAK_URL` — Sign out POSTs to us and is answered 303 to it, so it is a form target. */
+  /**
+   * `KEYCLOAK_URL` as the environment has it (not env.ts's defaulted value) — Sign out POSTs to us
+   * and is answered 303 to it, so it is a form target. Required in production.
+   */
   keycloakUrl: string | undefined;
   /** `NODE_ENV === 'production'`; development adds what `next dev` needs and nothing else. */
   production: boolean;
@@ -31,13 +34,21 @@ export interface CspInput {
 const DEFAULT_KEYCLOAK = 'http://localhost:8180';
 
 /**
- * The identity provider's origin. A malformed value falls back to the local default rather than
- * producing a broken directive: an unparseable CSP is dropped by the browser **entirely**.
+ * The identity provider's origin. In production a missing or malformed `KEYCLOAK_URL` throws: a
+ * silent localhost default would let Sign out's 303 be refused in the browser, and nothing else would
+ * say so. In development it falls back to the local Keycloak. Never a raw value in the directive: an
+ * unparseable CSP is dropped by the browser **entirely**.
  */
-export function keycloakOrigin(url: string | undefined): string {
+export function keycloakOrigin(url: string | undefined, production = false): string {
   try {
-    return new URL(url ?? DEFAULT_KEYCLOAK).origin;
+    if (url === undefined || url === '') throw new Error('unset');
+    return new URL(url).origin;
   } catch {
+    if (production) {
+      throw new Error(
+        'KEYCLOAK_URL must be set to the identity provider (an absolute http(s) URL) in production: the CSP form-action needs its origin.',
+      );
+    }
     return DEFAULT_KEYCLOAK;
   }
 }
@@ -70,8 +81,10 @@ export function contentSecurityPolicy({ nonce, keycloakUrl, production }: CspInp
     "base-uri 'none'",
     // Chrome checks form-action against the URL *after* redirects, and Sign out answers 303 to the
     // identity provider: with 'self' alone the SSO session is never ended.
-    `form-action 'self' ${keycloakOrigin(keycloakUrl)}`,
-    // Only behind TLS; on http://localhost it would break every subresource of a production build.
+    `form-action 'self' ${keycloakOrigin(keycloakUrl, production)}`,
+    // Production is served over TLS: any stray http:// subresource is fetched over https instead.
+    // Browsers leave http://localhost alone, so the local production e2e is unaffected; `next dev`
+    // does without it.
     ...(production ? ['upgrade-insecure-requests'] : []),
   ].join('; ');
 }

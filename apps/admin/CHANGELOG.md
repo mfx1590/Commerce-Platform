@@ -14,6 +14,9 @@
   stamps the nonce. `/auth/error` is now matched (for its CSP) and let through without a session.
 - next.config.mjs: `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` (camera,
   microphone, geolocation denied), HSTS in production; `poweredByHeader: false`.
+- `KEYCLOAK_URL` is required in production (a missing or malformed value throws in the middleware
+  instead of falling back to localhost in `form-action`). zod `jitless` preset in
+  `src/instrumentation-client.ts` (zod 4's eval probe was the one CSP violation the e2e found).
 - Tests: `test/security-headers.test.ts` pins every header and directive; `e2e/csp.spec.ts`
   checks the headers on a production build and that the AI copy editor, BI and onboarding raise
   no CSP violation.
