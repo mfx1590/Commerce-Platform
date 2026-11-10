@@ -354,7 +354,8 @@ code: `infra/observability/rules/slo.mjs` generates `rules/slo.rules.yml` (recor
 `slo:error_ratio:<window>` and multi-window burn-rate alerts `SLOBurn_<slo>_page|ticket`, loaded by
 `prometheus.yml`, mounted into the compose Prometheus) and `rules/slo.test.yml`. `check.sh` — the
 `observability config` job — fails on a hand edit of either YAML file, on `promtool check rules`, and on
-`promtool test rules`. The core's SLIs wait for #729's metrics; the relay's for #733.
+`promtool test rules`. The core's SLIs come from #729's metrics and the relay's from #733's gauge. A relay that is down exports
+nothing, so `SLOAbsent_outbox_relay_lag` pages when that gauge has been missing for 5 minutes.
 
 ### Production dependencies (#730)
 
@@ -368,7 +369,14 @@ fails closed.
 
 `.github/dependabot.yml` opens the updates that shrink it: every Monday, one grouped PR per group for minor and patch
 bumps (npm production, npm development, GitHub Actions, the apps' Dockerfile base images); a major bump comes as its
-own PR for the owning window to review.
+own PR for the owning window to review. A few majors are ignored, each with its reason in the file:
+`@types/node` and the `node` base image (they move with the Node 20 runtime, once, everywhere), and `@medusajs/*`,
+`@opentelemetry/*`, `express` and `@types/express` (they run inside Medusa's process and move with Medusa).
+`@medusajs/*` is its own `medusa` group (its packages must move together), and Medusa 2.22+ is ignored until the
+Node 22 move. The storefront starter manifest's 19 packages are ignored outright: a brand's `package.json` must be
+re-synced from the starter, which Dependabot cannot do (#758 asks for that path). The production audit gate still
+catches an advisory on any of them. `docker/bake-action` 6+ is ignored until the workflows set `source: .`. The
+file names the failure behind each.
 
 ## Helm
 

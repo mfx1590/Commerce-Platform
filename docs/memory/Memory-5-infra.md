@@ -1,8 +1,8 @@
 # Memory 5 — Infra & DevOps
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
-Last updated: 2026-11-07 · Contracts: `contracts-v0.1` · Branch: `infra/phase6-741` · Worktree: `../wt-infra` · Manager: **Manager session eleven** (repo-root manager; chain in Memory-main's first bullet)
-Status: **Phase 6 wave 2, #741 (P6.3 DR drill) + #735 + load README** — PR **#753** up; drill runs 1 + 2 GREEN (RTO 100 / 109 s), machine freed; waiting for CI, then "checks finished" and HOLD. Run 3 = the manager, from main after the merge.
+Last updated: 2026-11-09 · Contracts: `contracts-v0.1` · Branch: `infra/phase6-relay-slo` · Worktree: `../wt-infra` · Manager: **Manager session eleven** (repo-root manager; chain in Memory-main's first bullet)
+Status: **#756 MERGED (f545f649).** #757 (the Dependabot regroup, base main) has its review fix pushed; waiting for the manager's re-check. REQUEST #758 filed for window 10.
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -31,6 +31,8 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## Done
 
+- **#741 (P6.3 DR drill) + #735 + load README — PR #753 MERGED 2026-11-07 (0cc5dd50).** Three green drill runs
+  (window 5: RTO 100 / 109 s; the manager: 74 s), and the collision guard refused an overlapping run.
 - **#730 (P6.2) — PR #734 MERGED 2026-11-06 (def6e53b).** Production-dependency audit gate (28-entry dated baseline),
   Dependabot, 8 SLOs as Prometheus rules + promtool tests, README required checks. Review fixes: `le` regex for
   Prometheus 3's normalised "2.0"; availability `(5xx or vector(0)) / all`.
@@ -111,6 +113,33 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
+- **Dependabot regroup (2026-11-09).** The breaking packages, from the logs:
+  - #743 actions: docker/bake-action 5→7. v6+ uses the Git context, so `workdir: infra/docker` stops applying
+    ("lstat docker-compose.build.yml"). Fix later: `source: .` in ci.yml and deploy-staging.yml.
+  - #747 dev: @playwright/test, autoprefixer, postcss. brand-a test/sync-merge.test.ts asserts package.json ==
+    merge(starter-manifest); Dependabot edits package.json, not the manifest.
+  - #755 prod: @medusajs/* 2.22.3 (cli → execa 10.2.1, engines node>=22: medusa build "TEXT_ENCODINGS.union is
+    not a function" = Set.prototype.union; db:migrate "No exports main" in unicorn-magic; TS2345 in
+    db-medusa-migrate.ts), plus the brand-synced react, react-dom, next-intl, @stripe/*, @types/react*.
+    turbo stops at the first failure, so other breakages may be masked; the regrouped PRs' CI is the real test.
+  The config excludes the 19 starter-manifest packages + @medusajs/* from both npm groups, ignores
+  @medusajs/* >= 2.22.0, and ignores bake-action majors. NO YAML anchors (GitHub's parser may not take them).
+  REVIEW (manager + Opus, #756 merged f545f649, #757 retargeted to main): (1) a `medusa` group (patterns
+  @medusajs/*, minor/patch) so cli/framework/medusa/draft-order move together, and the >=2.22.0 ignore stays;
+  (2) the 19 starter packages are IGNORED in every update type, since excluded single PRs are red by construction
+  and would starve the open-PR limit. That freezes typescript/vitest/yaml/react/@types/node workspace-wide until
+  REQUEST #758 (window 10: starter → sync-from-starter → brands' manifests) lands. The audit gate still covers
+  them.
+- **Relay SLO live + `SLOAbsent_outbox_relay_lag` + Dependabot ignores (2026-11-09).** SLO.md uses window 14's
+  wording for #733's gauge; the core rows are marked live (#729 merged). The alert is `absent()` with `for: 5m`, on
+  top of the collector's prometheus exporter `metric_expiration` (default 5m), so it pages ~10 min after the relay
+  dies (≈2.5% of the 403-min budget, near the 1h page's 2%). The test: the gauge for 10 min, then gone; silent at
+  12m, firing at 30m; absent() keeps the selector's service_name as a label. Mutations (a wrong series, `for` 30m)
+  fail promtool. Dependabot ignores majors for: @types/node + docker `node` (runtime 20: engines >=20.11,
+  NODE_VERSION 20.19-alpine, CI 20); @medusajs/*; @opentelemetry/* (Medusa's @medusajs/deps + workflows-sdk use
+  api 1.x / SDK 2.x in the same process, and the API is a singleton); express + @types/express (routes on Medusa's
+  app). NOT ignored: the frontend overlaps (react, tailwind: separate apps) and ioredis/pg (packages/ai uses ioredis
+  6, and one ignore applies to the whole workspace entry).
 - **#741 (P6.3 DR drill) — APPROVED 2026-11-06 (K2: partial export + realm-file users, never a 2nd KC JVM in the
   shared container; C: password grant + FGA allowed/denied, the core end to end = a later follow-up). BUILT
   2026-11-07: drill.mjs + docker-compose.drill.yml + drill.test.mjs (6/6, changes job); #735 row (proved on
