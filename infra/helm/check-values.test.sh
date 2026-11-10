@@ -50,6 +50,14 @@ case_ 'staging: a dev key in another app'                      fail "printf '  S
 case_ 'staging: a dev key named only in a comment passes'      pass "printf '# was pk_brand-a_dev_00000000000000000000\n' >> storefront/values-staging.yaml"
 case_ 'dev: the seeded dev key is fine'                        pass "grep -q 'pk_brand-a_dev_' storefront/values-dev.yaml"
 
+# The analytics ingest: one replica, Recreate, no HPA (#647). The sed ranges stay inside one block, because the
+# ingress block also holds `enabled: false`; the last case shows that ingress line does not count.
+case_ 'ingest: replicaCount 2'                                 fail "sed -i 's/^replicaCount: 1/replicaCount: 2/' analytics-ingest/values-staging.yaml"
+case_ 'ingest: replicaCount missing (chart default 2)'         fail "sed -i '/^replicaCount:/d' analytics-ingest/values-dev.yaml"
+case_ 'ingest: autoscaling enabled'                            fail "sed -i '/^autoscaling:/,/^[a-z]/ s/enabled: false/enabled: true/' analytics-ingest/values-staging.yaml"
+case_ 'ingest: strategy RollingUpdate'                         fail "sed -i 's/type: Recreate/type: RollingUpdate/' analytics-ingest/values-staging.yaml"
+case_ 'ingest: strategy missing (chart default RollingUpdate)' fail "sed -i '/^strategy:/,+1d' analytics-ingest/values-dev.yaml"
+case_ 'ingest: only ingress says enabled: false'               fail "sed -i '/^autoscaling:/,+1d' analytics-ingest/values-staging.yaml"
 if [ "$fail" -ne 0 ]; then
   echo '== check-values.sh self-test FAILED'
   exit 1
