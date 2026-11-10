@@ -26,6 +26,9 @@ export const CHECKOUT_ROUTE = 'complete';
 const env =
   typeof __ENV !== 'undefined' ? __ENV : typeof process !== 'undefined' ? process.env : {};
 export const FACTOR = Number(env.LOAD_THRESHOLD_FACTOR || 1);
+// A typo must not quietly gate on NaN or on 0 (`p(95)<NaN` never passes; `p(95)<0` neither): refuse it.
+if (!(Number.isFinite(FACTOR) && FACTOR > 0))
+  throw new Error(`LOAD_THRESHOLD_FACTOR must be a number > 0, got "${env.LOAD_THRESHOLD_FACTOR}"`);
 
 /** The p(95) gate in ms for a route, or undefined when no SLO covers it. */
 export function routeP95Ms(route, factor = FACTOR) {

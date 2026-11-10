@@ -57,6 +57,10 @@ jobs:
       LOAD_THRESHOLD_FACTOR: ${{ inputs.threshold_factor || '1' }}
     steps:
       - uses: actions/checkout@v7
+      # A typo must fail here, not gate on NaN for 15 minutes (slo-thresholds.js refuses it too).
+      - name: threshold_factor is a number > 0
+        run: |
+          node -e 'const f = Number(process.argv[1]); if (!(Number.isFinite(f) && f > 0)) { console.error(`threshold_factor must be a number > 0, got "${process.argv[1]}"`); process.exit(1); }' "$LOAD_THRESHOLD_FACTOR"
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
@@ -122,10 +126,16 @@ jobs:
       - name: stop the stack
         if: always()
         run: docker compose -f infra/docker/docker-compose.yml down -v
-      - name: a confirmed breach fails the run
-        if: steps.gate.outputs.verdict == 'breach'
+      # Both fail the run. A breach is a regression (the schedule opens the regression issue). broken is
+      # infrastructure: a pass could not be judged (k6 crashed, an SLO route saw no requests), so no regression issue.
+      - name: a confirmed breach, or a pass that could not be judged, fails the run
+        if: steps.gate.outputs.verdict == 'breach' || steps.gate.outputs.verdict == 'broken'
         run: |
-          echo "both passes crossed an SLO gate: see the job summary"
+          if [ "${{ steps.gate.outputs.verdict }}" = breach ]; then
+            echo "both passes crossed an SLO gate: see the job summary"
+          else
+            echo "infrastructure, not a regression: a pass could not be judged (see the job summary); no regression issue"
+          fi
           exit 1
 
   # Only the SCHEDULE writes issues, and only this job holds `issues: write`. A manual run printed the same texts above.
@@ -134,6 +144,7 @@ jobs:
     needs: load
     if: github.event_name == 'schedule' && always() && needs.load.result != 'cancelled' && needs.load.outputs.verdict != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       issues: write
@@ -161,5 +172,7 @@ jobs:
           if [ -n "$n" ]; then
             gh issue comment "$n" --body-file load/slo/issue.md
           else
-            gh issue create --title "$title" --body-file load/slo/issue.md
+            gh label create load-regression --color B60205 \
+              --description 'A confirmed breach of the scheduled k6 SLO regression' 2>/dev/null || true
+            gh issue create --title "$title" --label load-regression --body-file load/slo/issue.md
           fi

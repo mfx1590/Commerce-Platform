@@ -15,6 +15,10 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
   `slo-thresholds.test.mjs` asserts it equals `rules/slo.mjs`.
 - `infra/load/slo-gate.mjs` (+ test): the verdict per pass, the retry-once rule, the tracking comment and the issue body.
 - Admin-metrics latency is not covered yet: #785.
+- A pass that cannot be judged fails the run as `broken`: "infrastructure, not a regression", with no regression issue
+  (#788 review). That covers k6 crashing, or an SLO route with zero requests, since a threshold on an absent tag
+  passes vacuously. `threshold_factor` must be a number > 0 (the workflow and slo-thresholds.js both refuse it). The
+  issues job has a timeout, and the regression issue gets the `load-regression` label.
 
 ### Added (#439: every image in every list; the engagement image; per-brand Helm values)
 

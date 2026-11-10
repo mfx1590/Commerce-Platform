@@ -29,11 +29,29 @@ export function readPass(dir) {
     return { state: 'broken', reason: 'no load.exit or load-summary.json' };
   const code = Number(readFileSync(exitFile, 'utf8').trim());
   const summary = JSON.parse(readFileSync(summaryFile, 'utf8'));
-  const state = code === 0 ? 'pass' : code === 99 ? 'breach' : 'broken';
-  return { state, code, summary, crossed: crossedThresholds(summary), routes: routeStats(summary) };
+  const routes = routeStats(summary);
+  // A k6 threshold on a tag that never occurred passes vacuously: an SLO route with no requests judged nothing.
+  const unmeasured = [...BROWSE_ROUTES, CHECKOUT_ROUTE].filter((r) => !(routes[r]?.count > 0));
+  const crossed = crossedThresholds(summary);
+  if (code !== 0 && code !== 99)
+    return { state: 'broken', code, summary, crossed, routes, reason: `k6 exited ${code}` };
+  if (unmeasured.length)
+    return {
+      state: 'broken',
+      code,
+      summary,
+      crossed,
+      routes,
+      reason: `no requests on ${unmeasured.join(', ')}`,
+    };
+  return { state: code === 0 ? 'pass' : 'breach', code, summary, crossed, routes };
 }
 
-/** pass, retried (pass 1 breached, pass 2 cleared) or breach (both breached). */
+/**
+ * pass, retried (pass 1 breached, pass 2 cleared), breach (both breached), or broken: either pass could not be
+ * judged (k6 crashed, the run broke, an SLO route had no requests). broken is infrastructure, not a regression: the
+ * run fails, and no regression issue is written for it.
+ */
 export function overall(p1, p2) {
   if (p1.state === 'pass') return 'pass';
   if (p1.state === 'breach' && p2?.state === 'pass') return 'retried';
@@ -50,7 +68,8 @@ const HEADLINE = {
   retried:
     '⚠️ **the retry fired**: pass 1 crossed a gate, pass 2 did not, so no regression is recorded. A flaky first pass is shown, not hidden',
   breach: '❌ **confirmed breach**: both passes crossed an SLO gate',
-  broken: '💥 the run broke before k6 could judge it (see the job log)',
+  broken:
+    '💥 **infrastructure, not a regression**: a pass could not be judged, so the run fails, but no regression issue is written',
 };
 
 export function table(p1, p2) {
@@ -75,6 +94,10 @@ export function table(p1, p2) {
 
 export function render({ runUrl, date, p1, p2 }) {
   const v = overall(p1, p2);
+  const reasons = [p1, p2]
+    .map((p, i) => (p?.reason ? `- pass ${i + 1} could not be judged: ${p.reason}` : null))
+    .filter(Boolean)
+    .join('\n');
   const crossed = [p1, p2]
     .map((p, i) =>
       p?.crossed?.length
@@ -87,7 +110,7 @@ export function render({ runUrl, date, p1, p2 }) {
     FACTOR === 1
       ? ''
       : `\n\n> LOAD_THRESHOLD_FACTOR=${FACTOR}: the latency gates were scaled on purpose (a breach-path test).`;
-  const tracking = `### Scheduled k6 SLO regression, ${date} ([run](${runUrl}))\n\n${HEADLINE[v]}.${factor}\n\n${table(p1, p2)}${crossed ? `\n\n${crossed}` : ''}\n`;
+  const tracking = `### Scheduled k6 SLO regression, ${date} ([run](${runUrl}))\n\n${HEADLINE[v]}.${factor}\n\n${table(p1, p2)}${reasons ? `\n\n${reasons}` : ''}${crossed ? `\n\n${crossed}` : ''}\n`;
   const issue = `A scheduled k6 SLO regression run crossed an SLO gate on BOTH passes (${date}, [run](${runUrl})).\n\n${table(p1, p2)}\n\n${crossed}${factor}\n\nThe gates are the SLOs (infra/load/k6/slo-thresholds.js = infra/observability/rules/slo.mjs; SLO.md has the prose). The run is the owner's target (50 browse req/s + 30 orders/min, 10 min) on a fresh core and database on a GitHub runner, so compare with the last green week in the tracking issue before blaming the code. The job's artifact has the full report (report.md) and the Postgres samples.\n`;
   return { verdict: v, tracking, issue };
 }
@@ -96,7 +119,7 @@ function main([cmd, ...args]) {
   if (cmd === 'verdict') {
     const p = readPass(args[0]);
     console.info(
-      `slo-gate: ${args[0]}: ${p.state}${p.crossed?.length ? ` (crossed: ${p.crossed.join('; ')})` : ''}`,
+      `slo-gate: ${args[0]}: ${p.state}${p.reason ? ` (${p.reason})` : ''}${p.crossed?.length ? ` (crossed: ${p.crossed.join('; ')})` : ''}`,
     );
     process.exit(p.state === 'pass' ? 0 : p.state === 'breach' ? 1 : 2);
   }

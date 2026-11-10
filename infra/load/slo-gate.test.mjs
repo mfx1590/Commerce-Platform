@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { overall, readPass, render } from './slo-gate.mjs';
+import { BROWSE_ROUTES, CHECKOUT_ROUTE } from './k6/slo-thresholds.js';
 
 const GATE = fileURLToPath(new URL('./slo-gate.mjs', import.meta.url));
 
@@ -101,6 +102,69 @@ test('a scaled run renders the gates k6 actually enforced, and says they were sc
   assert.doesNotMatch(tracking, /p95 < 500 ms/);
   assert.match(tracking, /LOAD_THRESHOLD_FACTOR=0\.05/);
   assert.match(readFileSync(join(out, 'issue.md'), 'utf8'), /LOAD_THRESHOLD_FACTOR=0\.05/);
+});
+
+test('(breach, then pass 2 crashes) is broken: infrastructure, never green, never a regression issue (#788 review)', () => {
+  const p1 = readPass(runDir(99, { crossed: true }));
+  const p2 = readPass(runDir(107)); // k6's own failure, e.g. a script exception
+  assert.equal(p2.state, 'broken');
+  assert.equal(p2.reason, 'k6 exited 107');
+  const r = render({ runUrl: 'https://example.invalid/run/5', date: '2026-11-16', p1, p2 });
+  assert.equal(r.verdict, 'broken');
+  assert.match(r.tracking, /infrastructure, not a regression/);
+  assert.match(r.tracking, /pass 2 could not be judged: k6 exited 107/);
+  // the workflow fails the run on broken too, with its own message, and writes the regression issue only on breach
+  const yml = readFileSync(new URL('../../.github/workflows/load.yml', import.meta.url), 'utf8');
+  assert.match(
+    yml,
+    /if: steps\.gate\.outputs\.verdict == 'breach' \|\| steps\.gate\.outputs\.verdict == 'broken'/,
+  );
+  assert.match(yml, /infrastructure, not a regression/);
+  assert.match(
+    yml,
+    /- name: a confirmed breach opens or updates the regression issue\n\s+if: needs\.load\.outputs\.verdict == 'breach'\n/,
+  );
+});
+
+test('an SLO route with no requests is broken, not a vacuous pass (a threshold on an absent tag passes)', () => {
+  const dir = runDir(0);
+  const f = join(dir, 'load-summary.json');
+  const s = JSON.parse(readFileSync(f, 'utf8'));
+  delete s.metrics['http_req_duration{route:complete}'];
+  writeFileSync(f, JSON.stringify(s));
+  const p = readPass(dir);
+  assert.equal(p.state, 'broken');
+  assert.equal(p.reason, 'no requests on complete');
+});
+
+test("every SLO gate's route is a route lib.js tags its requests with", () => {
+  const lib = readFileSync(new URL('./k6/lib.js', import.meta.url), 'utf8');
+  const routes = lib
+    .match(/export const ROUTES = \[([^\]]*)\]/)[1]
+    .match(/'([a-z_]+)'/g)
+    .map((q) => q.slice(1, -1));
+  for (const r of [...BROWSE_ROUTES, CHECKOUT_ROUTE])
+    assert.ok(routes.includes(r), `${r} is not in lib.js ROUTES`);
+  assert.match(lib, /tags: \{ route \}/, 'requests are tagged with their route');
+});
+
+test('LOAD_THRESHOLD_FACTOR must be a number > 0: a typo is refused, not a NaN gate', () => {
+  const load = (v) =>
+    spawnSync(
+      process.execPath,
+      ['--input-type=module', '-e', "await import('./infra/load/k6/slo-thresholds.js')"],
+      {
+        cwd: fileURLToPath(new URL('../..', import.meta.url)),
+        env: { ...process.env, LOAD_THRESHOLD_FACTOR: v },
+        encoding: 'utf8',
+      },
+    );
+  for (const bad of ['abc', '0', '-1']) {
+    const r = load(bad);
+    assert.notEqual(r.status, 0, bad);
+    assert.match(r.stderr, /LOAD_THRESHOLD_FACTOR must be a number > 0/);
+  }
+  assert.equal(load('0.05').status, 0);
 });
 
 test('render writes tracking.md, issue.md and verdict.txt', () => {

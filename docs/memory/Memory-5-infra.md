@@ -133,6 +133,12 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   PR #788. Proof 1 green (42822163523: pass, no pass 2). Proof 2 (42822182902) breached both passes as designed BUT
   rendered the UNSCALED gates (500 ms next to a 25 ms breach): the factor reached k6 (__ENV), not Node. Fix: env =
   __ENV ?? process.env, plus a child-process test (a mutation fails it). Both proofs re-run on the fixed head.
+  CI then failed `what changed`: slo.mjs imported prettier at the top (no install in that job), fixed by a lazy
+  import (79036af8). Opus BLOCK on 1 item: (breach, pass-2 crash) → broken → the job ended GREEN. Fixed: the run
+  fails on broken ("infrastructure, not a regression", no regression issue). A pass with zero requests on an SLO route
+  is broken (a vacuous threshold). Tests: a ROUTES-tag check in lib.js, threshold_factor > 0 (workflow + module),
+  and the load.yml fail-step text (a mutation fails it). The crash proof is FIXTURE-LEVEL (forcing a real k6 crash
+  needs a test-only input in a production workflow). Plus: issues job timeout 10 and the load-regression label.
 - **#439 = PR #776 (2026-11-10), branch infra/phase6-439-lists, code commit 674e8caa; three green runs on it (run
   42806080501, attempts 1-3, all 11 images smoke-tested). Approved a+b+c past the budget.** The engagement Dockerfile (from notifications': deps/build
   stages, then a worker runtime with no HEALTHCHECK and EXPOSE 4040), a compose service and bake target, terraform
