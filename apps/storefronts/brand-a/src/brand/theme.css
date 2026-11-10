@@ -22,4 +22,36 @@ h4 {
   /* Newsreader is a text serif; at heading sizes it wants its lighter weights, not bold. */
   font-weight: var(--ui-font-weight-medium);
   letter-spacing: -0.01em;
+  /*
+   * No fake bold on the serif, ever. The shipped face is a single 500 instance (#739), so a request
+   * for 700 would otherwise be answered with a synthesised smear of the 500 outline.
+   *
+   * `font-synthesis-weight`, NOT the `font-synthesis: none` shorthand: the shorthand also disables
+   * synthetic ITALIC, and brand A ships no italic face — synthesis is how emphasis renders at all,
+   * so turning it off would quietly upright every <em>.
+   */
+  font-synthesis-weight: none;
+}
+
+/*
+ * The rule above states the brand's intent; this one makes it win.
+ *
+ * `h1` is an element selector (0,0,1) and Tailwind's `.font-bold` is a class (0,1,0), so for the
+ * whole of brand A's life the 33 synced headings carrying `font-bold`/`font-semibold` — including
+ * the LCP `<h1 class="text-3xl font-bold">` — have rendered 700/600 and DESIGN.md's "it wants its
+ * lighter weights, not bold" has been aspirational. #765's review caught it when the single 500
+ * instance made the gap visible.
+ *
+ * `h1[class]` is (0,1,1), so it outranks any single utility class without `!important`, and it is
+ * deliberately written against `[class]` rather than against `.font-bold`/`.font-semibold` by name:
+ * the brand rule is "a serif heading is medium", so a utility nobody has used yet should lose too.
+ *
+ * The headings themselves are SYNCED starter markup and are not brand A's to edit (ADR 0004) —
+ * which is why this is specificity in the brand's own stylesheet rather than 33 edits upstream.
+ */
+h1[class],
+h2[class],
+h3[class],
+h4[class] {
+  font-weight: var(--ui-font-weight-medium);
 }
