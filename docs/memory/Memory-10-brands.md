@@ -332,8 +332,9 @@ when every check has finished.
 
 ## In progress — #758 · a dependency path for the 19 starter-synced packages (2026-11-10)
 
-**Proposal sent to the manager; waiting for a go before building.** Code-only, no machine. Nothing
-on a branch yet — cut `brands/phase6-758` from `origin/main` when the go arrives.
+**APPROVED as written and BUILT.** Branch `brands/phase6-758` (from `origin/main` `3950dbbf`),
+code commit `ecfb89d5`. "**Refs #758**", not Closes: the issue closes with window 5's PR removing
+the 19 ignores, which goes **after** mine. Opus review. Code-only, no machine.
 
 **The diagnosis, verified in memory rather than argued.** A Dependabot PR is not red because the
 manifest is stale. It is red because brand A's `test/sync-merge.test.ts:234` calls
@@ -358,6 +359,24 @@ not in CI — it reddened window 3's PRs twice).
 dependency block all CAUGHT; a hand-added brand dependency and an edited `dev` port caught by
 neither, because the merge keeps brand-only keys and `dev` is identity (the port is covered by the
 next test asserting `dev` contains 3101). The narrowing opens no new hole.
+
+### The simulation found a bug in my own test — run it, do not reason about it
+
+My first version asserted **unconditionally** that the narrowed and byte-exact comparisons agree.
+They only agree while the app's synced versions still match the manifest: with a Dependabot-shaped
+bump in the tree the byte-exact comparison differs for **every** mutation, because the reverted
+version alone is enough. Two cases per brand failed under the live simulation. The test now states
+both regimes, and the second branch is exercised by the simulation. Had I shipped the fixture and
+reasoned about the rest, that would have gone out.
+
+**Acceptance, done live rather than as a fixture:** postcss `^8.5.6` → `^8.5.32` in all three
+brands' `package.json`, manifests untouched, in the working tree and reverted after. **A 861 / B 746
+/ C 668 both with the bump and committed.** I did not bump the starter's package.json — window 3's
+file, and the three suites read only their own app, so its only role in a real Dependabot PR is the
+lockfile, which these tests do not read.
+
+Counts: A 854 → **861** (its committed-files block went from 3 tests to 10), B 736 → **746**,
+C 658 → **668**.
 
 **Needs from others:** window 5 removes the 19 starter-package `ignore` entries from
 `.github/dependabot.yml` — *after* my change is on main, or the PRs stay red; nothing from window 3.
