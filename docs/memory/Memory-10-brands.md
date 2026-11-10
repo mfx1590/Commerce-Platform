@@ -410,6 +410,81 @@ branch), dropping versions from the manifest (`--check`'s drift report needs the
 `bump-starter-dep.mjs` as the primary path — **a script of mine cannot make a starter edit legal**;
 bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
+## In progress — the #781 + #783 re-sync (machine used 2026-11-10)
+
+**DONE and pushed** (#789 merged first, as required). Branch `brands/phase6-resync-781-783` from
+`origin/main` `ac6d173e`.
+
+### What came out of it that the brief did not predict
+
+1. **Brand C has NO visual baselines, and it is a starter bug: REQUEST #797.** The synced
+   `visual.spec.ts` hard-codes `/en-GB`; brand C serves `en-US` only, so every path 404s. The suite
+   does **not** error — it screenshots the "Page not found" page, the two element shots fail (no
+   card, no button on a 404) and the full-page `home` shot **PASSES**, because a 404 is perfectly
+   stable. I took three, looked at them, and deleted them. `e2e/support/locale.ts` already exists
+   and `csp.spec.ts` uses it; the fix is `localePath('')` in the starter. **Lesson: a green visual
+   baseline proves stability, not correctness — look at the PNG.**
+2. **Brand A's three full pages passed at 0.0001 unchanged.** The tolerance went 20x tighter and
+   #765's committed baselines still match; nothing was re-taken to make it green. Only the five
+   element shots are new.
+3. **Brand C's e2e could not run at all against `pnpm mock`** (the contract's store is brand A's,
+   `en-GB`/`de-DE`): the server just repeats `warm-up N: page failed`. Fixed with a brand-owned
+   `scripts/e2e-store-mock.mjs` that overlays `perf/store.example.json` using the same two functions
+   `perf.mjs` has used since #447 — no new mechanism. Documented in brand C's README.
+4. **The shared docker stack's port forwarding is dead** (mock-store on 4010 and Keycloak on 8180
+   both time out from the host while the containers say `Up`; mock-store last served at 08:59). I
+   did **not** restart anything — shared stack, needs an OK — and worked around it by running my own
+   Prism on 4015/4018. **Those are still listening**: stopping a process was denied by the
+   permission classifier, so whoever takes the machine next should know.
+5. Two of brand A's own tests broke on the sync, both real: the layout now mounts `ZoneBoundary`
+   (a client component — stubbed like `HydrationMarker`), and the route inventory demanded a slug
+   for the new `[...rest]` catch-all, which by construction has none. The exclusion is a named
+   `NOT_ADDRESSABLE` set **plus** a test that every entry really is a `notFound()` route, so it
+   cannot swallow a real page later.
+
+**Still owed on the branch:** the README bundle tables with the new `[...rest]` row, from this PR's
+own perf legs.
+
+**Original brief, for the trail — was BLOCKED until #789 showed MERGED**: my sync-merge tests change in it, so the branch
+`brands/phase6-resync-781-783` is cut from `origin/main` only after that. The manager merged
+`origin/main` into `brands/phase6-758` itself (head **`e31539cc`**, #783 included) and queued it —
+**do not push to that branch again.** #789's CI is re-running on that head; watch it for the
+unidentified brand A failure I saw locally once.
+
+**THE MACHINE IS MINE for this task.** Report PR + head + "machine free", then checks.
+
+Per brand A, B, C:
+
+1. `sync-from-starter` (starter 0.16.0 + 0.15.3): `csp.ts`, `middleware.ts`,
+   `components/zone-boundary.tsx`, the localised `[locale]/[...rest]` 404 route, `SCRIPTS.md`,
+   `e2e/visual.spec.ts`, `test/middleware-matcher.test.ts` all arrive; `next.config.mjs`,
+   `playwright.config.ts`, `src/brand/**` and `e2e/__screenshots__/**` are preserved. `sync --check`
+   clean ×3.
+2. **Brand-owned scripts/embeds: none — audited before starting.** `next/script`, `<script`,
+   `dangerouslySetInnerHTML`, `srcdoc`, inline handlers, `eval`, `new Function`: **zero hits** across
+   `src/brand/**` and `cms/brand-*/**` in all three brands, so no brand needs rows of its own in
+   `SCRIPTS.md`. (Committed content only; editor-side embeds are window 6's, REQUEST #784.) Brand
+   A's #765 theme and fonts stay untouched.
+3. CSP e2e on each brand's **production** build: zero violations on the starter spec's pages, the
+   zone crossing both ways (cart → checkout gets the Stripe-only policy; "continue shopping" back
+   gets the embed policy), and the `[...rest]` 404 answering **404**. The Stripe step skips without
+   a TEST key — #783's own stated blind spot, not mine to close.
+4. Visual baselines, per #781's hand-off: **brand A** takes the five element shots (`home-h1`,
+   `plp-h1`, `plp-card`, `pdp-h1`, `pdp-button`) and its three full pages must pass at **0.0001**
+   (#781 measured jitter at **0 px** over 15 runs, so a failure is real: investigate before
+   re-baselining — the rail is unmasked with a 300 ms deadline, #790 territory). **B and C** take
+   every baseline for the first time (`E2E_VISUAL=1 … --update-snapshots`). Review every PNG before
+   committing.
+5. README bundle tables from this PR's own perf legs, **including the new `[...rest]` row**;
+   CHANGELOG lines per brand.
+6. **`KEYCLOAK_URL` — already checked, and the answer has a wrinkle.** `form-action` now fails the
+   request in production without it. Every storefront values file that exists sets it:
+   `storefront-brand-{a,b,c}/values-{dev,staging}.yaml` → `https://auth.dev.example.com` /
+   `https://auth.staging.example.com`. **There is no `values-prod.yaml` for any app in the repo** —
+   dev and staging are all that exist, for all nine value sets — so there is nothing in-tree to
+   confirm for production, and that file is `infra/helm/**`, window 5's. Say exactly this rather
+   than "confirmed".
+
 ## Queue after #758 (manager, 2026-11-10)
 
 - **#762 is DEAD, do not wait for it.** Window 3 measured `experimental.inlineCss` and it moved

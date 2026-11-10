@@ -37,6 +37,12 @@ vi.mock('next/font/local', () => ({
 // function, with no React renderer to dispatch hooks, and asserts what the server renders, which
 // the marker never touches.
 vi.mock('@/components/hydration-marker', () => ({ HydrationMarker: () => null }));
+// Since #783 the layout also renders `ZoneBoundary`, the client component that makes a crossing of
+// the CSP zone boundary a hard navigation. Same reason as the marker: it is a `useEffect` and a
+// capture-phase listener, there is no React renderer here to dispatch hooks, and it renders nothing.
+// What it *does* is asserted where it can be — `e2e/csp.spec.ts` navigates cart → checkout and
+// checks the document's policy, and #783 mutation-checked that removing the component fails it.
+vi.mock('@/components/zone-boundary', () => ({ ZoneBoundary: () => null }));
 vi.mock('next-intl', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   NextIntlClientProvider: ({ children }: { children: unknown }) => children,
@@ -148,9 +154,24 @@ const DYNAMIC: Record<string, string> = {
 /** Routes behind a session; 2.5 (#143) drives these end to end. */
 const AUTHENTICATED = /^\/(account|checkout|cart|orders)/;
 
+/**
+ * Routes that no URL "addresses", because answering is not what they are for (#783).
+ *
+ * `[locale]/[...rest]` is the localised 404: it calls `notFound()` so an unknown path under a
+ * locale renders the store's own 404 **inside** the locale layout, with that response's nonce,
+ * instead of Next's prerendered `/_not-found` outside it. A static or more specific dynamic route
+ * always beats a catch-all, so no real page can land there — which is why there is no slug that
+ * reaches it and why the inventory below has to skip it rather than demand one.
+ *
+ * The skip is not taken on trust: the test under it asserts the route really is the 404.
+ */
+const NOT_ADDRESSABLE = new Set(['/[...rest]']);
+
 const ROUTE_FILES = routeFiles(APP_DIR).sort((a, b) => a.route.localeCompare(b.route));
 const ALL_ROUTES = ROUTE_FILES.map((r) => r.route);
-const PUBLIC_ROUTES = ROUTE_FILES.filter((r) => !AUTHENTICATED.test(r.route));
+const PUBLIC_ROUTES = ROUTE_FILES.filter(
+  (r) => !AUTHENTICATED.test(r.route) && !NOT_ADDRESSABLE.has(r.route),
+);
 
 /** A route pattern with its dynamic segment filled from real content, or `null` if we cannot. */
 function addressable(pattern: string): string | null {
@@ -234,6 +255,19 @@ describe('the route inventory is derived, not hand-listed', () => {
       (r) => r.route,
     );
     expect(unaddressable, 'add these to DYNAMIC, with a real published slug').toEqual([]);
+  });
+
+  it('skips only routes that exist to answer 404, and each one really does', () => {
+    // The guard on NOT_ADDRESSABLE. A route listed there is invisible to the inventory above, so a
+    // real page added to that list would stop being checked in either locale and nothing would say
+    // so. Every entry has to be a route file that calls `notFound()` and renders nothing else.
+    for (const route of NOT_ADDRESSABLE) {
+      const entry = ROUTE_FILES.find((r) => r.route === route);
+      expect(entry, `${route} is listed as unaddressable but is not a route at all`).toBeDefined();
+      const source = readFileSync(new URL(`.${entry?.file}/page.tsx`, APP_DIR), 'utf8');
+      expect(source, `${route} must call notFound()`).toMatch(/notFound\(\)/);
+      expect(source, `${route} must not render markup of its own`).not.toMatch(/return\s*\(/);
+    }
   });
 
   it('fills dynamic content routes from documents brand A actually publishes', () => {

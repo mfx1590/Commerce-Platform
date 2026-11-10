@@ -1,5 +1,45 @@
 # Changelog — @platform/storefront-brand-a
 
+## Unreleased — 2026-11-10 · re-synced onto the nonce CSP and the starter's visual suite (#783, #781)
+
+- **Nonce + `'strict-dynamic'` CSP arrives from the starter** (#783, starter 0.16.0): `src/lib/csp.ts`,
+  `src/lib/csp-zone.ts`, `src/middleware.ts`, `src/components/zone-boundary.tsx`, the localised
+  `[locale]/[...rest]` 404 route, `SCRIPTS.md` and the tests. `script-src` no longer carries
+  `'unsafe-inline'`; the two frame zones (checkout = Stripe only, everywhere else = Stripe plus the
+  vetted embed hosts) are crossed by a full page load in both directions.
+- **This app adds no scripts of its own, so `SCRIPTS.md` needs no brand rows.** Audited before the
+  sync: `next/script`, `<script`, `dangerouslySetInnerHTML`, `srcdoc`, inline handlers, `eval` and
+  `new Function` return **zero** hits across `src/brand/**` and this brand's CMS content. Editor-side
+  embeds stay window 6's (REQUEST #784).
+- **CSP e2e on the production build: 3 passed, 1 skipped.** No violation on home, PLP, PDP, cart,
+  checkout, the payment step or a CMS page; the cart → checkout click produces a **new document**
+  with the Stripe-only policy and "continue shopping" a new document with the embed policy; the
+  locale 404 answers **404** and carries the policy. Skipped: the account/Keycloak test, because
+  Keycloak is not reachable from this laptop — it runs in CI, where `E2E_REQUIRE_KEYCLOAK` makes it
+  an error rather than a skip. The Stripe card step also reports itself skipped on a mock run, which
+  is #783's own stated blind spot.
+- **`KEYCLOAK_URL` is now required for a production build** (`form-action` fails loudly without it).
+  This brand's Helm values set it in both environments that exist — `values-dev.yaml` and
+  `values-staging.yaml`. **No app in this repo has a `values-prod.yaml` yet**, so there is nothing
+  in-tree to confirm for production; when that file is written it must carry `KEYCLOAK_URL`
+  (`infra/helm/**`, window 5; recorded on #342).
+- **The visual suite now comes from the starter** (#781): full pages at `maxDiffPixelRatio` **0.0001**
+  (was 0.002) plus five element shots. The starter commits no baselines of its own, so each brand
+  keeps its own under `e2e/__screenshots__/`.
+- **Brand A: the five element baselines are new, and the three full pages passed at 0.0001
+  unchanged.** That is worth stating plainly — the tolerance went 20× tighter and the baselines
+  committed in #765 still match, so nothing was re-taken to make the suite green. The new shots are
+  `home-h1`, `plp-h1`, `plp-card`, `pdp-h1`, `pdp-button`, each reviewed: serif medium headings
+  (#765), the PLP card with its local placeholder image and €19.99, and the dark "Add to cart".
+- **Two of this app's own tests needed fixing, both caused by the sync and both real.**
+  `test/brand-i18n-seo.test.ts` renders the real `[locale]/layout`, which now mounts `ZoneBoundary`
+  — a client component with hooks — so it is stubbed exactly as `HydrationMarker` already was; what
+  the component actually does is asserted in `e2e/csp.spec.ts`, which #783 mutation-checked. And the
+  route inventory demanded a published slug for the new `[...rest]` catch-all, which by construction
+  has none: it is the 404. It is excluded through a named `NOT_ADDRESSABLE` set, with a new test
+  that every entry in that set really is a route that calls `notFound()` and renders nothing else —
+  so the exclusion cannot quietly swallow a real page later.
+
 ## Unreleased — 2026-11-10 · a Dependabot PR that bumps a starter package is no longer red (#758)
 
 - **The comparison that made it red is narrowed.** `test/sync-merge.test.ts` asserts that this app's
