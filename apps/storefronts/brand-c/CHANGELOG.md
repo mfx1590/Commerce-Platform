@@ -23,6 +23,15 @@
   which is the construction that made those PRs red.
 - The commit shape of a bump is documented in the README — starter first, then each brand's sync,
   then a non-frozen `pnpm install`.
+- **The masking is guarded by shape, after #789's review found the first version too broad.** It
+  replaced a shared key's value _whatever it was_, so `"@platform/cms": "workspace:*"` could be
+  swapped for `git+https://…`, an `npm:` alias or a tarball URL and this assertion no longer
+  noticed — where the byte-exact comparison it replaced did, and nothing else in CI would. A value
+  is masked only when **both** this app's and the manifest's are plain semver ranges (no `:`, no
+  `/`), so every protocol value stays byte-exact. Four more mutation rows cover it, including the
+  reverse direction: a `workspace:` dependency repointed at a registry range.
+- Still invisible, and said plainly in the README: a **downgrade** inside plain semver reads exactly
+  like a bump. The production audit gate is what catches a version with a known advisory.
 - **This app now has `test/sync-merge.test.ts` at all.** Its `package.json` is generated, its merge
   module and manifest were here, and nothing checked that the three agreed — only brand A had the
   test, so a hand edit here would have been reverted by the next sync with no warning in between.

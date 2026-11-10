@@ -332,9 +332,34 @@ when every check has finished.
 
 ## In progress — #758 · a dependency path for the 19 starter-synced packages (2026-11-10)
 
-**APPROVED as written and BUILT.** Branch `brands/phase6-758` (from `origin/main` `3950dbbf`),
-code commit `ecfb89d5`. "**Refs #758**", not Closes: the issue closes with window 5's PR removing
-the 19 ignores, which goes **after** mine. Opus review. Code-only, no machine.
+**APPROVED as written, BUILT, BLOCKED on one item, FIXED.** **PR #789**, branch
+`brands/phase6-758` (from `origin/main` `3950dbbf`). "**Refs #758**" — the closing keyword is window
+5's, in the PR that removes the 19 ignores, which goes **after** mine. Code-only, no machine.
+
+### #789's BLOCK: my mask was too broad, and the reviewer's probe proved it
+
+I masked a shared dependency's value **whatever it was**, so `"@platform/cms": "workspace:*"` could
+be swapped for `git+https://…`, an `npm:` alias or a tarball URL and the assertion no longer
+noticed — where the byte-exact comparison it replaced did, and **nothing else in CI** would. Fixed
+by masking only when **both** sides are plain semver ranges (no `:`, no `/`), so every protocol value
+stays byte-exact. Four new mutation rows, including the reverse direction (`workspace:` repointed at
+a range). Reproduced the probe against the fix: with the git URL committed, "agrees with the merge
+rules" now fails, where it passed before.
+
+**The lesson to carry:** "ignore the version" is not the same predicate as "ignore the value of a
+version key". I wrote the second and described the first. When a test deliberately stops looking at
+something, write down the **shape** of what it may stop looking at.
+
+**Two more review items, same push:** the PR body said the closing keyword "belongs to window 5's
+PR" — and GitHub parsed the keyword out of that sentence (`closingIssuesReferences = [758]`), so
+merging would have closed a live issue. Reworded, and never write that keyword next to an issue
+number again, not even to say where it belongs. And the READMEs' step 3 still claimed the test fails
+on a hand-edited version, which my own change had just made false.
+
+Counts after the fix: A **865** / B **750** / C **672**. Acceptance (postcss `^8.5.6` → `^8.5.32` in
+all three brands, manifests untouched, reverted after) green in both regimes — with **one
+unreproducible brand A failure on one of three runs**, name never seen, matching #438's flake
+pattern; recorded in the PR body rather than reported as two green runs.
 
 **The diagnosis, verified in memory rather than argued.** A Dependabot PR is not red because the
 manifest is stale. It is red because brand A's `test/sync-merge.test.ts:234` calls

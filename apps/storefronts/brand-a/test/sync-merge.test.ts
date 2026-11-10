@@ -258,25 +258,63 @@ describe('package.json merge: against this app own committed files', () => {
    * not the claim.
    */
   const SYNCED = '<synced from the starter>';
+
+  /**
+   * A plain semver range — `^8.5.6`, `~1.2.3`, `1.2.3`, `*` — and **not** a value that says where
+   * the package comes from: `workspace:*`, `npm:alias@1.0.0`, `git+https://…`, `file:../x`, a
+   * tarball URL. A protocol is the whole meaning of the dependency, so it is never masked.
+   *
+   * This guard is #789's review finding, and it was a real hole: masking a shared key's value
+   * *whatever it was* meant `"@platform/cms": "workspace:*"` could be swapped for a git URL and the
+   * assertion no longer noticed — where the byte-exact comparison it replaced did, and nothing else
+   * in CI would.
+   */
+  const isPlainSemverRange = (value: string | undefined) =>
+    value !== undefined && !value.includes(':') && !value.includes('/');
+
   const maskSyncedVersions = (pkg: Pkg) => {
     const out = JSON.parse(JSON.stringify(pkg)) as Pkg;
     for (const field of ['dependencies', 'devDependencies', 'peerDependencies'] as const) {
       const block = out[field] as Record<string, string> | undefined;
       const fromManifest = (manifest[field] ?? {}) as Record<string, string>;
       if (!block) continue;
-      for (const key of Object.keys(block)) if (key in fromManifest) block[key] = SYNCED;
+      for (const key of Object.keys(block)) {
+        if (!(key in fromManifest)) continue;
+        // Both sides, deliberately: a swap in either direction between a range and a protocol is
+        // the kind of change this comparison has to keep catching.
+        if (!isPlainSemverRange(block[key]) || !isPlainSemverRange(fromManifest[key])) continue;
+        block[key] = SYNCED;
+      }
     }
     return serialise(out);
   };
 
-  /** A dependency key this app and the manifest share — the kind Dependabot bumps. */
+  /**
+   * A dependency key this app and the manifest share **at a plain semver range** — the only kind
+   * Dependabot bumps, and the only kind the masking applies to.
+   */
   const sharedDependency = () => {
     for (const field of ['devDependencies', 'dependencies'] as const) {
       const fromManifest = (manifest[field] ?? {}) as Record<string, string>;
-      const key = Object.keys((realBrand[field] ?? {}) as object).find((k) => k in fromManifest);
+      const mine = (realBrand[field] ?? {}) as Record<string, string>;
+      const key = Object.keys(mine).find(
+        (k) =>
+          k in fromManifest && isPlainSemverRange(mine[k]) && isPlainSemverRange(fromManifest[k]),
+      );
       if (key !== undefined) return { field, key };
     }
     throw new Error('no dependency is shared with the manifest — the merge has nothing to govern');
+  };
+
+  /** A shared key pinned by PROTOCOL rather than by range — `workspace:*` here. */
+  const sharedProtocolDependency = () => {
+    for (const field of ['dependencies', 'devDependencies'] as const) {
+      const fromManifest = (manifest[field] ?? {}) as Record<string, string>;
+      const mine = (realBrand[field] ?? {}) as Record<string, string>;
+      const key = Object.keys(mine).find((k) => k in fromManifest && !isPlainSemverRange(mine[k]));
+      if (key !== undefined) return { field, key };
+    }
+    throw new Error('no shared dependency uses a protocol — the guard below has nothing to prove');
   };
 
   /**
@@ -357,6 +395,43 @@ describe('package.json merge: against this app own committed files', () => {
       mutate: (pkg) => {
         const block = pkg.devDependencies as Record<string, string>;
         pkg.devDependencies = Object.fromEntries(Object.entries(block).reverse());
+      },
+      caught: true,
+    },
+    {
+      // #789's review probe, as three rows. A shared key swapped from a range to a PROTOCOL
+      // changes where the package comes from, which is not a version bump in any sense and is
+      // exactly what the first version of the masking stopped catching.
+      name: 'a shared dependency swapped for a git+https URL',
+      mutate: (pkg) => {
+        const { field, key } = sharedDependency();
+        (pkg[field] as Record<string, string>)[key] = 'git+https://example.invalid/pkg.git#main';
+      },
+      caught: true,
+    },
+    {
+      name: 'a shared dependency swapped for an npm: alias',
+      mutate: (pkg) => {
+        const { field, key } = sharedDependency();
+        (pkg[field] as Record<string, string>)[key] = 'npm:some-other-package@1.0.0';
+      },
+      caught: true,
+    },
+    {
+      name: 'a shared dependency swapped for a tarball URL',
+      mutate: (pkg) => {
+        const { field, key } = sharedDependency();
+        (pkg[field] as Record<string, string>)[key] = 'https://example.invalid/pkg-1.0.0.tgz';
+      },
+      caught: true,
+    },
+    {
+      // The other direction: a workspace package repointed at a registry range. The manifest's
+      // side is the protocol here, which is why the guard checks both.
+      name: 'a workspace: dependency repointed at a registry range',
+      mutate: (pkg) => {
+        const { field, key } = sharedProtocolDependency();
+        (pkg[field] as Record<string, string>)[key] = '^1.0.0';
       },
       caught: true,
     },

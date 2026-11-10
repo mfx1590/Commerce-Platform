@@ -23,6 +23,15 @@
   which is the construction that made those PRs red.
 - The commit shape of a bump is documented in the README — starter first, then each brand's sync,
   then a non-frozen `pnpm install`.
+- **The masking is guarded by shape, after #789's review found the first version too broad.** It
+  replaced a shared key's value _whatever it was_, so `"@platform/cms": "workspace:*"` could be
+  swapped for `git+https://…`, an `npm:` alias or a tarball URL and this assertion no longer
+  noticed — where the byte-exact comparison it replaced did, and nothing else in CI would. A value
+  is masked only when **both** this app's and the manifest's are plain semver ranges (no `:`, no
+  `/`), so every protocol value stays byte-exact. Four more mutation rows cover it, including the
+  reverse direction: a `workspace:` dependency repointed at a registry range.
+- Still invisible, and said plainly in the README: a **downgrade** inside plain semver reads exactly
+  like a bump. The production audit gate is what catches a version with a known advisory.
 
 ## Unreleased — 2026-11-10 · next 15.5.29 + sharp 0.35.5 from the starter (#731)
 
