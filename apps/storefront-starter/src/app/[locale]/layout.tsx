@@ -6,6 +6,7 @@ import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { brandConfig, siteUrl } from '@/brand/config';
 import { HydrationMarker } from '@/components/hydration-marker';
+import { ZoneBoundary } from '@/components/zone-boundary';
 import { brandTokens } from '@/brand/tokens';
 import { routing } from '@/i18n/routing';
 import { assertStoreOffersLocale } from '@/lib/i18n';
@@ -113,6 +114,7 @@ export default async function LocaleLayout({
       >
         <NextIntlClientProvider messages={clientMessages}>{children}</NextIntlClientProvider>
         <HydrationMarker />
+        <ZoneBoundary />
       </ThemeProvider>
     </html>
   );
