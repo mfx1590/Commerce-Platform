@@ -1,5 +1,15 @@
 # Changelog — @platform/storefront-starter
 
+## 0.15.3 — 2026-11-10 (window 3, #766: visual suite tolerance)
+
+- **`e2e/visual.spec.ts` in the starter** (it was brand A's only).
+  - Full-page shots of home, PLP and PDP at `maxDiffPixelRatio: 0.0001` (was 0.002).
+  - New element shots at `0.002`: the h1 on every page, the first product card on the PLP, and the add-to-cart button on the PDP.
+  - Tolerances are from measurement: repeat-run jitter is 0 pixels on one machine and build. One h1 weight step (700 → 500) is 0.0002–0.0008 of a full page and 0.021–0.113 of the h1 shot. A heading typeface swap is 0.0004–0.0008 / 0.021–0.137. The old 0.002 let both pass; now all six affected shots fail on the weight step.
+- `playwright.config.ts`: per-platform `snapshotPathTemplate`, as brand A.
+- The starter commits no baselines, because the sync would copy them over each brand's. The README says what the suite can and cannot catch.
+- **Brands:** `e2e/visual.spec.ts` is synced (it replaces brand A's local copy). `playwright.config.ts` and each brand's baselines are preserved. Each brand takes and commits baselines for the new element shots (window 10).
+
 ## 0.15.2 — 2026-11-09 (window 3, #731: next security bump)
 
 - **`next` ^15.5.4 → ^15.5.28** (resolves to 15.5.29). This fixes GHSA-2464-fhr4-w9xw (critical) and GHSA-p3m5-59mp-jv5r (high), which affect next ≤ 15.5.27 and were patched in 15.5.28. next's optional `sharp` now resolves to **0.35.5**, which fixes GHSA-wq5f-xc86-pv6w (high, sharp < 0.35.5); next 15.5.28+ requires `^0.34.3 || ^0.35.5`, so the vulnerable 0.35.4 cannot be selected. No code change: the unit suite, lint and typecheck pass unchanged.

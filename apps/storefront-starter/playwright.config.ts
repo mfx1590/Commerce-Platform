@@ -55,6 +55,10 @@ const WORKERS = workersFromEnv(process.env.E2E_WORKERS);
 
 export default defineConfig({
   testDir: './e2e',
+  // Visual baselines per platform (#766, as brand A since #140): Windows and Linux rasterise fonts
+  // differently, so one platform's PNG must never be compared with the other's. See
+  // e2e/visual.spec.ts. A brand's own copy of this file is preserved by the sync.
+  snapshotPathTemplate: '{testDir}/__screenshots__/{platform}/{arg}{ext}',
   fullyParallel: true,
   ...(WORKERS === undefined ? {} : { workers: WORKERS }),
   forbidOnly: Boolean(process.env.CI),
