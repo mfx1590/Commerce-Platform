@@ -37,6 +37,10 @@ How to run the project solo on Max 5x: docs/plan/solo-max5x-schedule.md · Owner
       - #739: the subsetting MEASURED short of the 2500 worst run (the no-font ceiling is 2163/2233 ms; fonts 90.6 → 40.4 kB; worst run −135/−170 ms). Window 10 lands the subsetting as "Refs #739"; the remainder is **#762** (starter h1 render delay ~1.4 s), for window 3 after its #760.
       - Window 3's next ^15.5.28 bump = **draft PR #760** (CI only runs on PRs; it syncs the README bundle table from the CI leg, then marks ready).
       - Window 4 holds THE MACHINE now (build + e2e + bundle) and keeps the allow-list unedited (correct).
+      - **PR #763 READY** (window 4, head a990e72d; machine FREE).
+        - Its csp e2e caught zod 4's `Function("")` JIT probe; fixed by presetting zod's `jitless` in src/instrumentation-client.ts (commit 60231978, test-pinned).
+        - Mock e2e 25/2 skipped with 0 CSP violations; all routes are dynamic; bundle +1 to 3 kB per route.
+        - Session twelve runs the FABLE review (not started by eleven).
       - Window 10's subsetting is up as **PR #765** ("Refs #739", head 37b21685; 90.6 → 40.4 kB, subset-font@2.9.0 + build-fonts.mjs --check, 13 tests); session twelve runs its Opus review (not started by eleven). The machine is window 4's.
       - #737 is up as **PR #761** (0208: the narrow owner role platform_outbox_lag; platform_app loses EXECUTE). **The Fable verdict FINDINGS → MERGE is POSTED on the PR**; session twelve: QUEUE IT (`bash scripts/merge-queue.sh "761 integration/phase6-737"`), then apply 0208 to the dev DB with a backup first.
     - **#737** (manager's): an AGENT of session eleven is building it in ../wt-contracts on branch `integration/phase6-737` (outbox_lag() on managed Postgres + the #736 nits: the 0190 comment and a SAVEPOINT error-path test). If session eleven is gone before it reports, check that branch: if committed, push it, open the PR "Closes #737" and get a FABLE review (RLS); if not, redo it from the issue.
