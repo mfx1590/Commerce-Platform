@@ -14,3 +14,7 @@ dist/
 .notifications/
 # ops alerts written by apps/engagement's dev transport (ENGAGEMENT_DIR local default; window 16, #553)
 .engagement/
+
+# The starter commits no visual baselines: its synced files are copied into every brand (#781, #790).
+# Brands keep theirs; only the starter's are ignored, here at the root so the rule never syncs.
+apps/storefront-starter/e2e/__screenshots__/

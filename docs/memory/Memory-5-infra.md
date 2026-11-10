@@ -139,6 +139,12 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   is broken (a vacuous threshold). Tests: a ROUTES-tag check in lib.js, threshold_factor > 0 (workflow + module),
   and the load.yml fail-step text (a mutation fails it). The crash proof is FIXTURE-LEVEL (forcing a real k6 crash
   needs a test-only input in a production workflow). Plus: issues job timeout 10 and the load-regression label.
+- **Service images hygiene (2026-11-10), branch infra/phase6-image-hygiene from #776's head f7ae9681 (merge main
+  after #776 merges).** Item (1), the notifications HEALTHCHECK, was a FALSE finding: it serves /health on $PORT (the
+  manager agreed and dropped it). TZ=UTC in 10 Dockerfiles (accounting had it) + a check-image-manifests rule (a
+  mutation → exit 1); the check-image-lists header scope note; Dependabot's Node 22 checklist block (+ the OTLP
+  exporters >= 0.300, axe >= 4.14, jest-dom majors) and the TS2345 → Medusa 2.21 fix. NEXT: the k6 proposal (shape
+  first).
 - **#439 = PR #776 (2026-11-10), branch infra/phase6-439-lists, code commit 674e8caa; three green runs on it (run
   42806080501, attempts 1-3, all 11 images smoke-tested). Approved a+b+c past the budget.** The engagement Dockerfile (from notifications': deps/build
   stages, then a worker runtime with no HEALTHCHECK and EXPOSE 4040), a compose service and bake target, terraform
