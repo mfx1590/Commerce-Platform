@@ -194,10 +194,14 @@ iteration is tens of units; the shared seed is topped up to at least 25 availabl
 ## Fonts (generated)
 
 `src/brand/fonts/*.woff2` are **generated** from the OFL variable sources in
-`src/brand/fonts/source/` by `node scripts/build-fonts.mjs` — **40.4 kB shipped against 90.6 kB of
+`src/brand/fonts/source/` by `node scripts/build-fonts.mjs` — **40.8 kB shipped against 90.6 kB of
 sources** (#739). Newsreader is pinned to the one weight `theme.css` uses; Hanken Grotesk's axis is
 trimmed to the 400–700 the kit actually renders; both are subset to a charset derived from brand A's
 catalogues plus whatever `Intl` emits for its locales and currency.
+
+**Serif headings render medium (500), enforced.** `theme.css` out-specifies the synced
+`font-bold`/`font-semibold` utilities on `h1`-`h4` and forbids synthetic bold — before #765 those
+utilities won and headings rendered 700/600, against what DESIGN.md §3 asks for.
 
 Do not edit a binary — `test/brand-fonts.test.ts` rebuilds both faces and compares hashes, so a
 hand-placed file fails review. `src/brand/fonts/README.md` carries the provenance, the licences and

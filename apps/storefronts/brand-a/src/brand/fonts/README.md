@@ -14,10 +14,10 @@ node scripts/build-fonts.mjs --charset  # print the derived charset
 
 | Shipped                      | Size    | From                                         | Size    | How                                           |
 | ---------------------------- | ------- | -------------------------------------------- | ------- | --------------------------------------------- |
-| `newsreader-latin.woff2`     | 20.9 kB | `source/newsreader-variable-latin.woff2`     | 56.7 kB | `wght` pinned to **500**, charset subset      |
-| `hanken-grotesk-latin.woff2` | 19.5 kB | `source/hanken-grotesk-variable-latin.woff2` | 33.9 kB | `wght` trimmed to **400–700**, charset subset |
+| `newsreader-latin.woff2`     | 21.1 kB | `source/newsreader-variable-latin.woff2`     | 56.7 kB | `wght` pinned to **500**, charset subset      |
+| `hanken-grotesk-latin.woff2` | 19.6 kB | `source/hanken-grotesk-variable-latin.woff2` | 33.9 kB | `wght` trimmed to **400–700**, charset subset |
 
-**40.4 kB shipped against 90.6 kB of sources — 50.2 kB off the critical path.**
+**40.8 kB shipped against 90.6 kB of sources — 49.8 kB off the critical path.**
 
 | sha256 (first 16)  | File                                         |
 | ------------------ | -------------------------------------------- |
@@ -52,9 +52,23 @@ So the cost was **bytes contending for simulated bandwidth**, not the `font-disp
 which is why `display: 'optional'` was rejected: it removes no bytes, and it would have broken
 `e2e/visual.spec.ts`, which deliberately awaits `document.fonts.ready`.
 
-**The serif's weight axis.** `theme.css` sets `h1–h4` at `--ui-font-weight-medium` and nothing else
-uses Newsreader, so shipping a 400–700 axis paid for six weights to render one. Pinned to 500: −63%.
-DESIGN.md §3 already walked one step down this ladder when it dropped the `opsz` axis (132 → 58 kB).
+**The serif's weight axis.** Pinned to 500: −63%. DESIGN.md §3 already walked one step down this
+ladder when it dropped the `opsz` axis (132 → 58 kB).
+
+**This changed how headings look, and the first version of this file said it did not.** The claim
+was that `theme.css` already set `h1–h4` at medium so nothing rendered heavier. That misread the
+cascade: `theme.css` is an **element** rule and Tailwind's `.font-bold` is a **class**, which
+outranks it. The 33 synced headings carrying `font-bold`/`font-semibold` — the LCP `<h1>` among them
+— were rendering real **700** and **600**. Measured in a browser on the PDP: with brand A's
+enforcement rule the `h1` computes to `500`; with that one rule deleted at runtime it computes to
+`700`.
+
+The pin is kept and the design is now **enforced** rather than aspirational, which is what
+`theme.css` and DESIGN.md §3 always said the brand wanted — "at heading sizes it wants its lighter
+weights, not bold". `theme.css` wins the specificity fight (`h1[class]`, (0,1,1), beats a utility's
+(0,1,0) without `!important`) and sets `font-synthesis-weight: none` so a 500-only face is never
+smeared into a fake bold. **Headings are lighter than they were on main. That is the intended
+design, arrived at by accident-correction rather than by choice of this PR.**
 
 **The sans's unused light range.** `packages/ui` defines normal 400, medium 500, semibold 600 and
 bold 700, and the starter renders all four — `font-medium` ×36, `font-bold` ×19, `font-semibold` ×18,
@@ -77,9 +91,9 @@ own locales and seeded currency actually emit. Both halves mattered:
   tofu box on every price on every product page.
 
 **Printable Latin-1 is kept as the floor and is not negotiable for a few kB.** Product names,
-category names and CMS prose arrive at runtime. A face carrying only today's 93 observed characters
+category names and CMS prose arrive at runtime. A face carrying only today's 92 observed characters
 renders a missing glyph the first time a product is called "Café" — and dropping the floor was
-measured at 40.4 → 26.1 kB, about 45 ms once the sub-linear byte-to-time ratio is applied. Not a
+measured at 40.8 → 26.1 kB, about 45 ms once the sub-linear byte-to-time ratio is applied. Not a
 trade worth a visible defect.
 
 ## What this did not fix

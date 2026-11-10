@@ -25,14 +25,22 @@
  * A's identity and is not for sale against a perf margin. It spends the two things that cost nothing
  * visible instead:
  *
- * 1. **The serif's weight axis.** `theme.css` sets `h1-h4` at `--ui-font-weight-medium` and nothing
- *    else uses Newsreader, so the shipped face is **pinned to wght 500**. The source keeps its
- *    400-700 axis; the pin happens here. (DESIGN.md already walked one step down this ladder: the
- *    `opsz` axis was dropped, 132 kB to 58 kB.)
+ * 1. **The serif's weight axis**, pinned to wght 500 — and this is a **visible change**, which the
+ *    first version of this file got wrong. It claimed `theme.css` already set `h1-h4` at medium so
+ *    nothing rendered heavier. That was a misreading of the cascade: `theme.css` is an **element**
+ *    rule and Tailwind's `.font-bold` is a **class**, which outranks it, so the 33 synced headings
+ *    carrying `font-bold`/`font-semibold` — the LCP `<h1>` among them — were rendering real 700 and
+ *    600. #765's review caught it.
+ *    The pin is kept and the design is now **enforced** rather than aspirational: `theme.css` wins
+ *    the specificity fight on serif headings and forbids synthetic bold, so headings render the 500
+ *    DESIGN.md asks for ("at heading sizes it wants its lighter weights, not bold"). Headings are
+ *    lighter than they were, deliberately. (DESIGN.md had already walked one step down this ladder:
+ *    the `opsz` axis was dropped, 132 kB to 58 kB.)
  * 2. **Glyphs neither locale can render.** Both faces are subset to `CHARSET` below.
  *
- * The sans keeps its 300-700 axis: body copy, labels and controls genuinely use several weights, and
- * separate static instances would trade bytes for extra requests.
+ * The sans keeps a weight AXIS rather than becoming static instances — body copy, labels and controls
+ * genuinely use 400, 500, 600 and 700, and separate files would trade bytes for extra requests — but
+ * the axis is trimmed to **400-700**: the source carries 300-700 and nothing anywhere asks for 300.
  *
  * ## The charset, derived rather than guessed
  *
@@ -85,11 +93,26 @@ export const FACES = [
     // The axis is KEPT, only trimmed: `packages/ui` defines normal 400, medium 500, semibold 600
     // and bold 700, and the starter renders all four (font-medium x36, font-bold x19,
     // font-semibold x18, font-normal x1). Nothing anywhere asks for 300, so the source's
-    // 300-400 range is dead weight: trimming it costs 30.4 kB -> 19.3 kB.
+    // 300-400 range is dead weight. Trimming it, with the charset below: 33.9 kB -> 19.6 kB.
     variationAxes: { wght: { min: 400, max: 700 } },
     why: 'body, labels and controls use 400-700; statics would cost extra requests',
   },
 ];
+
+/**
+ * Typographic characters runtime text plausibly contains that no scan of this repo can see.
+ *
+ * Measured at **0.39 kB** for all four, which is why they are here rather than argued about. Store
+ * API product names and Sanity prose are written by people, and people write apostrophes: a product
+ * called "Men’s" with U+2019 missing falls back to the fallback face **for that one glyph**, which
+ * looks like a rendering bug rather than a font choice. The en dash and ellipsis are the same story
+ * in body copy.
+ *
+ * Deliberately NOT a general "add punctuation" list: `‚`, `•` and `™` are also absent and stay
+ * absent until something actually needs them. Every character here costs bytes on the critical path
+ * that #739 exists to defend.
+ */
+const TYPOGRAPHIC = '\u2019\u2018\u2013\u2026';
 
 /** Printable Latin-1 — the floor, for runtime content this repo has never seen. */
 const LATIN1 = [
@@ -177,7 +200,7 @@ export function observedCharacters(root = repo) {
 export function charset(root = repo) {
   const { chars } = observedCharacters(root);
   const runtime = runtimeCharacters(brandLocales(root), brandCurrencies(root));
-  const set = new Set([...LATIN1, ...chars, ...runtime]);
+  const set = new Set([...LATIN1, ...TYPOGRAPHIC, ...chars, ...runtime]);
   set.delete('\n');
   set.delete('\r');
   set.delete('\t');

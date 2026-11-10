@@ -128,8 +128,17 @@ that says so, not a grey dot.
   typography and the budget is the stronger claim, so the budget won.
 
   **#739 walked one step further down the same ladder: the weight axis is gone too.** The rule below
-  sets `h1-h4` at medium and nothing else uses the serif, so a 400-700 axis was paying for six
-  weights to render one. The shipped face is now **pinned to wght 500**: 56.7 kB to **20.9 kB**. The
+  sets `h1-h4` at medium, so a 400-700 axis was paying for six
+  weights to render one.
+
+  **And #765's review found that the rule below had never actually won.** It is an element selector;
+  Tailwind's `.font-bold` is a class and outranks it, so the 33 synced headings carrying
+  `font-bold`/`font-semibold` — including the LCP `<h1>` — rendered real **700** and **600** for
+  brand A's whole life, while this document said medium. **Headings are now lighter than they were,
+  and that is the correction, not a new preference**: `theme.css` out-specifies the utilities
+  (`h1[class]`, (0,1,1) against (0,1,0)) and forbids synthetic bold, so what ships is what §3 has
+  always asked for. Measured in a browser: the PDP `h1` computes to `500`, and to `700` with that
+  one rule deleted at runtime. The shipped face is now **pinned to wght 500**: 56.7 kB to **21.1 kB**. The
   400-700 source is still committed under `fonts/source/` and the pin happens at build time —
   `fonts/README.md` has the provenance and the reasoning. Nothing about the pairing changed.
 
@@ -266,7 +275,7 @@ file describes how brand A looks, not what it sells.
   phase table reads Load Delay 0%, Load Time 0%), so `optional` would have removed no bytes — and it
   would have broken `e2e/visual.spec.ts`, which deliberately awaits `document.fonts.ready` because
   the faces are the point of the theme.
-- **The faces cost 40.4 kB, down from 90.6 kB (#739).** Brand A's LCP was passing its 2500 ms budget
+- **The faces cost 40.8 kB, down from 90.6 kB (#739).** Brand A's LCP was passing its 2500 ms budget
   only on the best of five runs — three of five were 2711-2719 ms in CI. The faces were the **only**
   thing brand A loaded that brands B and C did not, and `90.6 kB x 8 / 1600 kbps` = 453 ms against an
   observed render-delay difference of 444 ms. Subsetting and instancing took the worst run from 2674

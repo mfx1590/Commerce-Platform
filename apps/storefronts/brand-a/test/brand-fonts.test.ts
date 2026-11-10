@@ -75,6 +75,49 @@ describe('brand A generated faces (#739)', () => {
   });
 });
 
+describe('medium serif headings are ENFORCED, not aspirational (#765 review)', () => {
+  const theme = () => readFileSync(join(APP, 'src', 'brand', 'theme.css'), 'utf8');
+
+  it('declares each face at the weight its generated file actually contains', () => {
+    // The silent half of the regression: fonts.ts said `'400 700'` while the file held only 500, so
+    // the browser believed 700 was available and never reached for anything else.
+    const fonts = readFileSync(join(APP, 'src', 'brand', 'fonts.ts'), 'utf8');
+    expect(fonts).toMatch(/newsreader-latin\.woff2',\s*weight:\s*'500'/);
+    expect(fonts).toMatch(/hanken-grotesk-latin\.woff2',\s*weight:\s*'400 700'/);
+    expect(fonts).not.toMatch(/weight:\s*'300 700'/);
+  });
+
+  it('out-specifies the synced font-bold/font-semibold utilities on serif headings', () => {
+    // `h1` is (0,0,1) and `.font-bold` is (0,1,0), so an element rule alone LOSES — which is how 33
+    // headings rendered 700/600 for brand A's whole life while DESIGN.md said medium. `h1[class]`
+    // is (0,1,1) and wins without `!important`.
+    const css = theme();
+    for (const tag of ['h1', 'h2', 'h3', 'h4']) {
+      expect(css, `${tag}[class] must out-specify a weight utility`).toContain(`${tag}[class]`);
+    }
+    const guarded = css.slice(css.indexOf('h1[class]'));
+    expect(guarded).toMatch(/font-weight:\s*var\(--ui-font-weight-medium\)/);
+  });
+
+  it('forbids synthetic bold on the serif, without disabling synthetic italic', () => {
+    // A request for 700 against a 500-only face would otherwise be answered with a smeared outline.
+    const css = theme();
+    expect(css).toMatch(/^\s*font-synthesis-weight:\s*none/m);
+    // NOT the shorthand, which also kills synthetic italic: brand A ships no italic face, so every
+    // <em> would quietly render upright. Line-anchored, because theme.css's own comment explains
+    // the distinction in prose and an unanchored match found that instead of a declaration — which
+    // is exactly the kind of test that passes while asserting nothing.
+    expect(css).not.toMatch(/^\s*font-synthesis:\s*none/m);
+  });
+
+  it('still covers headings that carry no class at all', () => {
+    const css = theme();
+    const base = css.slice(0, css.indexOf('h1[class]'));
+    expect(base).toMatch(/^h1,\s*$/m);
+    expect(base).toMatch(/font-weight:\s*var\(--ui-font-weight-medium\)/);
+  });
+});
+
 describe('the charset is derived, not guessed (#739)', () => {
   it('keeps printable Latin-1 as the floor, for content this repo has never seen', () => {
     // Product and category names come from the Store API at runtime. Subsetting to only the
