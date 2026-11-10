@@ -66,3 +66,21 @@ issue; tick it only with a link to the evidence.
 - [ ] ClickHouse in production: the read-only user, system tables behind a grant, a memory cap sized for the host.
 - [ ] **ClickHouse users as SQL migrations, not XML (#648):** Cloud ignores users.d/config.d; a least-privilege ingest
       writer (no access management), per-user concurrency/quota, private network only, passwords from the secrets manager.
+
+## Security (from `docs/security/`, 2026-11-10)
+
+- [ ] **Branch protection (owner's repo setting; `docs/security/README.md` G-1 to G-3):** require a review before
+      merge, bind admins, and add `live auth + end-to-end (Keycloak, OpenFGA, Playwright)` (plan D6, after 10 green
+      main runs) and `dependency audit (production)` to the required checks.
+- [ ] **PCI SAQ-A (`docs/security/pci-saq-a-scope.md`):** complete SAQ A and the attestation with the acquirer /
+      Stripe; keep Stripe's attestation and its written statement on the Payment Element's script protection on
+      file; contract an approved scanning vendor for the quarterly external scans.
+- [ ] **The card journey on Stripe test keys**, in CI and on the laptop, recorded on #358 (needs #361).
+- [ ] **Storefront payment page scripts:** a nonce-based `script-src` (no `'unsafe-inline'`), as the admin has since
+      #763, and a one-page script inventory, before the SAQ-A eligibility statement is signed.
+- [ ] **A penetration test** on the deployed stack; findings filed as issues.
+- [ ] **Alerts reach a person:** an Alertmanager receiver for the SLO rules (`infra/observability/SLO.md`).
+- [ ] **Scheduled backups with an agreed RPO**, and erasures replayed after any restore (`infra/dr/RUNBOOK.md`).
+- [ ] **Network:** TLS on the ingress, NetworkPolicies, a private cluster endpoint, authentication on the bus.
+- [ ] **A service-provider register and a card-incident response plan** (who calls Stripe and the acquirer, how the
+      payment page is frozen).
