@@ -1,8 +1,8 @@
 # Memory 5 — Infra & DevOps
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
-Last updated: 2026-11-09 · Contracts: `contracts-v0.1` · Branch: `infra/phase6-relay-slo` · Worktree: `../wt-infra` · Manager: **Manager session eleven** (repo-root manager; chain in Memory-main's first bullet)
-Status: **#756 MERGED (f545f649).** #757 (the Dependabot regroup, base main) has its review fix pushed; waiting for the manager's re-check. REQUEST #758 filed for window 10.
+Last updated: 2026-11-10 · Contracts: `contracts-v0.1` · Branch: `infra/phase6-bake-v7` · Worktree: `../wt-infra` · Manager: **Manager session twelve** (repo-root manager; chain in Memory-main's first bullet)
+Status: **Manager session TWELVE (eleven stood down), 2026-11-10.** Task 1: bake-action v7 + #759 folded in (branch infra/phase6-bake-v7); three green runs on one head (required jobs' steps change). Task 2 next: triage Dependabot #764 (production group, red on 5 jobs); overlaps with #763 (admin next/zod) and #760 (starter next/sharp). Heads-up later: remove the next/sharp audit-allowlist entries after #763/#760 + the brands re-sync.
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -31,6 +31,9 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## Done
 
+- **Relay SLO + down-relay alert + Dependabot ignores: PR #756 MERGED 2026-11-09 (f545f649).**
+- **Dependabot regroup: PR #757 MERGED 2026-11-09 (4c4983b9).** A medusa group; Medusa >=2.22 ignored (Node 22);
+  the 19 starter packages ignored (REQUEST #758, window 10); bake-action majors ignored.
 - **#741 (P6.3 DR drill) + #735 + load README — PR #753 MERGED 2026-11-07 (0cc5dd50).** Three green drill runs
   (window 5: RTO 100 / 109 s; the manager: 74 s), and the collision guard refused an overlapping run.
 - **#730 (P6.2) — PR #734 MERGED 2026-11-06 (def6e53b).** Production-dependency audit gate (28-entry dated baseline),
@@ -113,6 +116,12 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
+- **#647 (2026-11-10), committed locally on infra/phase6-647-ingest-recreate (from main 134022bf); push AFTER the
+  #745 PR is up.** A chart `strategy` value (rendered only when set), infra/helm/values/analytics-ingest/values-{dev,
+  staging}.yaml (1 replica, no HPA, Recreate, :9004 /health, ingress OFF: the chart default is ON), and a
+  check-values rule plus 6 fixtures. The ECR repo already exists in terraform; ArgoCD apps and the deploy-staging image
+  build for the ingest are NOT added (they would point staging at an image never pushed): later, with #439's list
+  work.
 - **Dependabot regroup (2026-11-09).** The breaking packages, from the logs:
   - #743 actions: docker/bake-action 5→7. v6+ uses the Git context, so `workdir: infra/docker` stops applying
     ("lstat docker-compose.build.yml"). Fix later: `source: .` in ci.yml and deploy-staging.yml.

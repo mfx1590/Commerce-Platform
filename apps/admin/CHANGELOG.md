@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Tests — #763 follow-ups (Refs #731)
+
+- The middleware's authenticated and token-refresh paths are pinned: the response carries the CSP,
+  the forwarded request carries the same nonce and CSP, and on a refresh both the browser and the
+  current render get the refreshed session cookie (mutation-checked both ways).
+- `KEYCLOAK_URL` is read per request: one loaded middleware follows the environment from one
+  request to the next. The built middleware keeps `process.env.KEYCLOAK_URL` as a runtime read, and
+  `next start`'s edge sandbox copies the server's process.env, so the image (built without it)
+  takes it from the pod.
+
 ### Security — Phase 6 D4 (#731): dependency bumps and security headers
 
 - `next` ^15.5.25 → ^15.5.28 (critical GHSA-2464-fhr4-w9xw, high GHSA-p3m5-59mp-jv5r; sharp 0.35.5

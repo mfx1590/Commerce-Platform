@@ -253,26 +253,35 @@ describe('the route inventory is derived, not hand-listed', () => {
 });
 
 describe('the root layout renders each locale with the right lang', () => {
-  it.each(locales)('%s renders <html lang> through the real layout', async (locale) => {
-    const { default: LocaleLayout } = await import('@/app/[locale]/layout');
-    const out = await render(
-      await LocaleLayout({
-        children: 'content',
-        params: Promise.resolve({ locale }),
-      } as never),
-    );
+  // Both cases below carry a 30 s timeout against vitest's default 5 s: the first one to run pays
+  // for compiling the REAL `app/[locale]/layout` and everything it imports, which crossed 5 s once
+  // (5078 ms) on a cold-cache CI run, beside brand-fonts.test.ts timing out for the same reason.
+  // Rendering the actual layout is the point of these two — a mock would pass while the layout was
+  // broken — so the import cost is paid deliberately and the timeout is what absorbs a slow runner.
+  it.each(locales)(
+    '%s renders <html lang> through the real layout',
+    async (locale) => {
+      const { default: LocaleLayout } = await import('@/app/[locale]/layout');
+      const out = await render(
+        await LocaleLayout({
+          children: 'content',
+          params: Promise.resolve({ locale }),
+        } as never),
+      );
 
-    const html = findAll(out, 'html');
-    expect(html, 'the layout rendered no <html>').toHaveLength(1);
-    expect(html[0]?.props['lang'], `<html lang> is wrong for ${locale}`).toBe(locale);
-  });
+      const html = findAll(out, 'html');
+      expect(html, 'the layout rendered no <html>').toHaveLength(1);
+      expect(html[0]?.props['lang'], `<html lang> is wrong for ${locale}`).toBe(locale);
+    },
+    30_000,
+  );
 
   it('404s a locale this build does not route', async () => {
     const { default: LocaleLayout } = await import('@/app/[locale]/layout');
     await expect(
       LocaleLayout({ children: 'x', params: Promise.resolve({ locale: 'fr-FR' }) } as never),
     ).rejects.toThrow('NEXT_NOT_FOUND');
-  });
+  }, 30_000);
 });
 
 /**

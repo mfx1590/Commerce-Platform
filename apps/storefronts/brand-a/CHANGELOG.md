@@ -1,5 +1,36 @@
 # Changelog — @platform/storefront-brand-a
 
+## Unreleased — 2026-11-10 · next 15.5.29 + sharp 0.35.5 from the starter (#731)
+
+- **Re-synced from `apps/storefront-starter`** (#760): `next` `^15.5.4` → **`^15.5.28`**, which
+  resolves to **15.5.29** and pulls **sharp 0.35.5** as next's optional dependency. That clears
+  **GHSA-2464-fhr4-w9xw** (critical — its `infra/security/audit-allowlist.json` entry expires
+  2026-11-20), **GHSA-p3m5-59mp-jv5r** (high) and **GHSA-wq5f-xc86-pv6w** (high, sharp < 0.35.5).
+  Lockfile-wide: `pnpm why next -r` finds **one** version of next and `pnpm why sharp -r` **one** of
+  sharp, so no importer is left on a vulnerable range.
+- **The bump arrived through `scripts/sync-from-starter.mjs`, not by hand.** `next` is a
+  starter-manifest package, so `package.json` and `scripts/starter-manifest.json` have to move in the
+  same step: editing the dependency by itself leaves the manifest claiming the old specifier, and
+  `test/sync-merge.test.ts` fails on exactly that. `sync --check` reports the manifest current.
+- The same sync picked up the starter's `scripts/perf-store-example.mjs` validator cache (#620) —
+  the `Store` Ajv schema is now compiled once per spec text instead of per assertion. It was already
+  on main and had simply not reached this brand yet.
+- **README bundle table re-synced** from this PR's own CI perf leg — there was no machine slot for
+  a local build, and the table is generated from a build. Every route grew: the PDP **139.9 → 140.8
+  kB** of its 144 kB budget and the cart **140.4 → 141.3** of 145, the two tightest. `bundle budget
+PASS` on the leg. The budgets themselves are untouched (#348).
+- **Two of brand A's tests had too little timeout margin for a cold CI run, and were failing other
+  windows' PRs.** `test/brand-fonts.test.ts` › "the committed faces are a fresh build of the
+  committed sources" spawns the build and re-subsets both faces through harfbuzz-wasm: ~3.5 s with a
+  warm turbo cache, but **5855 ms and then 5884 ms** against vitest's default 5000 ms on a PR where
+  turbo had no cache and all 29 tasks started at once — which is any PR that touches the root
+  `package.json` or the lockfile. Turbo then cancelled another package's suite, so a thin margin
+  here reddens work that has nothing to do with brand A. Both that test and the two cases in
+  `test/brand-i18n-seo.test.ts` that import and render the **real** `app/[locale]/layout` (one of
+  which crossed 5 s at 5078 ms in the same run) now carry an explicit **30 s** timeout with a
+  comment saying why. The margin is deliberately much wider than the overrun: a loaded runner is not
+  a reason to stop checking that a committed binary matches its source.
+
 ## Unreleased — 2026-11-09 · the shipped faces are generated and 55% smaller (#739)
 
 - **`src/brand/fonts/*.woff2` are now GENERATED** by `scripts/build-fonts.mjs` from the OFL variable

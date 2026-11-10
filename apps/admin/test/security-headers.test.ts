@@ -157,6 +157,32 @@ describe('the static headers (next.config.mjs)', () => {
   });
 });
 
+describe('KEYCLOAK_URL is read per request, not at build or module load', () => {
+  // The app image is built without KEYCLOAK_URL (the app-images job) and gets it from the pod's
+  // environment. Next leaves `process.env.KEYCLOAK_URL` in the built middleware as a runtime read
+  // (.next/server/src/middleware.js) and `next start`'s edge sandbox copies the server's real
+  // process.env per invocation (next/dist/server/web/sandbox/context.js,
+  // buildEnvironmentVariablesFrom). This pins our half: one loaded middleware follows the
+  // environment from one request to the next, so nothing captured it at import.
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('changes form-action when the environment changes between two requests', async () => {
+    const formAction = async () => {
+      const response = await middleware(
+        new NextRequest(new URL('http://localhost:3000/auth/error')),
+      );
+      return /form-action ([^;]+)/.exec(response.headers.get(CSP_HEADER) ?? '')?.[1];
+    };
+
+    vi.stubEnv('KEYCLOAK_URL', 'https://id-one.example.test/realms/staff');
+    expect(await formAction()).toBe("'self' https://id-one.example.test");
+    vi.stubEnv('KEYCLOAK_URL', 'https://id-two.example.test');
+    expect(await formAction()).toBe("'self' https://id-two.example.test");
+  });
+});
+
 describe('the middleware sets the CSP', () => {
   it('on the sign-in error page, which needs no session, with the nonce forwarded to Next', async () => {
     const response = await middleware(

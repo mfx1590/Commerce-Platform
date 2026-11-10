@@ -2,11 +2,15 @@
 #
 #   cd infra/docker && docker buildx bake --allow fs=* -f docker-compose.build.yml -f docker-bake.hcl
 #
-# Run it from THIS directory. bake resolves a target's `context` relative to the working directory,
-# not to the file that declares it, so `context: ../..` only points at the repo root from here —
-# from the repo root it looks for `../../apps` and fails. (`docker compose build` resolves the
-# context relative to the compose file, which is why the local command needs no such care.)
-# `--allow fs=*` is needed because the context escapes this directory; docker/bake-action passes it.
+# bake resolves a target's `context` relative to the working directory, not to the file that declares
+# it, so every target here takes its context from BAKE_CONTEXT: the default `../..` is the repo root
+# when bake runs from THIS directory (the command above). From the repo root, set BAKE_CONTEXT=. — CI
+# does, because docker/bake-action 7 has no `workdir` (#767):
+#
+#   BAKE_CONTEXT=. docker buildx bake -f infra/docker/docker-compose.build.yml -f infra/docker/docker-bake.hcl
+#
+# (`docker compose build` resolves the context relative to the compose file, which is why the local
+# command needs no such care.) `--allow fs=*` is needed when the context escapes the working directory.
 #
 # The compose file stays the single source of truth for WHICH images exist and how they are built —
 # contexts, Dockerfiles, build args, tags. Bake merges same-named targets across files, so this file
@@ -26,6 +30,12 @@
 # the cache would be unreliable in exactly the case it matters. Separate scopes cost duplicated
 # storage (the repo-wide budget is 10 GB; evicted entries only cost a slow build) and buy a cache
 # that actually hits.
+
+# The workspace root, relative to where bake runs (see the header). Overrides the compose file's
+# `context: ../..` for every target below: bake merges same-named targets, and this file comes last.
+variable "BAKE_CONTEXT" {
+  default = "../.."
+}
 
 variable "CACHE_SCOPE" {
   default = "images"
@@ -53,51 +63,61 @@ function "cache_to" {
 }
 
 target "core" {
+  context    = BAKE_CONTEXT
   cache-from = cache_from("core")
   cache-to   = cache_to("core")
 }
 
 target "admin" {
+  context    = BAKE_CONTEXT
   cache-from = cache_from("admin")
   cache-to   = cache_to("admin")
 }
 
 target "storefront-starter" {
+  context    = BAKE_CONTEXT
   cache-from = cache_from("storefront-starter")
   cache-to   = cache_to("storefront-starter")
 }
 
 target "accounting" {
+  context    = BAKE_CONTEXT
   cache-from = cache_from("accounting")
   cache-to   = cache_to("accounting")
 }
 
 target "analytics-ingest" {
+  context    = BAKE_CONTEXT
   cache-from = cache_from("analytics-ingest")
   cache-to   = cache_to("analytics-ingest")
 }
 
 target "notifications" {
+  context    = BAKE_CONTEXT
   cache-from = cache_from("notifications")
   cache-to   = cache_to("notifications")
 }
 
 target "feeds" {
+  context    = BAKE_CONTEXT
   cache-from = cache_from("feeds")
   cache-to   = cache_to("feeds")
 }
 
 target "storefront-brand-a" {
+  context    = BAKE_CONTEXT
   cache-from = cache_from("storefront-brand-a")
   cache-to   = cache_to("storefront-brand-a")
 }
 
 target "storefront-brand-b" {
+  context    = BAKE_CONTEXT
   cache-from = cache_from("storefront-brand-b")
   cache-to   = cache_to("storefront-brand-b")
 }
 
 target "storefront-brand-c" {
+  context    = BAKE_CONTEXT
   cache-from = cache_from("storefront-brand-c")
   cache-to   = cache_to("storefront-brand-c")
 }
