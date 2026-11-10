@@ -4,6 +4,15 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 6
 
+### Changed (actions: one PR for the majors and bake-action v7)
+
+- `docker/bake-action` v7 with `source: .` (the checkout) in `ci.yml` and `deploy-staging.yml`; v6+ otherwise builds
+  from the Git context (#743). v7 also has no `workdir`, so bake runs from the repo root: the files are named from there,
+  and `docker-bake.hcl` takes every target's context from `BAKE_CONTEXT` (default `../..` for running from infra/docker,
+  `.` in CI). Its Dependabot major ignore is gone.
+- Dependabot's actions group #759 folded in (its commit cherry-picked): checkout 7, setup-node 7, pnpm/action-setup
+  6, cache 6, upload-artifact 7, setup-buildx 4, setup-terraform 4, setup-helm 5, configure-aws-credentials 6.
+
 ### Changed (Dependabot regrouped after the red groups #743, #747, #755)
 
 - `@medusajs/*` moves as its own `medusa` group (minor/patch), outside production/development; `@medusajs/*` >= 2.22

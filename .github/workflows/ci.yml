@@ -35,7 +35,7 @@ jobs:
     name: ownership check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: fetch main
@@ -67,7 +67,7 @@ jobs:
       perf_apps: ${{ steps.filter.outputs.perf_apps }}
       perf_unmeasured: ${{ steps.filter.outputs.perf_unmeasured }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       # The classifier lives in infra/ci/changes.sh with its own self-test, so the rules are
@@ -104,18 +104,18 @@ jobs:
     runs-on: ubuntu-latest
     needs: [changes]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: needs.changes.outputs.code == 'true'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         if: needs.changes.outputs.code == 'true'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: needs.changes.outputs.code == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       # setup-node already caches the pnpm store. This caches turbo's task output, so an unchanged
       # package skips its build/typecheck entirely instead of redoing it.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         if: needs.changes.outputs.code == 'true'
         with:
           path: .turbo
@@ -150,16 +150,16 @@ jobs:
           --health-cmd "pg_isready -U platform -d platform"
           --health-interval 5s --health-timeout 3s --health-retries 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: needs.changes.outputs.code == 'true'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         if: needs.changes.outputs.code == 'true'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: needs.changes.outputs.code == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         if: needs.changes.outputs.code == 'true'
         with:
           path: .turbo
@@ -179,16 +179,16 @@ jobs:
     runs-on: ubuntu-latest
     needs: [changes]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: needs.changes.outputs.code == 'true'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         if: needs.changes.outputs.code == 'true'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: needs.changes.outputs.code == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         if: needs.changes.outputs.code == 'true'
         with:
           path: .turbo
@@ -225,9 +225,9 @@ jobs:
       matrix:
         app: ${{ fromJSON(needs.changes.outputs.perf_apps) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -271,7 +271,7 @@ jobs:
       # On success as well as failure (Refs #348): the measurement trend needs the passing runs too.
       - name: Lighthouse reports
         if: always() && steps.app.outputs.package != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lighthouse-reports-${{ steps.app.outputs.id }}
           retention-days: 30
@@ -324,32 +324,36 @@ jobs:
     runs-on: ubuntu-latest
     needs: [changes]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: needs.changes.outputs.images == 'true'
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
         if: needs.changes.outputs.images == 'true'
       # bake, not `docker compose build`: the GitHub Actions cache backend needs
       # ACTIONS_RUNTIME_TOKEN and ACTIONS_CACHE_URL, which are available to an action but not to a
       # plain `run:` step. docker-compose.build.yml still defines every image; docker-bake.hcl only
       # adds the cache wiring. See the comments in that file.
-      # workdir matters: bake resolves a target's `context` relative to the working directory, not to
-      # the file that declares it, so `context: ../..` only means the repo root when bake runs from
-      # infra/docker. (`docker compose build` resolves it relative to the compose file, which is why
-      # the local command needs no equivalent.) `bake --print` does not resolve contexts at all, so
-      # it cannot catch this — only a real build can.
+      # The context matters: bake resolves a target's `context` relative to the working directory, not
+      # to the file that declares it. bake-action 7 has no `workdir` and runs from the repo root, so
+      # BAKE_CONTEXT=. (docker-bake.hcl; its default `../..` is for running from infra/docker).
+      # (`docker compose build` resolves it relative to the compose file, which is why the local command
+      # needs no equivalent.) `bake --print` does not resolve contexts, so only a real build catches this.
       - name: build every app image (cached, no push)
         if: needs.changes.outputs.images == 'true'
-        uses: docker/bake-action@v5
+        uses: docker/bake-action@v7
         env:
           IMAGE_TAG: ${{ github.sha }}
           # Pull requests read the build cache; only pushes to main write it. Exporting cost more
           # than the build saved — see the CACHE_TO comment in infra/docker/docker-bake.hcl.
           CACHE_TO: ${{ github.event_name == 'push' && '1' || '' }}
+          BAKE_CONTEXT: .
         with:
-          workdir: infra/docker
+          # bake-action 6+ builds from the Git context unless told otherwise (#743: "lstat
+          # docker-compose.build.yml"); `source: .` is the checkout. It runs from the repo root (7 has no
+          # `workdir`), so the files are named from there and BAKE_CONTEXT above is `.`.
+          source: .
           files: |
-            docker-compose.build.yml
-            docker-bake.hcl
+            infra/docker/docker-compose.build.yml
+            infra/docker/docker-bake.hcl
           load: true
           push: false
       # The COPY list in each Dockerfile's `deps` stage is what makes the install layer cacheable;
@@ -368,9 +372,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [changes]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: needs.changes.outputs.terraform == 'true'
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         if: needs.changes.outputs.terraform == 'true'
         with:
           terraform_version: 1.13.0
@@ -420,11 +424,11 @@ jobs:
       # The erasure-list HMAC key (#623), a local word: the tests pass their own, a spawned ingest CLI reads this one.
       ANALYTICS_ERASURE_KEY: dev-only-analytics-erasure-key
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: needs.changes.outputs.e2e == 'true'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         if: needs.changes.outputs.e2e == 'true'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: needs.changes.outputs.e2e == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -603,7 +607,7 @@ jobs:
       - name: keycloak and openfga logs on failure
         if: failure() && needs.changes.outputs.e2e == 'true'
         run: docker compose -f infra/docker/docker-compose.yml --profile analytics logs --tail=100 keycloak openfga redpanda clickhouse
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure() && needs.changes.outputs.e2e == 'true'
         with:
           name: playwright-report
@@ -640,11 +644,11 @@ jobs:
       DATABASE_URL: postgres://platform:platform@localhost:5433/platform
       DATABASE_URL_APP: postgres://platform_app:platform_app@localhost:5433/platform
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: needs.changes.outputs.e2e == 'true'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         if: needs.changes.outputs.e2e == 'true'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: needs.changes.outputs.e2e == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -702,7 +706,7 @@ jobs:
       - name: keycloak and openfga logs on failure
         if: failure() && needs.changes.outputs.e2e == 'true'
         run: docker compose -f infra/docker/docker-compose.yml logs --tail=100 keycloak openfga
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure() && needs.changes.outputs.e2e == 'true'
         with:
           name: playwright-report-admin-core
@@ -722,9 +726,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [changes]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: needs.changes.outputs.helm == 'true'
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
         if: needs.changes.outputs.helm == 'true'
         with:
           version: v3.16.3
@@ -756,15 +760,15 @@ jobs:
     runs-on: ubuntu-latest
     needs: [changes]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: needs.changes.outputs.observ == 'true'
       # Static only: the profile is off by default, the dashboards are valid JSON naming datasources
       # that exist, no two services claim a host port, and Prometheus parses its config. Whether the
       # pipeline actually carries a span is the smoke test in the runbook, which needs the stack up.
       # The SLO rule generator formats with the repo's Prettier (#730), so the check needs the workspace's deps.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         if: needs.changes.outputs.observ == 'true'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: needs.changes.outputs.observ == 'true'
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -790,9 +794,9 @@ jobs:
     name: dependency audit (production)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
       # `pnpm audit` exits non-zero whenever it finds anything, so its exit code says nothing; the JSON does. A
@@ -815,7 +819,7 @@ jobs:
     name: secret scan (gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # gitleaks scans history, not just the diff: a credential committed and then "removed" in
           # a later commit is still in the repository and still in every clone.

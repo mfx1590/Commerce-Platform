@@ -42,7 +42,7 @@ jobs:
       APPS: core admin storefront-starter
     steps:
       # main, as a branch and not a detached sha: this workflow commits to it.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
@@ -91,7 +91,7 @@ jobs:
         id: sha
         run: echo "value=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         if: steps.gate.outputs.configured == 'true'
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
@@ -101,21 +101,23 @@ jobs:
         if: steps.gate.outputs.configured == 'true'
         id: ecr
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
         if: steps.gate.outputs.configured == 'true'
 
       # The same bake definition CI builds with, so a staging image is built exactly the way the
       # pull-request build was. It reads the cache main wrote; it does not write one.
       - name: build the app images
         if: steps.gate.outputs.configured == 'true'
-        uses: docker/bake-action@v5
+        uses: docker/bake-action@v7
         env:
           IMAGE_TAG: ${{ steps.sha.outputs.value }}
+          BAKE_CONTEXT: .
         with:
-          workdir: infra/docker
+          # the checkout, from the repo root (bake-action 7: no Git context, no `workdir`): see ci.yml's image build
+          source: .
           files: |
-            docker-compose.build.yml
-            docker-bake.hcl
+            infra/docker/docker-compose.build.yml
+            infra/docker/docker-bake.hcl
           targets: core admin storefront-starter
           load: true
           push: false

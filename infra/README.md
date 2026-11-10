@@ -375,7 +375,7 @@ own PR for the owning window to review. A few majors are ignored, each with its 
 `@medusajs/*` is its own `medusa` group (its packages must move together), and Medusa 2.22+ is ignored until the
 Node 22 move. The storefront starter manifest's 19 packages are ignored outright: a brand's `package.json` must be
 re-synced from the starter, which Dependabot cannot do (#758 asks for that path). The production audit gate still
-catches an advisory on any of them. `docker/bake-action` 6+ is ignored until the workflows set `source: .`. The
+catches an advisory on any of them. The
 file names the failure behind each.
 
 ## Helm
