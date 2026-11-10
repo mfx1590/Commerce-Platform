@@ -15,6 +15,10 @@
 - The same sync picked up the starter's `scripts/perf-store-example.mjs` validator cache (#620) —
   the `Store` Ajv schema is now compiled once per spec text instead of per assertion. It was already
   on main and had simply not reached this brand yet.
+- **README bundle table re-synced** from this PR's own CI perf leg — there was no machine slot for
+  a local build, and the table is generated from a build. Every route grew: the PDP **139.7 → 140.6
+  kB** of its 144 kB budget and the cart **140.2 → 141.1** of 145, the two tightest. `bundle budget
+PASS` on the leg. The budgets themselves are untouched (#348).
 
 ## Unreleased — 2026-10-09 · brand B's perf store example (#448)
 
