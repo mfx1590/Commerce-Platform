@@ -557,6 +557,15 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **PR #763 review round 2 (2026-11-10).** Core leg was red again at csp.spec.ts:109: "Onboard the
+  brand" is on the wizard's LAST step. **f4214ed0**: the owner case walks steps 1-3 as
+  hq-onboarding.spec does and asserts the review button WITHOUT clicking it (Next is client-only, so
+  it writes nothing). Machine given by Manager twelve, freed after. Proven locally in core mode:
+  csp.spec 3/3 (own core on :9000). First local attempt got 503 "authorization service
+  unavailable": this worktree's .env OpenFGA ids were stale (the shared store was recreated 10-25).
+  `pnpm --filter @platform/auth-sdk fga:seed` (recorded recovery: reuses the store, new model, 0
+  tuples written) fixed it; the core is read at startup, so restart it. TaskStop left the core's node
+  alive again; killed by command line (wt-admin + tsx). Next: all checks green → message the manager.
 - **PR #763 review fix (2026-11-10).** Manager is now **"Manager session twelve"**
   (local_d36f20d9-945f-4f06-ae74-778b5d585388); eleven stood down. Verdict: the design PASSES, one
   BLOCK: `admin e2e against the core (advisory)` red at csp.spec.ts:97. It waited for a /bi/live poll,
