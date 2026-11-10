@@ -59,6 +59,16 @@ beforeAll(async () => {
   migrator.on('error', () => {});
   // 0001 creates the cluster-wide roles check-then-create; serialise with the other suites (see testing.ts).
   await admin.query(`SELECT pg_advisory_lock(hashtext('platform-test-database-migrate'))`);
+  // Roles are cluster-wide: on this shared server the superuser suites may have created platform_outbox_lag (0208)
+  // already. On managed Postgres the master user creates it and so holds what Postgres 16 gives a CREATEROLE
+  // creator: ADMIN on it, without INHERIT or SET. Give the migrator exactly that, whichever suite came first.
+  await admin.query(`DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'platform_outbox_lag') THEN
+      CREATE ROLE platform_outbox_lag NOLOGIN NOINHERIT NOBYPASSRLS;
+    END IF; END $$`);
+  await admin.query(
+    `GRANT platform_outbox_lag TO ${MIGRATOR} WITH ADMIN OPTION, INHERIT FALSE, SET FALSE`,
+  );
 }, 60_000);
 
 afterAll(async () => {
@@ -240,6 +250,98 @@ describe('migrations on managed Postgres: the migration role owns the schema but
     expect((await migrator.query('SELECT 1 FROM product_variant')).rowCount).toBe(0);
   });
 
+  it('app.outbox_lag() reports the true backlog of every organization to platform_metrics (#737)', async () => {
+    const [s1, s2, s3] = [uid(31, 1), uid(31, 2), uid(31, 3)];
+    // unpublished rows in two stores of ORG_1, ORG_1's organization level (store_id NULL) and one store of ORG_2;
+    // one published row, which must not count
+    await superDb.query(
+      `INSERT INTO outbox (organization_id, store_id, topic, version, aggregate_type, aggregate_id, payload, occurred_at, published_at, attempts)
+       VALUES ($1, $3, 'order.placed', 1, 'order', gen_random_uuid(), '{}', now() - interval '10 minutes', NULL, 2),
+              ($1, $3, 'order.placed', 1, 'order', gen_random_uuid(), '{}', now() - interval '5 minutes', NULL, 0),
+              ($1, $3, 'order.placed', 1, 'order', gen_random_uuid(), '{}', now() - interval '20 minutes', now(), 0),
+              ($1, $4, 'product.published', 1, 'product', gen_random_uuid(), '{}', now() - interval '2 minutes', NULL, 0),
+              ($1, NULL, 'stock_item.counted', 1, 'stock_item', gen_random_uuid(), '{}', now() - interval '3 minutes', NULL, 1),
+              ($2, $5, 'order.placed', 1, 'order', gen_random_uuid(), '{}', now() - interval '30 minutes', NULL, 3)`,
+      [ORG_1, ORG_2, s1, s2, s3],
+    );
+    // exactly as the Grafana panel calls it: the platform_metrics login role, no tenant context
+    const metrics = new pg.Pool({
+      connectionString: withDatabase(
+        process.env.DATABASE_URL!,
+        DB,
+        'platform_metrics',
+        'platform_metrics',
+      ),
+      max: 1,
+    });
+    metrics.on('error', () => {});
+    try {
+      const r = await metrics.query<{
+        organization_id: string;
+        store_id: string | null;
+        topic: string;
+        unpublished: string;
+        age_min: number;
+        max_attempts: number;
+      }>(
+        `SELECT organization_id, store_id, topic, unpublished, max_attempts,
+                floor(extract(epoch FROM now() - oldest_occurred_at) / 60)::int AS age_min
+           FROM app.outbox_lag() ORDER BY organization_id, store_id NULLS FIRST, topic`,
+      );
+      expect(r.rows).toEqual([
+        {
+          organization_id: ORG_1,
+          store_id: null,
+          topic: 'stock_item.counted',
+          unpublished: '1',
+          max_attempts: 1,
+          age_min: 3,
+        },
+        {
+          organization_id: ORG_1,
+          store_id: s1,
+          topic: 'order.placed',
+          unpublished: '2',
+          max_attempts: 2,
+          age_min: 10,
+        },
+        {
+          organization_id: ORG_1,
+          store_id: s2,
+          topic: 'product.published',
+          unpublished: '1',
+          max_attempts: 0,
+          age_min: 2,
+        },
+        {
+          organization_id: ORG_2,
+          store_id: s3,
+          topic: 'order.placed',
+          unpublished: '1',
+          max_attempts: 3,
+          age_min: 30,
+        },
+      ]);
+      // still aggregates only: the metrics role cannot read the table, not even the columns the function reads
+      await expect(metrics.query('SELECT topic FROM outbox')).rejects.toThrow(/permission denied/);
+    } finally {
+      await metrics.end();
+    }
+    // the read is the function owner's alone (0208): the migrator, without context, still sees no outbox row,
+    // and platform_app no longer calls the cross-organization aggregate
+    expect((await migrator.query('SELECT 1 FROM outbox')).rowCount).toBe(0);
+    const owner = await superDb.query<{ owner: string; login: boolean; bypass: boolean }>(
+      `SELECT r.rolname AS owner, r.rolcanlogin AS login, r.rolbypassrls AS bypass
+         FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner WHERE p.oid = 'app.outbox_lag()'::regprocedure`,
+    );
+    expect(owner.rows).toEqual([{ owner: 'platform_outbox_lag', login: false, bypass: false }]);
+    const exec = await superDb.query<{ app: boolean; metrics: boolean }>(
+      `SELECT has_function_privilege('platform_app', 'app.outbox_lag()', 'EXECUTE') AS app,
+              has_function_privilege('platform_metrics', 'app.outbox_lag()', 'EXECUTE') AS metrics`,
+    );
+    expect(exec.rows[0]).toEqual({ app: false, metrics: true });
+  });
+
   it('the runner refuses to commit a migration that leaves row-level security enabled but not forced', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'db-497-'));
     try {
@@ -285,6 +387,38 @@ describe('migrations on managed Postgres: the migration role owns the schema but
       );
       expect(v.rows[0]?.stock_item_id).toBeTruthy();
       // ... and hands the session back in store scope
+      const scope = await c.query<{ s: string }>(`SELECT current_setting('app.scope') AS s`);
+      expect(scope.rows[0]?.s).toBe('store');
+      await c.query('ROLLBACK');
+    } finally {
+      c.release();
+      await app.end();
+    }
+  });
+
+  it('link_customer_identity refuses an out-of-scope customer (42501) and the error path leaves app.scope as it was (0207)', async () => {
+    const other = await superDb.query<{ id: string }>(
+      `SELECT id FROM customer WHERE email = 'asked@brand-b.example.test'`,
+    );
+    const app = new pg.Pool({
+      connectionString: withDatabase(process.env.DATABASE_URL!, DB, 'platform_app', 'platform_app'),
+      max: 1,
+    });
+    app.on('error', () => {});
+    const c = await app.connect();
+    try {
+      await c.query('BEGIN');
+      // a brand-a store session asks to link a brand-b customer of the same organization
+      await c.query(
+        `SELECT set_config('app.organization_id', $1, true), set_config('app.scope', 'store', true),
+                set_config('app.store_ids', $2, true)`,
+        [ORG_1, uid(31, 1)],
+      );
+      await c.query('SAVEPOINT link');
+      await expect(
+        c.query(`SELECT app.link_customer_identity($1, 'subject-737', NULL)`, [other.rows[0]!.id]),
+      ).rejects.toMatchObject({ code: '42501' });
+      await c.query('ROLLBACK TO SAVEPOINT link');
       const scope = await c.query<{ s: string }>(`SELECT current_setting('app.scope') AS s`);
       expect(scope.rows[0]?.s).toBe('store');
       await c.query('ROLLBACK');
