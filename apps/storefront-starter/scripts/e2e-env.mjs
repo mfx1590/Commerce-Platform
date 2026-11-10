@@ -23,10 +23,14 @@ export function e2eServerEnv(env) {
   // the contract's example store the mock serves) — no switch needed any more (#372).
   // The local stack's Keycloak (`.env.example`) unless the shell names another: a production
   // build refuses to build its CSP without KEYCLOAK_URL (#783 review), so the run must say it.
+  // The recommendation rail's deadline is generous in an e2e run (#781 review): on a loaded
+  // machine the default 300 ms can drop the rail on one run and not the next, which changes the
+  // PDP's height and fails its visual baseline for no real reason. A shell value still wins.
   const serverEnv = {
     ...env,
     E2E_LOCAL_IMAGES: '1',
     KEYCLOAK_URL: env.KEYCLOAK_URL || 'http://localhost:8180',
+    RECOMMENDATIONS_TIMEOUT_MS: env.RECOMMENDATIONS_TIMEOUT_MS || '5000',
   };
   const core = env.E2E_STORE_API_URL;
   if (core === undefined || core === '') {
