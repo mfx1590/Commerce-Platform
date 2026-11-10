@@ -1,6 +1,6 @@
 {
   "name": "@platform/storefront-starter",
-  "version": "0.15.1",
+  "version": "0.15.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -22,7 +22,7 @@
     "@platform/ui": "workspace:*",
     "@stripe/react-stripe-js": "7.0.0",
     "@stripe/stripe-js": "10.0.0",
-    "next": "^15.5.4",
+    "next": "^15.5.28",
     "next-intl": "^4.14.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"

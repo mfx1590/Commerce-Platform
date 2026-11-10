@@ -1,7 +1,7 @@
 # Memory 3 — Storefront starter & UI kit
 
 Window: 3 · Key: `storefront` · Branch prefix: `storefront/` · Model: Opus (owner decision 2026-09-04)
-Last updated: 2026-11-06 · Contracts: **contracts-v0.4.30** (Store API 0.5.9 has `listProductRecommendations`) · **Manager = "Manager session eleven"** (message it, never the owner). Phase 5: **#609 recommendation rails IN PROGRESS** on `storefront/phase5-609-rail` (cut `--no-track` from origin/main `2839329`). Earlier: #446 (PR #451 = `0ed6b7d`, merged 2026-10-10; code commit `1c9b14c`; issue CLOSED) — that record was local commit `a11a4680`, never pushed; it is kept on the LOCAL branch `storefront/phase3-local-a11a4680`. Still open: #358's live proof (Stripe keys). Machine NOT mine unless the manager says so.
+Last updated: 2026-11-06 · Contracts: **contracts-v0.4.30** (Store API 0.5.9 has `listProductRecommendations`) · **Manager = "Manager session twelve"** (eleven stood down 11-10) (message it, never the owner). **#731 next security bump IN PROGRESS** on `storefront/phase6-next-15528` (next ^15.5.28 → 15.5.29, sharp 0.35.5; Opus review; brands via window 10 sync). Phase 6 (#731): **#620 DONE — PR #732 merged = `3404252d`** (2026-11-06; flaky perf-store-example test; issue closed by hand, the keyword did not link). Phase 5: **#609 DONE — PR #727 merged = `0391a388`** (2026-11-05; rails + analytics; brand re-sync filed for window 10). Earlier: #446 (PR #451 = `0ed6b7d`, 2026-10-10) — recorded in local commit `a11a4680`, kept on LOCAL branch `storefront/phase3-local-a11a4680`. Still open: #358's live proof (Stripe keys). Machine NOT mine.
 
 ## Identity (does not change)
 
@@ -246,9 +246,11 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## In progress
 
-- [ ] **#620 — flaky `perf-store-example` test, 0.15.1, branch `storefront/phase6-620`.** Cause measured: CPU-bound repeated work inside one test (4x yaml.parse of the 79 kB spec + 2 Ajv builds): 216–396 ms quiet, 1.6–1.8 s in the full suite, >5 s on a loaded runner. Fix: `storeValidator` (Map cache per spec text) + parse/compile/overlay-parse once at collection time. After (final file): the test 1–7 ms in 20/20 green file runs, slowest test in the file 60 ms; full suite 655/655 twice with it at 1 ms. Next: PR "Closes #620", report twice.
+- [ ] **#731 — starter next ^15.5.28 (security), 0.15.2, branch `storefront/phase6-next-15528`.** Resolves next 15.5.29 + sharp 0.35.5 (verified in node_modules); fixes GHSA-2464 (crit), GHSA-p3m5, GHSA-wq5f (sharp). Only the starter importer moved in the lockfile. Unit 655/655, lint, typecheck green. No machine slot (window 10 measuring), so option B: **draft PR #760**, code commit `8e78770` (CI runs on pull_request only; a bare push gets none). CI 19/19 green on 8e78770, starter perf leg: bundle PASS + Lighthouse PASS on Next.js 15.5.29; README table synced from that leg (every route +0.5–1.4 kB; PDP 141.1/144, cart 141.6/145). The README check compares routes and budgets, NOT sizes, so a stale table never fails CI. Next: push, mark ready, report head, report again when green; then #762, then #766 (not before #760 merges). The allow-list entries (infra, window 5) go only after admin + starter + brands are all bumped.
 
-- [ ] **#609 — P5.10 recommendation rails (PDP + cart), 0.15.0, branch `storefront/phase5-609-rail`.**
+- [x] **#620 — DONE, PR #732 merged = `3404252d`. Flaky `perf-store-example` test, 0.15.1, branch `storefront/phase6-620`.** Cause measured: CPU-bound repeated work inside one test (4x yaml.parse of the 79 kB spec + 2 Ajv builds): 216–396 ms quiet, 1.6–1.8 s in the full suite, >5 s on a loaded runner. Fix: `storeValidator` (Map cache per spec text) + parse/compile/overlay-parse once at collection time. After (final file): the test 1–7 ms in 20/20 green file runs, slowest test in the file 60 ms; full suite 655/655 twice with it at 1 ms. Next: PR "Closes #620", report twice.
+
+- [x] **#609 — DONE, PR #727 merged = `0391a388` (2026-11-05). P5.10 recommendation rails (PDP + cart), 0.15.0, branch `storefront/phase5-609-rail`.**
       Built: `listProductRecommendations` on the client (variant_ids joined with commas), `src/lib/recommendations.ts`
       (never throws; 300 ms deadline that also aborts; `RECOMMENDATIONS_TIMEOUT_MS`), `RecommendationRail` (unchanged
       `ProductCard`; returns null when empty) + client `RecommendationTracker` (IntersectionObserver view once, delegated
