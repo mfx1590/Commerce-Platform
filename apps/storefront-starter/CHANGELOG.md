@@ -12,6 +12,7 @@
   - `e2e/csp.spec.ts`, on a production build: zero violations and interactivity across home, PLP, PDP, cart, checkout through payment, a CMS page, the 404s and the signed-in account page. Mutation-checked: an un-nonced inline script fails it on every page.
   - unit tests for the policy, the nonce, and each frame-host refusal and route.
 - **Perf:** interleaved local A/B and CI perf leg ×3 against main show no change beyond noise. The bundle table gains the `[...rest]` route (sizes from CI).
+
 ## 0.15.3 — 2026-11-10 (window 3, #766: visual suite tolerance)
 
 - **`e2e/visual.spec.ts` in the starter** (it was brand A's only).
