@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
-import { AGAINST_CORE } from './api-mode';
+import { AGAINST_CORE, stamped } from './api-mode';
 import { signInAsOwner } from './owner';
 import { BRAND_A, signIn } from './staff';
 
@@ -105,7 +105,20 @@ test.describe('security headers', () => {
     );
     expect(typeof live).toBe('number');
 
+    // The wizard's steps, as hq-onboarding.spec.ts walks them, up to the review step. Next only runs
+    // the client-side step checks; nothing is sent until "Onboard the brand", which this spec never
+    // clicks, so it writes nothing to the core.
+    const code = stamped('e2e-csp');
     await page.goto('/onboarding');
+    await page.getByRole('combobox', { name: 'Legal entity' }).selectOption('inline');
+    await page.getByLabel('Entity code').fill(`${code}-bv`);
+    await page.getByLabel('Registered name').fill(`E2E ${code} B.V.`);
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByLabel('Store code').fill(code);
+    await page.getByLabel('Store name').fill(`E2E ${code}`);
+    await page.getByRole('button', { name: 'Next' }).click();
+    await page.getByRole('textbox', { name: 'Primary domain' }).fill(`${code}.localhost`);
+    await page.getByRole('button', { name: 'Next' }).click();
     await expect(page.getByRole('button', { name: 'Onboard the brand' })).toBeVisible();
 
     expect(await violations()).toEqual([]);
