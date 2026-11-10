@@ -78,6 +78,31 @@ test('a fired retry is printed, never hidden; a confirmed breach names what cros
   assert.match(breach.issue, /lower bound: manual payment provider/);
 });
 
+test('a scaled run renders the gates k6 actually enforced, and says they were scaled', () => {
+  // The first breach proof (run 42822182902) rendered "p95 < 500 ms" next to a breach of the scaled 25 ms gate: the
+  // factor reached k6 (__ENV) but not Node. The child process gets it the way the workflow step does: in its env.
+  const out = mkdtempSync(join(tmpdir(), 'slo-gate-out-'));
+  const r = spawnSync(
+    process.execPath,
+    [
+      GATE,
+      'render',
+      out,
+      'https://example.invalid/run/4',
+      runDir(99, { crossed: true }),
+      runDir(99, { crossed: true }),
+    ],
+    { encoding: 'utf8', env: { ...process.env, LOAD_THRESHOLD_FACTOR: '0.05' } },
+  );
+  assert.equal(r.status, 0, r.stderr);
+  const tracking = readFileSync(join(out, 'tracking.md'), 'utf8');
+  assert.match(tracking, /p95 < 25 ms/);
+  assert.match(tracking, /p95 < 100 ms/);
+  assert.doesNotMatch(tracking, /p95 < 500 ms/);
+  assert.match(tracking, /LOAD_THRESHOLD_FACTOR=0\.05/);
+  assert.match(readFileSync(join(out, 'issue.md'), 'utf8'), /LOAD_THRESHOLD_FACTOR=0\.05/);
+});
+
 test('render writes tracking.md, issue.md and verdict.txt', () => {
   const out = mkdtempSync(join(tmpdir(), 'slo-gate-out-'));
   mkdirSync(out, { recursive: true });

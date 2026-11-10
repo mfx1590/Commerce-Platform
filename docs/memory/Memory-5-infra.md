@@ -130,6 +130,9 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
   tracking.md, issue.md, verdict.txt (pass|retried|breach|broken). load.yml: pass 1 → pass 2 only on a breach; an
   `issues` job (schedule only, issues: write). run.sh passes LOAD_THRESHOLD_FACTOR into k6. PROOF before merge: one
   green workflow_dispatch on the PR branch, plus one with threshold_factor 0.05 showing the retry and the dry-run issue.
+  PR #788. Proof 1 green (42822163523: pass, no pass 2). Proof 2 (42822182902) breached both passes as designed BUT
+  rendered the UNSCALED gates (500 ms next to a 25 ms breach): the factor reached k6 (__ENV), not Node. Fix: env =
+  __ENV ?? process.env, plus a child-process test (a mutation fails it). Both proofs re-run on the fixed head.
 - **#439 = PR #776 (2026-11-10), branch infra/phase6-439-lists, code commit 674e8caa; three green runs on it (run
   42806080501, attempts 1-3, all 11 images smoke-tested). Approved a+b+c past the budget.** The engagement Dockerfile (from notifications': deps/build
   stages, then a worker runtime with no HEALTHCHECK and EXPOSE 4040), a compose service and bake target, terraform
