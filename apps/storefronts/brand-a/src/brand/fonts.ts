@@ -11,7 +11,13 @@ import localFont from 'next/font/local';
  * Latin subset only. Brand A sells in `en-GB` and `de-DE`, and the Latin subset covers both —
  * umlauts and the eszett are inside U+0000-00FF.
  *
- * Licences: `fonts/OFL-*.txt` (SIL Open Font License 1.1).
+ * Licences: `fonts/source/OFL-*.txt` (SIL Open Font License 1.1).
+ *
+ * **These files are generated** by `scripts/build-fonts.mjs` from the variable sources in
+ * `fonts/source/` (#739). The `weight` declared below must describe what the generated file
+ * actually contains, not what its source did: declaring a range the file does not carry tells the
+ * browser a weight is available when it is not, and the browser then neither picks a heavier
+ * instance nor synthesises one. `fonts/README.md` has the provenance.
  *
  * These are consumed by `tokens.ts`, not by any component: a component never names a font family.
  * See DESIGN.md §5 for why the wiring goes through the tokens rather than through a slot.
@@ -31,14 +37,18 @@ import localFont from 'next/font/local';
  * perf-gated storefront is the stronger claim.
  */
 export const displaySerif = localFont({
-  src: [{ path: './fonts/newsreader-latin.woff2', weight: '400 700', style: 'normal' }],
+  // **`'500'`, not a range: the shipped file is a single 500 instance** (#739, #765 review). It said
+  // `'400 700'` while the file carried only 500, which is what made the regression silent — the
+  // browser believed 700 was available and so did not reach for anything else.
+  src: [{ path: './fonts/newsreader-latin.woff2', weight: '500', style: 'normal' }],
   display: 'swap',
   fallback: ['Georgia', 'Cambria', 'Times New Roman', 'serif'],
 });
 
 /** Hanken Grotesk — body copy, navigation, labels, and every control. */
 export const textSans = localFont({
-  src: [{ path: './fonts/hanken-grotesk-latin.woff2', weight: '300 700', style: 'normal' }],
+  // 400-700, matching the trimmed axis the build ships; the source's 300 is not in the file.
+  src: [{ path: './fonts/hanken-grotesk-latin.woff2', weight: '400 700', style: 'normal' }],
   display: 'swap',
   fallback: ['Segoe UI', 'system-ui', '-apple-system', 'Helvetica', 'Arial', 'sans-serif'],
 });

@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### Tests — #763 follow-ups (Refs #731)
+
+- The middleware's authenticated and token-refresh paths are pinned: the response carries the CSP,
+  the forwarded request carries the same nonce and CSP, and on a refresh both the browser and the
+  current render get the refreshed session cookie (mutation-checked both ways).
+- `KEYCLOAK_URL` is read per request: one loaded middleware follows the environment from one
+  request to the next. The built middleware keeps `process.env.KEYCLOAK_URL` as a runtime read, and
+  `next start`'s edge sandbox copies the server's process.env, so the image (built without it)
+  takes it from the pod.
+
+### Security — Phase 6 D4 (#731): dependency bumps and security headers
+
+- `next` ^15.5.25 → ^15.5.28 (critical GHSA-2464-fhr4-w9xw, high GHSA-p3m5-59mp-jv5r; sharp 0.35.5
+  with it), `zod` ^4.5.4 → ^4.6.6 (GHSA-mrhx-c7xc-m3w5). Admin-tree production audit: 1 critical /
+  6 high / 4 moderate before, 0 / 3 / 2 after. What remains is postcss 8.4.31 (+ source-map-js),
+  pinned exactly by `next`: a root override.
+- Content-Security-Policy per request from the middleware (`src/lib/security/csp.ts`): nonce +
+  `'strict-dynamic'` scripts, no inline script, `connect-src 'self'`, `frame-ancestors 'none'`,
+  `form-action` this origin + Keycloak. The root layout renders every page per request so Next
+  stamps the nonce. `/auth/error` is now matched (for its CSP) and let through without a session.
+- next.config.mjs: `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` (camera,
+  microphone, geolocation denied), HSTS in production; `poweredByHeader: false`.
+- `KEYCLOAK_URL` is required in production (a missing or malformed value throws in the middleware
+  instead of falling back to localhost in `form-action`). zod `jitless` preset in
+  `src/instrumentation-client.ts` (zod 4's eval probe was the one CSP violation the e2e found).
+- Tests: `test/security-headers.test.ts` pins every header and directive; `e2e/csp.spec.ts`
+  checks the headers on a production build and that the AI copy editor, BI and onboarding raise
+  no CSP violation.
+
 ### Added — #642: the store-view rail entry for BI
 
 - `STORE_SECTIONS` gains `bi` (label BI, after Orders), `viewer` on the store like Catalog and

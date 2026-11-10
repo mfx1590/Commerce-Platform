@@ -9,11 +9,16 @@
  * It also refuses a session Keycloak no longer has (#353): a sealed cookie cannot be revoked, so a
  * copy kept from before Sign out is checked against the realm (`isSessionLive`, cached 30 s per
  * session, fail closed). A refresh proves the session live by itself.
+ *
+ * And it sets the Content-Security-Policy (Phase 6 D4): a new nonce per response, on the response
+ * for the browser and on the forwarded request for Next, which stamps it on its inline scripts
+ * (src/lib/security/csp.ts). The sign-in error page is outside the session gate but inside the CSP.
  */
 
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 import { isProduction, sessionSecret } from '@/lib/env';
+import { CSP_HEADER, NONCE_HEADER, contentSecurityPolicy, newNonce } from '@/lib/security';
 import { refreshTokens, sessionIdOf, sessionIsLive } from '@/lib/auth/oidc';
 import { isSessionLive, markLive } from '@/lib/auth/liveness';
 import type { CookieWriter } from '@/lib/auth/session';
@@ -37,7 +42,33 @@ function toLogin(request: NextRequest): NextResponse {
   return response;
 }
 
+/** Pages that render without a session; they still get the CSP. */
+const PUBLIC_PAGES = new Set(['/auth/error']);
+
 export async function middleware(request: NextRequest): Promise<NextResponse> {
+  const nonce = newNonce();
+  const policy = contentSecurityPolicy({
+    nonce,
+    keycloakUrl: process.env.KEYCLOAK_URL,
+    production: isProduction,
+  });
+  // Built when the gate lets the request through, after it has rewritten the session cookie on
+  // the request, so the copy carries the refreshed token too.
+  const forward = (): NextResponse => {
+    const headers = new Headers(request.headers);
+    headers.set(NONCE_HEADER, nonce);
+    headers.set(CSP_HEADER, policy);
+    return NextResponse.next({ request: { headers } });
+  };
+
+  const response = PUBLIC_PAGES.has(request.nextUrl.pathname)
+    ? forward()
+    : await gate(request, forward);
+  response.headers.set(CSP_HEADER, policy);
+  return response;
+}
+
+async function gate(request: NextRequest, forward: () => NextResponse): Promise<NextResponse> {
   const secret = sessionSecret();
   const sealed = joinChunks((name) => request.cookies.get(name)?.value);
   if (sealed === null) {
@@ -55,7 +86,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     // Keycloak down or the session ended there (Sign out elsewhere, an admin's "sign out"): sign in
     // again rather than render with a session the realm no longer has — never a 500.
     const live = await isSessionLive(sessionId, () => sessionIsLive(session.accessToken));
-    return live ? NextResponse.next() : toLogin(request);
+    return live ? forward() : toLogin(request);
   }
 
   let refreshedCookie: string;
@@ -76,14 +107,14 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   };
   writeSessionCookies(requestWriter, refreshedCookie, isProduction);
 
-  const response = NextResponse.next({ request });
+  const response = forward();
   writeSessionCookies(response.cookies, refreshedCookie, isProduction);
   return response;
 }
 
 export const config = {
-  // Everything except the auth endpoints themselves, the error page they redirect to, the
-  // container's liveness probe, and assets. A probe that gets redirected to sign-in never
-  // reports healthy, so the pod would never become ready.
-  matcher: ['/((?!api/auth|auth/error|health|_next/static|_next/image|favicon.ico).*)'],
+  // Everything except the auth endpoints themselves, the container's liveness probe, and assets.
+  // A probe that gets redirected to sign-in never reports healthy, so the pod would never become
+  // ready. The sign-in error page is matched for its CSP and let through as a PUBLIC_PAGES entry.
+  matcher: ['/((?!api/auth|health|_next/static|_next/image|favicon.ico).*)'],
 };
