@@ -37,13 +37,22 @@ export function readStoreExample(appRoot) {
   }
 }
 
+/** @type {Map<string, import('ajv').ValidateFunction>} */
+const compiled = new Map();
+
 /**
- * Throws, listing every problem, when `example` is not a `Store` by the spec's own schema.
+ * The `Store` validator for a spec, built once per spec text (#620). Parsing the 2 000-line YAML and
+ * building an Ajv over it is CPU-bound — about 0.1–0.3 s per call on a quiet laptop and several
+ * times that on a loaded CI runner — and the unit tests used to pay it on every assertion, which is
+ * how one test reached Vitest's 5 s timeout. Keyed by the spec text: perf.mjs passes one spec and the
+ * tests a few, so the map stays tiny.
  *
  * @param {string} specText the Store API spec (YAML)
- * @param {unknown} example
+ * @returns {import('ajv').ValidateFunction}
  */
-export function validateStoreExample(specText, example) {
+export function storeValidator(specText) {
+  const cached = compiled.get(specText);
+  if (cached !== undefined) return cached;
   const spec = parse(specText);
   // OpenAPI 3.1 schemas are JSON Schema 2020-12; the spec carries OpenAPI's own keywords
   // (`example`, `x-*`), so not strict.
@@ -51,6 +60,18 @@ export function validateStoreExample(specText, example) {
   addFormats(ajv);
   ajv.addSchema(spec, 'store-api');
   const validate = ajv.compile({ $ref: 'store-api#/components/schemas/Store' });
+  compiled.set(specText, validate);
+  return validate;
+}
+
+/**
+ * Throws, listing every problem, when `example` is not a `Store` by the spec's own schema.
+ *
+ * @param {string} specText the Store API spec (YAML)
+ * @param {unknown} example
+ */
+export function validateStoreExample(specText, example) {
+  const validate = storeValidator(specText);
   if (validate(example)) return;
   const problems = (validate.errors ?? [])
     .map((error) => `${error.instancePath || '(root)'} ${error.message}`)

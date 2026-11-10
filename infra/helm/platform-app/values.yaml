@@ -45,6 +45,11 @@ autoscaling:
   maxReplicas: 6
   targetCPUUtilizationPercentage: 70
 
+# The Deployment's rollout strategy, rendered only when set. Empty means Kubernetes' default (RollingUpdate, 25%
+# surge), right for every stateless app. The analytics ingest sets `type: Recreate` (#647): it is the ONE member of
+# its consumer group, and a surge pod would find the old one still in the group and exit on SecondReplicaError.
+strategy: {}
+
 # Plain configuration, rendered into the Deployment as env vars. Names match .env.example, so the
 # same variable means the same thing locally, in an image and in the cluster. Anything secret belongs
 # in externalSecrets below instead — this map ends up in the rendered manifest and in git.
