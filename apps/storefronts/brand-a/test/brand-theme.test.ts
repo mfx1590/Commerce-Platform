@@ -232,9 +232,17 @@ describe('brand A type (DESIGN.md §3)', () => {
     }
   });
 
-  it('covers the weight range the design uses, on one variable file per face', () => {
+  it('declares the weight each generated file actually carries, one file per face', () => {
     expect(localFontCalls.map((c) => c.src.length)).toEqual([1, 1]);
-    expect(localFontCalls.map((c) => c.src[0]?.weight)).toEqual(['400 700', '300 700']);
+    // Since #739 these are GENERATED (scripts/build-fonts.mjs): the serif is a single 500 instance
+    // and the sans is trimmed to the 400-700 the kit renders.
+    //
+    // This test used to read `['400 700', '300 700']` — the SOURCES' ranges — and passed happily
+    // while the shipped serif held only 500. It mirrored the declarations instead of checking them
+    // against anything, so it could not notice the two disagreeing. #765's review found that by
+    // reading the cascade; `test/brand-fonts.test.ts` now also rebuilds the binaries and compares
+    // hashes, which is the part a declaration-mirroring test can never do.
+    expect(localFontCalls.map((c) => c.src[0]?.weight)).toEqual(['500', '400 700']);
   });
 
   it('relaxes leading for a warm background, and unclips two-line headings', () => {

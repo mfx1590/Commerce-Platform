@@ -783,6 +783,26 @@ Every mutation is refused server-side before the API below `store_admin` on the 
 walks list, create, update and delete through the actions plus every documented refusal (the
 201/200 examples were added to the spec for it, 9d39673).
 
+## Security headers (Phase 6 D4, #731)
+
+- **CSP, per request** — `src/middleware.ts` builds it with `src/lib/security/csp.ts`: a new
+  128-bit nonce per response, set on the response and on the forwarded request (`x-nonce` too).
+  Next reads it back and stamps its inline scripts, which only works at render time, so the root
+  layout calls `connection()`: **no page is prerendered**. A component that needs the nonce for its
+  own `<Script>` reads `(await headers()).get('x-nonce')`.
+- **What the browser may talk to: this origin only.** The Admin API, BI and the AI drafts are all
+  called server-side; adding a browser call to another host means a `connect-src` change and a
+  test change, on purpose. Inline `style=""` stays allowed (React writes it); inline script does not.
+- **Static headers** — `src/lib/security/static-headers.mjs` (plain ESM so next.config.mjs can
+  import it): nosniff, `strict-origin-when-cross-origin`, a Permissions-Policy denying camera,
+  microphone and geolocation, and HSTS when built for production. No `X-Powered-By`.
+- **`KEYCLOAK_URL` is required in production**: the CSP's `form-action` names its origin, so a
+  production server without it (or with a malformed one) answers every page with an error rather
+  than silently allowing the localhost default. Development keeps the default.
+- zod 4 probes `Function("")` when it builds an object schema; `src/instrumentation-client.ts`
+  presets its `jitless` config before any app module so the CSP reports no eval violation.
+- Pinned in `test/security-headers.test.ts`; `e2e/csp.spec.ts` fails on any CSP violation.
+
 ## When a screen cannot show what was asked for
 
 One pattern, in [`src/components/states/`](./src/components/states/). Two rules hold across all of it:

@@ -18,6 +18,41 @@ Brands A, B and C are all on main. Current task: **#728**.
 Brand A real storefront from the starter: theme/layout from Figma, real CMS content, checkout polish, SEO, i18n, full Playwright e2e browse → buy → account. Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Done
+- **#728 · re-sync A/B/C for the #609 recommendation rails — MERGED as `7304bf03`** (PR **#738**,
+  code `4efd941`). #728 closed. One preserved-file port per brand (`analyticsConsentMode` in
+  `next.config.mjs`); no brand places the rail itself; brand C's own `en-US.json` brought 139 → 189
+  keys verbatim with 13 US-English candidates listed in LAUNCH 12.2; both new envs left **unset**
+  with the CDP coupling recorded in all three LAUNCH files; 8.3 in all three, window 3's text.
+  Budgets measured on the machine: cart **140.2-140.4 kB** / PDP **139.7-139.9 kB** against 145 and
+  144 — near-identical across brands.
+
+### The LCP flag was right to raise and pointed at the WRONG BRAND
+
+I measured brand **C** locally, got a PDP LCP best of 2202 ms against the 2500 ms budget, and flagged
+brand C as thin. **CI run 42248423247 says brand C is fine and brand A is the problem:**
+
+| brand | LCP best / 2nd | state |
+| --- | --- | --- |
+| C | 1820 / 1858 ms | ~650 ms margin; my 2202 ms was laptop noise after three builds |
+| B | 1713 / 1943 ms | fine |
+| **A** | **2267 / 2262 ms** | **3 of 5 runs are 2711-2719 ms, over budget. It passes only because the gate takes the best of 5.** |
+
+**Why I looked at the wrong one: I measured where I had a baseline, not where the risk was.** Brand C
+was the only brand I had a prior number for (1716 ms, #438), so I ran C — sampling where comparison
+was easy. Brand A is the oldest, heaviest brand (two locales, its own hero rendering from #330) and
+was always the likelier suspect; I never measured it because I had nothing to compare it to.
+**Next time: measure the brand most likely to be slow, or all of them, and treat "where I have a
+baseline" as a convenience rather than a reason.**
+
+What *was* right: refusing to touch the budget, and flagging the number instead of letting the PASS
+swallow it. #348's "the assertion takes the best of N" is exactly the hole brand A is sitting in —
+3 of 5 runs over budget and a green gate. The manager confirmed the refusal to widen was correct.
+
+**#739 is filed for me in wave 2:** find what brand A loads that B and C do not, and fix the cause,
+with **the worst run under budget**. Not started — the manager hands it out with wave 2. Brand A's
+own `src/brand/**` and its preserved `lighthouserc.json` are the places to look first, plus whatever
+#330's hero rendering costs that the other brands do not pay.
+
 - **#438 · 3.2 brand C by script — ON MAIN.** PR **#444** landed through the manager's **PR #452 =
   `2a8cb16`** (`integration/brand-c-images` = my `d38c176` plus one manager image commit: the nine
   `COPY` lines, brand C's Dockerfile on 3103, the bake target and the compose service — REQUEST
@@ -281,7 +316,117 @@ when every check has finished.
 - Budget: **manager + two build slots**, one of which is mine. (CLAUDE.md still says one window;
   the owner's instruction is the current one.)
 
-## In progress — #728 · re-sync A/B/C for the #609 recommendation rails (2026-11-06)
+## In progress — #739 · brand A's thin LCP margin (2026-11-09)
+
+**PR #765** (code commit `7adab23b` after the BLOCK fixes; first round was `5631640b`), **"Refs #739", not Closes** — it removes 55% of the font bytes and
+is still over the worst-run budget. Two messages owed: PR up (sent), checks finished.
+
+### #765 was BLOCKED, and the review was right about something I asserted
+
+**I misread the cascade.** I wrote "theme.css sets h1-h4 at medium and nothing else uses the serif",
+so pinning the serif to 500 "costs nothing visible". `theme.css` is an **element** rule (0,0,1);
+Tailwind's `.font-bold` is a **class** (0,1,0) and **outranks it**. So 33 synced headings — the LCP
+`<h1>` among them — had been rendering real **700/600** for brand A's whole life while theme.css and
+DESIGN.md §3 said medium. Pinning to 500 made it visible and my PR called it invisible.
+
+**Measured in a browser** (the review's one unverified item), PDP `h1`, same build and page load:
+this branch **500** / rule deleted at runtime **700** / main's variable face **700 with synthesis
+auto**. The crops are visibly different.
+
+**Decision (manager): keep the pin, make medium ENFORCED.** `fonts.ts` now declares what the files
+carry (serif `'500'`, sans `'400 700'` — declaring `'400 700'` against a 500-only file is what made
+it silent: the browser believed 700 existed and reached for nothing). `theme.css` uses
+**`h1[class]`** — (0,1,1) beats a utility's (0,1,0) **without `!important`** — written against
+`[class]` not against `.font-bold` by name, because the rule is "a serif heading is medium". The
+headings are SYNCED markup and not mine to edit (ADR 0004), hence specificity here, not 33 upstream
+edits. Plus **`font-synthesis-weight: none`** — **the weight property ONLY**, because the
+`font-synthesis` shorthand also kills synthetic *italic* and brand A ships no italic face, so every
+`<em>` would silently go upright.
+
+**Three lessons worth keeping:**
+
+1. **An element rule never beats a utility class.** Any brand styling that must override synced
+   Tailwind markup needs specificity, not just a declaration. Check with `getComputedStyle` in a
+   browser, not by reading the stylesheet.
+2. **A test that mirrors a declaration asserts nothing.** `brand-theme.test.ts` checked the weights
+   `fonts.ts` declared against a literal copy of those same weights, so it happily passed while the
+   declaration and the shipped binary disagreed. Updated, with that noted in the test.
+3. **`maxDiffPixelRatio: 0.002` sleeps through a 700->500 heading change.** Only the PDP baseline
+   failed (and only because of #728's rail); `home` and `plp` came back byte-identical. The comment
+   above that setting already records a previous tightening from 0.01 after a *typeface swap* slipped
+   through — a weight change is smaller still. I regenerated all three rather than leave stale-but-
+   passing baselines, and did **not** tighten the ratio (that needs jitter data).
+
+Also in this round: the four typographic characters (`’ ‘ – …`) at a measured 0.39 kB — "Men’s" was
+falling back per glyph; totals are now **40.8 kB**; and the stale figures the review listed.
+
+### The diagnosis, which took the whole first half and was worth it
+
+Brand A was passing 2500 ms only on the gate's **best of five** (3 of 5 CI runs at 2711-2719). Done
+from **#738's CI artifacts via `gh run download`** — no machine, and CI's own evidence rather than a
+laptop's, which is the lesson from #728 where my laptop pointed me at the wrong brand.
+
+- **LCP element is TEXT** (the same synced `<h1>` in A, B and C) and its phase table reads
+  **Load Delay 0%, Load Time 0%** — so no resource load gates it. All of the A-vs-C gap is **render
+  delay, +444 ms**.
+- Brand A loads **exactly two things** B and C do not: its faces, **90.6 kB** (the whole request
+  difference, 23 req / 262 kB vs 21 / 171 kB).
+- **`90.6 kB x 8 / 1600 kbps` = 453 ms** against the observed 444. Nine ms apart.
+- Ruled out, not assumed: TTFB (458/461), main-thread (A *lower*), bootup, CSS (1 kB), images, rails.
+
+**So the cost is BYTES contending for simulated bandwidth, not the `swap` repaint** — which killed
+the fix I walked in expecting. `display: 'optional'` removes no bytes **and** breaks
+`e2e/visual.spec.ts`, which awaits `document.fonts.ready` on purpose.
+
+### The three-column table (same machine, 5 runs each)
+
+| | before 90.6 kB | after 40.4 kB | ceiling 0 kB |
+| --- | --- | --- | --- |
+| PLP worst | 2674 | **2539** | 2163 |
+| PDP worst | 2752 | **2582** | 2233 |
+
+**Byte-to-ms is SUB-LINEAR**: bytes predicted 257 ms, delivered 135-170. So more subsetting has
+diminishing returns — measured the next cut too (drop the Latin-1 floor: 40.4 -> 26.1 kB, ~45 ms
+real) and refused it: product names come from the Store API, so it would tofu the first "Café".
+
+**The structural finding, moved starter-side by the manager:** the no-font ceiling is 2163/2233, so
+**brand A is within ~300 ms of budget before it loads a single brand byte** (brand C's CI worst is
+2008). A worst-run 2500 is not reachable with the pairing; the shared `h1` render delay is ~1.4 s in
+CI for every brand.
+
+### What shipped
+
+`src/brand/fonts/*.woff2` are **generated** by `scripts/build-fonts.mjs` from OFL variable sources in
+`src/brand/fonts/source/`. Serif **pinned to wght 500** (theme.css sets h1-h4 at medium, nothing else
+uses it): 56.7 -> 20.9 kB. Sans **trimmed to 400-700** (`packages/ui` defines 400/500/600/700, the
+starter renders all four, **nothing asks for 300**): 33.9 -> 19.5 kB. Pairing untouched; budget not
+widened (#348).
+
+**The charset is derived and the derivation caught two things a list misses:** the catalogue scan
+found **U+201E** (de-DE opens quotations with it); asking **`Intl`** what brand A's locales + its
+**seeded** currency emit found **U+20AC**, which is in *no committed string* because prices are
+formatted at runtime — catalogue-only subsetting would have tofu'd **every price on every product
+page**. Locales from `next.config.mjs`, currency from `packages/db`'s seed.
+
+`subset-font@2.9.0` (BSD-3, harfbuzz-wasm, **no install scripts**, exact version; survives re-syncs
+because `merge-package-json.mjs` keeps brand-only keys). `fonts/README.md` holds the hashes, tool
+version and OFL. **`test/brand-fonts.test.ts` (13 tests) rebuilds and compares hashes — proved by
+swapping one binary for the other**, which fails naming the file.
+
+Gate: lint, format:check, typecheck 29/29, brand A **848** / 3 skipped (835 before), B **734**,
+C **656**, sync --check clean x3.
+
+## (kept for the trail) #728 is MERGED; idle until wave 2 (2026-11-06)
+
+**Next, when the manager hands out wave 2: #739** — brand A's PDP LCP. See the Done entry above for
+the CI numbers and for why I measured the wrong brand. Acceptance is **the worst run under budget**,
+not the best, so #348's best-of-N is not available as a way out.
+
+**This memory commit sits on `brands/phase6-728-resync`, whose PR is already merged** — carry it onto
+wave 2's branch (`git cherry-pick`) as the #438 record had to be carried onto this one, or it never
+reaches main.
+
+## (the plan, kept for the trail) #728 · re-sync A/B/C for the #609 recommendation rails
 
 Re-sync of all three brands onto `origin/main` to pick up #727 (`0391a388`). Window 3's pick-up list
 is in the issue; what it actually cost:
