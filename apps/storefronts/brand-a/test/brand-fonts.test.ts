@@ -26,6 +26,14 @@ const FONTS = join(APP, 'src', 'brand', 'fonts');
 const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 
 describe('brand A generated faces (#739)', () => {
+  // 30 s, against vitest's default 5 s. This is the one test in this file that actually SUBSETS
+  // both faces: it spawns the build and harfbuzz-wasm re-derives them. ~3.5 s on a warm CI runner,
+  // but 5855 ms and then 5884 ms when turbo has no cache and all 29 tasks start at once — which is
+  // any PR that touches the root package.json or the lockfile. It failed that way twice on an
+  // unrelated PR (#771) and turbo then cancelled another package's suite, so a thin margin here
+  // reddens work that has nothing to do with brand A. The margin is deliberately far wider than the
+  // overrun: a loaded runner is not a reason to stop checking that a committed binary matches its
+  // source.
   it('the committed faces are a fresh build of the committed sources', () => {
     // The load-bearing assertion. `--check` exits non-zero and names the file when a committed
     // woff2 is not what the script produces from `fonts/source/`, so a hand-edited or stale binary
@@ -36,7 +44,7 @@ describe('brand A generated faces (#739)', () => {
     });
     expect(out).toMatch(/checked/);
     expect(out).not.toMatch(/not a fresh build|is missing/);
-  });
+  }, 30_000);
 
   it('ships every face its sources define, and nothing else', () => {
     const shipped = readdirSync(FONTS).filter((f) => f.endsWith('.woff2'));
