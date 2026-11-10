@@ -4,6 +4,17 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 6
 
+### Changed (service images hygiene; Dependabot's Node 22 checklist)
+
+- `TZ=UTC` in every service image's runtime stage (only accounting had it; #627: node-postgres turns a `date` column
+  into a local midnight). `check-image-manifests.sh` now fails an image without it.
+- `check-image-lists.sh`'s header says why Helm values and deploy-staging's APPS are not compared (they list what is
+  deployed, #342).
+- `.github/dependabot.yml`: one "UNTIL THE NODE 22 MOVE" block, the move's checklist. `@types/node` majors, Medusa
+  > = 2.22, the OTLP exporters >= 0.300 (the SDK 3 line, #775), `@axe-core/playwright` >= 4.14 (#778) and
+  > `@testing-library/jest-dom` majors (#780). The TS2345 in `db-medusa-migrate.ts` is now attributed to Medusa 2.21,
+  > which stays allowed.
+
 ### Added (#439: every image in every list; the engagement image; per-brand Helm values)
 
 - `apps/engagement/Dockerfile` (a worker: `node dist/main.js`; no HEALTHCHECK, because its one HTTP server, the
