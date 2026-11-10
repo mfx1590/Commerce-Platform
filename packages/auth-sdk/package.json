@@ -34,7 +34,7 @@
     "@openfga/sdk": "0.9.7",
     "@platform/contracts": "workspace:*",
     "@platform/db": "workspace:*",
-    "jose": "^6.2.11"
+    "jose": "^6.2.15"
   },
   "devDependencies": {
     "@openfga/syntax-transformer": "0.2.2",
