@@ -4,6 +4,17 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 6
 
+### Added (#647: the analytics ingest's Helm values, one replica with Recreate)
+
+- `platform-app` chart: a `strategy` value, rendered into the Deployment only when set (default `{}`: Kubernetes'
+  RollingUpdate, unchanged for every app).
+- `infra/helm/values/analytics-ingest/values-{dev,staging}.yaml`: `replicaCount: 1`, `autoscaling.enabled: false`,
+  `strategy.type: Recreate`, port 9004 with `/health` for all three probes, no ingress, ClickHouse and bus settings, the
+  password and erasure key through ExternalSecrets. Not yet deployed: no ArgoCD Application, and deploy-staging does
+  not build the image.
+- `check-values.sh`: every analytics-ingest values file must keep those three lines (block style), with six
+  self-test fixtures, including one where only the ingress block says `enabled: false`.
+
 ### Changed (Dependabot regrouped after the red groups #743, #747, #755)
 
 - `@medusajs/*` moves as its own `medusa` group (minor/patch), outside production/development; `@medusajs/*` >= 2.22

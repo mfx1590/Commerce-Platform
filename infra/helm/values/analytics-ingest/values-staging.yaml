@@ -1,0 +1,46 @@
+# analytics-ingest in staging: the bus → ClickHouse consumer (apps/analytics-ingest). See infra/README.md "Helm".
+#
+# ONE replica, rolled out with Recreate, never autoscaled (#647, apps/analytics-ingest/README.md → "Deploying"):
+# the ingest is the single member of its consumer group and its guard (SecondReplicaError) refuses to start while
+# another member is live. A surge pod during a rolling update would meet the old one and exit 1; Recreate stops the
+# old pod first. infra/helm/check-values.sh fails if any of the three lines below changes.
+#
+# Nothing secret belongs here: the ClickHouse password and the erasure key reach the pod through the ExternalSecret
+# below, which names keys in AWS Secrets Manager and never carries a value. Hostnames use the same
+# <sub>.<env>.example.com placeholder as the other apps and are substituted by the deploy.
+
+image:
+  # From the terraform output `ecr_repository_urls` (infra/terraform/modules/environment: "analytics-ingest").
+  repository: REPLACED_BY_DEPLOY/staging/commerce-platform/analytics-ingest
+  tag: '0000000000000000000000000000000000000000'
+
+replicaCount: 1
+
+autoscaling:
+  enabled: false
+
+strategy:
+  type: Recreate
+
+# GET /health on $PORT is the readiness contract (#641): 200 only while joined and making progress. The chart's
+# startup (150 s, covers the group join), readiness and liveness probes all use it.
+service:
+  port: 80
+  targetPort: 9004
+  healthPath: /health
+
+# A consumer has no public endpoint.
+ingress:
+  enabled: false
+
+env:
+  KAFKA_BROKERS: 'kafka.staging.example.com:9092'
+  CLICKHOUSE_URL: 'https://clickhouse.staging.example.com:8443'
+  CLICKHOUSE_DATABASE: 'analytics'
+  CLICKHOUSE_INGEST_USER: 'analytics_ingest'
+
+externalSecrets:
+  enabled: true
+  remoteKeys:
+    - key: staging/platform/clickhouse/ingest
+    - key: staging/platform/analytics

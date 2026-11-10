@@ -113,6 +113,12 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
+- **#647 (2026-11-10), committed locally on infra/phase6-647-ingest-recreate (from main 134022bf); push AFTER the
+  #745 PR is up.** A chart `strategy` value (rendered only when set), infra/helm/values/analytics-ingest/values-{dev,
+  staging}.yaml (1 replica, no HPA, Recreate, :9004 /health, ingress OFF: the chart default is ON), and a
+  check-values rule plus 6 fixtures. The ECR repo already exists in terraform; ArgoCD apps and the deploy-staging image
+  build for the ingest are NOT added (they would point staging at an image never pushed): later, with #439's list
+  work.
 - **Dependabot regroup (2026-11-09).** The breaking packages, from the logs:
   - #743 actions: docker/bake-action 5→7. v6+ uses the Git context, so `workdir: infra/docker` stops applying
     ("lstat docker-compose.build.yml"). Fix later: `source: .` in ci.yml and deploy-staging.yml.
