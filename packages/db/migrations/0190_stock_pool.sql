@@ -97,8 +97,8 @@ CREATE TRIGGER guard_variant_stock_item BEFORE INSERT OR UPDATE OF stock_item_id
 
 -- The backfill, as a function because 0191 runs the very same statement again for variants created in between.
 -- Idempotent: it only touches variants whose stock_item_id is still NULL. Runs as the migration role, in
--- organization scope for its own duration (the function-level SET is restored on return and on error) so the
--- guard above lets it map.
+-- organization scope for its own duration (set in the body and restored before every return; an error reverts it
+-- with the (sub)transaction) so the guard above lets it map.
 -- Managed Postgres (#497, db 0.3.22): the organization scope is set in the body with set_config(..., true) and
 -- restored before every return, NOT with a function-level `SET app.scope` clause — Postgres 15+ refuses that clause
 -- (42501, a placeholder parameter) to a migration role that is not superuser. An error aborts the (sub)transaction,
