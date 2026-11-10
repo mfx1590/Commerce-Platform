@@ -2,6 +2,16 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-11-10 · Medusa 2.20.1 → 2.21.2 (supersedes Dependabot #774)
+
+- `@medusajs/cli`, `draft-order`, `framework`, `medusa` 2.21.2 (Node `^20.19.0 || >=22.12.0`, so Node 20 stays).
+- `scripts/db-medusa-migrate.ts`: `migrate()` now requires `executeAllSearch` / `executeSafeSearch` (the flags of
+  Medusa's `db:migrate:search` step). `executeSafeSearch: true, executeAllSearch: false`: indexes are created and
+  altered as before; a stale one is never dropped and nothing prompts (the same choice as for links).
+- Medusa 2.21 adds two migrations to its own search module (schema `medusa`; see the PR for the dropped / renamed
+  columns): `db:medusa:migrate` applies them. No behaviour change in the core: our Store and Admin routes answer ahead
+  of Medusa's, so 2.21.0's strict `allowed` fields on Medusa's own Store routes do not touch the contract.
+
 ### 2026-11-07 · the outbox relay exports its lag as an OTel gauge (#733, window 14; line added by the manager)
 
 - `outbox_relay.lag_oldest` (s) → `outbox_relay_lag_oldest_seconds{service_name="outbox-relay"}` from the relay CLI
