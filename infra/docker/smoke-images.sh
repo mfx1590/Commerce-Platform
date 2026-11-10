@@ -39,6 +39,9 @@ APPS=(
   "notifications:9005"
   "feeds:4020"
   "storefront-brand-a:3101"
+  "storefront-brand-b:3102"
+  "storefront-brand-c:3103"
+  "engagement:4040"      # a real app (has `start`): only non-root and dist/ are checked, it is not booted
 )
 
 # Build outputs we know how to recognise, in the order we look for them.

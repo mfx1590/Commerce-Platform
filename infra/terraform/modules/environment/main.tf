@@ -166,6 +166,11 @@ variable "apps" {
     "accounting",
     "analytics-ingest",
     "notifications",
+    "engagement",
+    "feeds",
+    "storefront-brand-a",
+    "storefront-brand-b",
+    "storefront-brand-c",
   ]
 }
 
