@@ -1,5 +1,18 @@
 # Changelog — @platform/storefront-starter
 
+## 0.16.0 — 2026-11-10 (window 3, #782: nonce-based CSP)
+
+- **`script-src` is a per-request nonce plus `'strict-dynamic'`**, with no `'unsafe-inline'` and no `'unsafe-eval'` in production. `base-uri 'none'`. The middleware forwards the nonce to Next, which stamps its scripts. No route changed rendering mode: the build prerenders only `/_not-found`, and every `[locale]` document was already dynamic.
+- **`SCRIPTS.md`**: the inventory of every script and how it is authorised, plus the "Frames" section with the residual.
+- **Frame hosts:** bare `https` origins, plus wildcards only for `WILDCARD_EMBED_DOMAINS` (`framer.app`, `framer.website`, `builder.io`). Every other wildcard, path, `http` or credentials entry is refused and logged once. The embed hosts apply only on embed routes (home, `campaign/*`, `pages/*`, `legal/*`); every other page frames Stripe only.
+- **Behaviour changes:**
+  - an unknown `/<locale>/…` path renders the store's own localised 404 (`[locale]/[...rest]`), not Next's static default;
+  - the middleware also runs on file paths, so a missing file's 404 carries the policy.
+- **Tests:**
+  - `e2e/csp.spec.ts`, on a production build: zero violations and interactivity across home, PLP, PDP, cart, checkout through payment, a CMS page, the 404s and the signed-in account page. Mutation-checked: an un-nonced inline script fails it on every page.
+  - unit tests for the policy, the nonce, and each frame-host refusal and route.
+- **Perf:** interleaved local A/B and CI perf leg ×3 against main show no change beyond noise. The bundle table gains the `[...rest]` route (sizes from CI).
+
 ## 0.15.2 — 2026-11-09 (window 3, #731: next security bump)
 
 - **`next` ^15.5.4 → ^15.5.28** (resolves to 15.5.29). This fixes GHSA-2464-fhr4-w9xw (critical) and GHSA-p3m5-59mp-jv5r (high), which affect next ≤ 15.5.27 and were patched in 15.5.28. next's optional `sharp` now resolves to **0.35.5**, which fixes GHSA-wq5f-xc86-pv6w (high, sharp < 0.35.5); next 15.5.28+ requires `^0.34.3 || ^0.35.5`, so the vulnerable 0.35.4 cannot be selected. No code change: the unit suite, lint and typecheck pass unchanged.
