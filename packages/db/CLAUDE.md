@@ -29,7 +29,7 @@ main window. Window 1 (core) may propose migrations via PR; main approves. Never
   Sets `app.organization_id`, `app.scope='store'`, `app.store_ids`, `app.actor_id` transaction-locally (`set_config(..., true)`), so pooled connections never leak context.
 - `createOrganizationClient(pool, { organizationId, actorId? })` → same shape, `scope: 'organization'` (HQ: all stores). Only after an organization-level permission check.
 - `migrate(pool, dirs?, { before? })` (refuses a migration that leaves RLS unforced; see README "Migrations on managed Postgres"), `listMigrations()`, `createPool(url)`, `connectionStringFromEnv('owner' | 'app')`.
-- `app.outbox_lag()` (SQL, not TS): per-store/topic unpublished counts for monitoring. Callable by the `platform_metrics` role, which has EXECUTE on that function and no table access at all.
+- `app.outbox_lag()` (SQL, not TS): per-store/topic unpublished counts for monitoring, across every organization. Callable by the `platform_metrics` role only, which has EXECUTE on that function and no table access at all. Since 0208 (0.3.23) it is owned by `platform_outbox_lag` (NOLOGIN, policy `outbox_lag_read` on unpublished rows, six columns), so it works on managed Postgres; see README.
 - `seed(pool)`, `SEED_IDS` — fixed uuids for brand-a/b/c, wh-eu/wh-us, one staff user per role, and the shared stock item (`sharedStock`, 0.3.5).
 - `@platform/db/testing` → `createTestDatabase()` returns `{ owner, app, drop }` pools (app = `platform_app` role, RLS enforced).
 
