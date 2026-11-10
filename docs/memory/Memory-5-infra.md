@@ -2,7 +2,7 @@
 
 Window: 5 · Key: `infra` · Branch prefix: `infra/` · Model: Opus
 Last updated: 2026-11-10 · Contracts: `contracts-v0.1` · Branch: `infra/phase6-bake-v7` · Worktree: `../wt-infra` · Manager: **Manager session twelve** (repo-root manager; chain in Memory-main's first bullet)
-Status: **Manager session TWELVE (eleven stood down), 2026-11-10.** Task 1: bake-action v7 + #759 folded in (branch infra/phase6-bake-v7); three green runs on one head (required jobs' steps change). Task 2 next: triage Dependabot #764 (production group, red on 5 jobs); overlaps with #763 (admin next/zod) and #760 (starter next/sharp). Heads-up later: remove the next/sharp audit-allowlist entries after #763/#760 + the brands re-sync.
+Status: **#767 (bake v7) 3/3 green, in review; HOLD its branch.** #764 closed (stale; no config change). NOW: #745 Redis in the unit job (branch infra/phase6-745-redis-ci, cut from #767's head 58e95293; merge origin/main after #767 MERGES, before pushing). Then #647 (helm Recreate for the analytics ingest), then #439 (brand B/C bake + Dockerfiles + terraform/deploy/helm lists, engagement image). The manager removes the last audit-allowlist entries himself.
 Previous status: **Phase 2 complete** — 2.1 through 2.6 merged (2.6 = PR #156, main `6931293`). Close-out PR open; then
 this window is quiet until the manager reopens it with REQUEST issues.
 
@@ -116,6 +116,12 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
+- **#745 (2026-11-10).** A redis:7-alpine service on 6381:6379 in `unit`, plus a direct step running the core's
+  rate-limit.redis.test.ts (CORE_TEST_REDIS_URL) and packages/ai limiter.test.ts, pinned by require-live-tests on
+  'the Redis token bucket (#742)', 'Redis limiter (local Redis, prefixed keys, self-cleaning)' and 'Redis key
+  layout (#669)'. WHY direct: turbo is strict env mode (test env = DATABASE_URL* only), so CORE_TEST_REDIS_URL never
+  reaches `pnpm test`, and a turbo cache hit replays an old output. Local proof: 8/8 pass with Redis; Redis down →
+  vitest exit 0 (skipped) but the pin fails. Closes controls C-31 and C-59 (docs/security is the manager's).
 - **Dependabot regroup (2026-11-09).** The breaking packages, from the logs:
   - #743 actions: docker/bake-action 5→7. v6+ uses the Git context, so `workdir: infra/docker` stops applying
     ("lstat docker-compose.build.yml"). Fix later: `source: .` in ci.yml and deploy-staging.yml.
