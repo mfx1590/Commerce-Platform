@@ -339,13 +339,17 @@ jobs:
       # it cannot catch this — only a real build can.
       - name: build every app image (cached, no push)
         if: needs.changes.outputs.images == 'true'
-        uses: docker/bake-action@v5
+        uses: docker/bake-action@v7
         env:
           IMAGE_TAG: ${{ github.sha }}
           # Pull requests read the build cache; only pushes to main write it. Exporting cost more
           # than the build saved — see the CACHE_TO comment in infra/docker/docker-bake.hcl.
           CACHE_TO: ${{ github.event_name == 'push' && '1' || '' }}
         with:
+          # bake-action 6+ builds from the Git context unless told otherwise; then `workdir` does not apply and
+          # the files resolve at the repo root (#743: "lstat docker-compose.build.yml"). `source: .` is the
+          # checkout, run from `workdir`, so `context: ../..` is the repo root as above.
+          source: .
           workdir: infra/docker
           files: |
             docker-compose.build.yml

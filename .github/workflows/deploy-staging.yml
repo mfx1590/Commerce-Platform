@@ -108,10 +108,12 @@ jobs:
       # pull-request build was. It reads the cache main wrote; it does not write one.
       - name: build the app images
         if: steps.gate.outputs.configured == 'true'
-        uses: docker/bake-action@v5
+        uses: docker/bake-action@v7
         env:
           IMAGE_TAG: ${{ steps.sha.outputs.value }}
         with:
+          # the checkout, not the Git context (bake-action 6+'s default): see ci.yml's image build
+          source: .
           workdir: infra/docker
           files: |
             docker-compose.build.yml
