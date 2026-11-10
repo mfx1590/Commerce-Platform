@@ -50,6 +50,15 @@ const config = {
   env: { CSP_FRAME_HOSTS: frameHosts, E2E_LOCAL_IMAGES: localImages },
   // The kit ships as TypeScript-compiled ESM; Next must transpile it like app code.
   transpilePackages: ['@platform/ui'],
+  experimental: {
+    // #762: the CSS goes into the HTML as `<style>` instead of a render-blocking `<link>`. Under
+    // Lighthouse mobile throttling that request sits ahead of the h1 (the LCP element); the measured
+    // effect is on the PR for #762. The cost is ~4.5 kB of CSS in every HTML response, no
+    // longer cached across pages. `style-src 'unsafe-inline'` already allows it (src/lib/csp.ts;
+    // e2e/csp.spec.ts). EXPERIMENTAL in Next 15: re-verify at every `next` bump, because it may be
+    // renamed or removed; test/next-config.test.ts pins it and the perf leg is the regression guard.
+    inlineCss: true,
+  },
   images: {
     // Product media comes from the CDN, not from the app. This list is a security boundary: an
     // unlisted host cannot be rendered through the optimiser, so each entry is as narrow as the
