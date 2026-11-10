@@ -1,0 +1,54 @@
+# storefront-brand-c in dev: brand C's own storefront (apps/storefronts/brand-c, #439). See infra/README.md "Helm".
+#
+# Not deployed yet: there is no ArgoCD Application for it and deploy-staging does not build it (#342 owns
+# that). These values are rendered and checked in CI so the day it is deployed they are already right.
+#
+# Nothing secret belongs here: credentials reach the pod through the ExternalSecret below,
+# which names a key in AWS Secrets Manager and never carries a value. Hostnames use the same
+# <sub>.<env>.example.com placeholder as ingress.host and are substituted by the deploy.
+
+image:
+  # From the terraform output `ecr_repository_urls`. The account id differs per
+  # environment, so the deploy workflow overrides this with --set rather than
+  # committing an account number.
+  repository: REPLACED_BY_DEPLOY/dev/commerce-platform/storefront-brand-c
+  # A git sha, always. The placeholder is what `helm template` renders in CI; the chart
+  # refuses `latest`, because a moving tag means the cluster and the repo disagree.
+  tag: '0000000000000000000000000000000000000000'
+
+replicaCount: 1
+
+service:
+  port: 80
+  targetPort: 3103
+  healthPath: /health
+
+ingress:
+  enabled: true
+  className: alb
+  host: brand-c.dev.example.com
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+
+# Non-secret configuration, names exactly as in .env.example. Without this an app falls
+# back to its localhost defaults, which inside a pod means itself.
+env:
+  KEYCLOAK_URL: 'https://auth.dev.example.com'
+  KEYCLOAK_REALM_STAFF: 'staff'
+  KEYCLOAK_REALM_CUSTOMERS: 'customers'
+  STORE_API_URL: 'https://api.dev.example.com'
+  STORE_PUBLISHABLE_KEY: 'pk_brand-c_dev_00000000000000000000'
+  # The storefront's own origin: the OIDC redirect URI, canonicals, hreflang, the sitemap and the
+  # robots.txt host. Must be https://<ingress.host> — infra/helm/check-values.sh fails the build otherwise.
+  # Without it the pod sends redirect_uri=http://localhost:3100/auth/callback and sign-in breaks
+  # silently (#257).
+  SITE_URL: 'https://brand-c.dev.example.com'
+  # ROBOTS_ALLOW_INDEXING is deliberately absent: unset, /robots.txt says `Disallow: /`. Only a
+  # production values file may set it to '1'; check-values.sh rejects it anywhere else.
+
+externalSecrets:
+  enabled: true
+  remoteKeys:
+    - key: dev/platform/app
