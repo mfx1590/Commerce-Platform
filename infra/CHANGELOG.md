@@ -4,6 +4,18 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 6
 
+### Added (#745: the Redis halves of the rate limits run in CI)
+
+- The `unit` job gets a `redis:7-alpine` service on host port 6381 (the compose port, so `packages/ai`'s limiter test
+  finds it by default). A new step runs `apps/core/src/http/rate-limit.redis.test.ts` (with `CORE_TEST_REDIS_URL`)
+  and `packages/ai/test/limiter.test.ts` directly, and `require-live-tests.mjs` fails it unless every test under the
+  three pinned blocks PASSED:
+  - `the Redis token bucket (#742)`;
+  - `Redis limiter (local Redis, prefixed keys, self-cleaning)`;
+  - `Redis key layout (#669)`.
+- Proven both ways locally: 8/8 with Redis; with none, vitest exits 0 (all skipped) and the pin fails. Directly, not
+  through `pnpm test`, because turbo's strict env mode would not pass `CORE_TEST_REDIS_URL`.
+
 ### Added (#647: the analytics ingest's Helm values, one replica with Recreate)
 
 - `platform-app` chart: a `strategy` value, rendered into the Deployment only when set (default `{}`: Kubernetes'
