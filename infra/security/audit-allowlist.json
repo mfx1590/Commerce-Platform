@@ -13,26 +13,6 @@
       "expires": "2026-11-20"
     },
     {
-      "id": "GHSA-7mx3-vvmw-hjmv",
-      "package": "@graphql-tools/utils",
-      "severity": "high",
-      "versions": ["10.11.0"],
-      "apps": ["apps/core"],
-      "owner": "window 1 (core)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason. Since #752 12.x is patched (override); 10.11.0 remains via @graphql-codegen/* (^10.0.0), no patched 10.x.",
-      "expires": "2026-12-06"
-    },
-    {
-      "id": "GHSA-c4qx-w738-7hr3",
-      "package": "@graphql-tools/utils",
-      "severity": "high",
-      "versions": ["10.11.0"],
-      "apps": ["apps/core"],
-      "owner": "window 1 (core)",
-      "reason": "Baseline at the gate's introduction (#730, main 33cb5b6f): present before the gate existed; the owning window bumps it or re-dates it with a reason. Since #752 12.x is patched (override); 10.11.0 remains via @graphql-codegen/* (^10.0.0), no patched 10.x.",
-      "expires": "2026-12-06"
-    },
-    {
       "id": "GHSA-p3m5-59mp-jv5r",
       "package": "next",
       "severity": "high",
