@@ -20,7 +20,6 @@
  * requests under a bucket boundary (`le`) — so every latency threshold must be one of #729's boundaries.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
-import prettier from 'prettier';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -395,6 +394,9 @@ const TEST_OUT = join(dirname(fileURLToPath(import.meta.url)), 'slo.test.yml');
 
 /** Formats with the repo's own Prettier config, so `pnpm format:check` and `--check` agree on every byte. */
 async function formatted(file, text) {
+  // Loaded here, not at the top: importing SLOS must need no installed package (the load gates' self-test runs it
+  // in CI's `changes` job, which has no pnpm install).
+  const { default: prettier } = await import('prettier');
   const options = (await prettier.resolveConfig(file)) ?? {};
   return prettier.format(text, { ...options, filepath: file });
 }
