@@ -12,6 +12,15 @@
   - `e2e/csp.spec.ts`, on a production build: zero violations and interactivity across home, PLP, PDP, cart, checkout through payment, a CMS page, the 404s and the signed-in account page. Mutation-checked: an un-nonced inline script fails it on every page.
   - unit tests for the policy, the nonce, and each frame-host refusal and route.
 - **Perf:** interleaved local A/B and CI perf leg ×3 against main show no change beyond noise. The bundle table gains the `[...rest]` route (sizes from CI).
+## 0.15.3 — 2026-11-10 (window 3, #766: visual suite tolerance)
+
+- **`e2e/visual.spec.ts` in the starter** (it was brand A's only).
+  - Full-page shots of home, PLP and PDP at `maxDiffPixelRatio: 0.0001` (was 0.002).
+  - New element shots at `0.002`: the h1 on every page, the first product card on the PLP, and the add-to-cart button on the PDP.
+  - Tolerances are from measurement: repeat-run jitter is 0 pixels on one machine and build. One h1 weight step (700 → 500) is 0.0002–0.0008 of a full page and 0.021–0.113 of the h1 shot. A heading typeface swap is 0.0004–0.0008 / 0.021–0.137. The old 0.002 let both pass; now all six affected shots fail on the weight step.
+- `playwright.config.ts`: per-platform `snapshotPathTemplate`, as brand A.
+- The starter commits no baselines, because the sync would copy them over each brand's. The README says what the suite can and cannot catch.
+- **Brands:** `e2e/visual.spec.ts` is synced (it replaces brand A's local copy). `playwright.config.ts` and each brand's baselines are preserved. Each brand takes and commits baselines for the new element shots (window 10).
 
 ## 0.15.2 — 2026-11-09 (window 3, #731: next security bump)
 
