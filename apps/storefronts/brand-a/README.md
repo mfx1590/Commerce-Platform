@@ -370,6 +370,43 @@ behind. So every sync records the starter's blob id per preserved file in
 starter counterpart changed since (`~` changed, `+` new, `-` gone). It reports and never fails:
 port the change by hand, then the next sync clears the line.
 
+### Bumping a dependency the starter owns (#758)
+
+`next`, `react`, `postcss`, `vitest` and the rest of the starter's packages reach this app through
+the sync, so a bump has one correct path:
+
+1. Bump it in `apps/storefront-starter/package.json`. That is **window 3's file** — a `brands/`
+   branch may not touch it, so file a REQUEST, or let Dependabot do it.
+2. Bump it in any other workspace package that declares it.
+3. `pnpm --filter @platform/storefront-brand-a sync` in **each** brand, so `package.json` and
+   `scripts/starter-manifest.json` move together. Since #758 nothing will stop you editing the
+   version by hand — the test no longer fails on a version difference, which is exactly what lets
+   Dependabot's PRs pass. What goes wrong is quieter: `--check`'s drift report is then wrong about
+   what the starter has changed, and the next sync replaces your value with the starter's.
+4. `pnpm install` at the root — **not** `--frozen-lockfile`, because the merge may have brought a
+   dependency the lockfile has never seen — then commit everything together.
+
+**Dependabot does steps 1 and 2 and cannot do step 3:** it has no notion of the manifest. Since
+#758 that no longer makes its PRs red. The committed `package.json` must agree with the merge rules,
+and in that comparison the **version string of a dependency both this app and the manifest declare
+is ignored** — `mergePackageJson` reads the manifest only for key membership, never for a value. So
+a Dependabot PR is green, the manifest lags by a version until the next sync refreshes it, and
+`node scripts/sync-from-starter.mjs --check` is where lag against the **live** starter is reported,
+keys and values, on demand.
+
+**What the comparison no longer catches, by design.** A _downgrade_ of a synced dependency inside
+plain semver — `^8.5.6` to `^8.4.0` — is indistinguishable from a bump to it, here and in any
+Dependabot PR. The production audit gate catches a version with a known advisory; nothing in CI
+catches a quiet downgrade to one that has none yet. What _is_ still enforced is the value's **shape**:
+the masking applies only when **both** this app's and the manifest's values are plain semver ranges,
+so a shared dependency swapped from a range to `workspace:*`, an `npm:` alias, `git+https://…` or a
+tarball URL is caught byte-exact (#789's review found that hole and the mutation table now covers all
+four, in both directions).
+
+Before #758 this was impossible, and the cost was not theoretical: `.github/dependabot.yml` had to
+ignore 19 starter packages workspace-wide (#757), so none of them got a routine bump anywhere —
+which is how a CRITICAL `next` advisory sat in all three brands until it was bumped by hand (#731).
+
 ## Test
 
 ```bash
