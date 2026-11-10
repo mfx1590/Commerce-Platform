@@ -64,7 +64,31 @@ the setting, so no exit path leaves the session elevated. See 0207.
 **Editing an applied migration.** The runner identifies a migration by its file name only — no checksum — and never
 reads an applied file again. So an in-place edit changes fresh databases only; when one is unavoidable (0190–0197 for
 #497 could not run on managed Postgres at all), the end state must equal the old one, and a new migration restates
-any changed definition so already-migrated databases converge (0207). Otherwise: add a new file.
+any changed definition so already-migrated databases converge (0207). Otherwise: add a new file. A comment-only edit
+(0190's stale "function-level SET" note, fixed in 0.3.23) needs no restating migration.
+
+**A read across every organization (`app.outbox_lag()`, #737, 0208).** The outbox-lag metric must count the
+unpublished rows of every organization, with no tenant context. Before 0208 the SECURITY DEFINER function relied on
+its owner bypassing RLS; on managed Postgres the owner obeys FORCE RLS and the function returned 0 rows ("no lag"
+while the relay is stuck). The 0207 `set_config` pattern cannot help: organization scope still means one
+`app.organization_id`, and nothing without BYPASSRLS can even list the organizations. So the function is owned by a
+dedicated role that exists for this one read, and nobody else gains anything:
+
+- `platform_outbox_lag`: NOLOGIN, NOINHERIT, NOBYPASSRLS, member of nothing, no members (nobody can `SET ROLE` to it).
+- Column SELECT on `outbox (organization_id, store_id, topic, occurred_at, published_at, attempts)` — never `id`,
+  `aggregate_id`, `payload`, `headers` or `last_error` — and USAGE on schema `app` (the tenant policy's functions).
+- Policy `outbox_lag_read ON outbox FOR SELECT TO platform_outbox_lag USING (published_at IS NULL)`. Permissive, so it
+  widens only this role's reads; FORCE RLS stays on and every other role is under `tenant_isolation` alone.
+- `platform_metrics` keeps EXECUTE on the function and nothing else; it still gets only the aggregate rows (per
+  organization, store, topic: count, oldest `occurred_at`, max attempts). `platform_app` lost EXECUTE: the result spans
+  every organization, and the relay reads its own organization's backlog directly since #751.
+
+Least privilege compared with the alternative of giving `platform_metrics` the policy and column grant directly: then
+the login role the dashboard holds could read unpublished rows one by one; here it can only call the aggregate.
+Changing a function's owner needs (Postgres 16) SET on the new owner and CREATE on its schema for the new owner;
+0208 grants both for the one `ALTER FUNCTION ... OWNER TO` and revokes them in the same file (a member would inherit
+the policy). The migration role holds ADMIN on the role it created, which is what makes that self-grant possible. A
+later migration that replaces the function must wrap its `CREATE OR REPLACE` the same way.
 
 ## Tests
 
