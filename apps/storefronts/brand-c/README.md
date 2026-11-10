@@ -83,6 +83,32 @@ after which this file re-syncs normally.
 - **`playwright.config.ts` does not import `RUNTIME_SITE_URL`** (#379) and sets
   `STORE_PUBLISHABLE_KEY` itself (#382).
 
+### Bumping a dependency the starter owns (#758)
+
+`next`, `react`, `postcss`, `vitest` and the rest of the starter's packages reach this app through
+the sync, so a bump has one correct path:
+
+1. Bump it in `apps/storefront-starter/package.json`. That is **window 3's file** — a `brands/`
+   branch may not touch it, so file a REQUEST, or let Dependabot do it.
+2. Bump it in any other workspace package that declares it.
+3. `pnpm --filter @platform/storefront-brand-c sync` in **each** brand. That rewrites `package.json` **and**
+   `scripts/starter-manifest.json`. Editing the dependency by hand leaves the manifest claiming the
+   old specifier and `test/sync-merge.test.ts` fails on exactly that.
+4. `pnpm install` at the root — **not** `--frozen-lockfile`, because the merge may have brought a
+   dependency the lockfile has never seen — then commit everything together.
+
+**Dependabot does steps 1 and 2 and cannot do step 3:** it has no notion of the manifest. Since
+#758 that no longer makes its PRs red. The committed `package.json` must agree with the merge rules,
+and in that comparison the **version string of a dependency both this app and the manifest declare
+is ignored** — `mergePackageJson` reads the manifest only for key membership, never for a value. So
+a Dependabot PR is green, the manifest lags by a version until the next sync refreshes it, and
+`node scripts/sync-from-starter.mjs --check` is where lag against the **live** starter is reported,
+keys and values, on demand.
+
+Before #758 this was impossible, and the cost was not theoretical: `.github/dependabot.yml` had to
+ignore 19 starter packages workspace-wide (#757), so none of them got a routine bump anywhere —
+which is how a CRITICAL `next` advisory sat in all three brands until it was bumped by hand (#731).
+
 ## The locale gap
 
 Brand C sells `en-US`. The starter serves `en-GB` and `de-DE`, and writes those into its synced files
