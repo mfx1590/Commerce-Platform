@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   contentSecurityPolicy,
-  isPaymentFunnel,
+  isEmbedRoute,
   keycloakOrigin,
   newNonce,
   parseFrameHosts,
+  WILDCARD_EMBED_DOMAINS,
   type CspInput,
 } from '@/lib/csp';
 
@@ -86,7 +87,7 @@ describe('form-action', () => {
   });
 });
 
-describe('CSP_FRAME_HOSTS: bare https origins only (#782)', () => {
+describe('CSP_FRAME_HOSTS: bare https origins, and the named site-builder wildcards (#782)', () => {
   it('accepts bare origins (a trailing slash is the same origin) and drops duplicates', () => {
     expect(
       parseFrameHosts('https://builder.io https://embed.example.com:8443/ https://builder.io'),
@@ -94,9 +95,24 @@ describe('CSP_FRAME_HOSTS: bare https origins only (#782)', () => {
     expect(parseFrameHosts(undefined)).toEqual({ hosts: [], refused: [] });
   });
 
+  it('accepts a wildcard only for the named site-builder domains, exactly as written', () => {
+    expect(WILDCARD_EMBED_DOMAINS).toEqual(['framer.app', 'framer.website', 'builder.io']);
+    expect(
+      parseFrameHosts('https://*.framer.app https://*.framer.website https://*.builder.io'),
+    ).toEqual({
+      hosts: ['https://*.framer.app', 'https://*.framer.website', 'https://*.builder.io'],
+      refused: [],
+    });
+  });
+
+  const WILDCARD = 'wildcard (not an allowed site-builder domain)';
   it.each([
-    ['a wildcard subdomain', 'https://*.framer.app', 'wildcard'],
-    ['a bare wildcard', '*', 'wildcard'],
+    ['a wildcard on any other domain', 'https://*.example.com', WILDCARD],
+    ['a wildcard one level too deep', 'https://*.sites.framer.app', WILDCARD],
+    ['a look-alike domain', 'https://*.framer.app.evil.example', WILDCARD],
+    ['a bare wildcard', '*', WILDCARD],
+    ['a wildcard over http', 'http://*.framer.app', WILDCARD],
+    ['a wildcard with a path', 'https://*.framer.app/embed', WILDCARD],
     ['a path', 'https://www.youtube.com/embed', 'not a bare origin (path, query or fragment)'],
     ['a query', 'https://player.example.com?x=1', 'not a bare origin (path, query or fragment)'],
     ['plain http', 'http://insecure.example.com', 'not https'],
@@ -111,30 +127,40 @@ describe('CSP_FRAME_HOSTS: bare https origins only (#782)', () => {
   });
 });
 
-describe('frame-src', () => {
-  it('lists the vetted campaign embed origins on content and shop pages', () => {
-    expect(policy({ pathname: '/en-GB/campaign/spring' }).get('frame-src')).toBe(
-      "'self' https://js.stripe.com https://hooks.stripe.com https://builder.io https://embed.example.com",
+describe('frame-src: embed hosts on embed routes only (#782)', () => {
+  const STRIPE_ONLY = "'self' https://js.stripe.com https://hooks.stripe.com";
+
+  it.each([
+    '/en-GB',
+    '/en-GB/',
+    '/en-GB/campaign/spring',
+    '/de-DE/pages/about',
+    '/en-GB/legal/terms',
+  ])('%s is an embed route: Stripe plus the vetted embed hosts', (pathname) => {
+    expect(isEmbedRoute(pathname)).toBe(true);
+    expect(policy({ pathname }).get('frame-src')).toBe(
+      `${STRIPE_ONLY} https://builder.io https://embed.example.com`,
     );
   });
 
   it.each([
+    '/en-GB/products',
+    '/en-GB/products/classic-tee',
+    '/en-GB/categories/t-shirts',
     '/en-GB/cart',
     '/en-GB/checkout',
     '/en-GB/checkout/payment',
     '/de-DE/checkout/review',
     '/en-GB/orders/7f8d0f60-6a4f-4a3c-9a54-3b1e2c4d5e6f',
-  ])('the payment funnel (%s) frames only ourselves and Stripe', (pathname) => {
-    expect(isPaymentFunnel(pathname)).toBe(true);
-    expect(policy({ pathname }).get('frame-src')).toBe(
-      "'self' https://js.stripe.com https://hooks.stripe.com",
-    );
+    '/en-GB/account',
+    '/en-GB/account/orders',
+    '/en-GB/no-such-page',
+    '/en-GB/campaigns-are-not-campaign',
+    '/no-such-file.png',
+  ])('%s frames only ourselves and Stripe', (pathname) => {
+    expect(isEmbedRoute(pathname)).toBe(false);
+    expect(policy({ pathname }).get('frame-src')).toBe(STRIPE_ONLY);
   });
-
-  it.each(['/en-GB/products', '/en-GB/cartography', '/en-GB/pages/checkout-help', '/cart'])(
-    '%s is not the payment funnel',
-    (pathname) => expect(isPaymentFunnel(pathname)).toBe(false),
-  );
 });
 
 describe('the fixed directives', () => {

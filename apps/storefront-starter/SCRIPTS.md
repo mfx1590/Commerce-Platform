@@ -28,3 +28,26 @@ fails on any CSP violation on the pages it visits.
 
 **A brand** that adds a script (a font loader, a widget, a pixel) adds a row here, and loads it from
 a chunk or with the nonce. `'unsafe-inline'` is not an option.
+
+## Frames
+
+What the storefront may frame (`frame-src`, #782), and the residual risk.
+
+| Route                                                                                                           | `frame-src`                                                                          |
+| --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| **Embed routes**: home, `campaign/*`, `pages/*`, `legal/*` (the only pages that render CMS blocks, so an embed) | `'self'`, Stripe (`js.stripe.com`, `hooks.stripe.com`), and the campaign embed hosts |
+| **Every other page**: PLP, PDP, categories, cart, checkout and payment, orders, account, the 404                | `'self'` and Stripe only                                                             |
+
+**The embed hosts** come from window 6's `EMBED_HOSTS` (`@platform/cms`), passed as `CSP_FRAME_HOSTS` and vetted by `parseFrameHosts`:
+
+- bare `https` origins;
+- plus `https://*.<domain>` **only** for the site builders in `WILDCARD_EMBED_DOMAINS` (`framer.app`, `framer.website`, `builder.io`).
+
+Any other wildcard, a path, a query, `http`, credentials or anything unparseable is refused, logged once at start (`[csp] CSP_FRAME_HOSTS entry refused (…)`) and never sent to the browser. Adding a wildcard domain is a code change with review in `src/lib/csp.ts`, never an environment setting.
+
+**Residual, stated plainly:**
+
+- **Any site published on those builders can be framed on an embed route.** The wildcard admits every customer's `<site>.framer.app`, not only ours.
+- **The editor-side control is window 6's Studio**, which validates an embed URL against `EMBED_HOSTS` before it can be published.
+- **A framed document cannot run script in our origin.** It is a cross-origin frame, sandboxed by the embed component, and our script policy is the nonce policy. So the risk is content shown inside a frame, not code running as the storefront.
+- **A policy binds to the document it arrived with.** A client-side navigation from an embed route into a strict page keeps the embed route's `frame-src`. No strict page renders an embed, and the nonce script policy is the same on every page, so an injected frame would first need injected script.

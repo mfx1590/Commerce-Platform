@@ -34,7 +34,7 @@ export interface CspInput {
   keycloakUrl: string | undefined;
   /** Campaign embed origins, already vetted by `parseFrameHosts`. */
   frameHosts: readonly string[];
-  /** The request path: the payment funnel gets a stricter `frame-src` (`isPaymentFunnel`). */
+  /** The request path: only embed routes frame the campaign hosts (`isEmbedRoute`). */
   pathname: string;
   /** `NODE_ENV === 'production'`; development adds what `next dev` needs and nothing else. */
   production: boolean;
@@ -77,10 +77,23 @@ export interface FrameHostRefusal {
 }
 
 /**
+ * The only domains a WILDCARD frame host may name (#782, manager's decision): the site builders
+ * window 6's Studio embeds from today. Each campaign there is its own subdomain
+ * (`<site>.framer.app`), and an editor publishes it from the Studio, so listing exact origins would
+ * turn every new campaign into a deploy-time change. The residual is recorded in `SCRIPTS.md`
+ * ("Frames"): any site published on these builders can be framed on an embed route.
+ *
+ * Adding a domain here is a code change with review, never an environment setting. Keep it in step
+ * with window 6's `EMBED_HOSTS` (`@platform/cms`).
+ */
+export const WILDCARD_EMBED_DOMAINS = ['framer.app', 'framer.website', 'builder.io'] as const;
+
+/**
  * The campaign embed list (`CSP_FRAME_HOSTS`, built from window 6's `EMBED_HOSTS`), narrowed to
- * **bare https origins**. A wildcard, a path, a query, credentials, another scheme or anything
- * unparseable is refused and reported, never passed to the browser. A wildcard would let any
- * subdomain be framed, and a path is not something `frame-src` can enforce the way it reads.
+ * **bare https origins**, plus `https://*.<domain>` for a domain in `WILDCARD_EMBED_DOMAINS`. Any
+ * other wildcard, a path, a query, credentials, another scheme or anything unparseable is refused
+ * and reported, never passed to the browser: a wildcard would let any subdomain be framed, and a
+ * path is not something `frame-src` can enforce the way it reads.
  */
 export function parseFrameHosts(raw: string | undefined): {
   hosts: string[];
@@ -90,7 +103,12 @@ export function parseFrameHosts(raw: string | undefined): {
   const refused: FrameHostRefusal[] = [];
   for (const entry of (raw ?? '').split(/\s+/).filter(Boolean)) {
     if (entry.includes('*')) {
-      refused.push({ entry, reason: 'wildcard' });
+      const domain = /^https:\/\/\*\.([a-z0-9.-]+)$/.exec(entry)?.[1];
+      if (domain !== undefined && (WILDCARD_EMBED_DOMAINS as readonly string[]).includes(domain)) {
+        if (!hosts.includes(entry)) hosts.push(entry);
+      } else {
+        refused.push({ entry, reason: 'wildcard (not an allowed site-builder domain)' });
+      }
       continue;
     }
     let url: URL;
@@ -114,17 +132,22 @@ export function parseFrameHosts(raw: string | undefined): {
 }
 
 /**
- * Cart, checkout (every step, payment included) and order pages: the pages that handle the cart
- * and card. Their `frame-src` is Stripe's hosts only: no campaign embeds.
+ * The "embed routes": the only pages whose `frame-src` includes the campaign embed hosts, because
+ * they are the only pages that render CMS blocks, and so an embed. Those are home (window 6's home
+ * slots, REQUEST #178) and the content routes `campaign/*`, `pages/*` and `legal/*`. Every other
+ * page frames ourselves and Stripe only: PLP, PDP, cart, checkout and payment, orders, account,
+ * the 404. Strict is the default, so a new route is strict until it is named here.
  *
  * What this does and does NOT guarantee: a policy binds to the document it arrived with. A full
- * load of one of these pages (a direct visit, a reload, the redirect back from 3-D Secure) gets
- * the strict `frame-src`. A client-side navigation into the funnel (the cart link, the add-to-cart
- * redirect) keeps the policy of the page it started from. The **script** policy is the same nonce
- * policy everywhere, so it holds whichever way the customer arrived.
+ * load of a strict page (a direct visit, a reload, the return from 3-D Secure) gets the strict
+ * `frame-src`. A client-side navigation from an embed route (say, home → a product → the cart)
+ * keeps home's `frame-src`. No strict page renders an embed, so what that leaves is an injected
+ * frame, which the script policy (the same nonce everywhere, whichever way the customer arrived)
+ * is what stops.
  */
-export function isPaymentFunnel(pathname: string): boolean {
-  return /^\/[^/]+\/(cart|checkout|orders)(\/|$)/.test(pathname);
+export function isEmbedRoute(pathname: string): boolean {
+  // The locale segment has no dot, so a file path (`/x.png`) is never mistaken for a home page.
+  return /^\/[^/.]+(\/(campaign|pages|legal)(\/.*)?)?\/?$/.test(pathname);
 }
 
 export function contentSecurityPolicy({
@@ -134,7 +157,7 @@ export function contentSecurityPolicy({
   pathname,
   production,
 }: CspInput): string {
-  const frames = isPaymentFunnel(pathname) ? [] : frameHosts;
+  const frames = isEmbedRoute(pathname) ? frameHosts : [];
 
   return [
     "default-src 'self'",
@@ -154,8 +177,8 @@ export function contentSecurityPolicy({
     // The Store API is called server-side; the browser talks to this origin and, from the Payment
     // Element, to Stripe's API.
     `connect-src 'self' ${STRIPE_CONNECT_HOSTS.join(' ')}`,
-    // Campaign embeds (REQUEST #199) everywhere except the payment funnel. The sandbox on each
-    // iframe is the first layer; this stops an embed being pointed at a host nobody reviewed.
+    // Campaign embeds (REQUEST #199) on embed routes only. The sandbox on each iframe is the first
+    // layer; this stops an embed being pointed at a host nobody reviewed.
     `frame-src 'self' ${[...STRIPE_FRAME_HOSTS, ...frames].join(' ')}`,
     // Nothing may frame us: clickjacking a checkout is the attack this prevents.
     "frame-ancestors 'none'",
