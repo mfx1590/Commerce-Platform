@@ -1,5 +1,38 @@
 # Changelog — @platform/storefront-brand-a
 
+## Unreleased — 2026-11-10 · a Dependabot PR that bumps a starter package is no longer red (#758)
+
+- **The comparison that made it red is narrowed.** `test/sync-merge.test.ts` asserts that this app's
+  committed `package.json` agrees with the merge rules, by re-merging from
+  `scripts/starter-manifest.json` — which it passes as _the starter_. The rule "the starter's value
+  wins for a shared key" therefore read the version out of the manifest and demanded this app match
+  it. Dependabot edits every `package.json` and never the manifest, so every PR of its for a starter
+  package reverted its own bump and failed (#747, #755). Now the **version string of a dependency
+  both this app and the manifest declare is ignored** in that comparison.
+- **Why that is safe, and not just convenient.** `mergePackageJson` reads `previousStarter` only for
+  key membership (`key in previousStarter`); it never reads a value out of it. The manifest's
+  versions were authoritative in no code path — only in this one assertion. The live starter is the
+  authority, and `sync --check` enforces it on demand, keys and values.
+- **Everything else stays byte-exact**, and the file proves it rather than claiming it: a table of
+  five mutations runs against the narrowed comparison **and** the byte-exact one it replaced. A
+  dropped synced dependency, a changed synced script body and a reordered dependency block are
+  caught; a hand-added dependency and an edited `dev` port are caught by neither, because the merge
+  keeps a key only this app declares and `dev` is identity (the port is asserted directly in the
+  next test). In the committed state the two comparisons are **equivalent**, which is the evidence
+  the narrowing opened no hole; with a bump in the tree the byte-exact one differs for every row,
+  which is the construction that made those PRs red.
+- The commit shape of a bump is documented in the README — starter first, then each brand's sync,
+  then a non-frozen `pnpm install`.
+- **The masking is guarded by shape, after #789's review found the first version too broad.** It
+  replaced a shared key's value _whatever it was_, so `"@platform/cms": "workspace:*"` could be
+  swapped for `git+https://…`, an `npm:` alias or a tarball URL and this assertion no longer
+  noticed — where the byte-exact comparison it replaced did, and nothing else in CI would. A value
+  is masked only when **both** this app's and the manifest's are plain semver ranges (no `:`, no
+  `/`), so every protocol value stays byte-exact. Four more mutation rows cover it, including the
+  reverse direction: a `workspace:` dependency repointed at a registry range.
+- Still invisible, and said plainly in the README: a **downgrade** inside plain semver reads exactly
+  like a bump. The production audit gate is what catches a version with a known advisory.
+
 ## Unreleased — 2026-11-10 · next 15.5.29 + sharp 0.35.5 from the starter (#731)
 
 - **Re-synced from `apps/storefront-starter`** (#760): `next` `^15.5.4` → **`^15.5.28`**, which
