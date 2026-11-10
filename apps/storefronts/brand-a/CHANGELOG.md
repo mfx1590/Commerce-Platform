@@ -1,5 +1,43 @@
 # Changelog — @platform/storefront-brand-a
 
+## Unreleased — 2026-11-09 · the shipped faces are generated and 55% smaller (#739)
+
+- **`src/brand/fonts/*.woff2` are now GENERATED** by `scripts/build-fonts.mjs` from the OFL variable
+  sources under `src/brand/fonts/source/`. **90.6 kB → 40.8 kB.** Newsreader is pinned to `wght` 500
+  and Hanken Grotesk's axis is trimmed to 400-700, because `packages/ui` defines 400/500/600/700 and
+  nothing anywhere asks for 300. Both are subset to a derived charset. The typeface **pairing** is
+  untouched; the heading **weight** is not — see the next entry.
+- **Serif headings now render medium (500) where they rendered bold (700) and semibold (600).**
+  This is a visible change and the first version of this work claimed it was not. `theme.css` is an
+  element rule; Tailwind's `.font-bold` is a class and outranks it, so the 33 synced headings
+  carrying `font-bold`/`font-semibold` — including the LCP `<h1>` — had been rendering 700/600 for
+  brand A's whole life while `theme.css` and DESIGN.md §3 said medium. Measured in a browser: the
+  PDP `h1` computes to `500` with brand A's rule and `700` with that one rule removed at runtime.
+  The medium design is now **enforced**: `h1[class]` out-specifies a utility class without
+  `!important`, and `font-synthesis-weight: none` stops a 500-only face being smeared into a fake
+  bold — the weight property only, because the `font-synthesis` shorthand would also disable
+  synthetic italic and brand A ships no italic face. `test/brand-fonts.test.ts` pins both halves,
+  and the `win32` visual baselines are refreshed.
+- **Four typographic characters added to the charset** for 0.39 kB: `’ ‘ – …`. Runtime Store API and
+  CMS text is written by people, and a product called "Men’s" was falling back to the fallback face
+  for that one glyph, which reads as a rendering bug rather than a font choice.
+- `test/brand-fonts.test.ts` rebuilds both faces and compares hashes, so a hand-edited or stale
+  binary fails review. `fonts/README.md` records the source hashes, `subset-font@2.9.0` and the OFL.
+- **The charset is derived, and the derivation caught two things a list would have missed:** the
+  scan of brand A's catalogues found **U+201E**, the low-9 quote `de-DE` opens quotations with; and
+  asking `Intl` what brand A's own locales and seeded currency emit found **U+20AC**, which appears
+  in no committed string because prices are formatted at runtime — subsetting on the catalogues
+  alone would have put a tofu box on every price. Printable Latin-1 is kept as the floor for the
+  product names that arrive from the Store API.
+- **Why this is not the whole fix.** The worst run went 2674 → 2539 ms (PLP) and 2752 → 2582 ms
+  (PDP) against a 2500 ms budget, so it is still over on the worst run while passing the gate's
+  best-of-five. With the faces removed entirely the worst run is 2163 / 2233, so brand A is within
+  ~300 ms of budget before it loads a single brand byte; the remainder is the shared `h1` render
+  delay (~1.4 s in CI for every brand) and is tracked starter-side. The budget was **not** widened.
+- `display: 'swap'` is kept deliberately: the cost was font bytes contending for simulated
+  bandwidth, not the swap repaint, so `optional` would have removed no bytes and would have broken
+  `e2e/visual.spec.ts`, which awaits `document.fonts.ready` on purpose.
+
 ## Unreleased — 2026-10-08 · re-sync at main 2e35674: brand A takes the hero rendering (#330)
 
 - **Re-sync**: 209 copied, 1 merged, 10 preserved, 4 excluded (from 224 tracked starter files).
