@@ -22,6 +22,8 @@ function formatDate(value: string | null | undefined): string {
  * Price lists (no paging in the contract). Creating one and editing prices need `store_admin`;
  * the contract has no update or delete of a list, so none is offered.
  */
+// No currency fallback (#810): amounts are parsed with the store's currency digits, so a guessed
+// one turns ¥500 into ¥50,000. Without the store there is no new-list form (its currency is prefilled from the store).
 export default async function PriceListsPage({ params }: { params: Promise<{ storeId: string }> }) {
   const { storeId } = await params;
   const [lists, store, principal] = await Promise.all([
@@ -121,10 +123,16 @@ export default async function PriceListsPage({ params }: { params: Promise<{ sto
               description="Needs store_admin. A list's settings cannot be changed afterwards in this contract version."
             />
             <CardBody>
-              <PriceListForm
-                storeId={storeId}
-                defaultCurrency={store.ok ? store.data.default_currency : 'EUR'}
-              />
+              {store.ok ? (
+                <PriceListForm storeId={storeId} defaultCurrency={store.data.default_currency} />
+              ) : (
+                <ApiStatePanel
+                  status={store.status}
+                  error={store.error}
+                  what="This store"
+                  storeId={storeId}
+                />
+              )}
             </CardBody>
           </Card>
         )}

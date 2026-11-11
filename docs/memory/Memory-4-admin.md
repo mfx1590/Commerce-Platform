@@ -557,6 +557,12 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#810 admin half (2026-11-11, Manager session twelve).** Branch `admin/phase6-810-currency` from main
+  b517a76d. The three `'EUR'` fallbacks (promotions/new:39, [promotionId]:82, price-lists:126) are
+  removed: a failed store read renders ApiStatePanel, with no money input. test/promotions-currency.test.tsx
+  (6 tests: JPY → "Amount in JPY, whole units" / Currency JPY; 503 → no form, no EUR); the failed-read
+  cases all fail on main's code. Unit tests 1029/1029. The core site (promotions.ts:316) is window 9's.
+  Next: PR "Refs #810", Opus review.
 - **#763 MERGED (2026-11-10)** = c9215997 on main (admin CSP, next 15.5.28, zod 4.6.7).
 - **#763 follow-ups (2026-11-10, Manager session twelve).** Branch `admin/phase6-security-followup`
   from origin/main c9215997. Code-only, no machine. **3baabc1d**: middleware.test pins the
