@@ -11,6 +11,10 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 - A setup step that fails before pass 1 (the stack, ClickHouse, the seed, fga:seed) no longer leaves an empty verdict
   and no weekly comment. The gate step runs unless the run was cancelled, and `slo-gate.mjs` renders a pass that
   never ran as `broken` ("this pass never ran: a setup step before it failed"), so the schedule still comments.
+- #813 review: pass 1 and pass 2 get their own `timeout-minutes` (35/20) inside the job's 75. A step that times
+  out fails and is judged; the job's own timeout cancels and is silent. A pass-1 breach with no pass 2 renders
+  "pass 2 never ran: its step failed or timed out". `github.event_name` and the verdict reach scripts via env too.
+  The self-test now refuses ANY `${{ }}` in any `run:` script (one-line, `|`, `|-`, `>`).
 
 ### Added (#785: admin-metrics latency in the scheduled k6 SLO regression)
 

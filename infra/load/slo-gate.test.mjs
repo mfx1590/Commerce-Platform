@@ -171,15 +171,52 @@ test('a setup step failed before pass 1: broken, rendered, so the schedule still
   // load.yml runs the gate after a failed step (not after a cancel), and passes no input into a shell script
   const yml = readFileSync(new URL('../../.github/workflows/load.yml', import.meta.url), 'utf8');
   assert.match(yml, /- name: the SLO verdict\n\s+id: gate\n\s+if: \$\{\{ !cancelled\(\) \}\}\n/);
-  for (const block of yml.split(/\n\s+- (?:name|uses):/)) {
-    const run = block.split(/\n\s+run: \|/)[1];
-    if (run)
-      assert.doesNotMatch(
-        run,
-        /\$\{\{\s*inputs\./,
-        `an input is interpolated into a script:${block.slice(0, 80)}`,
-      );
+  // Every `run:` script (one-line, `|`, `|-`, `>`), as the key's line plus every line indented deeper: NO `${{ }}`
+  // at all. Inputs, outputs and the event name reach a script through `env:`, as data (#813 review).
+  const lines = yml.split('\n');
+  let scripts = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^(\s*)(?:- )?run:(.*)$/);
+    if (!m) continue;
+    scripts++;
+    const indent = m[1].length;
+    const body = [m[2]];
+    for (let j = i + 1; j < lines.length; j++) {
+      if (lines[j].trim() === '') continue;
+      if (lines[j].match(/^\s*/)[0].length <= indent) break;
+      body.push(lines[j]);
+    }
+    assert.doesNotMatch(
+      body.join('\n'),
+      /\$\{\{/,
+      `load.yml:${i + 1}: a run: script interpolates \${{ }} (pass it through env:)`,
+    );
   }
+  assert.ok(scripts > 15, `the scan found only ${scripts} run: scripts`);
+  // the passes have their own timeouts inside the job's: a step timeout fails (judged), a job timeout cancels (silent)
+  assert.match(yml, /- name: pass 1 [^\n]*\n\s+timeout-minutes: \d+\n/);
+  assert.match(yml, /id: pass2\n\s+timeout-minutes: \d+\n/);
+
+  // pass 1 breached, pass 2's step failed before writing anything: broken, and the reason names pass 2
+  const out2 = mkdtempSync(join(tmpdir(), 'slo-gate-out-'));
+  const c2 = spawnSync(
+    process.execPath,
+    [
+      GATE,
+      'render',
+      out2,
+      'https://example.invalid/run/10',
+      runDir(99, { crossed: true }),
+      join(out2, 'pass2-never'),
+    ],
+    { encoding: 'utf8' },
+  );
+  assert.equal(c2.status, 0, c2.stderr);
+  assert.equal(readFileSync(join(out2, 'verdict.txt'), 'utf8').trim(), 'broken');
+  assert.match(
+    readFileSync(join(out2, 'tracking.md'), 'utf8'),
+    /pass 2 could not be judged: pass 2 never ran: its step failed or timed out/,
+  );
   assert.match(yml, /METRICS_MONTHS: \$\{\{ inputs\.metrics_months \|\| '1' \}\}/);
 });
 

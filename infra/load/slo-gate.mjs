@@ -171,7 +171,14 @@ function main([cmd, ...args]) {
   if (cmd === 'render') {
     const [out, runUrl, d1, d2] = args;
     const p1 = readPass(d1);
-    const p2 = d2 && existsSync(d2) ? readPass(d2) : undefined;
+    let p2 = d2 && existsSync(d2) ? readPass(d2) : undefined;
+    // pass 1 breached but there is no pass 2: the step that runs it failed or timed out. Say so, rather than a bare
+    // "could not be judged" with no pass named (#813 review).
+    if (p1.state === 'breach' && !p2)
+      p2 = {
+        state: 'broken',
+        reason: 'pass 2 never ran: its step failed or timed out (see the run log)',
+      };
     const seedFile = process.env.LOAD_CH_SEED;
     const seed =
       seedFile && existsSync(seedFile) ? JSON.parse(readFileSync(seedFile, 'utf8')) : undefined;
