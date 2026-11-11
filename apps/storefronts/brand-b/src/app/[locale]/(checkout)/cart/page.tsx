@@ -7,6 +7,7 @@ import { TotalsTable } from '@/components/order-summary';
 import { RecommendationRail } from '@/components/recommendation-rail';
 import { analyticsConsentMode } from '@/lib/analytics/recommendation-events';
 import { getCart } from '@/lib/cart';
+import { localizedPath } from '@/lib/seo';
 import { EMPTY_RECOMMENDATIONS, loadRecommendations } from '@/lib/recommendations';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -60,9 +61,11 @@ export default async function CartPage() {
 
       <div className="flex flex-col gap-6 sm:ml-auto sm:w-80">
         <TotalsTable totals={cart.totals} locale={locale} />
-        <Link href="/checkout" className={buttonVariants({ size: 'lg' })}>
+        {/* A plain anchor, not <Link> (#790): entering checkout is a full page load anyway (the
+            checkout zone has its own CSP, src/lib/csp-zone.ts), so a prefetch would be wasted. */}
+        <a href={localizedPath(locale, '/checkout')} className={buttonVariants({ size: 'lg' })}>
           {t('checkout')}
-        </Link>
+        </a>
         <Link href="/products" className="text-center text-sm underline">
           {tCommon('continueShopping')}
         </Link>

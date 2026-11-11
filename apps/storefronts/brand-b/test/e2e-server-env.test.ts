@@ -36,6 +36,13 @@ describe('e2eServerEnv', () => {
     expect(e2eServerEnv({ E2E_STORE_API_URL: CORE }).E2E_LOCAL_IMAGES).toBe('1');
   });
 
+  it('gives the recommendation rail a generous deadline, so the PDP shot is stable (#781)', () => {
+    expect(e2eServerEnv({}).RECOMMENDATIONS_TIMEOUT_MS).toBe('5000');
+    expect(e2eServerEnv({ RECOMMENDATIONS_TIMEOUT_MS: '300' }).RECOMMENDATIONS_TIMEOUT_MS).toBe(
+      '300',
+    );
+  });
+
   it('names the identity provider: a production build refuses its CSP without one (#783)', () => {
     expect(e2eServerEnv({}).KEYCLOAK_URL).toBe('http://localhost:8180');
     expect(e2eServerEnv({ KEYCLOAK_URL: '' }).KEYCLOAK_URL).toBe('http://localhost:8180');
