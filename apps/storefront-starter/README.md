@@ -782,8 +782,8 @@ answers `303` to Keycloak's `end_session` endpoint, and Chrome evaluates `form-a
 URL **after** redirects — with `'self'` alone it blocks the submission outright, the SSO session is
 never ended, and the customer is silently signed back in on their next visit. Nothing about the page
 looks wrong when this happens; it only shows up in the console and in the account e2e. **So in
-production a missing or malformed `KEYCLOAK_URL` fails the request** rather than falling back to a
-local default (as the admin does since #763). The e2e server, `pnpm perf` and `rail-timing` pass the
+production a missing or malformed `KEYCLOAK_URL` fails** rather than falling back to a
+local default (as the admin does since #763). Since #790 the **server refuses to start** (`src/instrumentation-node.ts`), so the container never turns healthy instead of answering 500 on every page behind a green `/health`. The e2e server, `pnpm perf` and `rail-timing` pass the
 local stack's value (`.env.example`); every deployment must set it.
 
 **Why the CSP is not in `next.config.mjs`.** It was, in task 2.2 — and `headers()` there is
@@ -798,7 +798,11 @@ not environment — and reaches the middleware as `CSP_FRAME_HOSTS` via `next.co
 
 **Every document response carries the policy.**
 
-- **Skipped by the middleware:** `/api/…`, `/auth/…`, `/health`, `/r/…` and Next's own `/_next/…` build output, as **whole path segments**. None of them renders a document. Before the #783 review the exclusions were unanchored, so `/authors`, `/apiary` and `/healthy` skipped the middleware and rendered a 404 with no policy. `test/middleware-matcher.test.ts` pins both lists.
+- **Skipped by the middleware:** only Next's own build output (`/_next/…`, `/_vercel/…`). `test/middleware-matcher.test.ts` checks this against the matcher exactly as Next compiles it.
+- **The route handlers are matched too, since #790.** Excluding `api`, `auth`, `r` and `health` left `/api/nope` or `/auth/x` rendering the locale 404 with no policy (and, before #783, `/authors` and `/healthy` too). Now `src/lib/route-handlers.ts` sorts them:
+  - a **real handler** (`/api/cms/*`, `/auth/*`, `/health`, `/r/<code>`) passes straight through, with the policy and no locale prefix;
+  - **any other path under those prefixes** gets a **plain-text 404**, with the policy;
+  - `test/route-handlers.test.ts` keeps the handler list equal to the `route.ts` files on disk.
 - **File paths are matched since #782** (they were excluded by extension), so a missing file's 404, which Next answers with its prerendered `/_not-found` page, and anything served from `public/` get the policy too. They skip the locale and attribution logic; the cost is one regex test, a nonce and a policy string per request.
 - **Behaviour changes in #782:**
   - an unknown `/<locale>/…` path now renders **the store's own localised 404** (the `[locale]/[...rest]` catch-all); before, it got Next's static default page;
@@ -989,6 +993,10 @@ Review every PNG before committing it.
 A failure means "the pixels changed", never "the design is wrong": the reviewer decides, and an accepted change is a re-taken, reviewed baseline.
 
 **Baselines per brand.** The starter commits none, because the brand sync copies every tracked starter file and a starter PNG would overwrite each brand's own. A brand takes its own with the command above.
+
+**A baseline belongs to one machine and one Chrome version** (#781 review). The zero-pixel jitter above is same machine, same build, same browser. Another laptop (fonts, GPU, display scaling), or a Chrome update, renders anti-aliasing differently and fails every full-page shot at 0.0001. That is not a regression: re-take and review the baselines on the machine that runs the suite, and note in the commit which Chrome version took them. The recommendation rail is kept deterministic by a generous `RECOMMENDATIONS_TIMEOUT_MS` in the e2e server environment (`scripts/e2e-env.mjs`), so a slow call cannot remove it from the PDP shot.
+
+**Untracked starter baselines.** `e2e/__screenshots__/` is not ignored in the starter on purpose. The starter's `.gitignore` is synced into every brand, where the same rule would silently stop `git add` from staging a brand's new baselines. Do not `git add` the starter's local PNGs.
 
 - **Synced into a brand:** `e2e/visual.spec.ts` (it replaces brand A's local copy, with the same full-page file names).
 - **Preserved per brand:** `playwright.config.ts` (where the brand's `snapshotPathTemplate` lives) and the brand's `e2e/__screenshots__/**` baselines, which the starter does not track.
