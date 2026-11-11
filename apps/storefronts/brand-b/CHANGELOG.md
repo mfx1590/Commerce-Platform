@@ -8,6 +8,10 @@
 - **`e2e/visual.spec.ts` takes its paths from the locale helper** and asserts each page is the page
   it means to shoot before taking any screenshot (#797, which this brand's re-sync filed). A 404 can
   no longer be baselined as a passing full-page shot.
+- **README bundle table re-synced from this PR's own legs.** #793 costs this brand **0.1 kB** on
+  two routes (`account` 136.8 → 136.7, `checkout/review` 135.7 → 135.6 — both _down_); the other
+  17 rows are unchanged. The legs report `bundle budget PASS` either way, since that check compares
+  routes and budgets rather than sizes.
 - **CSP e2e: 6 passed**, up from 3 passed / 1 skipped. The account/Keycloak test now **runs** rather
   than skipping — the shared stack's host ports were dead on 2026-11-10 and came back after the
   owner's Docker restart — and #790's two new cases are covered: back and forward across the

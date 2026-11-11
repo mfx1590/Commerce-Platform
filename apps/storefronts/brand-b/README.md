@@ -169,12 +169,12 @@ which is how brand B's first perf leg went red (#442) even though every route wa
 | --------------------------------------------- | -------------------- | ------------------ |
 | `/[locale]/(account)/account/deleted/page`    | 131.4 kB             | 145 kB _(default)_ |
 | `/[locale]/(account)/account/orders/page`     | 131.4 kB             | 145 kB _(default)_ |
-| `/[locale]/(account)/account/page`            | 136.8 kB             | 145 kB _(default)_ |
+| `/[locale]/(account)/account/page`            | 136.7 kB             | 145 kB _(default)_ |
 | `/[locale]/(checkout)/cart/page`              | 141.9 kB             | 145 kB             |
 | `/[locale]/(checkout)/checkout/address/page`  | 134.6 kB             | 139 kB             |
 | `/[locale]/(checkout)/checkout/page`          | 130.2 kB             | 145 kB _(default)_ |
 | `/[locale]/(checkout)/checkout/payment/page`  | 134.6 kB             | 145 kB _(default)_ |
-| `/[locale]/(checkout)/checkout/review/page`   | 135.7 kB             | 139 kB             |
+| `/[locale]/(checkout)/checkout/review/page`   | 135.6 kB             | 139 kB             |
 | `/[locale]/(checkout)/checkout/shipping/page` | 134.6 kB             | 145 kB _(default)_ |
 | `/[locale]/(checkout)/orders/[orderId]/page`  | 131.4 kB             | 145 kB _(default)_ |
 | `/[locale]/(content)/campaign/[slug]/page`    | 133.7 kB             | 145 kB _(default)_ |

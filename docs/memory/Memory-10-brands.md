@@ -410,6 +410,57 @@ branch), dropping versions from the manifest (`--check`'s drift report needs the
 `bump-starter-dep.mjs` as the primary path — **a script of mine cannot make a starter edit legal**;
 bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
+## In progress — the #793 re-sync + brand C's first baselines (2026-11-11)
+
+**PR #807**, head/code **`ef4b18ec`**, branch `brands/phase6-resync-793` from `origin/main`
+`39ef9399`. Verdict **MERGE once green**. Machine used and freed. Owed: the README bundle tables
+from this PR's own legs, **in the same commit as this Memory-10 entry** (the manager's requirement:
+the memory record must not trail the PR).
+
+- `route-handlers.ts` + tests, the `KEYCLOAK_URL` boot check, `ZoneBoundary` without
+  `stopPropagation`, the zone-aware cart link. 249/1/10/4 per brand, `sync --check` clean, no
+  dependency moved.
+- **CSP e2e 6 passed per brand**, up from 3 passed / 1 skipped: the account/Keycloak test runs now
+  the stack's host ports are back after the owner's Docker restart, plus #790's two cases.
+- **Brand C has all eight baselines at last** — #797 is fixed in the starter and #793 makes the spec
+  assert each page is the right page before shooting, so the "404 screenshots pass because a 404 is
+  stable" failure is closed, not merely avoided. A and B unchanged; nothing re-baselined.
+- **Brand C's baselines show `€` prices under a USD footer.** The mock serves this brand's STORE over
+  the CONTRACT's catalogue (EUR-priced). It is the mock, not the brand — but it means those
+  baselines **cannot guard currency formatting**. Recorded in brand C's README and CHANGELOG. The
+  manager has offered a machine slot to overlay the catalogue currency and re-take; I asked first,
+  because `overlayStoreExample` only replaces the single `getStore` example and a catalogue-wide
+  substitution is a different, blunter change.
+- `fga:seed` after the Docker restart reported **"0 written, 14 already present"** — not empty from
+  this worktree, whatever it looked like elsewhere. It did write a new model and update this
+  worktree's `.env` ids.
+
+### Brand D (D8) — proposed by me, DECIDED by the manager 2026-11-11, not started
+
+**Japan: JPY, ja-JP, ship JP**, with the font decision taken up front — **system font stack for the
+proving run**, CJK subsetting becomes its own issue. The reason for Japan is the one path no seeded
+brand touches: **JPY is zero-decimal**, so ¥1,980 is **1980** minor units where every brand so far
+has two decimals. Acceptance item named by the manager: *¥1,980 = 1980 minor units end to end —
+price, cart, order, the Stripe amount in test mode, the ledger.*
+
+- **The clock starts when window 4 opens the wizard**, not at my generator run.
+- **No customers-realm reimport**: a reimport DELETES the realm first (shared state, the owner's
+  call). Window 5 adds brand D's client **additively** through the Keycloak admin API, scripted and
+  idempotent, and also writes it into the realm file so a later reimport keeps it. **My proposal was
+  wrong on this point** — I treated the reimport as the normal path because that is what
+  ONBOARDING-GAPS §6 says; it is the destructive one.
+- Owner items: the brand **name** and the **legal set**. The dev-stack run uses a clearly marked
+  placeholder name and the generator's lawyer-required stubs; LAUNCH.md row 0.1 stays open.
+- Order: window 4 (wizard: legal entity, store, key, activation) → window 5 (Keycloak client) → me
+  (`new-brand.mjs` against the store's REAL code/currency/locales) → identity, content, gate → window
+  5 (Dockerfile, bake target, helm values; `check-image-manifests.sh` stays quiet until the
+  Dockerfile exists and then requires the bake target).
+- Already checked and NOT a blocker: `cms/test/datasets.test.ts` has been a **superset** check since
+  #521, so a wizard-created brand that is not in the seed does not break it.
+- **Do not start.** The manager sequences it after #807 merges and after window 4's pre-flight list
+  exists (referenced in Memory-4, present in no pushed ref), and will send one start message to 4, 5
+  and me together.
+
 ## In progress — the #781 + #783 re-sync (machine used 2026-11-10)
 
 **PR #800** — code `13ea828c`, then the owed commit below. Branch `brands/phase6-resync-781-783`
