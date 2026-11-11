@@ -1,5 +1,20 @@
 # Changelog — @platform/storefront-starter
 
+## 0.16.1 — 2026-11-10 (window 3, #790: CSP follow-ups)
+
+- **Every response carries the policy.** The middleware matches everything but `/_next` and `/_vercel`. `src/lib/route-handlers.ts` passes the real route handlers through and answers any other path under `/api`, `/auth`, `/r` or `/health` with a plain-text 404 (they used to render the locale 404 with no policy). `test/route-handlers.test.ts` keeps the handler list equal to the disk. `test/middleware-matcher.test.ts` now tests the matcher as Next compiles it (`getMiddlewareMatchers`).
+- **A production server without a usable `KEYCLOAK_URL` refuses to start** (`src/instrumentation-node.ts`): no more "every page 500, `/health` green". Skipped during `next build`.
+- **`ZoneBoundary` no longer stops propagation.** `preventDefault` alone stops Next's `<Link>`, and a link's own `onClick` (e.g. analytics) still runs. No cross-zone link has one today. The cart's "Checkout" is a plain anchor (no wasted prefetch of a page that is always a full load).
+- **`e2e/csp.spec.ts`:**
+  - the Payment Element is checked on the **review** step, where it mounts (core + Stripe TEST key runs); `SCRIPTS.md` corrected;
+  - new: back and forward across the checkout boundary land on each zone's own document;
+  - new: handler-prefix paths answer a plain-text 404 with the policy, and `/health` stays 200.
+- **Visual suite, REQUEST #797:** the three pages use the app's own default locale (`e2e/support/locale.ts`), not a hard-coded `/en-GB`. Brand C (en-US only) was screenshotting its 404 page, and the full-page shot passed because a 404 is perfectly stable. Before any screenshot each page must answer **200** and show its own content (home: its h1; PLP: a product card; PDP: the add-to-cart form), so a stable wrong page can never baseline again.
+- **Visual suite (#781 review):**
+  - the e2e server gives the recommendation rail a 5 s deadline, so a slow call cannot remove it from the PDP shot;
+  - the README says a baseline belongs to one machine and Chrome version;
+  - the README explains why the starter does not gitignore `e2e/__screenshots__` (its `.gitignore` is synced into the brands).
+
 ## 0.16.0 — 2026-11-10 (window 3, #782: nonce-based CSP)
 
 - **`script-src` is a per-request nonce plus `'strict-dynamic'`**, with no `'unsafe-inline'` and no `'unsafe-eval'` in production. `base-uri 'none'`. The middleware forwards the nonce to Next, which stamps its scripts. No route changed rendering mode: the build prerenders only `/_not-found`, and every `[locale]` document was already dynamic.
