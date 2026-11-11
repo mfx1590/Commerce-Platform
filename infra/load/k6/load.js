@@ -6,11 +6,15 @@
 // failed requests and placements < 0.1%.
 // Rates and duration are overridable (BROWSE_RPS, ORDERS_PER_MIN, DURATION) for a short smoke run.
 import { browseOnce, discover, placeOnce, routeThresholds, summary, TREND_STATS } from './lib.js';
+import { metricsOnce, metricsSetup } from './metrics.js';
 import { SLO } from './slo-thresholds.js';
 
 const DURATION = __ENV.DURATION || '10m';
 const BROWSE_RPS = Number(__ENV.BROWSE_RPS || 50);
 const ORDERS_PER_MIN = Number(__ENV.ORDERS_PER_MIN || 30);
+// #785: the admin-metrics leg (k6/metrics.js), only when the workflow has seeded ClickHouse and set LOAD_METRICS=1.
+const METRICS = __ENV.LOAD_METRICS === '1';
+const METRICS_RPS = Number(__ENV.METRICS_RPS || 2);
 
 export const options = {
   summaryTrendStats: TREND_STATS,
@@ -33,6 +37,19 @@ export const options = {
       preAllocatedVUs: 10,
       maxVUs: 100,
     },
+    ...(METRICS
+      ? {
+          metrics: {
+            executor: 'constant-arrival-rate',
+            exec: 'metrics',
+            rate: METRICS_RPS,
+            timeUnit: '1s',
+            duration: DURATION,
+            preAllocatedVUs: 4,
+            maxVUs: 20,
+          },
+        }
+      : {}),
   },
   thresholds: {
     ...routeThresholds(),
@@ -43,13 +60,16 @@ export const options = {
 };
 
 export function setup() {
-  return discover();
+  return { ...discover(), metrics: METRICS ? metricsSetup() : null };
 }
 export function browse(ctx) {
   browseOnce(ctx);
 }
 export function place(ctx) {
   placeOnce(ctx);
+}
+export function metrics(ctx) {
+  metricsOnce(ctx.metrics);
 }
 export function handleSummary(data) {
   return summary(data, 'load');

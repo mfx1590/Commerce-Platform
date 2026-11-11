@@ -4,6 +4,19 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 6
 
+### Added (#785: admin-metrics latency in the scheduled k6 SLO regression)
+
+- `k6/metrics.js`: 2 req/s against `GET /admin/metrics` and `POST /admin/metrics/query`, as the staff realm's dev
+  `analyst`. A real JWT plus the core's OpenFGA check, so the production auth path; re-granted before expiry. The
+  gates are p95 < 300 ms on both tags (`slo-thresholds.js`: `adminMetricsP95Ms`, with the self-test against
+  admin-metrics-latency); **small data: a lower bound**. The zero-requests rule covers both tags.
+- `infra/load/ch-seed.mjs`: the generated month into ClickHouse `raw_events` through the ingest's public classify and
+  sink. Its event count per store sits next to the gate in the summary.
+- `load.yml` adds the compose ClickHouse, `ch:migrate`, the seed (`metrics_months`, default 1), `fga:seed`, and the
+  dev password, read from the realm file and masked. The ClickHouse passwords come from `openssl rand`, masked.
+- `.github/dependabot.yml`: `sanity` and `@sanity/vision` majors join the "UNTIL THE NODE 22 MOVE" block (Sanity 6 needs
+  Node >= 22.12; #796, #799).
+
 ### Changed (#758: the starter's packages are back in Dependabot)
 
 - `.github/dependabot.yml`: the 19 starter-package ignores are removed. Since #789 the brands' sync-merge tests accept
