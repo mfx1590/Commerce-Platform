@@ -41,7 +41,7 @@
     "express": "^4.22.3",
     "ioredis": "5.11.1",
     "pg": "^8.23.1",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@platform/accounting": "workspace:*",

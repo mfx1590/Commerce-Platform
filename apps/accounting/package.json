@@ -34,7 +34,7 @@
     "@platform/db": "workspace:*",
     "@platform/events": "workspace:*",
     "@platform/auth-sdk": "workspace:*",
-    "yaml": "^2.9.0",
+    "yaml": "^2.9.1",
     "@platform/contracts": "workspace:*"
   },
   "devDependencies": {
