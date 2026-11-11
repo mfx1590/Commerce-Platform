@@ -122,6 +122,13 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
+- **Brand D prep: add-brand-client (2026-11-11), branch integration/brand-d-keycloak (manager approved option a; window 2 named as owner) from main 61ed4d4f.**
+  Ownership question to the manager: infra/keycloak/** is window 2's row (my infra/** also matches); I recommended
+  an integration/ branch. ONBOARDING-GAPS §6 is window 10's; corrected text sent to the manager to route.
+  The template regenerates A/B/C byte-exactly. Files written via 2-space stringify + prettier (byte-stable).
+  derive-production needs a profile entry for every client, so the script adds one.
+  CI: unit tests plus a live create/idempotent/drift step at the END of the e2e job (its own Keycloak, brand-zz:3199).
+  NOT run against the shared stack: that is part of the timed brand D run.
 - **Load PR: run.exit (2026-11-11), branch infra/phase6-load-run-exit from main 3f1481fe (#813 merged).**
   run.sh's EXIT trap writes run.exit; readPass treats a non-zero or missing run.exit as broken (k6 checks first).
   32 load tests; both halves are mutation-checked. Proof: a fixture-level render in the PR body, plus both dispatch

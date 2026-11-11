@@ -111,7 +111,28 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
   `http://localhost:<port>/*` locally and exactly `https://shop.<env>.example.com/` on dev/staging — the
   storefront's sign-out sends `<origin>/`. **Rule for anything that is not localhost: `https`, the exact
   callback URL, no wildcard anywhere.** A new environment or brand host is a new exact entry here, never a
-  pattern. After editing: `node infra/keycloak/reimport.mjs customers`.
+  pattern.
+
+  **A new brand's client: `node infra/keycloak/add-brand-client.mjs <code>` (wave 3), never a reimport.** Every
+  `storefront-<code>` client comes from ONE template, `brand-client.mjs`. The three above are exactly its output
+  (`brand-client.test.mjs` fails otherwise), so a change to how a brand client looks is made there. The script:
+  - POSTs the client into the LIVE realm through the admin API if it is missing, and links any scope Keycloak did
+    not, on that client only. It never PUTs or DELETEs, and no other client, user or session is touched.
+  - If the client exists, compares it with the template and reports drift (exit 3) without changing it.
+  - Adds the client to this file and its entry to `production/production-profile.json` (default origin
+    `https://shop-<letter>.example.com`, the placeholder pattern; set the real domain there), so an import keeps it.
+
+  - Works on the live realm FIRST, then the files, so a live failure leaves the checkout clean. After writing the
+    files it re-derives `production/customers-realm.json` (`derive-production.mjs customers`).
+  - `openid` stays in the representation but is never linked or compared: Keycloak has no client scope by that name
+    (it is the OIDC protocol scope). Every other template scope must exist in the realm before anything is created.
+  - A profile entry that differs from the placeholder (a deployed brand's real domain) is a note, not drift.
+
+  **One manual edit in the same PR:** `packages/auth-sdk/test/production-realms.test.ts` pins the production
+  storefront client list; the script prints the line to add. The port defaults to the brand app's `dev --port`.
+  `--dry-run` prints every request and change and sends nothing.
+  `reimport.mjs customers` deletes the realm first (every shopper and session in it): an owner-approved last resort,
+  not the way to add a brand.
 
 - `test-cli` (dev/CI only) as above — it also stamps `store_code=brand-a` so `verifyCustomerToken` has a live positive path in tests.
 - Social login: `google` identity provider present but **disabled**; its client id/secret come from the
