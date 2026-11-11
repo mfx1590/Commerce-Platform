@@ -112,10 +112,14 @@ jobs:
       - name: build the packages the seed imports (the ingest and the generated month)
         run: pnpm turbo run build --filter=@platform/analytics-ingest... --filter=@platform/test-utils...
       - name: ClickHouse schema, models and users (ch:migrate), then one generated month per metrics_months
+        # The input reaches the shell as data (env), never interpolated into the script; ch-seed.mjs refuses
+        # anything but an integer 1-12 (#801 review).
+        env:
+          METRICS_MONTHS: ${{ inputs.metrics_months || '1' }}
         run: |
           pnpm --filter @platform/analytics-ingest ch:migrate
           mkdir -p "$RUNNER_TEMP/load"
-          node infra/load/ch-seed.mjs "$LOAD_CH_SEED" "${{ inputs.metrics_months || '1' }}"
+          node infra/load/ch-seed.mjs "$LOAD_CH_SEED" "$METRICS_MONTHS"
           echo "METRICS_LAST_DAY=$(node -p 'require(process.argv[1]).lastDay' "$LOAD_CH_SEED")" >> "$GITHUB_ENV"
       # As CI's live job does: without OPENFGA_STORE_ID the core refuses every real staff token. fga:seed writes the ids
       # to .env; they go to the job env so the core run.sh starts sees them.
@@ -135,7 +139,10 @@ jobs:
           pw="$(node -p 'require("./infra/keycloak/staff-realm.json").users.find((u) => u.username === process.env.METRICS_STAFF_USER).credentials.find((c) => c.type === "password").value')"
           echo "::add-mask::$pw"
           echo "METRICS_STAFF_PASSWORD=$pw" >> "$GITHUB_ENV"
+      # Step timeouts inside the job's 75: a step that times out FAILS (the gate still renders broken and the schedule
+      # still comments), whereas the job's own timeout cancels the run, and a cancelled run says nothing (#813 review).
       - name: pass 1 (the target run, and the ramps when asked for) and report
+        timeout-minutes: 35
         env:
           LOAD_SKIP_POOL: ${{ (github.event_name == 'schedule' || inputs.skip_ramps) && '1' || '' }}
           LOAD_SKIP_CEILING: ${{ (github.event_name == 'schedule' || inputs.skip_ramps) && '1' || '' }}
@@ -144,6 +151,7 @@ jobs:
       # core and database) crosses one too. render prints "the retry fired" whenever pass 2 was needed.
       - name: pass 2, only when pass 1 crossed an SLO gate
         id: pass2
+        timeout-minutes: 20
         run: |
           set +e
           node infra/load/slo-gate.mjs verdict "$RUNNER_TEMP/load/pass1"
@@ -155,8 +163,13 @@ jobs:
           if [ "$rc" -eq 1 ]; then
             LOAD_SKIP_POOL=1 LOAD_SKIP_CEILING=1 bash infra/load/run.sh "$RUNNER_TEMP/load/pass2"
           fi
+      # Also after a failed step (the stack, ClickHouse, the seed, fga:seed, a pass that failed or timed out): the gate
+      # then renders `broken` with the reason ("this pass never ran", "pass 2 never ran", k6's exit), so a scheduled
+      # run still posts its weekly comment instead of an empty verdict and silence (#801 review). Not on a cancel (or
+      # the job's own timeout, which GitHub treats as one): a cancelled run says nothing.
       - name: the SLO verdict
         id: gate
+        if: ${{ !cancelled() }}
         run: |
           node infra/load/slo-gate.mjs render "$RUNNER_TEMP/load/slo" \
             "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
@@ -164,9 +177,12 @@ jobs:
           echo "verdict=$(cat "$RUNNER_TEMP/load/slo/verdict.txt")" >> "$GITHUB_OUTPUT"
       - name: report to the job summary
         if: always()
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          VERDICT: ${{ steps.gate.outputs.verdict }}
         run: |
           if [ -f "$RUNNER_TEMP/load/slo/tracking.md" ]; then cat "$RUNNER_TEMP/load/slo/tracking.md" >> "$GITHUB_STEP_SUMMARY"; fi
-          if [ "${{ github.event_name }}" != schedule ] && [ "${{ steps.gate.outputs.verdict }}" = breach ]; then
+          if [ "$EVENT_NAME" != schedule ] && [ "$VERDICT" = breach ]; then
             {
               echo
               echo "#### DRY RUN: the regression issue a scheduled run would open or update"
@@ -194,8 +210,10 @@ jobs:
       # infrastructure: a pass could not be judged (k6 crashed, an SLO route saw no requests), so no regression issue.
       - name: a confirmed breach, or a pass that could not be judged, fails the run
         if: steps.gate.outputs.verdict == 'breach' || steps.gate.outputs.verdict == 'broken'
+        env:
+          VERDICT: ${{ steps.gate.outputs.verdict }}
         run: |
-          if [ "${{ steps.gate.outputs.verdict }}" = breach ]; then
+          if [ "$VERDICT" = breach ]; then
             echo "both passes crossed an SLO gate: see the job summary"
           else
             echo "infrastructure, not a regression: a pass could not be judged (see the job summary); no regression issue"

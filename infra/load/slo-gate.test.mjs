@@ -148,6 +148,78 @@ test('(breach, then pass 2 crashes) is broken: infrastructure, never green, neve
   );
 });
 
+test('a setup step failed before pass 1: broken, rendered, so the schedule still comments (#801 review)', () => {
+  const never = join(mkdtempSync(join(tmpdir(), 'slo-gate-')), 'pass1'); // run.sh never created it
+  const p1 = readPass(never);
+  assert.equal(p1.state, 'broken');
+  assert.match(p1.reason, /never ran: a setup step before it failed/);
+  const r = render({ runUrl: 'https://example.invalid/run/8', date: '2026-11-16', p1 });
+  assert.equal(r.verdict, 'broken');
+  assert.match(r.tracking, /infrastructure, not a regression/);
+  assert.match(r.tracking, /pass 1 could not be judged: this pass never ran/);
+  // the CLI renders it too (verdict.txt is what the issues job's `verdict != ''` reads)
+  const out = mkdtempSync(join(tmpdir(), 'slo-gate-out-'));
+  const c = spawnSync(
+    process.execPath,
+    [GATE, 'render', out, 'https://example.invalid/run/9', never],
+    {
+      encoding: 'utf8',
+    },
+  );
+  assert.equal(c.status, 0, c.stderr);
+  assert.equal(readFileSync(join(out, 'verdict.txt'), 'utf8').trim(), 'broken');
+  // load.yml runs the gate after a failed step (not after a cancel), and passes no input into a shell script
+  const yml = readFileSync(new URL('../../.github/workflows/load.yml', import.meta.url), 'utf8');
+  assert.match(yml, /- name: the SLO verdict\n\s+id: gate\n\s+if: \$\{\{ !cancelled\(\) \}\}\n/);
+  // Every `run:` script (one-line, `|`, `|-`, `>`), as the key's line plus every line indented deeper: NO `${{ }}`
+  // at all. Inputs, outputs and the event name reach a script through `env:`, as data (#813 review).
+  const lines = yml.split('\n');
+  let scripts = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^(\s*)(?:- )?run:(.*)$/);
+    if (!m) continue;
+    scripts++;
+    const indent = m[1].length;
+    const body = [m[2]];
+    for (let j = i + 1; j < lines.length; j++) {
+      if (lines[j].trim() === '') continue;
+      if (lines[j].match(/^\s*/)[0].length <= indent) break;
+      body.push(lines[j]);
+    }
+    assert.doesNotMatch(
+      body.join('\n'),
+      /\$\{\{/,
+      `load.yml:${i + 1}: a run: script interpolates \${{ }} (pass it through env:)`,
+    );
+  }
+  assert.ok(scripts > 15, `the scan found only ${scripts} run: scripts`);
+  // the passes have their own timeouts inside the job's: a step timeout fails (judged), a job timeout cancels (silent)
+  assert.match(yml, /- name: pass 1 [^\n]*\n\s+timeout-minutes: \d+\n/);
+  assert.match(yml, /id: pass2\n\s+timeout-minutes: \d+\n/);
+
+  // pass 1 breached, pass 2's step failed before writing anything: broken, and the reason names pass 2
+  const out2 = mkdtempSync(join(tmpdir(), 'slo-gate-out-'));
+  const c2 = spawnSync(
+    process.execPath,
+    [
+      GATE,
+      'render',
+      out2,
+      'https://example.invalid/run/10',
+      runDir(99, { crossed: true }),
+      join(out2, 'pass2-never'),
+    ],
+    { encoding: 'utf8' },
+  );
+  assert.equal(c2.status, 0, c2.stderr);
+  assert.equal(readFileSync(join(out2, 'verdict.txt'), 'utf8').trim(), 'broken');
+  assert.match(
+    readFileSync(join(out2, 'tracking.md'), 'utf8'),
+    /pass 2 could not be judged: pass 2 never ran: its step failed or timed out/,
+  );
+  assert.match(yml, /METRICS_MONTHS: \$\{\{ inputs\.metrics_months \|\| '1' \}\}/);
+});
+
 test('an SLO route with no requests is broken, not a vacuous pass (a threshold on an absent tag passes)', () => {
   const dir = runDir(0);
   const f = join(dir, 'load-summary.json');
