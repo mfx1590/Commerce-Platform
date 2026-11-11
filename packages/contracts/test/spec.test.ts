@@ -245,7 +245,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.27/);
+    expect(text).toMatch(/version: 0\.4\.28/);
     for (const tag of [
       'registry',
       'catalog',
@@ -976,7 +976,7 @@ describe('report operations (contracts 0.4.22, Admin API 0.4.19, #493)', () => {
 
   it('the four reads exist under the reports tag with their x-permission, responses and examples', () => {
     expect(text).toMatch(/\n {2}- name: search\n {2}- name: reports\n/);
-    expect(ops.length).toBe(140); // +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); 128 at 0.4.19; +listCustomerExports / getCustomerExport at 0.4.20 (#498); +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +listMetrics / queryMetrics at 0.4.25 (#603)
+    expect(ops.length).toBe(141); // +updateShippingOption at 0.4.28 (#811); +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); 128 at 0.4.19; +listCustomerExports / getCustomerExport at 0.4.20 (#498); +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +listMetrics / queryMetrics at 0.4.25 (#603)
     const expected: Record<string, { path: string; perm: [string, string]; codes: string[] }> = {
       getStoreSalesReport: {
         path: '/admin/stores/{storeId}/reports/sales',
@@ -1110,7 +1110,7 @@ describe('customer exports (contracts 0.4.23, Store API 0.5.8, Admin API 0.4.20,
   });
 
   it('listCustomerExports / getCustomerExport at store_admin; listCustomerConsents documents 400 (#496)', () => {
-    expect(adminOps.length).toBe(140); // +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +listMetrics / queryMetrics at 0.4.25 (#603)
+    expect(adminOps.length).toBe(141); // +updateShippingOption at 0.4.28 (#811); +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +listMetrics / queryMetrics at 0.4.25 (#603)
     expect(admin).toMatch(
       /\n {2}\/admin\/stores\/\{storeId\}\/customers\/\{customerId\}\/exports:\n/,
     );
@@ -1159,9 +1159,9 @@ describe('customer identity (contracts 0.4.24, Admin API 0.4.21, #504)', () => {
       .slice(1);
 
   it('getCustomerIdentity: HQ-only (support on organization:hq), ids only, 401 / 403 / 404', () => {
-    expect(admin).toMatch(/^ {2}version: 0\.4\.27$/m);
+    expect(admin).toMatch(/^ {2}version: 0\.4\.28$/m);
     expect(store).toMatch(/^ {2}version: 0\.5\.10$/m); // 0.5.10 (#744) changed no customer-identity path
-    expect(adminOps.length).toBe(140); // +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); 130 at 0.4.20; +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +2 metrics operations at 0.4.25 (#603)
+    expect(adminOps.length).toBe(141); // +updateShippingOption at 0.4.28 (#811); +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); 130 at 0.4.20; +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +2 metrics operations at 0.4.25 (#603)
     const start = admin.indexOf('\n  /admin/customer-identities/{identityId}:\n');
     expect(start).toBeGreaterThan(0);
     // next to /admin/users
@@ -1202,7 +1202,7 @@ describe('customer identity (contracts 0.4.24, Admin API 0.4.21, #504)', () => {
 describe('segment consent never_asked (contracts 0.4.25, Admin API 0.4.22, #508 / #491)', () => {
   const admin = readFileSync(resolve(here, '../openapi/admin-api.yaml'), 'utf8');
   it('the SegmentPredicate consent op gains never_asked; granted and not_granted stay', () => {
-    expect(admin).toMatch(/^ {2}version: 0\.4\.27$/m);
+    expect(admin).toMatch(/^ {2}version: 0\.4\.28$/m);
     expect(admin).toMatch(/op: \{ type: string, enum: \[granted, not_granted, never_asked\] \}/);
   });
 });
@@ -1220,9 +1220,9 @@ describe('store tax rates (contracts 0.4.26, Admin API 0.4.23, #522 / #520)', ()
     admin.slice(admin.indexOf(`\n  ${path}:\n`), admin.indexOf(`\n  ${next}:\n`));
 
   it('the four operations on their paths, after the sales channels, with their x-permission and codes', () => {
-    expect(admin).toMatch(/^ {2}version: 0\.4\.27$/m);
+    expect(admin).toMatch(/^ {2}version: 0\.4\.28$/m);
     expect(store).toMatch(/^ {2}version: 0\.5\.10$/m); // 0.5.10 (#744) changed no tax-rate path
-    expect(adminOps.length).toBe(140); // +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); 131 at 0.4.22; +listTaxRates / createTaxRate / updateTaxRate / deleteTaxRate; +listMetrics / queryMetrics at 0.4.25 (#603)
+    expect(adminOps.length).toBe(141); // +updateShippingOption at 0.4.28 (#811); +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); 131 at 0.4.22; +listTaxRates / createTaxRate / updateTaxRate / deleteTaxRate; +listMetrics / queryMetrics at 0.4.25 (#603)
     const list = admin.indexOf('\n  /admin/stores/{storeId}/tax-rates:\n');
     expect(list).toBeGreaterThan(admin.indexOf('\n  /admin/stores/{storeId}/sales-channels:\n'));
     expect(list).toBeLessThan(admin.indexOf('\n  /admin/stores/{storeId}/api-keys:\n'));
@@ -1297,7 +1297,9 @@ describe('store tax rates (contracts 0.4.26, Admin API 0.4.23, #522 / #520)', ()
       admin.indexOf('\n    ActivationBlocked:\n'),
       admin.indexOf('\n    InvalidSettings:\n'),
     );
-    expect(blocked).toMatch(/missing: \[primary_domain, publishable_key, tax_rates\]/);
+    expect(blocked).toMatch(
+      /missing: \[primary_domain, publishable_key, tax_rates, shipping_options\]/,
+    );
     expect(blocked).toMatch(/missing_tax_countries: \[BE, DE\]/);
   });
 });
