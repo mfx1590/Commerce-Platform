@@ -1,9 +1,18 @@
-name: load (manual)
+name: load
 
-# The #359 load test on a GitHub-hosted runner: infra/load/run.sh, the same script the laptop runs.
-# workflow_dispatch ONLY — never on a pull request or a push. A 15-minute run that measures a machine is
-# not a check: it would turn every PR's CI into a benchmark of whichever runner it landed on.
+# The #359 load test on a GitHub-hosted runner: infra/load/run.sh, the same script the laptop runs. Never on a pull
+# request or a push: a 15-minute run that measures a machine is not a check, it would turn every PR's CI into a
+# benchmark of whichever runner it landed on.
+#
+# Two triggers:
+# - workflow_dispatch: a measurement by hand (inputs below).
+# - schedule, weekly: the SLO regression (plan wave 3). The target run only (the ramps are measurements, not
+#   gates), gated on the SLOs: infra/load/k6/slo-thresholds.js, kept equal to infra/observability/rules/slo.mjs by a
+#   self-test. A breach counts only if a second pass breaches too. A scheduled run comments on the tracking issue,
+#   and a confirmed breach opens or updates ONE regression issue. A manual run only PRINTS those texts (a dry run).
 on:
+  schedule:
+    - cron: '0 4 * * 1' # Monday 04:00 UTC
   workflow_dispatch:
     inputs:
       duration:
@@ -19,6 +28,9 @@ on:
         description: 'skip the two ramps (the app-pool knee and the placement ceiling): the target run only'
         type: boolean
         default: false
+      threshold_factor:
+        description: 'scale the SLO latency gates (1 = the SLOs; e.g. 0.05 forces a breach to show the retry and the issue text, as a dry run)'
+        default: '1'
 
 permissions:
   contents: read
@@ -32,11 +44,23 @@ env:
 
 jobs:
   load:
-    name: load (manual)
+    name: load (${{ github.event_name == 'schedule' && 'scheduled SLO regression' || 'manual' }})
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
+    outputs:
+      verdict: ${{ steps.gate.outputs.verdict }}
+    env:
+      # The schedule has no inputs: the owner's target, the target run only, the SLOs unscaled.
+      DURATION: ${{ inputs.duration || '10m' }}
+      BROWSE_RPS: ${{ inputs.browse_rps || '50' }}
+      ORDERS_PER_MIN: ${{ inputs.orders_per_min || '30' }}
+      LOAD_THRESHOLD_FACTOR: ${{ inputs.threshold_factor || '1' }}
     steps:
       - uses: actions/checkout@v7
+      # A typo must fail here, not gate on NaN for 15 minutes (slo-thresholds.js refuses it too).
+      - name: threshold_factor is a number > 0
+        run: |
+          node -e 'const f = Number(process.argv[1]); if (!(Number.isFinite(f) && f > 0)) { console.error(`threshold_factor must be a number > 0, got "${process.argv[1]}"`); process.exit(1); }' "$LOAD_THRESHOLD_FACTOR"
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
@@ -49,25 +73,106 @@ jobs:
         run: docker compose -f infra/docker/docker-compose.yml up -d postgres redis keycloak openfga
       - name: the stack is really up
         run: bash infra/ci/wait-for-auth-stack.sh
-      - name: load run (target, the app-pool knee, the placement ceiling) and report
+      - name: pass 1 (the target run, and the ramps when asked for) and report
         env:
-          DURATION: ${{ inputs.duration }}
-          BROWSE_RPS: ${{ inputs.browse_rps }}
-          ORDERS_PER_MIN: ${{ inputs.orders_per_min }}
-          LOAD_SKIP_POOL: ${{ inputs.skip_ramps && '1' || '' }}
-          LOAD_SKIP_CEILING: ${{ inputs.skip_ramps && '1' || '' }}
-        run: bash infra/load/run.sh "$RUNNER_TEMP/load"
+          LOAD_SKIP_POOL: ${{ (github.event_name == 'schedule' || inputs.skip_ramps) && '1' || '' }}
+          LOAD_SKIP_CEILING: ${{ (github.event_name == 'schedule' || inputs.skip_ramps) && '1' || '' }}
+        run: bash infra/load/run.sh "$RUNNER_TEMP/load/pass1"
+      # The retry-once rule: runner noise is real, so a crossed gate counts only when a second, fresh pass (its own
+      # core and database) crosses one too. render prints "the retry fired" whenever pass 2 was needed.
+      - name: pass 2, only when pass 1 crossed an SLO gate
+        id: pass2
+        run: |
+          set +e
+          node infra/load/slo-gate.mjs verdict "$RUNNER_TEMP/load/pass1"
+          rc=$?
+          set -e
+          if [ "$rc" -eq 2 ]; then echo "pass 1 broke before k6 could judge it"; exit 1; fi
+          if [ "$rc" -eq 1 ]; then
+            LOAD_SKIP_POOL=1 LOAD_SKIP_CEILING=1 bash infra/load/run.sh "$RUNNER_TEMP/load/pass2"
+          fi
+      - name: the SLO verdict
+        id: gate
+        run: |
+          node infra/load/slo-gate.mjs render "$RUNNER_TEMP/load/slo" \
+            "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            "$RUNNER_TEMP/load/pass1" "$RUNNER_TEMP/load/pass2"
+          echo "verdict=$(cat "$RUNNER_TEMP/load/slo/verdict.txt")" >> "$GITHUB_OUTPUT"
       - name: report to the job summary
         if: always()
         run: |
-          if [ -f "$RUNNER_TEMP/load/report.md" ]; then cat "$RUNNER_TEMP/load/report.md" >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -f "$RUNNER_TEMP/load/slo/tracking.md" ]; then cat "$RUNNER_TEMP/load/slo/tracking.md" >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ "${{ github.event_name }}" != schedule ] && [ "${{ steps.gate.outputs.verdict }}" = breach ]; then
+            {
+              echo
+              echo "#### DRY RUN: the regression issue a scheduled run would open or update"
+              echo "**Title:** load regression (scheduled k6)"
+              echo
+              cat "$RUNNER_TEMP/load/slo/issue.md"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          for pass in pass1 pass2; do
+            if [ -f "$RUNNER_TEMP/load/$pass/report.md" ]; then
+              { echo; echo "<details><summary>full report, $pass</summary>"; echo; cat "$RUNNER_TEMP/load/$pass/report.md"; echo; echo '</details>'; } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: load-report
           path: ${{ runner.temp }}/load
-          retention-days: 30
+          retention-days: 90
           if-no-files-found: warn
       - name: stop the stack
         if: always()
         run: docker compose -f infra/docker/docker-compose.yml down -v
+      # Both fail the run. A breach is a regression (the schedule opens the regression issue). broken is
+      # infrastructure: a pass could not be judged (k6 crashed, an SLO route saw no requests), so no regression issue.
+      - name: a confirmed breach, or a pass that could not be judged, fails the run
+        if: steps.gate.outputs.verdict == 'breach' || steps.gate.outputs.verdict == 'broken'
+        run: |
+          if [ "${{ steps.gate.outputs.verdict }}" = breach ]; then
+            echo "both passes crossed an SLO gate: see the job summary"
+          else
+            echo "infrastructure, not a regression: a pass could not be judged (see the job summary); no regression issue"
+          fi
+          exit 1
+
+  # Only the SCHEDULE writes issues, and only this job holds `issues: write`. A manual run printed the same texts above.
+  issues:
+    name: tracking comment and regression issue
+    needs: load
+    if: github.event_name == 'schedule' && always() && needs.load.result != 'cancelled' && needs.load.outputs.verdict != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: load-report
+          path: load
+      - name: one comment per scheduled run on the tracking issue
+        run: |
+          title='load: weekly SLO regression tracking (scheduled k6)'
+          n="$(gh issue list --state open --search "\"$title\" in:title" --json number,title --jq "map(select(.title == \"$title\"))[0].number")"
+          if [ -z "$n" ]; then
+            n="$(gh issue create --title "$title" --body 'One comment per scheduled k6 SLO regression run (.github/workflows/load.yml, Mondays 04:00 UTC). Read the trend here before a breach.' | sed 's#.*/##')"
+          fi
+          gh issue comment "$n" --body-file load/slo/tracking.md
+      - name: a confirmed breach opens or updates the regression issue
+        if: needs.load.outputs.verdict == 'breach'
+        run: |
+          title='load regression (scheduled k6)'
+          n="$(gh issue list --state open --search "\"$title\" in:title" --json number,title --jq "map(select(.title == \"$title\"))[0].number")"
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --body-file load/slo/issue.md
+          else
+            gh label create load-regression --color B60205 \
+              --description 'A confirmed breach of the scheduled k6 SLO regression' 2>/dev/null || true
+            gh issue create --title "$title" --label load-regression --body-file load/slo/issue.md
+          fi
