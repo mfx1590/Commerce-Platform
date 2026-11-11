@@ -5,6 +5,7 @@
 import http from 'k6/http';
 import { check, fail } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
+import { BROWSE_ROUTES, routeP95Ms } from './slo-thresholds.js';
 
 export const BASE = (__ENV.BASE_URL || 'http://127.0.0.1:9000').replace(/\/$/, '');
 // The seeded dev key (packages/db SEED_IDS) — public by design, and only ever pointed at a throwaway database.
@@ -207,11 +208,12 @@ export const ROUTES = [
   'payment_session',
   'complete',
 ];
-export const TARGET_ROUTES = ['store', 'list', 'detail'];
+export const TARGET_ROUTES = BROWSE_ROUTES;
+// A route with an SLO gets its gate from slo-thresholds.js. Every other route gets a generous p(95) bound that never
+// fires: it is there only so the summary carries per-route p95s.
 export function routeThresholds() {
   const t = {};
-  for (const r of ROUTES)
-    t[`http_req_duration{route:${r}}`] = [TARGET_ROUTES.includes(r) ? 'p(95)<500' : 'p(95)<60000'];
+  for (const r of ROUTES) t[`http_req_duration{route:${r}}`] = [`p(95)<${routeP95Ms(r) ?? 60000}`];
   for (const r of ROUTES) t[`http_req_failed{route:${r}}`] = ['rate<1'];
   return t;
 }

@@ -11,13 +11,15 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { gunzipSync } from 'node:zlib';
+import { BROWSE_ROUTES, SLO } from './k6/slo-thresholds.js';
 
+// The gates come from k6/slo-thresholds.js (the SLOs), so the report judges a run exactly as k6 did.
 export const TARGET = {
-  p95Ms: 500,
-  errorRate: 0.001,
+  p95Ms: SLO.browseP95Ms,
+  errorRate: SLO.errorRate,
   browseRps: 50,
   ordersPerMin: 30,
-  routes: ['store', 'list', 'detail'],
+  routes: BROWSE_ROUTES,
 };
 export const ROUTE_LABEL = {
   store: 'GET /store',

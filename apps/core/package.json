@@ -19,12 +19,12 @@
     "catalog:republish": "tsx scripts/catalog-republish.ts"
   },
   "dependencies": {
-    "@clickhouse/client": "1.24.1",
+    "@clickhouse/client": "1.25.0",
     "@medusajs/cli": "2.21.2",
     "@medusajs/draft-order": "2.21.2",
     "@medusajs/framework": "2.21.2",
     "@medusajs/medusa": "2.21.2",
-    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/api": "1.10.0",
     "@opentelemetry/context-async-hooks": "2.12.0",
     "@opentelemetry/exporter-metrics-otlp-http": "0.223.0",
     "@opentelemetry/exporter-trace-otlp-http": "0.223.0",
@@ -38,9 +38,9 @@
     "@platform/events": "workspace:*",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
-    "express": "^4.22.2",
+    "express": "^4.22.3",
     "ioredis": "5.11.1",
-    "pg": "^8.23.0",
+    "pg": "^8.23.1",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
@@ -50,10 +50,10 @@
     "@types/express": "^4.17.25",
     "@types/node": "^20.19.0",
     "@types/pg": "^8.23.1",
-    "@types/supertest": "^6.0.3",
-    "supertest": "^7.2.2",
+    "@types/supertest": "^7.2.1",
+    "supertest": "^7.3.2",
     "ts-node": "^10.9.2",
-    "tsx": "^4.23.13",
+    "tsx": "^4.23.15",
     "typescript": "^5.8.0",
     "vitest": "^3.2.0"
   }

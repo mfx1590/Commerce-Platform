@@ -125,6 +125,23 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 - **#758 (2026-11-10), after window 10's #789 merged:** the 19 starter-package ignores are removed from
   dependabot.yml (10 ignores left: the Node 22 block + the Medusa/OTel/express majors). The @types/node comment's
   'ignored in full further down' parenthetical is gone. One green run is enough (config only).
+- **Scheduled k6 SLO regression (2026-11-10), approved: weekly Mon 04:00 UTC; issues on confirmed breach + a tracking
+  comment per run; admin-metrics later = #785.** Branch infra/phase6-k6-slo-regression from main d38d51ff; push AFTER
+  the hygiene PR is up. k6/slo-thresholds.js (no k6 import, so Node can load it; LOAD_THRESHOLD_FACTOR scales latency
+  only) + slo-thresholds.test.mjs, which reads the le bound from slo.mjs's generated expr (no slo.mjs change). Mutation:
+  complete 1500 → 2 tests fail. slo-gate.mjs (+ test, 23 load tests in all) gives verdict 0/1/2 and render:
+  tracking.md, issue.md, verdict.txt (pass|retried|breach|broken). load.yml: pass 1 → pass 2 only on a breach; an
+  `issues` job (schedule only, issues: write). run.sh passes LOAD_THRESHOLD_FACTOR into k6. PROOF before merge: one
+  green workflow_dispatch on the PR branch, plus one with threshold_factor 0.05 showing the retry and the dry-run issue.
+  PR #788. Proof 1 green (42822163523: pass, no pass 2). Proof 2 (42822182902) breached both passes as designed BUT
+  rendered the UNSCALED gates (500 ms next to a 25 ms breach): the factor reached k6 (__ENV), not Node. Fix: env =
+  __ENV ?? process.env, plus a child-process test (a mutation fails it). Both proofs re-run on the fixed head.
+  CI then failed `what changed`: slo.mjs imported prettier at the top (no install in that job), fixed by a lazy
+  import (79036af8). Opus BLOCK on 1 item: (breach, pass-2 crash) → broken → the job ended GREEN. Fixed: the run
+  fails on broken ("infrastructure, not a regression", no regression issue). A pass with zero requests on an SLO route
+  is broken (a vacuous threshold). Tests: a ROUTES-tag check in lib.js, threshold_factor > 0 (workflow + module),
+  and the load.yml fail-step text (a mutation fails it). The crash proof is FIXTURE-LEVEL (forcing a real k6 crash
+  needs a test-only input in a production workflow). Plus: issues job timeout 10 and the load-regression label.
 - **Service images hygiene (2026-11-10), branch infra/phase6-image-hygiene from #776's head f7ae9681 (merge main
   after #776 merges).** Item (1), the notifications HEALTHCHECK, was a FALSE finding: it serves /health on $PORT (the
   manager agreed and dropped it). TZ=UTC in 10 Dockerfiles (accounting had it) + a check-image-manifests rule (a

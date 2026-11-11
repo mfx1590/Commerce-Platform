@@ -2,9 +2,11 @@
 // The owner's target (2026-10-06, #359), as one run with two scenarios at once:
 //   browse  50 requests/s for 10 min — GET /store 20%, product list 40%, product detail 30%, search 10%
 //   place   30 orders/min for 10 min — the full placement journey, completed with an Idempotency-Key
-// Gates: p95 < 500 ms for GET /store, product list and product detail; failed requests < 0.1%.
+// Gates (slo-thresholds.js, the SLOs): p95 < 500 ms for GET /store, product list and detail; p95 < 2 s for complete;
+// failed requests and placements < 0.1%.
 // Rates and duration are overridable (BROWSE_RPS, ORDERS_PER_MIN, DURATION) for a short smoke run.
 import { browseOnce, discover, placeOnce, routeThresholds, summary, TREND_STATS } from './lib.js';
+import { SLO } from './slo-thresholds.js';
 
 const DURATION = __ENV.DURATION || '10m';
 const BROWSE_RPS = Number(__ENV.BROWSE_RPS || 50);
@@ -34,8 +36,9 @@ export const options = {
   },
   thresholds: {
     ...routeThresholds(),
-    http_req_failed: ['rate<0.001'],
-    placement_failed: ['rate<0.001'],
+    // The availability SLOs (slo-thresholds.js): 99.9% of requests and of placements not failed.
+    http_req_failed: [`rate<${SLO.errorRate}`],
+    placement_failed: [`rate<${SLO.errorRate}`],
   },
 };
 

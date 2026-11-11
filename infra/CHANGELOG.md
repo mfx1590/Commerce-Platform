@@ -11,6 +11,22 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
   grouped bump of the starter and the brands is no longer red by construction. The `@types/node` major rule and the
   whole "UNTIL THE NODE 22 MOVE" block stay.
 
+### Added (the scheduled k6 SLO regression, plan wave 3)
+
+- `.github/workflows/load.yml` runs weekly (Mondays 04:00 UTC) as well as by hand. The schedule runs the target only,
+  gated on the SLOs, and retries once before a breach counts. It comments every run on the tracking issue, and a
+  confirmed breach opens or updates "load regression (scheduled k6)" from a schedule-only job with `issues: write`. A
+  manual run prints both texts as a dry run, and the `threshold_factor` input forces a breach to prove that path.
+- `infra/load/k6/slo-thresholds.js`: the gates in one place. `lib.js`, `load.js` and `report.mjs` read it, and
+  checkout `complete` gets a real p95 < 2 s gate (it was 60 s), a lower bound with the manual payment provider.
+  `slo-thresholds.test.mjs` asserts it equals `rules/slo.mjs`.
+- `infra/load/slo-gate.mjs` (+ test): the verdict per pass, the retry-once rule, the tracking comment and the issue body.
+- Admin-metrics latency is not covered yet: #785.
+- A pass that cannot be judged fails the run as `broken`: "infrastructure, not a regression", with no regression issue
+  (#788 review). That covers k6 crashing, or an SLO route with zero requests, since a threshold on an absent tag
+  passes vacuously. `threshold_factor` must be a number > 0 (the workflow and slo-thresholds.js both refuse it). The
+  issues job has a timeout, and the regression issue gets the `load-regression` label.
+
 ### Changed (service images hygiene; Dependabot's Node 22 checklist)
 
 - `TZ=UTC` in every service image's runtime stage (only accounting had it; #627: node-postgres turns a `date` column

@@ -683,6 +683,11 @@ own database by `infra/load/run.sh`, with Postgres sampled throughout and a Mark
 a laptop or as **load (manual)** (`.github/workflows/load.yml`, `workflow_dispatch` only — never on a pull
 request). Reports worth keeping are committed under `infra/load/reports/`. Details: `infra/load/README.md`.
 
+The same workflow runs **weekly (Mondays 04:00 UTC) as the SLO regression**: the target run gated on the SLOs
+(`infra/load/k6/slo-thresholds.js`, kept equal to the Prometheus rules by a self-test). It retries once before a
+breach counts, comments every run on a tracking issue, and opens the "load regression (scheduled k6)" issue on a
+confirmed breach. See "Scheduled SLO regression" in `infra/load/README.md`.
+
 ## Backup and restore drill (manual, #741)
 
 `node infra/dr/drill.mjs all` backs up the shared dev stack's state and restores it into a FRESH stack

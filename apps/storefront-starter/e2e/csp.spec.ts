@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
+  advanceToReview,
   AGAINST_CORE,
   BACKEND,
   CHECKOUT_STEP,
@@ -106,6 +107,17 @@ const STRIPE_ONLY_FRAMES =
   /frame-src 'self' https:\/\/js\.stripe\.com https:\/\/\*\.js\.stripe\.com https:\/\/hooks\.stripe\.com;/;
 const EMBED_FRAMES = /frame-src 'self' [^;]*https:\/\/hooks\.stripe\.com https:\/\/[^;]+;/;
 
+/** Why the Payment Element cannot mount in this run, or null when it can (as card-payment.spec.ts). */
+const HAS_STRIPE_KEY = Object.entries(process.env).some(
+  ([name, value]) =>
+    /^STRIPE_PUBLISHABLE_KEY(_[A-Z0-9_]+)?$/.test(name) && /^pk_test_/.test(value ?? ''),
+);
+const STRIPE_SKIP_REASON = !AGAINST_CORE
+  ? `no core (this run is against ${BACKEND})`
+  : !HAS_STRIPE_KEY
+    ? 'no Stripe TEST publishable key'
+    : null;
+
 const REQUIRE_KEYCLOAK = process.env.E2E_REQUIRE_KEYCLOAK === '1' || Boolean(process.env.CI);
 const KEYCLOAK_URL = process.env.KEYCLOAK_URL ?? 'http://localhost:8180';
 const REALM = process.env.KEYCLOAK_REALM_CUSTOMERS ?? 'customers';
@@ -170,23 +182,27 @@ test('shop and funnel pages run under the nonce CSP with no violation, and are i
     await expectNoncePolicy(page, 'checkout', csp);
   });
 
-  await test.step('the payment step', async () => {
+  await test.step('the payment step, and the Payment Element on review where it can mount', async () => {
     const csp = await visit(page, '/checkout/payment');
     await hydrated(page);
     await expectNoncePolicy(page, 'checkout payment', csp);
     expect(csp).toMatch(STRIPE_ONLY_FRAMES);
 
-    const card = page.getByRole('radio', { name: /card/i });
-    if ((await card.count()) > 0) {
-      await card.first().check();
-      // Stripe.js arrives through 'strict-dynamic' and mounts its iframe.
-      await expect(page.locator('iframe[src^="https://js.stripe.com"]').first()).toBeAttached({
-        timeout: 30_000,
-      });
+    // The Payment Element mounts on the REVIEW step, with Card chosen (checkout/review/page.tsx,
+    // #790). It needs a real PaymentIntent, so it runs where card-payment.spec.ts runs: against a
+    // core with a Stripe TEST key. That run is the evidence that Stripe.js and its frames work
+    // under the nonce policy (#358, #361); everywhere else the spec says why it did not run.
+    if (STRIPE_SKIP_REASON === null) {
+      await advanceToReview(page, `e2e-csp+${Date.now().toString(36)}@example.com`, 'card');
+      await expect(page.getByTestId('card-payment')).toBeVisible();
+      // Stripe.js arrived through 'strict-dynamic' and mounted the card iframe (frame-src).
+      await expect(page.locator('iframe[title="Secure payment input frame"]').first()).toBeAttached(
+        { timeout: 30_000 },
+      );
     } else {
       console.info(
-        `[e2e] csp: the card option is not offered on ${BACKEND}${AGAINST_CORE ? '' : ' (mock run)'}: ` +
-          'Stripe.js was not loaded here; card-payment.spec.ts covers it with a core and a TEST key.',
+        `[e2e] csp: the Payment Element was not mounted (${STRIPE_SKIP_REASON}); ` +
+          'the review step mounts it in a core run with a Stripe TEST key.',
       );
     }
   });
@@ -283,4 +299,50 @@ test('account pages run under the nonce CSP with no violation (Keycloak)', async
   await expect(page).toHaveURL(localeUrl('/account/orders$'), { timeout: NAVIGATION_TIMEOUT });
 
   expect(violations()).toEqual([]);
+});
+
+test('back and forward across the checkout boundary land on each zone’s own document (#790)', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await openPurchasableProduct(page);
+  await clickWhenReady(page, page.getByRole('button', { name: 'Add to cart' }));
+  await expect(page).toHaveURL(localeUrl('/cart$'), { timeout: SERVER_ACTION_TIMEOUT });
+  await hydrated(page);
+
+  await clickWhenReady(page, page.getByRole('link', { name: 'Checkout' }));
+  await expect(page).toHaveURL(CHECKOUT_STEP, { timeout: NAVIGATION_TIMEOUT });
+  await hydrated(page);
+  expect(await documentUrl(page), 'checkout is its own document').toBe(page.url());
+
+  // Back: the cart's own document (from the back/forward cache or reloaded), never the checkout
+  // document showing the cart, and no reload loop from ZoneBoundary's safety net.
+  await page.goBack();
+  await expect(page).toHaveURL(localeUrl('/cart$'), { timeout: NAVIGATION_TIMEOUT });
+  await hydrated(page);
+  expect(await documentUrl(page), 'back: the cart is its own document').toBe(page.url());
+
+  // Forward: the checkout document again.
+  await page.goForward();
+  await expect(page).toHaveURL(CHECKOUT_STEP, { timeout: NAVIGATION_TIMEOUT });
+  await hydrated(page);
+  expect(await documentUrl(page), 'forward: checkout is its own document').toBe(page.url());
+});
+
+test('paths under a route-handler prefix with no handler: a plain-text 404 with the policy (#790)', async ({
+  request,
+}) => {
+  for (const path of ['/api', '/api/nope', '/auth', '/auth/x', '/r/a/b']) {
+    const response = await request.get(path, { maxRedirects: 0 });
+    expect(response.status(), `${path} answers 404`).toBe(404);
+    expect(response.headers()['content-type'], `${path} is not HTML`).toMatch(/^text\/plain/);
+    expect(
+      response.headers()['content-security-policy'] ?? '',
+      `${path} carries the policy`,
+    ).toMatch(/script-src 'nonce-[^']+' 'strict-dynamic'/);
+  }
+  // A real handler still answers as before, and carries the policy too.
+  const health = await request.get('/health', { maxRedirects: 0 });
+  expect(health.status()).toBe(200);
+  expect(health.headers()['content-security-policy'] ?? '').toMatch(/script-src 'nonce-/);
 });

@@ -95,7 +95,7 @@ run_k6() {
   local rc=0
   docker run --rm "${NET[@]}" -v "$HOST_K6:/scripts:ro" -v "$HOST_OUT:/out" \
     -e BASE_URL="$BASE" -e DURATION -e BROWSE_RPS -e ORDERS_PER_MIN -e CEILING_STEPS -e CEILING_STEP \
-    -e POOL_STEPS -e POOL_STEP_S \
+    -e POOL_STEPS -e POOL_STEP_S -e LOAD_THRESHOLD_FACTOR \
     "$K6_IMAGE" run --quiet "$@" "/scripts/$script" || rc=$?
   stop_sampler
   echo "== k6 $name exited $rc (99 = a threshold failed; the report says which)"
