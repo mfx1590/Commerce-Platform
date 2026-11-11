@@ -60,8 +60,20 @@ the k6 image. `run.sh` never starts, stops or touches the stack's containers. Ho
   | checkout-latency                              | p95 < 2 s on `complete`; a **lower bound**: the run uses the `manual` payment provider, so no network call |
   | store-api-availability, checkout-availability | failed requests and failed placements < 0.1% (k6 also counts 4xx: stricter)                                |
 
-  admin-metrics latency is not covered yet (#785: it needs ClickHouse and a staff token). The ingest and relay lag
-  SLOs belong to the Prometheus rules, not to k6.
+  | admin-metrics-latency (#785) | p95 < 300 ms on GET /admin/metrics and POST /admin/metrics/query; **small data: a lower bound** (one generated month in ClickHouse) |
+
+  The ingest and relay lag SLOs belong to the Prometheus rules, not to k6.
+
+- **The admin-metrics leg** (`k6/metrics.js`, `LOAD_METRICS=1`): 2 req/s next to the target load, 10% the catalogue
+  and 90% typed queries (7 or 30 days, one store, every non-finance metric), all on the production auth path.
+  - Setup in the workflow: the compose ClickHouse; `ch:migrate` for the schema, models and users; then
+    `ch-seed.mjs`, which writes the generated month (`metrics_months`, default 1) into `raw_events` through the
+    ingest's own classify and sink, and records the event count per store for the summary.
+  - Auth: a real staff JWT for the staff realm's dev `analyst` (a test-cli password grant, re-granted before expiry),
+    and `fga:seed` so the core's OpenFGA check runs.
+  - Credentials: the dev password is read from `infra/keycloak/staff-realm.json` at run time and masked. The
+    ClickHouse read-only and ingest passwords are generated per job (`openssl rand`) and masked.
+  - The zero-requests rule covers both new tags.
 
 - **Retry once.** Runner noise is real, so when pass 1 crosses a gate, a second fresh pass runs, and only a second
   breach counts. When the retry fired, the summary says so ("the retry fired"): a flaky first pass is visible, not

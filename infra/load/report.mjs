@@ -33,6 +33,8 @@ export const ROUTE_LABEL = {
   shipping_select: 'PATCH /store/carts/{id} (shipping option)',
   payment_session: 'POST …/payment-session (manual)',
   complete: 'POST …/complete (Idempotency-Key)',
+  metrics: 'GET /admin/metrics',
+  metrics_query: 'POST /admin/metrics/query',
 };
 
 const readJson = (f) => (existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : undefined);

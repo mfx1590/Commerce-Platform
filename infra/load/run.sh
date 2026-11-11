@@ -75,7 +75,8 @@ node -e '
     memory_gb: Math.round(os.totalmem() / 2 ** 30), node: process.version,
     k6_image: process.env.K6_IMAGE, duration: process.env.DURATION, browse_rps: Number(process.env.BROWSE_RPS),
     orders_per_min: Number(process.env.ORDERS_PER_MIN), db_pool_max: Number(process.env.DB_POOL_MAX || 10),
-    ceiling_steps: (process.env.CEILING_STEPS || "30,60,120,240,480,960").split(",").map(Number), ceiling_step: process.env.CEILING_STEP || "1m" };
+    ceiling_steps: (process.env.CEILING_STEPS || "30,60,120,240,480,960").split(",").map(Number), ceiling_step: process.env.CEILING_STEP || "1m",
+    metrics: process.env.LOAD_METRICS === "1" };
   require("fs").writeFileSync(process.argv[1], JSON.stringify(meta, null, 1));
 ' "$OUT/meta.json"
 
@@ -96,6 +97,7 @@ run_k6() {
   docker run --rm "${NET[@]}" -v "$HOST_K6:/scripts:ro" -v "$HOST_OUT:/out" \
     -e BASE_URL="$BASE" -e DURATION -e BROWSE_RPS -e ORDERS_PER_MIN -e CEILING_STEPS -e CEILING_STEP \
     -e POOL_STEPS -e POOL_STEP_S -e LOAD_THRESHOLD_FACTOR \
+    -e LOAD_METRICS -e METRICS_RPS -e METRICS_LAST_DAY -e METRICS_STAFF_USER -e METRICS_STAFF_PASSWORD -e KEYCLOAK_URL \
     "$K6_IMAGE" run --quiet "$@" "/scripts/$script" || rc=$?
   stop_sampler
   echo "== k6 $name exited $rc (99 = a threshold failed; the report says which)"
