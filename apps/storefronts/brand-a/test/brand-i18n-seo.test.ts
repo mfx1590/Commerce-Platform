@@ -266,7 +266,10 @@ describe('the route inventory is derived, not hand-listed', () => {
       expect(entry, `${route} is listed as unaddressable but is not a route at all`).toBeDefined();
       const source = readFileSync(new URL(`.${entry?.file}/page.tsx`, APP_DIR), 'utf8');
       expect(source, `${route} must call notFound()`).toMatch(/notFound\(\)/);
-      expect(source, `${route} must not render markup of its own`).not.toMatch(/return\s*\(/);
+      // Both shapes: `return (` for a parenthesised tree and `return <Page/>` on one line. A
+      // catch-all that renders anything is a page, and a page hidden behind this list would be
+      // unchecked in every locale (#800 review).
+      expect(source, `${route} must not render markup of its own`).not.toMatch(/return\s*[(<]/);
     }
   });
 

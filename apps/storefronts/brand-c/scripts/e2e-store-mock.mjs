@@ -22,7 +22,7 @@
  * needs brand C's real products points `E2E_STORE_API_URL` at a core instead.
  */
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -39,8 +39,26 @@ const example = JSON.parse(readFileSync(join(appRoot, 'perf', 'store.example.jso
 const specText = readFileSync(join(contracts, 'openapi', 'store-api.yaml'), 'utf8');
 validateStoreExample(specText, example);
 
-const spec = join(mkdtempSync(join(tmpdir(), 'brand-c-store-')), 'store-api.yaml');
+const specDir = mkdtempSync(join(tmpdir(), 'brand-c-store-'));
+const spec = join(specDir, 'store-api.yaml');
 writeFileSync(spec, overlayStoreExample(specText, example));
+
+// The overlaid spec is this process's scratch copy, so it goes when the process does — including
+// on Ctrl-C, which is how a mock is usually stopped (#800 review). `exit` runs for all three, and
+// the signal handlers are what turn Ctrl-C into an exit at all.
+let cleaned = false;
+const cleanUp = () => {
+  if (cleaned) return;
+  cleaned = true;
+  rmSync(specDir, { recursive: true, force: true });
+};
+process.on('exit', cleanUp);
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(signal, () => {
+    cleanUp();
+    process.exit(0);
+  });
+}
 
 const require = createRequire(join(contracts, 'package.json'));
 const prism = require.resolve('@stoplight/prism-cli/dist/index.js');
@@ -51,4 +69,7 @@ const child = spawn(
   [prism, 'mock', spec, '--host', '127.0.0.1', '--port', port, '--errors'],
   { stdio: 'inherit' },
 );
-child.on('exit', (code) => process.exit(code ?? 0));
+child.on('exit', (code) => {
+  cleanUp();
+  process.exit(code ?? 0);
+});

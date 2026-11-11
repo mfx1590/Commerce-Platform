@@ -412,8 +412,9 @@ bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
 ## In progress — the #781 + #783 re-sync (machine used 2026-11-10)
 
-**DONE and pushed** (#789 merged first, as required). Branch `brands/phase6-resync-781-783` from
-`origin/main` `ac6d173e`.
+**PR #800** — code `13ea828c`, then the owed commit below. Branch `brands/phase6-resync-781-783`
+from `origin/main` `ac6d173e`. Verdict **MERGE once green** (Opus); the three red perf legs were the
+README route table only, which the second commit fixes.
 
 ### What came out of it that the brief did not predict
 
@@ -442,8 +443,17 @@ bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
    `NOT_ADDRESSABLE` set **plus** a test that every entry really is a `notFound()` route, so it
    cannot swallow a real page later.
 
-**Still owed on the branch:** the README bundle tables with the new `[...rest]` row, from this PR's
-own perf legs.
+**The owed commit (done):** README bundle tables from this PR's own legs, now **19 routes** each
+with `/[locale]/[...rest]/page` (125.3 / 125.1 / 125.1 kB). **The CSP middleware and `ZoneBoundary`
+cost ~0.8 kB on every route** — PDP A 140.8 → **141.6** of 144, B and C 140.6 → **141.4**; every
+route still inside its budget, no budget touched. Fetching a leg's log while the run is still in
+progress: `gh run view --log` refuses ("logs will be available when it is complete"), but
+`gh api repos/<owner>/<repo>/actions/jobs/<job_id>/logs` returns a finished job's log anyway.
+
+Plus three review items: the `NOT_ADDRESSABLE` guard now rejects `return <Page/>` as well as
+`return (`; brand B's example-store caveat is in its **README**, not only the CHANGELOG; and
+`e2e-store-mock.mjs` removes its temp directory on exit, Ctrl-C included (verified: a SIGTERM stop
+leaves no new `/tmp/brand-c-store-*`).
 
 **Original brief, for the trail — was BLOCKED until #789 showed MERGED**: my sync-merge tests change in it, so the branch
 `brands/phase6-resync-781-783` is cut from `origin/main` only after that. The manager merged

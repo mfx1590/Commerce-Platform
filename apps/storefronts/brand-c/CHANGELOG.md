@@ -23,6 +23,11 @@
   `values-staging.yaml`. **No app in this repo has a `values-prod.yaml` yet**, so there is nothing
   in-tree to confirm for production; when that file is written it must carry `KEYCLOAK_URL`
   (`infra/helm/**`, window 5; recorded on #342).
+- **README bundle table re-synced from this PR's own CI perf legs**, including the new
+  `/[locale]/[...rest]/page` row (**125.1 kB** of the 145 kB default). The CSP middleware and
+  `ZoneBoundary` cost about **0.8 kB** on every route: the PDP goes 140.6 → **141.4 kB** of
+  its 144 kB budget, the tightest of the set, and every route stays inside its budget. No budget was
+  touched (#348).
 - **The visual suite now comes from the starter** (#781): full pages at `maxDiffPixelRatio` **0.0001**
   (was 0.002) plus five element shots. The starter commits no baselines of its own, so each brand
   keeps its own under `e2e/__screenshots__/`.
