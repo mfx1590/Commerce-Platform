@@ -14,6 +14,8 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
   sink. Its event count per store sits next to the gate in the summary.
 - `load.yml` adds the compose ClickHouse, `ch:migrate`, the seed (`metrics_months`, default 1), `fga:seed`, and the
   dev password, read from the realm file and masked. The ClickHouse passwords come from `openssl rand`, masked.
+- `.github/dependabot.yml`: `sanity` and `@sanity/vision` majors join the "UNTIL THE NODE 22 MOVE" block (Sanity 6 needs
+  Node >= 22.12; #796, #799).
 
 ### Added (the scheduled k6 SLO regression, plan wave 3)
 
