@@ -28,6 +28,7 @@ vi.mock('@/app/actions/tax-rates', () => ({
 }));
 const shipActions = vi.hoisted(() => ({
   createShippingOptionAction: vi.fn(),
+  createCountryShippingOptionAction: vi.fn(),
   updateShippingOptionAction: vi.fn(),
 }));
 vi.mock('@/app/actions/shipping-options', () => shipActions);
@@ -160,12 +161,12 @@ describe('Store settings › Shipping options', () => {
     render(<ShippingOptionsTable storeId={STORE} options={[option()]} canManage locale="en-GB" />);
     await user.click(screen.getByRole('button', { name: 'Deactivate Standard (standard)' }));
 
-    expect(shipActions.updateShippingOptionAction).toHaveBeenCalledWith(
-      STORE,
-      option().id,
-      { name: 'Standard', price: option().price, countries: ['JP'], is_active: true },
-      { name: 'Standard', price: '1980', countries: 'JP', is_active: false },
-    );
+    expect(shipActions.updateShippingOptionAction).toHaveBeenCalledWith(STORE, option().id, {
+      name: 'Standard',
+      price: '1980',
+      countries: 'JP',
+      is_active: false,
+    });
     expect(
       await screen.findByText(/would leave JP without an active shipping option/),
     ).toBeInTheDocument();
@@ -184,7 +185,7 @@ describe('Store settings › Shipping options', () => {
     await user.type(price, '2200');
     await user.type(within(form).getByLabelText('Countries'), ', KR');
     await user.click(within(form).getByRole('button', { name: 'Save' }));
-    expect(shipActions.updateShippingOptionAction.mock.calls[0]?.[3]).toEqual({
+    expect(shipActions.updateShippingOptionAction.mock.calls[0]?.[2]).toEqual({
       name: 'Standard',
       price: '2200',
       countries: 'JP, KR',
@@ -210,7 +211,10 @@ describe('the readiness panel’s shipping step', () => {
     storeActions.activateStoreAction
       .mockResolvedValueOnce(blocked(['shipping_options'], ['JP']))
       .mockResolvedValueOnce({ status: 'success', data: { id: STORE, status: 'active' } });
-    shipActions.createShippingOptionAction.mockResolvedValue({ status: 'success', data: option() });
+    shipActions.createCountryShippingOptionAction.mockResolvedValue({
+      status: 'success',
+      data: { outcome: 'created', option: option({ code: 'standard-jp' }) },
+    });
     const user = userEvent.setup();
     panel();
     await user.click(screen.getByRole('button', { name: 'Activate' }));
@@ -227,15 +231,15 @@ describe('the readiness panel’s shipping step', () => {
     expect(within(form).getByText('Amount in JPY, whole units')).toBeInTheDocument();
     await user.type(within(form).getByLabelText('Price (JPY)'), '1980');
     await user.click(within(form).getByRole('button', { name: 'Create a shipping option for JP' }));
-    expect(shipActions.createShippingOptionAction).toHaveBeenCalledWith(STORE, {
-      code: 'standard-jp',
+    expect(shipActions.createCountryShippingOptionAction).toHaveBeenCalledWith(STORE, {
+      country: 'JP',
+      currency: 'JPY',
       name: 'Standard',
       price: '1980',
-      currency: 'JPY',
-      countries: 'JP',
-      is_active: true,
     });
-    expect(await within(step).findByText('JP: shipping option created.')).toBeInTheDocument();
+    expect(
+      await within(step).findByText('JP: shipping option created (standard-jp).'),
+    ).toBeInTheDocument();
     expect(within(step).getByText(/activate again/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Activate' }));
     expect(storeActions.activateStoreAction).toHaveBeenCalledTimes(2);
@@ -262,7 +266,7 @@ describe('the readiness panel’s shipping step', () => {
 
   it('a refused create stays on its form, in words', async () => {
     storeActions.activateStoreAction.mockResolvedValue(blocked(['shipping_options'], ['JP']));
-    shipActions.createShippingOptionAction.mockResolvedValue({
+    shipActions.createCountryShippingOptionAction.mockResolvedValue({
       status: 'error',
       fieldErrors: { price: 'JPY has no decimals.' },
       formError: null,
@@ -274,6 +278,23 @@ describe('the readiness panel’s shipping step', () => {
     await user.type(within(form).getByLabelText('Price (JPY)'), '19.5');
     await user.click(within(form).getByRole('button', { name: 'Create a shipping option for JP' }));
     expect(await within(form).findByText('JPY has no decimals.')).toBeInTheDocument();
-    expect(screen.queryByText('JP: shipping option created.')).toBeNull();
+    expect(screen.queryByText(/JP: shipping option created/)).toBeNull();
+  });
+
+  it('an inactive standard option is reactivated rather than refused, and the panel says so', async () => {
+    storeActions.activateStoreAction.mockResolvedValue(blocked(['shipping_options'], ['JP']));
+    shipActions.createCountryShippingOptionAction.mockResolvedValue({
+      status: 'success',
+      data: { outcome: 'reactivated', option: option({ code: 'standard-jp' }) },
+    });
+    const user = userEvent.setup();
+    panel();
+    await user.click(screen.getByRole('button', { name: 'Activate' }));
+    const form = await screen.findByRole('form', { name: 'Create a shipping option for JP' });
+    await user.type(within(form).getByLabelText('Price (JPY)'), '1980');
+    await user.click(within(form).getByRole('button', { name: 'Create a shipping option for JP' }));
+    expect(
+      await screen.findByText('JP: the inactive option standard-jp was reactivated.'),
+    ).toBeInTheDocument();
   });
 });

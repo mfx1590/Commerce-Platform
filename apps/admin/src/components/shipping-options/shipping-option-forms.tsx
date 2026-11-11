@@ -7,6 +7,7 @@ import { ActionRefusal } from '@/components/states/action-refusal';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
+  createCountryShippingOptionAction,
   createShippingOptionAction,
   updateShippingOptionAction,
 } from '@/app/actions/shipping-options';
@@ -40,7 +41,8 @@ function priceHint(currency: string): string {
 /**
  * The readiness panel's "Create a shipping option for XX": one active, flat-priced (`manual`)
  * option for a market country the activation 409 named, in the store's default currency — the one
- * activation checks. `onCreated` lets the panel tick the country off.
+ * activation checks. The action creates `standard-<cc>`, or reactivates an inactive one, or takes the
+ * next free code (#815 review); `onCreated` gets the country and what was done, in words.
  */
 export function ShippingOptionQuickCreate({
   storeId,
@@ -51,7 +53,7 @@ export function ShippingOptionQuickCreate({
   storeId: string;
   country: string;
   currency: string;
-  onCreated: (country: string) => void;
+  onCreated: (country: string, done: string) => void;
 }) {
   const [pending, startTransition] = useTransition();
   const [name, setName] = useState('Standard');
@@ -62,16 +64,20 @@ export function ShippingOptionQuickCreate({
     event.preventDefault();
     setFailure(null);
     startTransition(async () => {
-      const result = await createShippingOptionAction(storeId, {
-        code: `standard-${country.toLowerCase()}`,
+      const result = await createCountryShippingOptionAction(storeId, {
+        country,
+        currency,
         name,
         price,
-        currency,
-        countries: country,
-        is_active: true,
       });
       if (result.status === 'success') {
-        onCreated(country);
+        const { outcome, option } = result.data;
+        onCreated(
+          country,
+          outcome === 'reactivated'
+            ? `${country}: the inactive option ${option.code} was reactivated.`
+            : `${country}: shipping option created (${option.code}).`,
+        );
         return;
       }
       setFailure(failureOf(result));
@@ -132,17 +138,11 @@ function OptionRow({
   const [countries, setCountries] = useState(option.countries.join(', '));
   const [failure, setFailure] = useState<Failure | null>(null);
   const label = `${option.name} (${option.code})`;
-  const current = {
-    name: option.name,
-    price: option.price,
-    countries: option.countries,
-    is_active: option.is_active,
-  };
 
   const save = (values: { name: string; price: string; countries: string; is_active: boolean }) =>
     startTransition(async () => {
       setFailure(null);
-      const result = await updateShippingOptionAction(storeId, option.id, current, values);
+      const result = await updateShippingOptionAction(storeId, option.id, values);
       if (result.status === 'success') {
         setEditing(false);
         router.refresh();

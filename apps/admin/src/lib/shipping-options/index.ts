@@ -73,7 +73,7 @@ function withPrice<T extends { price: string; currency: string }>(
     ctx.addIssue({
       code: 'custom',
       path: ['price'],
-      message: moneyErrorMessage(parsed.reason, values.currency),
+      message: moneyErrorMessage(parsed.reason, values.currency, values.price),
     });
     return z.NEVER;
   }
