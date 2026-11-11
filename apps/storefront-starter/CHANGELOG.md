@@ -1,5 +1,11 @@
 # Changelog — @platform/storefront-starter
 
+## 0.16.2 — 2026-11-11 (window 3, #793 review nits; refs #731)
+
+- **`test/route-handlers.test.ts` finds every route handler Next would serve:** `route.(ts|tsx|js|jsx|mjs)`, not only `route.ts`. A handler folder becomes a request path with route groups dropped and catch-all (`[...x]`) and optional catch-all (`[[...x]]`) segments sampled. `samplePath` has its own cases.
+- **The visual spec's home marker is page-specific:** home's store-facts section, not "any h1", which the 404 page also has.
+- **`test/middleware-matcher.test.ts` loads Next's private `getMiddlewareMatchers` defensively.** A guard test fails with an instruction if a Next upgrade moves or reshapes it, and the matcher cases are skipped instead of crashing the file (mutation-checked).
+
 ## 0.16.1 — 2026-11-10 (window 3, #790: CSP follow-ups)
 
 - **Every response carries the policy.** The middleware matches everything but `/_next` and `/_vercel`. `src/lib/route-handlers.ts` passes the real route handlers through and answers any other path under `/api`, `/auth`, `/r` or `/health` with a plain-text 404 (they used to render the locale 404 with no policy). `test/route-handlers.test.ts` keeps the handler list equal to the disk. `test/middleware-matcher.test.ts` now tests the matcher as Next compiles it (`getMiddlewareMatchers`).

@@ -28,6 +28,9 @@ on:
         description: 'skip the two ramps (the app-pool knee and the placement ceiling): the target run only'
         type: boolean
         default: false
+      metrics_months:
+        description: 'generated months seeded into ClickHouse for the admin-metrics leg (1-12; more data = a less optimistic 300 ms gate)'
+        default: '1'
       threshold_factor:
         description: 'scale the SLO latency gates (1 = the SLOs; e.g. 0.05 forces a breach to show the retry and the issue text, as a dry run)'
         default: '1'
@@ -55,6 +58,22 @@ jobs:
       BROWSE_RPS: ${{ inputs.browse_rps || '50' }}
       ORDERS_PER_MIN: ${{ inputs.orders_per_min || '30' }}
       LOAD_THRESHOLD_FACTOR: ${{ inputs.threshold_factor || '1' }}
+      # The admin-metrics leg (#785): k6/metrics.js at 2 req/s next to the target load, against the core's metrics API
+      # on a seeded ClickHouse, as the staff realm's dev `analyst` (a real JWT + the OpenFGA check: the production path).
+      LOAD_METRICS: '1'
+      METRICS_RPS: '2'
+      METRICS_STAFF_USER: analyst
+      # localhost, NOT 127.0.0.1: the staff realm pins frontendUrl http://localhost:8180, so every token's `iss` is
+      # localhost, and the core pins the issuer from this same variable (the first #801 proofs got 401 with 127.0.0.1).
+      KEYCLOAK_URL: http://localhost:8180
+      # The compose ClickHouse (profile analytics). The admin pair is compose's local word. The read-only and ingest
+      # passwords are generated per job and masked (the step below); nothing here is a credential.
+      CLICKHOUSE_URL: http://127.0.0.1:18123
+      CLICKHOUSE_DATABASE: analytics
+      CLICKHOUSE_USER: platform
+      CLICKHOUSE_PASSWORD: platform
+      CLICKHOUSE_READONLY_USER: analytics_ro
+      CLICKHOUSE_INGEST_USER: analytics_ingest
     steps:
       - uses: actions/checkout@v7
       # A typo must fail here, not gate on NaN for 15 minutes (slo-thresholds.js refuses it too).
@@ -73,6 +92,49 @@ jobs:
         run: docker compose -f infra/docker/docker-compose.yml up -d postgres redis keycloak openfga
       - name: the stack is really up
         run: bash infra/ci/wait-for-auth-stack.sh
+      # ---- the admin-metrics leg (#785): ClickHouse, its schema and users, a seeded month, OpenFGA, a staff user ----
+      - name: per-job ClickHouse passwords (masked), never committed
+        run: |
+          ro="$(openssl rand -hex 24)"
+          ingest="$(openssl rand -hex 24)"
+          echo "::add-mask::$ro"
+          echo "::add-mask::$ingest"
+          {
+            echo "CLICKHOUSE_READONLY_PASSWORD=$ro"
+            echo "CLICKHOUSE_INGEST_PASSWORD=$ingest"
+            echo "LOAD_CH_SEED=$RUNNER_TEMP/load/ch-seed.json"
+          } >> "$GITHUB_ENV"
+      - name: boot ClickHouse and wait for it
+        run: |
+          docker compose -f infra/docker/docker-compose.yml --profile analytics up -d clickhouse
+          for _ in $(seq 60); do curl -sf http://127.0.0.1:18123/ping >/dev/null && exit 0; sleep 2; done
+          echo 'ClickHouse did not answer /ping in 120 s'; exit 1
+      - name: build the packages the seed imports (the ingest and the generated month)
+        run: pnpm turbo run build --filter=@platform/analytics-ingest... --filter=@platform/test-utils...
+      - name: ClickHouse schema, models and users (ch:migrate), then one generated month per metrics_months
+        run: |
+          pnpm --filter @platform/analytics-ingest ch:migrate
+          mkdir -p "$RUNNER_TEMP/load"
+          node infra/load/ch-seed.mjs "$LOAD_CH_SEED" "${{ inputs.metrics_months || '1' }}"
+          echo "METRICS_LAST_DAY=$(node -p 'require(process.argv[1]).lastDay' "$LOAD_CH_SEED")" >> "$GITHUB_ENV"
+      # As CI's live job does: without OPENFGA_STORE_ID the core refuses every real staff token. fga:seed writes the ids
+      # to .env; they go to the job env so the core run.sh starts sees them.
+      - name: OpenFGA store and model for the core (fga:seed)
+        run: |
+          if ! pnpm --filter @platform/auth-sdk fga:seed > "$RUNNER_TEMP/fga-seed.log" 2>&1; then
+            cat "$RUNNER_TEMP/fga-seed.log"; exit 1
+          fi
+          store="$(sed -n 's/^OPENFGA_STORE_ID=//p' .env)"
+          model="$(sed -n 's/^OPENFGA_MODEL_ID=//p' .env)"
+          if [ -z "$store" ] || [ -z "$model" ]; then echo 'fga:seed wrote no OPENFGA_STORE_ID / OPENFGA_MODEL_ID'; exit 1; fi
+          { echo "OPENFGA_STORE_ID=$store"; echo "OPENFGA_MODEL_ID=$model"; } >> "$GITHUB_ENV"
+      # The staff realm's DEV user, read from the committed realm file at run time (the same credential CI's live job
+      # uses): nothing in this workflow repeats it. Masked anyway, so it never appears in a log.
+      - name: the analyst's dev password, from infra/keycloak/staff-realm.json (masked)
+        run: |
+          pw="$(node -p 'require("./infra/keycloak/staff-realm.json").users.find((u) => u.username === process.env.METRICS_STAFF_USER).credentials.find((c) => c.type === "password").value')"
+          echo "::add-mask::$pw"
+          echo "METRICS_STAFF_PASSWORD=$pw" >> "$GITHUB_ENV"
       - name: pass 1 (the target run, and the ramps when asked for) and report
         env:
           LOAD_SKIP_POOL: ${{ (github.event_name == 'schedule' || inputs.skip_ramps) && '1' || '' }}
@@ -87,7 +149,9 @@ jobs:
           node infra/load/slo-gate.mjs verdict "$RUNNER_TEMP/load/pass1"
           rc=$?
           set -e
-          if [ "$rc" -eq 2 ]; then echo "pass 1 broke before k6 could judge it"; exit 1; fi
+          # A broken pass 1 is not retried, and NOT failed here: the gate renders it as "infrastructure, not a
+          # regression" (with the reason), the last step fails the run, and a scheduled run still posts its comment.
+          if [ "$rc" -eq 2 ]; then echo "pass 1 could not be judged: no pass 2; the verdict below says why"; exit 0; fi
           if [ "$rc" -eq 1 ]; then
             LOAD_SKIP_POOL=1 LOAD_SKIP_CEILING=1 bash infra/load/run.sh "$RUNNER_TEMP/load/pass2"
           fi
@@ -125,7 +189,7 @@ jobs:
           if-no-files-found: warn
       - name: stop the stack
         if: always()
-        run: docker compose -f infra/docker/docker-compose.yml down -v
+        run: docker compose -f infra/docker/docker-compose.yml --profile analytics down -v
       # Both fail the run. A breach is a regression (the schedule opens the regression issue). broken is
       # infrastructure: a pass could not be judged (k6 crashed, an SLO route saw no requests), so no regression issue.
       - name: a confirmed breach, or a pass that could not be judged, fails the run

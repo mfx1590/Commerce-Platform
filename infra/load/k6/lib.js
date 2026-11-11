@@ -207,6 +207,8 @@ export const ROUTES = [
   'shipping_select',
   'payment_session',
   'complete',
+  'metrics',
+  'metrics_query',
 ];
 export const TARGET_ROUTES = BROWSE_ROUTES;
 // A route with an SLO gets its gate from slo-thresholds.js. Every other route gets a generous p(95) bound that never

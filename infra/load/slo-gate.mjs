@@ -15,7 +15,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { BROWSE_ROUTES, CHECKOUT_ROUTE, FACTOR, routeP95Ms, SLO } from './k6/slo-thresholds.js';
+import {
+  BROWSE_ROUTES,
+  CHECKOUT_ROUTE,
+  FACTOR,
+  METRICS_ROUTES,
+  routeP95Ms,
+  SLO,
+} from './k6/slo-thresholds.js';
 import { crossedThresholds, ROUTE_LABEL, routeStats } from './report.mjs';
 
 export const ISSUE_TITLE = 'load regression (scheduled k6)';
@@ -30,11 +37,24 @@ export function readPass(dir) {
   const code = Number(readFileSync(exitFile, 'utf8').trim());
   const summary = JSON.parse(readFileSync(summaryFile, 'utf8'));
   const routes = routeStats(summary);
+  // run.sh records whether the admin-metrics leg ran (LOAD_METRICS=1, #785); then its routes are SLO routes too.
+  const metaFile = join(dir, 'meta.json');
+  const metrics =
+    existsSync(metaFile) && JSON.parse(readFileSync(metaFile, 'utf8')).metrics === true;
   // A k6 threshold on a tag that never occurred passes vacuously: an SLO route with no requests judged nothing.
-  const unmeasured = [...BROWSE_ROUTES, CHECKOUT_ROUTE].filter((r) => !(routes[r]?.count > 0));
+  const required = [...BROWSE_ROUTES, CHECKOUT_ROUTE, ...(metrics ? METRICS_ROUTES : [])];
+  const unmeasured = required.filter((r) => !(routes[r]?.count > 0));
   const crossed = crossedThresholds(summary);
   if (code !== 0 && code !== 99)
-    return { state: 'broken', code, summary, crossed, routes, reason: `k6 exited ${code}` };
+    return {
+      state: 'broken',
+      code,
+      summary,
+      crossed,
+      routes,
+      metrics,
+      reason: `k6 exited ${code}`,
+    };
   if (unmeasured.length)
     return {
       state: 'broken',
@@ -42,9 +62,10 @@ export function readPass(dir) {
       summary,
       crossed,
       routes,
+      metrics,
       reason: `no requests on ${unmeasured.join(', ')}`,
     };
-  return { state: code === 0 ? 'pass' : 'breach', code, summary, crossed, routes };
+  return { state: code === 0 ? 'pass' : 'breach', code, summary, crossed, routes, metrics };
 }
 
 /**
@@ -77,8 +98,15 @@ export function table(p1, p2) {
     `| | SLO gate | pass 1 | ${p2 ? 'pass 2 |' : ''}`,
     `|---|---|---|${p2 ? '---|' : ''}`,
   ];
-  for (const r of [...BROWSE_ROUTES, CHECKOUT_ROUTE]) {
-    const gate = `p95 < ${routeP95Ms(r)} ms${r === CHECKOUT_ROUTE ? ' (lower bound: manual payment provider)' : ''}`;
+  const withMetrics = Boolean(p1.metrics || p2?.metrics);
+  const caveat = (r) =>
+    r === CHECKOUT_ROUTE
+      ? ' (lower bound: manual payment provider)'
+      : METRICS_ROUTES.includes(r)
+        ? ' (small data: a lower bound)'
+        : '';
+  for (const r of [...BROWSE_ROUTES, CHECKOUT_ROUTE, ...(withMetrics ? METRICS_ROUTES : [])]) {
+    const gate = `p95 < ${routeP95Ms(r)} ms${caveat(r)}`;
     rows.push(
       `| ${ROUTE_LABEL[r]} | ${gate} | ${ms(p1.routes?.[r]?.p95)} | ${p2 ? `${ms(p2.routes?.[r]?.p95)} |` : ''}`,
     );
@@ -92,7 +120,16 @@ export function table(p1, p2) {
   return rows.join('\n');
 }
 
-export function render({ runUrl, date, p1, p2 }) {
+/** The ClickHouse seed next to the metrics gate (#785): how little data the 300 ms was measured on. */
+export function seedLine(seed) {
+  if (!seed) return '';
+  const stores = Object.entries(seed.perStore ?? {})
+    .map(([id, n]) => `\`${id}\`: ${n}`)
+    .join(', ');
+  return `\n\nClickHouse seed for the admin-metrics rows: ${seed.events} events from ${seed.months} generated month(s) (${seed.firstDay} … ${seed.lastDay}); per store: ${stores}. **Small data: the 300 ms gate is a lower bound.**`;
+}
+
+export function render({ runUrl, date, p1, p2, seed }) {
   const v = overall(p1, p2);
   const reasons = [p1, p2]
     .map((p, i) => (p?.reason ? `- pass ${i + 1} could not be judged: ${p.reason}` : null))
@@ -106,12 +143,13 @@ export function render({ runUrl, date, p1, p2 }) {
     )
     .filter(Boolean)
     .join('\n');
+  const seeded = p1.metrics || p2?.metrics ? seedLine(seed) : '';
   const factor =
     FACTOR === 1
       ? ''
       : `\n\n> LOAD_THRESHOLD_FACTOR=${FACTOR}: the latency gates were scaled on purpose (a breach-path test).`;
-  const tracking = `### Scheduled k6 SLO regression, ${date} ([run](${runUrl}))\n\n${HEADLINE[v]}.${factor}\n\n${table(p1, p2)}${reasons ? `\n\n${reasons}` : ''}${crossed ? `\n\n${crossed}` : ''}\n`;
-  const issue = `A scheduled k6 SLO regression run crossed an SLO gate on BOTH passes (${date}, [run](${runUrl})).\n\n${table(p1, p2)}\n\n${crossed}${factor}\n\nThe gates are the SLOs (infra/load/k6/slo-thresholds.js = infra/observability/rules/slo.mjs; SLO.md has the prose). The run is the owner's target (50 browse req/s + 30 orders/min, 10 min) on a fresh core and database on a GitHub runner, so compare with the last green week in the tracking issue before blaming the code. The job's artifact has the full report (report.md) and the Postgres samples.\n`;
+  const tracking = `### Scheduled k6 SLO regression, ${date} ([run](${runUrl}))\n\n${HEADLINE[v]}.${factor}\n\n${table(p1, p2)}${seeded}${reasons ? `\n\n${reasons}` : ''}${crossed ? `\n\n${crossed}` : ''}\n`;
+  const issue = `A scheduled k6 SLO regression run crossed an SLO gate on BOTH passes (${date}, [run](${runUrl})).\n\n${table(p1, p2)}${seeded}\n\n${crossed}${factor}\n\nThe gates are the SLOs (infra/load/k6/slo-thresholds.js = infra/observability/rules/slo.mjs; SLO.md has the prose). The run is the owner's target (50 browse req/s + 30 orders/min, 10 min) on a fresh core and database on a GitHub runner, so compare with the last green week in the tracking issue before blaming the code. The job's artifact has the full report (report.md) and the Postgres samples.\n`;
   return { verdict: v, tracking, issue };
 }
 
@@ -127,7 +165,10 @@ function main([cmd, ...args]) {
     const [out, runUrl, d1, d2] = args;
     const p1 = readPass(d1);
     const p2 = d2 && existsSync(d2) ? readPass(d2) : undefined;
-    const r = render({ runUrl, date: new Date().toISOString().slice(0, 10), p1, p2 });
+    const seedFile = process.env.LOAD_CH_SEED;
+    const seed =
+      seedFile && existsSync(seedFile) ? JSON.parse(readFileSync(seedFile, 'utf8')) : undefined;
+    const r = render({ runUrl, date: new Date().toISOString().slice(0, 10), p1, p2, seed });
     mkdirSync(out, { recursive: true });
     writeFileSync(join(out, 'tracking.md'), r.tracking);
     writeFileSync(join(out, 'issue.md'), r.issue);

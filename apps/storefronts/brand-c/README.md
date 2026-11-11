@@ -137,9 +137,25 @@ The script overlays `perf/store.example.json` onto a temporary copy of the spec,
 this brand's. A run that needs this brand's real products points `E2E_STORE_API_URL` at a core,
 which is what CI does.
 
-**The visual suite cannot run here yet** (REQUEST #797): the synced `e2e/visual.spec.ts` hard-codes
-`/en-GB`, so on this brand it screenshots the 404 page — and the full-page `home` shot passes,
-because a 404 is stable. Do not take baselines until that lands.
+### The visual baselines
+
+`e2e/__screenshots__/win32/` holds eight (#781): three full pages at `maxDiffPixelRatio` **0.0001**
+and five element shots at **0.002**. They need this brand's store mock, the same as the e2e above:
+
+```bash
+node scripts/e2e-store-mock.mjs
+E2E_VISUAL=1 MOCK_API_URL=http://127.0.0.1:4018 pnpm --filter @platform/storefront-brand-c e2e visual
+```
+
+**The prices in them say `€`, and that is the mock.** The overlay gives the app this brand's
+**store** — the header, footer, `Ships to US` and `Prices in USD` all come from it — over the
+**contract's** catalogue, whose example products are priced in EUR. Against a core the products are
+USD and the pages agree with themselves. So these baselines catch a theme, type, spacing or layout
+change; they cannot catch a currency-formatting regression.
+
+They were impossible until #797: the spec hard-coded `/en-GB`, so on this brand every shot was of
+the 404 page — and the full-page `home` shot **passed**, because a 404 is perfectly stable. Since
+#793 the spec asserts each page is the right page before it shoots, so that failure mode is closed.
 
 ## The locale gap
 

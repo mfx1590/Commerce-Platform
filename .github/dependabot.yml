@@ -60,6 +60,12 @@ updates:
       # @testing-library/jest-dom 7 needs Node >= 22 (#780, closed 2026-11-10).
       - dependency-name: '@testing-library/jest-dom'
         update-types: ['version-update:semver-major']
+      # Sanity 6 (sanity, @sanity/vision; cms/ is on 4) needs Node >= 22.12 (#796, #799, closed 2026-11-11). Majors only:
+      # Sanity's minor and patch bumps still arrive in the groups.
+      - dependency-name: 'sanity'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@sanity/vision'
+        update-types: ['version-update:semver-major']
       # ==== end of the Node 22 follow-ups ====
       #
       # Majors that no PR can take on its own. Minor and patch bumps of these still arrive in the weekly groups.
