@@ -24,6 +24,10 @@ const taxActions = vi.hoisted(() => ({
   deleteTaxRateAction: vi.fn(),
 }));
 vi.mock('@/app/actions/tax-rates', () => taxActions);
+vi.mock('@/app/actions/shipping-options', () => ({
+  createShippingOptionAction: vi.fn(),
+  updateShippingOptionAction: vi.fn(),
+}));
 
 const STORE = '00000000-0000-4000-8000-000000000034';
 const rate = (over: Record<string, unknown> = {}) => ({
@@ -61,7 +65,15 @@ describe('the readiness panel’s tax step', () => {
       }),
     );
     const user = userEvent.setup();
-    render(<ActivatePanel storeId={STORE} status="draft" />);
+    render(
+      <ActivatePanel
+        storeId={STORE}
+        status="draft"
+        defaultCurrency="EUR"
+        canCreateTax
+        canCreateShipping
+      />,
+    );
     await user.click(screen.getByRole('button', { name: 'Activate' }));
 
     const missing = await screen.findByRole('list', { name: 'Missing prerequisites' });
@@ -93,7 +105,15 @@ describe('the readiness panel’s tax step', () => {
       formError: null,
     });
     const user = userEvent.setup();
-    render(<ActivatePanel storeId={STORE} status="draft" />);
+    render(
+      <ActivatePanel
+        storeId={STORE}
+        status="draft"
+        defaultCurrency="EUR"
+        canCreateTax
+        canCreateShipping
+      />,
+    );
     await user.click(screen.getByRole('button', { name: 'Activate' }));
     const form = await screen.findByRole('form', { name: 'Create a rate for NL' });
     await user.type(within(form).getByLabelText('Rate (basis points)'), '20000');
@@ -105,7 +125,15 @@ describe('the readiness panel’s tax step', () => {
   it('no tax step when the 409 does not name tax rates', async () => {
     storeActions.activateStoreAction.mockResolvedValue(blocked(['primary_domain']));
     const user = userEvent.setup();
-    render(<ActivatePanel storeId={STORE} status="draft" />);
+    render(
+      <ActivatePanel
+        storeId={STORE}
+        status="draft"
+        defaultCurrency="EUR"
+        canCreateTax
+        canCreateShipping
+      />,
+    );
     await user.click(screen.getByRole('button', { name: 'Activate' }));
     await screen.findByRole('list', { name: 'Missing prerequisites' });
     expect(screen.queryByRole('region', { name: 'Tax rates to create' })).toBeNull();

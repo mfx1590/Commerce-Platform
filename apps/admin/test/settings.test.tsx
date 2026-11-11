@@ -60,6 +60,7 @@ const api = vi.hoisted(() => ({
   listApiKeys: vi.fn(),
   listTaxRates: vi.fn(),
   listCategories: vi.fn(),
+  listShippingOptions: vi.fn(),
 }));
 vi.mock('@/lib/api/admin', () => api);
 
@@ -119,6 +120,7 @@ beforeEach(() => {
   );
   api.listSalesChannels.mockResolvedValue(ok({ items: channels }));
   api.listTaxRates.mockResolvedValue(ok({ items: [] }));
+  api.listShippingOptions.mockResolvedValue(ok({ items: [] }));
   api.listCategories.mockResolvedValue(ok({ items: [] }));
   api.listApiKeys.mockResolvedValue(ok({ items: [existingKey, secondKey] }));
 });

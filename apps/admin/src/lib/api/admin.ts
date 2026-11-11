@@ -927,6 +927,47 @@ export async function deleteTaxRate(
   });
 }
 
+// ---------------------------------------------------------------------------- shipping options (#809)
+
+/** Every option of the store, active or not, by code (viewer). */
+export async function listShippingOptions(
+  storeId: string,
+): Promise<ApiResult<AdminResponse<'listShippingOptions'>>> {
+  return adminCall<'listShippingOptions'>({
+    path: buildPath('/admin/stores/{storeId}/shipping-options', { storeId }),
+  });
+}
+
+export type ShippingOptionCreateBody =
+  operations['createShippingOption']['requestBody']['content']['application/json'];
+export type ShippingOptionUpdateBody =
+  operations['updateShippingOption']['requestBody']['content']['application/json'];
+
+/** 201; 409 for a taken code (`details.shipping_option_id`) or, on an active store, `missing_shipping_countries`. */
+export async function createShippingOption(
+  storeId: string,
+  body: ShippingOptionCreateBody,
+): Promise<ApiResult<AdminResponse<'createShippingOption'>>> {
+  return adminCall<'createShippingOption'>({
+    path: buildPath('/admin/stores/{storeId}/shipping-options', { storeId }),
+    method: 'POST',
+    body,
+  });
+}
+
+/** Partial; `is_active: false` deactivates. On an active store, 409 `missing_shipping_countries`. */
+export async function updateShippingOption(
+  storeId: string,
+  optionId: string,
+  body: ShippingOptionUpdateBody,
+): Promise<ApiResult<AdminResponse<'updateShippingOption'>>> {
+  return adminCall<'updateShippingOption'>({
+    path: buildPath('/admin/stores/{storeId}/shipping-options/{optionId}', { storeId, optionId }),
+    method: 'PATCH',
+    body,
+  });
+}
+
 // ---------------------------------------------------------------------------- copy drafts (#608, Admin API 0.4.26)
 
 export type DraftProductCopyBody =

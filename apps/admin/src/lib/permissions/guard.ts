@@ -19,6 +19,7 @@ import { ORDER_PERMISSIONS } from '../orders/permissions';
 import { loadPrincipal } from '../principal';
 import { ROLES_PERMISSIONS } from '../roles/permissions';
 import { REGISTRY_PERMISSIONS } from '../settings';
+import { SHIPPING_PERMISSIONS } from '../shipping-options';
 import { TAX_PERMISSIONS } from '../tax-rates';
 import { WAREHOUSE_PERMISSIONS } from '../warehouse/permissions';
 import { holds, ruleObject, type PermissionRule } from './rules';
@@ -29,6 +30,7 @@ const OPERATIONS = {
   ...ROLES_PERMISSIONS,
   ...WAREHOUSE_PERMISSIONS,
   ...TAX_PERMISSIONS,
+  ...SHIPPING_PERMISSIONS,
   ...COPY_DRAFT_PERMISSIONS,
 } satisfies Record<string, PermissionRule>;
 
