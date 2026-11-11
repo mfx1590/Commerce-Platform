@@ -504,6 +504,10 @@ core answers the contract's 404, task 2.6 turns that into a "not implemented yet
 
 ## Promotions and price lists (task 2.4, issue #116)
 
+**Currency comes from the store, never a default (#810).** Money inputs parse with the currency's
+digits (JPY has none), so the new-promotion form, the promotion edit form and the new-price-list
+form render only when the store read succeeded; otherwise the error panel stands in their place.
+
 **Store · Promotions** (`promotions`). `/{storeId}/promotions` lists with the contract's sort and
 describes each value per type — basis points for a percentage, minor units for a fixed amount,
 the quantities for buy-x-get-y — plus a 30-day usage card from the marketing promotion report
