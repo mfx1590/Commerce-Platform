@@ -11,7 +11,8 @@ import http from 'k6/http';
 import { check, fail } from 'k6';
 import { BASE, httpErrors, transportErrors } from './lib.js';
 
-const KEYCLOAK = (__ENV.KEYCLOAK_URL || 'http://127.0.0.1:8180').replace(/\/$/, '');
+// localhost: the staff realm's frontendUrl, which every token's `iss` carries and the core pins (see load.yml).
+const KEYCLOAK = (__ENV.KEYCLOAK_URL || 'http://localhost:8180').replace(/\/$/, '');
 const USER = __ENV.METRICS_STAFF_USER || 'analyst';
 
 // Per VU: a token and when it expires. Re-granted a minute before expiry (the realm's tokens live 15 min).
@@ -60,7 +61,9 @@ function adminReq(method, path, body, route) {
 export function metricsSetup() {
   const res = adminReq('GET', '/admin/metrics', undefined, 'setup');
   if (res.status !== 200)
-    fail(`GET /admin/metrics answered ${res.status}: is the core wired to ClickHouse and OpenFGA?`);
+    fail(
+      `GET /admin/metrics answered ${res.status} (${String(res.body || '').slice(0, 300)}): is the core wired to ClickHouse and OpenFGA?`,
+    );
   const c = res.json();
   const metricIds = (c.metrics || [])
     .filter(

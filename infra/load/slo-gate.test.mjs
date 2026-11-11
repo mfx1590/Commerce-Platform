@@ -137,6 +137,11 @@ test('(breach, then pass 2 crashes) is broken: infrastructure, never green, neve
     /if: steps\.gate\.outputs\.verdict == 'breach' \|\| steps\.gate\.outputs\.verdict == 'broken'/,
   );
   assert.match(yml, /infrastructure, not a regression/);
+  // a broken pass 1 must reach the gate (rendered, commented on), not end the job in the pass-2 step (#801 proof)
+  assert.match(yml, /if \[ "\$rc" -eq 2 \]; then echo "[^"]*"; exit 0; fi/);
+  assert.doesNotMatch(yml, /if \[ "\$rc" -eq 2 \]; then[^\n]*exit 1/);
+  // the issuer the core pins comes from KEYCLOAK_URL and must be the realm's frontendUrl (localhost)
+  assert.match(yml, /KEYCLOAK_URL: http:\/\/localhost:8180/);
   assert.match(
     yml,
     /- name: a confirmed breach opens or updates the regression issue\n\s+if: needs\.load\.outputs\.verdict == 'breach'\n/,

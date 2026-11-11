@@ -63,7 +63,9 @@ jobs:
       LOAD_METRICS: '1'
       METRICS_RPS: '2'
       METRICS_STAFF_USER: analyst
-      KEYCLOAK_URL: http://127.0.0.1:8180
+      # localhost, NOT 127.0.0.1: the staff realm pins frontendUrl http://localhost:8180, so every token's `iss` is
+      # localhost, and the core pins the issuer from this same variable (the first #801 proofs got 401 with 127.0.0.1).
+      KEYCLOAK_URL: http://localhost:8180
       # The compose ClickHouse (profile analytics). The admin pair is compose's local word. The read-only and ingest
       # passwords are generated per job and masked (the step below); nothing here is a credential.
       CLICKHOUSE_URL: http://127.0.0.1:18123
@@ -147,7 +149,9 @@ jobs:
           node infra/load/slo-gate.mjs verdict "$RUNNER_TEMP/load/pass1"
           rc=$?
           set -e
-          if [ "$rc" -eq 2 ]; then echo "pass 1 broke before k6 could judge it"; exit 1; fi
+          # A broken pass 1 is not retried, and NOT failed here: the gate renders it as "infrastructure, not a
+          # regression" (with the reason), the last step fails the run, and a scheduled run still posts its comment.
+          if [ "$rc" -eq 2 ]; then echo "pass 1 could not be judged: no pass 2; the verdict below says why"; exit 0; fi
           if [ "$rc" -eq 1 ]; then
             LOAD_SKIP_POOL=1 LOAD_SKIP_CEILING=1 bash infra/load/run.sh "$RUNNER_TEMP/load/pass2"
           fi
