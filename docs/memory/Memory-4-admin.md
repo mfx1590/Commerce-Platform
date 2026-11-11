@@ -557,6 +557,17 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#815 review follow-ups (2026-11-11, Manager session twelve).**
+  - Branch `admin/phase6-shipping-followups` from main 97218bd2. **Code sha aac7555b.**
+  - `updateShippingOptionAction(storeId, optionId, values)` re-reads the option from the core (stored currency,
+    stored row). The client's copy is gone from the signature.
+  - The quick create is `createCountryShippingOptionAction`: an inactive `standard-<cc>` in the same currency
+    is REACTIVATED (typed name/price, country added back); otherwise the next free code `-2`, `-3`.
+  - The JPY "1,980" message is "Type 1980 without separators" (`moneyErrorMessage`'s 3rd arg `typed`).
+  - Unit 1075/1075. Mutation-checked.
+  - The e2e scope reload loop stays until window 1's scope-cache fix lands; THEN drop it (hq-onboarding.spec,
+    the toPass around the Settings read-back).
+- **#815 MERGED (2026-11-11)** = 97218bd2 on main, with the screen: **code sha 031b84e4** (memory 66896392).
 - **Shipping options admin screen (2026-11-11, Manager session twelve) — BUILT inside #815.**
   - Branch `admin/phase6-shipping-options` from 025a251d (= origin/integration/phase6-809, Admin API 0.4.28).
     Commits go on top for the manager to fast-forward onto integration/phase6-809. NO merge of main here.
