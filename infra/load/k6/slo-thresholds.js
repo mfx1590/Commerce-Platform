@@ -12,12 +12,19 @@ export const SLO = {
   // the `manual` payment provider (no network call), while production calls the payment provider inside the
   // request. A pass says the core is fast enough; it says nothing about Stripe.
   completeP95Ms: 2000,
+  // admin-metrics-latency: 95% of GET /admin/metrics and POST /admin/metrics/query under 300 ms (#785). SMALL DATA:
+  // a LOWER BOUND here. The run's ClickHouse holds one generated month (infra/load/ch-seed.mjs, about 800 events),
+  // while production holds the stores' whole history. A pass says the API and the auth path are fast enough on
+  // little data; it says nothing about large scans.
+  adminMetricsP95Ms: 300,
   // store-api-availability and checkout-availability: 99.9% of requests (and of placements) not failed.
   errorRate: 0.001,
 };
 
 export const BROWSE_ROUTES = ['store', 'list', 'detail'];
 export const CHECKOUT_ROUTE = 'complete';
+// Gated only when the run includes the admin-metrics leg (LOAD_METRICS=1, k6/metrics.js).
+export const METRICS_ROUTES = ['metrics', 'metrics_query'];
 
 // LOAD_THRESHOLD_FACTOR (default 1) scales the LATENCY gates. Only the manual workflow_dispatch input sets it, below 1,
 // to force a breach and prove the retry-once rule and the issue text. The schedule never sets it.
@@ -34,5 +41,6 @@ if (!(Number.isFinite(FACTOR) && FACTOR > 0))
 export function routeP95Ms(route, factor = FACTOR) {
   if (BROWSE_ROUTES.includes(route)) return Math.round(SLO.browseP95Ms * factor);
   if (route === CHECKOUT_ROUTE) return Math.round(SLO.completeP95Ms * factor);
+  if (METRICS_ROUTES.includes(route)) return Math.round(SLO.adminMetricsP95Ms * factor);
   return undefined;
 }

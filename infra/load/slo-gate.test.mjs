@@ -7,12 +7,21 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { overall, readPass, render } from './slo-gate.mjs';
-import { BROWSE_ROUTES, CHECKOUT_ROUTE } from './k6/slo-thresholds.js';
+import { BROWSE_ROUTES, CHECKOUT_ROUTE, METRICS_ROUTES } from './k6/slo-thresholds.js';
 
 const GATE = fileURLToPath(new URL('./slo-gate.mjs', import.meta.url));
 
 /** A run dir as run.sh leaves it: k6's exit code + a minimal summary (complete p95 given, browse 120 ms). */
-function runDir(code, { completeP95 = 300, failRate = 0, crossed = false } = {}) {
+function runDir(
+  code,
+  {
+    completeP95 = 300,
+    failRate = 0,
+    crossed = false,
+    metricsLeg = false,
+    metricsRoutes = metricsLeg,
+  } = {},
+) {
   const dir = mkdtempSync(join(tmpdir(), 'slo-gate-'));
   const route = (p95) => ({
     values: { count: 100, med: p95 / 2, 'p(95)': p95, 'p(99)': p95, max: p95 },
@@ -27,7 +36,15 @@ function runDir(code, { completeP95 = 300, failRate = 0, crossed = false } = {})
     },
     http_req_failed: { values: { rate: failRate } },
     placement_failed: { values: { rate: 0 } },
+    ...(metricsRoutes
+      ? {
+          'http_req_duration{route:metrics}': route(40),
+          'http_req_duration{route:metrics_query}': route(55),
+        }
+      : {}),
   };
+  // run.sh records whether the admin-metrics leg ran (#785)
+  writeFileSync(join(dir, 'meta.json'), JSON.stringify({ metrics: metricsLeg }));
   writeFileSync(join(dir, 'load.exit'), `${code}\n`);
   writeFileSync(join(dir, 'load-summary.json'), JSON.stringify({ metrics }));
   return dir;
@@ -143,8 +160,12 @@ test("every SLO gate's route is a route lib.js tags its requests with", () => {
     .match(/export const ROUTES = \[([^\]]*)\]/)[1]
     .match(/'([a-z_]+)'/g)
     .map((q) => q.slice(1, -1));
-  for (const r of [...BROWSE_ROUTES, CHECKOUT_ROUTE])
+  for (const r of [...BROWSE_ROUTES, CHECKOUT_ROUTE, ...METRICS_ROUTES])
     assert.ok(routes.includes(r), `${r} is not in lib.js ROUTES`);
+  // the metrics leg tags its requests with exactly the gated routes (k6/metrics.js)
+  const metricsJs = readFileSync(new URL('./k6/metrics.js', import.meta.url), 'utf8');
+  for (const r of METRICS_ROUTES)
+    assert.match(metricsJs, new RegExp(`'${r}',?\\s*\\)`), `metrics.js never tags ${r}`);
   assert.match(lib, /tags: \{ route \}/, 'requests are tagged with their route');
 });
 
@@ -165,6 +186,40 @@ test('LOAD_THRESHOLD_FACTOR must be a number > 0: a typo is refused, not a NaN g
     assert.match(r.stderr, /LOAD_THRESHOLD_FACTOR must be a number > 0/);
   }
   assert.equal(load('0.05').status, 0);
+});
+
+test('the admin-metrics leg (#785): its two routes are gated and required when it ran, absent when it did not', () => {
+  const on = readPass(runDir(0, { metricsLeg: true }));
+  assert.equal(on.state, 'pass');
+  const seed = {
+    events: 783,
+    months: 1,
+    perStore: { 'store-a': 272, 'store-b': 251 },
+    firstDay: '2026-10-01',
+    lastDay: '2026-10-31',
+  };
+  const r = render({ runUrl: 'https://example.invalid/run/6', date: '2026-11-16', p1: on, seed });
+  assert.match(r.tracking, /GET \/admin\/metrics \| p95 < 300 ms \(small data: a lower bound\)/);
+  assert.match(r.tracking, /POST \/admin\/metrics\/query \| p95 < 300 ms/);
+  assert.match(r.tracking, /783 events from 1 generated month/);
+  assert.match(r.tracking, /`store-a`: 272/);
+  assert.match(r.tracking, /the 300 ms gate is a lower bound/);
+
+  // the leg ran but its routes saw no requests: broken, never a vacuous pass (both tags are covered)
+  const empty = readPass(runDir(0, { metricsLeg: true, metricsRoutes: false }));
+  assert.equal(empty.state, 'broken');
+  assert.equal(empty.reason, 'no requests on metrics, metrics_query');
+
+  // without the leg (a laptop run, no ClickHouse): no metrics rows, no seed line, nothing required
+  const off = readPass(runDir(0));
+  assert.equal(off.state, 'pass');
+  const plain = render({
+    runUrl: 'https://example.invalid/run/7',
+    date: '2026-11-16',
+    p1: off,
+    seed,
+  });
+  assert.doesNotMatch(plain.tracking, /admin\/metrics|ClickHouse seed/);
 });
 
 test('render writes tracking.md, issue.md and verdict.txt', () => {

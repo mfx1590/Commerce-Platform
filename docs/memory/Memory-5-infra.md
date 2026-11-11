@@ -122,6 +122,16 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
+- **#785 admin-metrics latency (2026-11-11), approved: token A, 2 req/s, 1 month (+metrics_months knob).** Branch
+  infra/phase6-785-metrics-slo from main 7b2c9299 (#788 merged).
+  - k6/metrics.js: a per-VU test-cli grant for analyst, re-granted 60 s before expiry; the realm's tokens live 900 s.
+  - ch-seed.mjs: generateMonth → envelopeToMessage → classify → createRawEventsSink. Packages resolved through
+    apps/analytics-ingest/node_modules, because they export `import` only (require.resolve fails). loadConfig is
+    (env, argv). Dry run: 783 events, Oct 2026, ~260 per store.
+  - The gate counts metrics routes as required only when meta.json says metrics: true (run.sh writes it).
+  - Workflow: openssl passwords + ::add-mask::; turbo builds the ingest + test-utils before ch:migrate and the seed;
+    fga:seed as in CI's live job; the analyst's password read via node from the realm file, masked.
+  - PROOF: both dispatch runs (green + factor breach) on the PR.
 - **Scheduled k6 SLO regression (2026-11-10), approved: weekly Mon 04:00 UTC; issues on confirmed breach + a tracking
   comment per run; admin-metrics later = #785.** Branch infra/phase6-k6-slo-regression from main d38d51ff; push AFTER
   the hygiene PR is up. k6/slo-thresholds.js (no k6 import, so Node can load it; LOAD_THRESHOLD_FACTOR scales latency
