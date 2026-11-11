@@ -9,16 +9,15 @@ import {
   readTouch,
 } from '@/lib/attribution';
 import { CSP_HEADER, contentSecurityPolicy, newNonce, parseFrameHosts } from '@/lib/csp';
+import { classifyPath } from '@/lib/route-handlers';
 import { siteOrigin } from '@/lib/site-origin';
 
 /**
  * Puts every page under a locale prefix, remembers the choice in a cookie, and captures marketing
  * attribution on the way through.
  *
- * The matcher excludes the route handlers deliberately: `/health` is the container probe and must
- * answer 200 without a redirect, `/auth/*` carries the OIDC round trip — its callback URL is
- * registered with Keycloak, so it cannot grow a locale prefix — and `/r/*` is the referral landing,
- * a shared short link that must not have to carry a locale and must not take a second redirect hop.
+ * The route handlers outside the locale tree (`/health`, `/auth/*`, `/r/<code>`, `/api/*`) never get a
+ * locale prefix or attribution: they pass straight through (src/lib/route-handlers.ts says why).
  */
 const intlMiddleware = createMiddleware(routing);
 
@@ -80,6 +79,22 @@ export default function middleware(request: NextRequest) {
   });
   const forwarded = forwardedRequest(request, policy);
 
+  // The route handlers outside the locale tree (src/lib/route-handlers.ts, #790): a real one passes
+  // straight through, with the policy; any other path under their prefixes (`/api/nope`, `/auth/x`)
+  // has no page either, so it gets a plain-text 404, not an HTML page that would need a nonce.
+  const kind = classifyPath(request.nextUrl.pathname);
+  if (kind === 'handler') {
+    const response = NextResponse.next();
+    response.headers.set(CSP_HEADER, policy);
+    return response;
+  }
+  if (kind === 'no-handler') {
+    return new NextResponse('Not Found', {
+      status: 404,
+      headers: { 'content-type': 'text/plain; charset=utf-8', [CSP_HEADER]: policy },
+    });
+  }
+
   // A file path gets the policy and nothing else: no locale prefix, no attribution. That includes a
   // missing file, which Next answers with its prerendered `/_not-found` page (#782).
   if (FILE_PATH.test(request.nextUrl.pathname)) {
@@ -125,17 +140,19 @@ export default function middleware(request: NextRequest) {
 }
 
 /**
- * Everything except the route handlers (see above) and Next's own build output.
- * - **The exclusions are whole path segments** (#783 review). The old unanchored `api|auth|health`
- *   also skipped `/authors`, `/apiary` and `/healthy`, which then rendered a 404 page with no CSP
- *   at all. `test/middleware-matcher.test.ts` pins both lists.
+ * Everything except Next's own build output (`/_next/…`, `/_vercel/…`).
+ * - **Every response carries the policy** (#790). The route handlers are matched too, and the
+ *   branches above pass a real handler through and answer any other path under a handler prefix
+ *   with a plain-text 404. Excluding `api`, `auth`, `r` and `health` here (#783) left `/api/nope`
+ *   or `/auth/x` rendering the locale 404 with no policy.
  * - **File paths are matched since #782**, so that a missing file's 404 page also carries the
- *   policy; the branch above keeps them out of the locale and attribution logic.
- * - **The cost on a `public/` file:** one regex test, a nonce and a policy string per request (the
- *   starter's `public/` holds no files; each brand's holds one SVG placeholder).
+ *   policy; their branch keeps them out of the locale and attribution logic.
+ * - **The cost on a `public/` file or a route handler:** one regex test, a nonce and a policy
+ *   string per request (the starter's `public/` holds no files; each brand's holds one SVG).
  *
- * A literal on purpose: Next reads `config.matcher` statically at build time.
+ * `test/middleware-matcher.test.ts` compiles this exactly as Next does. A literal on purpose: Next
+ * reads `config.matcher` statically at build time.
  */
 export const config = {
-  matcher: ['/((?!api/|api$|auth/|auth$|r/|_next/|_vercel/|_vercel$|health/?$).*)'],
+  matcher: ['/((?!_next/|_vercel/|_vercel$).*)'],
 };
