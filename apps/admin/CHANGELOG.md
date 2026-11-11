@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Changed — #815 review follow-ups (Refs #809)
+
+- `updateShippingOptionAction(storeId, optionId, values)` re-reads the option from the core
+  (`listShippingOptions`) instead of trusting the page's copy. The stored currency decides how the price's
+  digits are read, and the patch is diffed against the stored row. An option the store does not list is
+  refused before any write.
+- The readiness panel's quick create is now `createCountryShippingOptionAction`. Options are never deleted,
+  so a plain create of `standard-<cc>` would 409 once an earlier one was deactivated. Instead:
+  - an INACTIVE `standard-<cc>` in the same currency is reactivated with the typed name and price (and the
+    country added back);
+  - otherwise the next free code (`standard-<cc>-2`, …) is created.
+  - The panel says which: "NL: shipping option created (standard-nl)." / "NL: the inactive option
+    standard-nl was reactivated."
+- A zero-decimal amount typed with thousands separators ("1,980" or "1.980.000" for JPY) now says
+  "Type 1980 without separators: JPY amounts are whole units". This uses `moneyErrorMessage`'s new optional
+  `typed` argument; the money field and the shipping forms pass it.
+
 ### Added — #809: shipping options (Admin API 0.4.28), in #815
 
 - Store · Settings › **Shipping options** (`#shipping-options`):

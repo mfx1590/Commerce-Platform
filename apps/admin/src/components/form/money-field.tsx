@@ -107,7 +107,7 @@ export function MoneyField({
               setParseError(undefined);
               onChangeMinor(result.amountMinor);
             } else {
-              setParseError(moneyErrorMessage(result.reason, currency));
+              setParseError(moneyErrorMessage(result.reason, currency, next));
               // Do not report a half-typed amount as a value; the field is simply not valid yet.
               onChangeMinor(null);
             }

@@ -784,9 +784,15 @@ store_admin (`SHIPPING_PERMISSIONS`, pinned against the spec). The actions refus
 **Live stores.** The core refuses a change that would leave a market country uncovered (409); the section
 says which countries.
 
+**Edits re-read the option.** The update action reads the option from the core first: its stored currency
+decides the price's digits, and the patch is diffed against the stored row, never against the page's copy.
+
 **Readiness panel.** It turns `shipping_options` into "a shipping option for XX", with one inline create per
 country (default currency, `manual` carrier, flat price). Like the tax-rate creates, these are offered only
 with store_admin on the store (decided server-side by the page); otherwise the relation needed is named.
+The quick create (`createCountryShippingOptionAction`) uses the code `standard-<cc>`. An inactive one in the
+same currency is reactivated rather than refused; otherwise it takes the next free code (`-2`, `-3`, …).
+The panel says which.
 
 ## Tax rates (#520, CONTRACT CHANGE #522; Admin API 0.4.23)
 
