@@ -112,10 +112,14 @@ jobs:
       - name: build the packages the seed imports (the ingest and the generated month)
         run: pnpm turbo run build --filter=@platform/analytics-ingest... --filter=@platform/test-utils...
       - name: ClickHouse schema, models and users (ch:migrate), then one generated month per metrics_months
+        # The input reaches the shell as data (env), never interpolated into the script; ch-seed.mjs refuses
+        # anything but an integer 1-12 (#801 review).
+        env:
+          METRICS_MONTHS: ${{ inputs.metrics_months || '1' }}
         run: |
           pnpm --filter @platform/analytics-ingest ch:migrate
           mkdir -p "$RUNNER_TEMP/load"
-          node infra/load/ch-seed.mjs "$LOAD_CH_SEED" "${{ inputs.metrics_months || '1' }}"
+          node infra/load/ch-seed.mjs "$LOAD_CH_SEED" "$METRICS_MONTHS"
           echo "METRICS_LAST_DAY=$(node -p 'require(process.argv[1]).lastDay' "$LOAD_CH_SEED")" >> "$GITHUB_ENV"
       # As CI's live job does: without OPENFGA_STORE_ID the core refuses every real staff token. fga:seed writes the ids
       # to .env; they go to the job env so the core run.sh starts sees them.
@@ -155,8 +159,12 @@ jobs:
           if [ "$rc" -eq 1 ]; then
             LOAD_SKIP_POOL=1 LOAD_SKIP_CEILING=1 bash infra/load/run.sh "$RUNNER_TEMP/load/pass2"
           fi
+      # Also after a failed setup step (the stack, ClickHouse, the seed, fga:seed, pass 1 itself): the gate then
+      # renders `broken` with "pass 1 never ran", so a scheduled run still posts its weekly comment instead of an
+      # empty verdict and silence (#801 review). Not on a cancel: a cancelled run says nothing.
       - name: the SLO verdict
         id: gate
+        if: ${{ !cancelled() }}
         run: |
           node infra/load/slo-gate.mjs render "$RUNNER_TEMP/load/slo" \
             "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \

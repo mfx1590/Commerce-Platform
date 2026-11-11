@@ -30,6 +30,13 @@ export const TRACKING_TITLE = 'load: weekly SLO regression tracking (scheduled k
 
 /** One pass: 'pass' | 'breach' | 'broken', with what k6 reported. */
 export function readPass(dir) {
+  // run.sh never started: a setup step before pass 1 failed (load.yml renders the gate anyway, so the schedule still
+  // comments). Infrastructure, never a regression.
+  if (!dir || !existsSync(dir))
+    return {
+      state: 'broken',
+      reason: 'this pass never ran: a setup step before it failed (see the run log)',
+    };
   const exitFile = join(dir, 'load.exit');
   const summaryFile = join(dir, 'load-summary.json');
   if (!existsSync(exitFile) || !existsSync(summaryFile))

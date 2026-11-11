@@ -4,6 +4,14 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 6
 
+### Fixed (#801 review: the k6 SLO regression)
+
+- `.github/workflows/load.yml`: `inputs.metrics_months` reaches the seed step through env (`METRICS_MONTHS`), never
+  interpolated into the shell script. A self-test fails if any `run:` block interpolates an input.
+- A setup step that fails before pass 1 (the stack, ClickHouse, the seed, fga:seed) no longer leaves an empty verdict
+  and no weekly comment. The gate step runs unless the run was cancelled, and `slo-gate.mjs` renders a pass that
+  never ran as `broken` ("this pass never ran: a setup step before it failed"), so the schedule still comments.
+
 ### Added (#785: admin-metrics latency in the scheduled k6 SLO regression)
 
 - `k6/metrics.js`: 2 req/s against `GET /admin/metrics` and `POST /admin/metrics/query`, as the staff realm's dev

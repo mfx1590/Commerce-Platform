@@ -148,6 +148,41 @@ test('(breach, then pass 2 crashes) is broken: infrastructure, never green, neve
   );
 });
 
+test('a setup step failed before pass 1: broken, rendered, so the schedule still comments (#801 review)', () => {
+  const never = join(mkdtempSync(join(tmpdir(), 'slo-gate-')), 'pass1'); // run.sh never created it
+  const p1 = readPass(never);
+  assert.equal(p1.state, 'broken');
+  assert.match(p1.reason, /never ran: a setup step before it failed/);
+  const r = render({ runUrl: 'https://example.invalid/run/8', date: '2026-11-16', p1 });
+  assert.equal(r.verdict, 'broken');
+  assert.match(r.tracking, /infrastructure, not a regression/);
+  assert.match(r.tracking, /pass 1 could not be judged: this pass never ran/);
+  // the CLI renders it too (verdict.txt is what the issues job's `verdict != ''` reads)
+  const out = mkdtempSync(join(tmpdir(), 'slo-gate-out-'));
+  const c = spawnSync(
+    process.execPath,
+    [GATE, 'render', out, 'https://example.invalid/run/9', never],
+    {
+      encoding: 'utf8',
+    },
+  );
+  assert.equal(c.status, 0, c.stderr);
+  assert.equal(readFileSync(join(out, 'verdict.txt'), 'utf8').trim(), 'broken');
+  // load.yml runs the gate after a failed step (not after a cancel), and passes no input into a shell script
+  const yml = readFileSync(new URL('../../.github/workflows/load.yml', import.meta.url), 'utf8');
+  assert.match(yml, /- name: the SLO verdict\n\s+id: gate\n\s+if: \$\{\{ !cancelled\(\) \}\}\n/);
+  for (const block of yml.split(/\n\s+- (?:name|uses):/)) {
+    const run = block.split(/\n\s+run: \|/)[1];
+    if (run)
+      assert.doesNotMatch(
+        run,
+        /\$\{\{\s*inputs\./,
+        `an input is interpolated into a script:${block.slice(0, 80)}`,
+      );
+  }
+  assert.match(yml, /METRICS_MONTHS: \$\{\{ inputs\.metrics_months \|\| '1' \}\}/);
+});
+
 test('an SLO route with no requests is broken, not a vacuous pass (a threshold on an absent tag passes)', () => {
   const dir = runDir(0);
   const f = join(dir, 'load-summary.json');
