@@ -4,6 +4,13 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 6
 
+### Changed (#758: the starter's packages are back in Dependabot)
+
+- `.github/dependabot.yml`: the 19 starter-package ignores are removed. Since #789 the brands' sync-merge tests accept
+  a plain-semver version bump on a key the brand shares with the starter (and still catch a protocol swap), so a
+  grouped bump of the starter and the brands is no longer red by construction. The `@types/node` major rule and the
+  whole "UNTIL THE NODE 22 MOVE" block stay.
+
 ### Added (the scheduled k6 SLO regression, plan wave 3)
 
 - `.github/workflows/load.yml` runs weekly (Mondays 04:00 UTC) as well as by hand. The schedule runs the target only,
