@@ -4,6 +4,18 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 6
 
+### Added (wave 3, brand D: a brand's Keycloak client without a reimport)
+
+- `infra/keycloak/add-brand-client.mjs <code>`: creates `storefront-<code>` in the live customers realm through the
+  admin API, additive and idempotent. It POSTs only when the client is missing and links missing scopes on that
+  client only. It never PUTs or DELETEs; an existing client's drift is reported (exit 3) and left alone. It also
+  adds the client to `customers-realm.json` and the production profile, so an import keeps it. `--dry-run`
+  prints every request; `--live-only` / `--json-only`; a non-local Keycloak needs `--allow-remote`.
+- `infra/keycloak/brand-client.mjs`: ONE template for every brand client; brand-a/b/c in the realm file are its
+  exact output (`brand-client.test.mjs`, 10 tests: template, security shape, drift, additive file plan,
+  admin-API calls against a fake, dry run). CI's live auth job runs the tests, then the script against its own
+  throw-away Keycloak: create, an idempotent re-run, and a drift re-run that must exit 3.
+
 ### Fixed (the k6 gate never says "within the SLOs" on a red job)
 
 - `infra/load/run.sh` writes its own exit code to `run.exit` from its EXIT trap, as the last thing it does.
