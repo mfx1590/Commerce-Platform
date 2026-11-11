@@ -25,7 +25,7 @@ permissions:
   contents: read
 
 env:
-  NODE_VERSION: 20
+  NODE_VERSION: 22
   DATABASE_URL: postgres://platform:platform@localhost:5432/platform
   DATABASE_URL_APP: postgres://platform_app:platform_app@localhost:5432/platform
 
@@ -393,7 +393,7 @@ jobs:
       - name: the image manifest lists are complete
         if: needs.changes.outputs.images == 'true'
         run: bash infra/ci/check-image-manifests.sh
-      - name: smoke — non-root, build output present, scaffolds healthy
+      - name: smoke — non-root, .nvmrc's Node, build output present, scaffolds healthy, storefront sharp
         if: needs.changes.outputs.images == 'true'
         env:
           IMAGE_TAG: ${{ github.sha }}

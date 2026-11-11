@@ -370,7 +370,7 @@ fails closed.
 `.github/dependabot.yml` opens the updates that shrink it: every Monday, one grouped PR per group for minor and patch
 bumps (npm production, npm development, GitHub Actions, the apps' Dockerfile base images); a major bump comes as its
 own PR for the owning window to review. A few majors are ignored, each with its reason in the file:
-`@types/node` and the `node` base image (they move with the Node 20 runtime, once, everywhere), and `@medusajs/*`,
+`@types/node` 23+ and the `node` base image major (they move with the Node 22 runtime, once, everywhere), and `@medusajs/*`,
 `@opentelemetry/*`, `express` and `@types/express` (they run inside Medusa's process and move with Medusa).
 `@medusajs/*` is its own `medusa` group (its packages must move together), and Medusa 2.22+ is ignored until the
 Node 22 move. The storefront starter's packages are no longer ignored (#758, after #789): the brands' sync-merge

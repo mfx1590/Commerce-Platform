@@ -31,6 +31,11 @@ permissions:
   contents: write # commits the deployed image tag back to main
   id-token: write # AWS OIDC — there are no long-lived keys anywhere (infra/terraform/modules/ci-oidc)
 
+# The runtime every workflow runs on (ci.yml, load.yml, .nvmrc, the Dockerfiles): set-image.mjs below runs on it,
+# not on whatever Node the runner image happens to ship.
+env:
+  NODE_VERSION: 22
+
 jobs:
   deploy:
     name: build, push, and sync staging
@@ -96,6 +101,11 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: actions/setup-node@v7
+        if: steps.gate.outputs.configured == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
       - uses: aws-actions/amazon-ecr-login@v2
         if: steps.gate.outputs.configured == 'true'

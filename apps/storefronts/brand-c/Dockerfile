@@ -23,7 +23,7 @@
 # next.config.mjs. Shipping the TypeScript compiler in a production image to paper over it would be
 # the wrong trade, so this is left for window 3 to fix in the app.
 
-ARG NODE_VERSION=20.19-alpine
+ARG NODE_VERSION=22.23-alpine
 ARG PNPM_VERSION=10.34.5
 
 # ---------- deps: the workspace install, cached on the manifests alone ----------

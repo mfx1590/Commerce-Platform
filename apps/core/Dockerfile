@@ -18,7 +18,7 @@
 # Two Medusa-specific steps below (ts-node and the build-time placeholder environment) are commented
 # where they appear. Both are build-stage only; neither reaches the runtime image.
 
-ARG NODE_VERSION=20.19-alpine
+ARG NODE_VERSION=22.23-alpine
 ARG PNPM_VERSION=10.34.5
 
 # ---------- deps: the workspace install, cached on the manifests alone ----------

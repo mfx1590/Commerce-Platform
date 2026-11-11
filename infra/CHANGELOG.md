@@ -4,6 +4,20 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 6
 
+### Changed (the Node 22 move, step 0: the runtime only)
+
+- Node 22 everywhere, with no dependency bumps: root engines `>=22.12 <23`, `.nvmrc` 22, `NODE_VERSION: 22` in
+  ci.yml, load.yml and (new, with a setup-node step) deploy-staging.yml. All 11 Dockerfiles and the build compose's
+  `NODE_VERSION` arg are on `22.23-alpine`, and `@types/node` is `^22.20.5` in all 20 source package.json files
+  (`apps/core/.medusa/server` is build output). The lockfile's resolved set changes by that one package.
+- `infra/docker/smoke-images.sh`: every image must run `.nvmrc`'s Node major. Each storefront is booted with a
+  repo JPEG under `public/__smoke/` and must answer one `/_next/image` as `image/webp`: Next loads sharp lazily,
+  so a sharp that cannot load on the base image only shows at the first optimised image.
+- `.github/dependabot.yml`: `@types/node` is ignored from 23 (`versions: ['>=23']`), not by major. The rest of
+  the old "UNTIL THE NODE 22 MOVE" block is now the follow-ups, lifted by their owning windows (Medusa 2.22,
+  axe 4.14 + jest-dom 7, Sanity 6). The OTLP exporters stay until Medusa takes the SDK 3 line. `apps/engagement`
+  joins the docker directories, and the `node` base-image major ignore stays.
+
 ### Changed (#758: the starter's packages are back in Dependabot)
 
 - `.github/dependabot.yml`: the 19 starter-package ignores are removed. Since #789 the brands' sync-merge tests accept

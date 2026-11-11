@@ -22,7 +22,7 @@
 # container started with no environment exits at once. There is intentionally no default here: a
 # baked-in store code would defeat that guard. Optional: FEEDS_DIR (default .feeds), FEEDS_MAX_AGE.
 
-ARG NODE_VERSION=20.19-alpine
+ARG NODE_VERSION=22.23-alpine
 ARG PNPM_VERSION=10.34.5
 
 # ---------- deps: the workspace install, cached on the manifests alone ----------
