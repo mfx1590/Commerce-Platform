@@ -20,6 +20,10 @@ const taxActions = vi.hoisted(() => ({
   deleteTaxRateAction: vi.fn(),
 }));
 vi.mock('@/app/actions/tax-rates', () => taxActions);
+vi.mock('@/app/actions/shipping-options', () => ({
+  createShippingOptionAction: vi.fn(),
+  updateShippingOptionAction: vi.fn(),
+}));
 
 const STORE = '00000000-0000-4000-8000-000000000034';
 const ENTITY = {
@@ -150,7 +154,15 @@ describe('the readiness panel', () => {
       formError: 'Cannot activate: …',
       missing: ['primary_domain', 'publishable_key'],
     });
-    render(<ActivatePanel storeId={STORE} status="draft" />);
+    render(
+      <ActivatePanel
+        storeId={STORE}
+        status="draft"
+        defaultCurrency="EUR"
+        canCreateTax
+        canCreateShipping
+      />,
+    );
     await user.click(screen.getByRole('button', { name: 'Activate' }));
     const list = await screen.findByRole('list', { name: 'Missing prerequisites' });
     expect([...list.querySelectorAll('li')].map((li) => li.textContent)).toEqual([
@@ -167,7 +179,15 @@ describe('the readiness panel', () => {
   });
 
   it('an active store says so and offers nothing', () => {
-    render(<ActivatePanel storeId={STORE} status="active" />);
+    render(
+      <ActivatePanel
+        storeId={STORE}
+        status="active"
+        defaultCurrency="EUR"
+        canCreateTax
+        canCreateShipping
+      />,
+    );
     expect(screen.getByRole('status')).toHaveTextContent(/Active/);
     expect(screen.queryByRole('button')).toBeNull();
   });

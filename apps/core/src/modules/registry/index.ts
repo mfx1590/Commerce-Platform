@@ -31,6 +31,12 @@ export type { InMemoryStoreRegistrar } from './registrar';
 export { marketCountries, READINESS_PREREQUISITES, storeReadiness } from './readiness';
 // tax rates for a store (#520, CONTRACT CHANGE #522)
 export { createTaxRate, deleteTaxRate, listTaxRates, updateTaxRate } from './tax-rates';
+export {
+  createShippingOption,
+  listShippingOptions as listStoreShippingOptions,
+  updateShippingOption,
+} from './shipping-options';
+export type { ShippingOption, ShippingOptionInput, ShippingOptionPatch } from './shipping-options';
 export type { ReadinessPrerequisite, StoreReadiness } from './readiness';
 export { STORE_SETTINGS_SHAPES, settingsProblems, validateStoreSettings } from './settings-schema';
 export type { SettingsProblems } from './settings-schema';

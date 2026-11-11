@@ -16,6 +16,7 @@
 
 import { z } from 'zod';
 import type { AdminComponents } from '../api/admin-client';
+import { readMissingShippingCountries } from '../shipping-options';
 import { readMissingTaxCountries } from '../tax-rates';
 
 export const STEPS = ['legal_entity', 'store', 'domain', 'review'] as const;
@@ -57,6 +58,7 @@ export const MISSING_LABELS: Record<string, string> = {
   publishable_key: 'a live publishable key',
   fga_object: 'its permission object (OpenFGA)',
   tax_rates: 'a tax rate for each market country',
+  shipping_options: "an active shipping option in the store's currency for each market country",
 };
 
 /** The 409's `details.missing`, read safely; unknown entries are kept as they came. */
@@ -73,10 +75,13 @@ export function activationMessage(details: Record<string, unknown> | undefined):
   const missing = readMissing(details);
   if (missing.length === 0) return 'Cannot activate the store yet.';
   const countries = readMissingTaxCountries(details);
+  const shipping = readMissingShippingCountries(details);
   const words = missing.map((m) =>
     m === 'tax_rates' && countries.length > 0
       ? `a tax rate for ${countries.join(', ')}`
-      : (MISSING_LABELS[m] ?? m),
+      : m === 'shipping_options' && shipping.length > 0
+        ? `a shipping option for ${shipping.join(', ')}`
+        : (MISSING_LABELS[m] ?? m),
   );
   return `Cannot activate: ${words.join(', ')} missing.`;
 }

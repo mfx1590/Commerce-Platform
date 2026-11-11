@@ -2,6 +2,8 @@
 // `activateStore` and by `updateStore` when a patch moves the status to `active`, so the two paths cannot
 // disagree. Pure reads: the rows the store already has plus one question to OpenFGA through the registrar.
 // `tax_rates` (#520): a tax rate for every market country (`marketCountries`), or the store sells there at 0 bp.
+// `shipping_options` (#809, CONTRACT CHANGE #811): an ACTIVE shipping option in the store's `default_currency` for
+// every market country, or a cart to that country can never check out (the store is active and cannot sell).
 import type { Queryable } from '@platform/db';
 import type { StoreRegistrar } from './types';
 
@@ -14,6 +16,7 @@ export const READINESS_PREREQUISITES = [
   'publishable_key',
   'fga_object',
   'tax_rates',
+  'shipping_options',
 ] as const;
 export type ReadinessPrerequisite = (typeof READINESS_PREREQUISITES)[number];
 
@@ -22,6 +25,9 @@ export interface StoreReadiness {
   missing: ReadinessPrerequisite[];
   /** The market countries with no tax rate at all, sorted (non-empty exactly when `tax_rates` is missing). */
   missing_tax_countries: string[];
+  /** The market countries with no active option in the store currency, sorted (#809; non-empty exactly when
+   * `shipping_options` is missing). */
+  missing_shipping_countries: string[];
 }
 
 /**
@@ -62,6 +68,25 @@ export async function untaxedMarketCountries(
 }
 
 /**
+ * The market countries no ACTIVE shipping option in the store's `default_currency` covers (#809). A store without
+ * options is missing its `default_country`; an option in another currency does not count — the cart's currency is
+ * the store default (Phase 1), so checkout would offer it nothing.
+ */
+export async function unshippableMarketCountries(
+  tx: Queryable,
+  store: { id: string; default_country: string; default_currency: string },
+): Promise<string[]> {
+  const markets = await marketCountries(tx, store);
+  const r = await tx.query<{ country: string }>(
+    `SELECT DISTINCT upper(c::text) AS country FROM shipping_option so, unnest(so.countries) AS c
+     WHERE so.store_id = $1 AND so.is_active AND so.currency = $2`,
+    [store.id, store.default_currency],
+  );
+  const covered = new Set(r.rows.map((x) => x.country));
+  return markets.filter((c) => !covered.has(c));
+}
+
+/**
  * Counts what the store has. `tx` is the caller's transaction (RLS keeps it inside the organization); the
  * store id is trusted to exist (the caller loaded or locked the row). The OpenFGA question goes last and only
  * through the registrar: a dev run without OpenFGA gets a registrar that answers `false` (see the routes), so
@@ -69,7 +94,12 @@ export async function untaxedMarketCountries(
  */
 export async function storeReadiness(
   tx: Queryable,
-  store: { id: string; legal_entity_id: string | null; default_country: string },
+  store: {
+    id: string;
+    legal_entity_id: string | null;
+    default_country: string;
+    default_currency: string;
+  },
   registrar: StoreRegistrar,
 ): Promise<StoreReadiness> {
   const counts = await tx.query<{
@@ -95,5 +125,7 @@ export async function storeReadiness(
   if (!(await registrar.hasStoreObject(store.id))) missing.push('fga_object');
   const untaxed = await untaxedMarketCountries(tx, store);
   if (untaxed.length) missing.push('tax_rates');
-  return { missing, missing_tax_countries: untaxed };
+  const unshippable = await unshippableMarketCountries(tx, store);
+  if (unshippable.length) missing.push('shipping_options');
+  return { missing, missing_tax_countries: untaxed, missing_shipping_countries: unshippable };
 }

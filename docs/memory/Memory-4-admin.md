@@ -557,6 +557,30 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **Shipping options admin screen (2026-11-11, Manager session twelve) — BUILT inside #815.**
+  - Branch `admin/phase6-shipping-options` from 025a251d (= origin/integration/phase6-809, Admin API 0.4.28).
+    Commits go on top for the manager to fast-forward onto integration/phase6-809. NO merge of main here.
+  - Built as the approved plan:
+    - `src/lib/shipping-options`, wrappers, guard rows, actions, `src/components/shipping-options`;
+    - a Settings section after Tax rates (`#shipping-options`);
+    - the readiness panel: MISSING_LABELS, `missingShippingCountries`, a per-country quick-create. BOTH
+      quick-creates are gated on store_admin by the page, else Needs.
+  - The 400 `price_minor` (pointer or plain key) maps to the form's `price`.
+  - hq-onboarding.spec: tax → 2nd Activate refused for shipping only → quick-create "Standard" EUR 4.95 →
+    Active → read back on Settings (€4.95, NL, active), plus a G1 shipping line.
+  - Unit 1056/1056.
+  - **Core-mode e2e run locally (machine given): hq-onboarding 2/2 with all G1 lines; csp.spec 3/3.**
+  - Local findings:
+    1. The core would not boot: "Cannot find module 'zod'" from Medusa 2.21.2. pnpm's hoisted zod link was
+       missing after branch switches; `pnpm install --frozen-lockfile --force` (10 min) fixed it.
+    2. A store created seconds ago is not yet in the owner's scope (core hq-rbac caches scope ≤ 30 s). The
+       spec reloads Settings until it is (toPass, 45 s).
+    3. OpenFGA re-seeded (fga:seed) after the morning restart.
+  - Mock e2e NOT run locally: the shared Prism (:4011) serves the root checkout's older spec; CI's mock job
+    uses the branch spec.
+  - Decision: for JPY, "1,980" with a comma is refused as a decimal (parseMoney rejects grouping); "1980" is
+    the input.
+
 - **#810 admin half (2026-11-11, Manager session twelve).** Branch `admin/phase6-810-currency` from main
   b517a76d. The three `'EUR'` fallbacks (promotions/new:39, [promotionId]:82, price-lists:126) are
   removed: a failed store read renders ApiStatePanel, with no money input. test/promotions-currency.test.tsx

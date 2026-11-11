@@ -468,7 +468,7 @@ export async function refuseUnlessReady(
   if (store.status === 'archived') {
     throw conflict('an archived store cannot be activated', { status: 'archived' });
   }
-  const { missing, missing_tax_countries } = await storeReadiness(
+  const { missing, missing_tax_countries, missing_shipping_countries } = await storeReadiness(
     tx,
     store,
     registrar ?? UNKNOWN_REGISTRAR,
@@ -478,6 +478,8 @@ export async function refuseUnlessReady(
       missing,
       // #520: which market countries still need a tax rate (only when `tax_rates` is missing)
       ...(missing_tax_countries.length ? { missing_tax_countries } : {}),
+      // #809: which market countries have no active shipping option in the store currency
+      ...(missing_shipping_countries.length ? { missing_shipping_countries } : {}),
     });
   }
 }

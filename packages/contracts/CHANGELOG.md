@@ -538,3 +538,26 @@
 - Spec tests: the Store version pins move to 0.5.10, the closed error-list pattern accepts `rate_limited` before
   `internal`, and a new block pins `TooManyRequests`, the exact 9 operations and the error code. Admin API (0.4.27),
   Accounting API and events are unchanged.
+
+## 0.4.35 — 2026-11-11 (Admin API 0.4.28; CONTRACT CHANGE #811 (#809), manager landing)
+
+- Admin API: a new activation prerequisite `shipping_options`, after `tax_rates` in `details.missing` (the same 409
+  `ActivationBlocked`, `code: conflict`; not a new 422). It is missing when a market country (`default_country` plus
+  every country of the store's active shipping options) has no active shipping option in the store's
+  `default_currency`; a store with no options at all is missing it for its `default_country`.
+  `details.missing_shipping_countries` lists those countries, upper case and sorted, and is present exactly when
+  `shipping_options` is in `missing`. `activateStore`'s description says so; the `ActivationBlocked` example gains
+  `shipping_options` and `missing_shipping_countries: [JP]`. It applies to `updateStore` moving `status` to `active`
+  too (same 409).
+- Admin API: `createShippingOption` documents 400 (`BadRequest`) and 404 (`NotFound`) and gains a description: the
+  minor-unit rule for `price_minor` (the currency's exponent: 1980 for JPY 1,980), `currency` one of the store's
+  currencies, ISO 3166-1 alpha-2 `countries` (upper-cased, distinct, at least one), `sales_channel_id` of this store,
+  409 on a duplicate `code`, an audit row and `store.updated` (`changed_fields: [shipping_options]`).
+- Admin API: `updateShippingOption` (`PATCH /admin/stores/{storeId}/shipping-options/{optionId}`, tag
+  `fulfillment`, `store_admin` on the store) with the new closed `ShippingOptionPatch` (`minProperties: 1`; `code`
+  and `currency` immutable). `is_active: false` deactivates; rows are never deleted. On an ACTIVE store a change that
+  would leave a market country without a sellable option is a 409 `conflict` with `details.missing_shipping_countries`.
+  Statuses 200 (`ShippingOption`) / 400 / 401 / 403 / 404 / 409; audit row (before / after) and `store.updated`.
+- Spec tests: the Admin version pins move to 0.4.28, the operation counts to 141, and the `ActivationBlocked`
+  example pin includes `shipping_options`. `ShippingOptionInput`, `ShippingOption`, `listShippingOptions`, Store API
+  (0.5.10), Accounting API and events are unchanged (`store.updated` already takes free `changed_fields` values).

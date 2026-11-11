@@ -760,6 +760,34 @@ Every refusal is said in words and the editor keeps working (`describeDraftError
 - `unavailable`: nothing was sent.
 - 404 and 400 in their own words.
 
+## Shipping options (#809 / #815; Admin API 0.4.28)
+
+**Store · Settings › Shipping options** (`#shipping-options`).
+
+**The rules.** A cart can only check out to the countries of the store's ACTIVE options in the cart's
+currency. `activateStore` needs an active option in the store's `default_currency` for every market
+country (409 `details.missing_shipping_countries`).
+
+**What the section does:**
+
+- Lists every option.
+- Adds one: store currencies only; countries as ISO-2 codes ("JP, KR").
+- Edits name, price and countries. It sends a patch of what changed; `code` and `currency` are immutable.
+- Deactivates or reactivates. Rows are never deleted.
+
+**Money.** The price is text in the currency's own units, parsed server-side with the currency's digits
+(`parseMoney`, #810) — never a fixed two decimals.
+
+**Permissions.** `listShippingOptions` is viewer; `createShippingOption` / `updateShippingOption` are
+store_admin (`SHIPPING_PERMISSIONS`, pinned against the spec). The actions refuse server-side first.
+
+**Live stores.** The core refuses a change that would leave a market country uncovered (409); the section
+says which countries.
+
+**Readiness panel.** It turns `shipping_options` into "a shipping option for XX", with one inline create per
+country (default currency, `manual` carrier, flat price). Like the tax-rate creates, these are offered only
+with store_admin on the store (decided server-side by the page); otherwise the relation needed is named.
+
 ## Tax rates (#520, CONTRACT CHANGE #522; Admin API 0.4.23)
 
 **Store · Settings → Tax rates** lists the store's rates (`listTaxRates`, viewer on the store):

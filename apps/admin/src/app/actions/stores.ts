@@ -40,6 +40,7 @@ import {
   type OnboardingValues,
   onboardingSchema,
 } from '@/lib/onboarding';
+import { readMissingShippingCountries } from '@/lib/shipping-options';
 import { readMissingTaxCountries } from '@/lib/tax-rates';
 import type { ApiResult } from '@/lib/api/admin-client';
 
@@ -67,12 +68,14 @@ function activationBlocked<T>(result: ApiResult<T>): ActionResult<never> | null 
   }
   const message = activationMessage(details);
   const taxCountries = readMissingTaxCountries(details);
+  const shippingCountries = readMissingShippingCountries(details);
   return {
     status: 'error',
     fieldErrors: { status: message },
     formError: message,
     missing: readMissing(details),
     ...(taxCountries.length > 0 ? { missingTaxCountries: taxCountries } : {}),
+    ...(shippingCountries.length > 0 ? { missingShippingCountries: shippingCountries } : {}),
   };
 }
 
