@@ -1,5 +1,33 @@
 # Changelog — @platform/storefront-brand-c
 
+## Unreleased — 2026-11-11 · the mocked world agrees with itself, and the money is guarded by a test
+
+- **`scripts/e2e-store-mock.mjs` now prices the catalogue in this brand's own currency.** Every
+  `currency: XXX` in the spec's examples becomes the store's (`USD`, read from
+  `perf/store.example.json`, never hard-coded) before the overlay. Until now the mock served this
+  brand's **store** over the contract's **EUR** catalogue, so a page said `Prices in USD` in the
+  footer and rendered `€19.99` in the body. Safe as a text substitution and checked rather than
+  assumed: `Money.currency` is `{ type: string, pattern: '^[A-Z]{3}$' }` with **no enum**, and every
+  currency literal in the spec sits inside an example. The **amounts** are untouched — 1999 minor
+  units is `$19.99` here exactly as it was `€19.99` before.
+- **Three visual baselines re-taken** (`plp`, `pdp`, `plp-card`) and reviewed. The other five hold no
+  price and are byte-identical.
+- **The finding that changes what those baselines are worth: the visual suite cannot catch a
+  currency change, even now.** Measured, not guessed — the `€` → `$` difference on the PLP card is
+  **37 pixels**, and the element tolerance of `maxDiffPixelRatio: 0.002` allows about **111** on that
+  image; a full-page shot dilutes it further. #781 chose those numbers against a heading weight and
+  a typeface swap, both much larger. So `--update-snapshots` did not even rewrite the files: it saw
+  a match. They had to be deleted and re-taken.
+- **`test/brand-money.test.ts`** (new) is therefore where this brand's currency is actually
+  guarded: the store example really says USD, `formatMoney` renders `$19.99` with two decimals for
+  `en-US`, and the same amount in EUR formats differently — so a fallback that quietly prices this
+  brand in euros fails a test instead of passing a screenshot (#810).
+- **`e2e-store-mock.mjs` refuses to start behind a stale mock.** If something already holds the
+  port, Prism exits with `EADDRINUSE` and the script followed it quietly — while the OLD mock kept
+  answering every request. That is not a harmless confusion: it is how a set of baselines gets
+  re-taken against the wrong backend, passes, and proves nothing. It happened while building this
+  change. The script now checks the port first and says so.
+
 ## Unreleased — 2026-11-11 · re-synced for #793 (every response carries the policy)
 
 - **Re-synced from the starter** (#793): `src/lib/route-handlers.ts` and its tests, the

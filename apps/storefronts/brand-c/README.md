@@ -147,11 +147,16 @@ node scripts/e2e-store-mock.mjs
 E2E_VISUAL=1 MOCK_API_URL=http://127.0.0.1:4018 pnpm --filter @platform/storefront-brand-c e2e visual
 ```
 
-**The prices in them say `€`, and that is the mock.** The overlay gives the app this brand's
-**store** — the header, footer, `Ships to US` and `Prices in USD` all come from it — over the
-**contract's** catalogue, whose example products are priced in EUR. Against a core the products are
-USD and the pages agree with themselves. So these baselines catch a theme, type, spacing or layout
-change; they cannot catch a currency-formatting regression.
+The mock prices the catalogue in this brand's own currency, so the pages agree with themselves:
+`Prices in USD` in the footer and `$19.99` in the body. The **products** are still the contract's —
+their names, their amounts, their images; only the currency follows the store.
+
+**These baselines still cannot catch a currency change, and that is measured.** The `€` → `$`
+difference on the PLP card is **37 pixels**; the element tolerance of `maxDiffPixelRatio: 0.002`
+allows about **111** on that image, and a full-page shot dilutes it further. #781 picked those
+numbers against a heading weight and a typeface swap, both far larger — one glyph is below them by
+design. So the pixels guard the design, and **`test/brand-money.test.ts` guards the money**. Do not
+read a green visual run as proof that prices are right.
 
 They were impossible until #797: the spec hard-coded `/en-GB`, so on this brand every shot was of
 the 404 page — and the full-page `home` shot **passed**, because a 404 is perfectly stable. Since
