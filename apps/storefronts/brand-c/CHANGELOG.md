@@ -1,5 +1,51 @@
 # Changelog — @platform/storefront-brand-c
 
+## Unreleased — 2026-11-10 · re-synced onto the nonce CSP and the starter's visual suite (#783, #781)
+
+- **Nonce + `'strict-dynamic'` CSP arrives from the starter** (#783, starter 0.16.0): `src/lib/csp.ts`,
+  `src/lib/csp-zone.ts`, `src/middleware.ts`, `src/components/zone-boundary.tsx`, the localised
+  `[locale]/[...rest]` 404 route, `SCRIPTS.md` and the tests. `script-src` no longer carries
+  `'unsafe-inline'`; the two frame zones (checkout = Stripe only, everywhere else = Stripe plus the
+  vetted embed hosts) are crossed by a full page load in both directions.
+- **This app adds no scripts of its own, so `SCRIPTS.md` needs no brand rows.** Audited before the
+  sync: `next/script`, `<script`, `dangerouslySetInnerHTML`, `srcdoc`, inline handlers, `eval` and
+  `new Function` return **zero** hits across `src/brand/**` and this brand's CMS content. Editor-side
+  embeds stay window 6's (REQUEST #784).
+- **CSP e2e on the production build: 3 passed, 1 skipped.** No violation on home, PLP, PDP, cart,
+  checkout, the payment step or a CMS page; the cart → checkout click produces a **new document**
+  with the Stripe-only policy and "continue shopping" a new document with the embed policy; the
+  locale 404 answers **404** and carries the policy. Skipped: the account/Keycloak test, because
+  Keycloak is not reachable from this laptop — it runs in CI, where `E2E_REQUIRE_KEYCLOAK` makes it
+  an error rather than a skip. The Stripe card step also reports itself skipped on a mock run, which
+  is #783's own stated blind spot.
+- **`KEYCLOAK_URL` is now required for a production build** (`form-action` fails loudly without it).
+  This brand's Helm values set it in both environments that exist — `values-dev.yaml` and
+  `values-staging.yaml`. **No app in this repo has a `values-prod.yaml` yet**, so there is nothing
+  in-tree to confirm for production; when that file is written it must carry `KEYCLOAK_URL`
+  (`infra/helm/**`, window 5; recorded on #342).
+- **README bundle table re-synced from this PR's own CI perf legs**, including the new
+  `/[locale]/[...rest]/page` row (**125.1 kB** of the 145 kB default). The CSP middleware and
+  `ZoneBoundary` cost about **0.8 kB** on every route: the PDP goes 140.6 → **141.4 kB** of
+  its 144 kB budget, the tightest of the set, and every route stays inside its budget. No budget was
+  touched (#348).
+- **The visual suite now comes from the starter** (#781): full pages at `maxDiffPixelRatio` **0.0001**
+  (was 0.002) plus five element shots. The starter commits no baselines of its own, so each brand
+  keeps its own under `e2e/__screenshots__/`.
+- **Brand C has NO visual baselines, and that is a starter bug, not an omission** — REQUEST
+  **#797**. The synced `e2e/visual.spec.ts` hard-codes `/en-GB` in all three page entries; this
+  brand serves `en-US` only, so each path is a correct 404. The suite does not error: it screenshots
+  the localised "Page not found" page, the two element shots fail because a 404 has no product card
+  or add-to-cart button, and the full-page `home` shot **passes**, because a 404 page is perfectly
+  stable. I took those three, saw what they were and deleted them rather than commit a green
+  baseline of the wrong page. `e2e/support/locale.ts` already exists and `csp.spec.ts` uses it; the
+  fix is `localePath('')` and friends, in the starter.
+- **`scripts/e2e-store-mock.mjs`** (new, this brand only): a Prism mock serving **this brand's**
+  store, so its e2e can run on a laptop at all. Against `pnpm mock` — the contract's `en-GB`/`de-DE`
+  example store — every page here is a 404 and the e2e server dies in warm-up. The script overlays
+  `perf/store.example.json` onto a temporary copy of the spec with the same two functions
+  `scripts/perf.mjs` has used since #447, so nothing new is invented; it is how the CSP run above
+  was done. The catalogue is still the contract's: only the **store** is brand C's.
+
 ## Unreleased — 2026-11-10 · a Dependabot PR that bumps a starter package is no longer red (#758)
 
 - **The comparison that made it red is narrowed.** `test/sync-merge.test.ts` asserts that this app's

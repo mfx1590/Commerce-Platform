@@ -120,6 +120,27 @@ Before #758 this was impossible, and the cost was not theoretical: `.github/depe
 ignore 19 starter packages workspace-wide (#757), so none of them got a routine bump anywhere —
 which is how a CRITICAL `next` advisory sat in all three brands until it was bumped by hand (#731).
 
+## Running the e2e on a laptop
+
+`pnpm mock` serves the Store API contract's example store, which is **brand A's** (`en-GB`,
+`de-DE`). This brand serves `en-US` only, so every page is a correct 404 against it and the e2e
+server never warms up — it just repeats `warm-up N: page failed`. Serve this brand's own store
+instead:
+
+```bash
+node scripts/e2e-store-mock.mjs                      # brand C's store on :4018
+MOCK_API_URL=http://127.0.0.1:4018 pnpm --filter @platform/storefront-brand-c e2e csp
+```
+
+The script overlays `perf/store.example.json` onto a temporary copy of the spec, the same way
+`scripts/perf.mjs` has since #447. The **catalogue** is still the contract's; only the store is
+this brand's. A run that needs this brand's real products points `E2E_STORE_API_URL` at a core,
+which is what CI does.
+
+**The visual suite cannot run here yet** (REQUEST #797): the synced `e2e/visual.spec.ts` hard-codes
+`/en-GB`, so on this brand it screenshots the 404 page — and the full-page `home` shot passes,
+because a 404 is stable. Do not take baselines until that lands.
+
 ## The locale gap
 
 Brand C sells `en-US`. The starter serves `en-GB` and `de-DE`, and writes those into its synced files
@@ -225,24 +246,25 @@ command, so do not edit it by hand. **`scripts/perf.mjs` exits 1 if this block i
 
 | Route                                         | First load (gzipped) | Budget             |
 | --------------------------------------------- | -------------------- | ------------------ |
-| `/[locale]/(account)/account/deleted/page`    | 130.7 kB             | 145 kB _(default)_ |
-| `/[locale]/(account)/account/orders/page`     | 130.7 kB             | 145 kB _(default)_ |
-| `/[locale]/(account)/account/page`            | 136 kB               | 145 kB _(default)_ |
-| `/[locale]/(checkout)/cart/page`              | 141.1 kB             | 145 kB             |
-| `/[locale]/(checkout)/checkout/address/page`  | 133.9 kB             | 139 kB             |
-| `/[locale]/(checkout)/checkout/page`          | 129.5 kB             | 145 kB _(default)_ |
-| `/[locale]/(checkout)/checkout/payment/page`  | 133.9 kB             | 145 kB _(default)_ |
-| `/[locale]/(checkout)/checkout/review/page`   | 134.9 kB             | 139 kB             |
-| `/[locale]/(checkout)/checkout/shipping/page` | 133.9 kB             | 145 kB _(default)_ |
-| `/[locale]/(checkout)/orders/[orderId]/page`  | 130.7 kB             | 145 kB _(default)_ |
-| `/[locale]/(content)/campaign/[slug]/page`    | 133 kB               | 145 kB _(default)_ |
-| `/[locale]/(content)/legal/[slug]/page`       | 133 kB               | 145 kB _(default)_ |
-| `/[locale]/(content)/pages/[slug]/page`       | 133 kB               | 145 kB _(default)_ |
-| `/[locale]/(shop)/categories/[handle]/page`   | 136.3 kB             | 141 kB             |
-| `/[locale]/(shop)/page`                       | 131.2 kB             | 136 kB             |
-| `/[locale]/(shop)/products/[handle]/page`     | 140.6 kB             | 144 kB             |
-| `/[locale]/(shop)/products/page`              | 136.3 kB             | 141 kB             |
-| `/_not-found/page`                            | 103 kB               | 145 kB _(default)_ |
+| `/[locale]/(account)/account/deleted/page`    | 131.4 kB             | 145 kB _(default)_ |
+| `/[locale]/(account)/account/orders/page`     | 131.4 kB             | 145 kB _(default)_ |
+| `/[locale]/(account)/account/page`            | 136.8 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/cart/page`              | 141.9 kB             | 145 kB             |
+| `/[locale]/(checkout)/checkout/address/page`  | 134.6 kB             | 139 kB             |
+| `/[locale]/(checkout)/checkout/page`          | 130.2 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/checkout/payment/page`  | 134.6 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/checkout/review/page`   | 135.6 kB             | 139 kB             |
+| `/[locale]/(checkout)/checkout/shipping/page` | 134.6 kB             | 145 kB _(default)_ |
+| `/[locale]/(checkout)/orders/[orderId]/page`  | 131.4 kB             | 145 kB _(default)_ |
+| `/[locale]/(content)/campaign/[slug]/page`    | 133.7 kB             | 145 kB _(default)_ |
+| `/[locale]/(content)/legal/[slug]/page`       | 133.7 kB             | 145 kB _(default)_ |
+| `/[locale]/(content)/pages/[slug]/page`       | 133.7 kB             | 145 kB _(default)_ |
+| `/[locale]/(shop)/categories/[handle]/page`   | 137.1 kB             | 141 kB             |
+| `/[locale]/(shop)/page`                       | 132 kB               | 136 kB             |
+| `/[locale]/(shop)/products/[handle]/page`     | 141.4 kB             | 144 kB             |
+| `/[locale]/(shop)/products/page`              | 137.1 kB             | 141 kB             |
+| `/[locale]/[...rest]/page`                    | 125.1 kB             | 145 kB _(default)_ |
+| `/_not-found/page`                            | 103.3 kB             | 145 kB _(default)_ |
 
 _Generated by `pnpm --filter @platform/storefront-starter bundle-budget --sync-readme`; budgets live in `bundle-budget.json`._
 <!-- bundle-budget:end -->

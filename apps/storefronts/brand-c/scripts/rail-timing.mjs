@@ -126,6 +126,8 @@ const server = spawn(process.execPath, [join(root, 'node_modules/next/dist/bin/n
     ...process.env,
     PORT: String(APP_PORT),
     SITE_URL: process.env.SITE_URL ?? `http://127.0.0.1:${APP_PORT}`,
+    // A production server needs it to build its CSP (#783 review).
+    KEYCLOAK_URL: process.env.KEYCLOAK_URL || 'http://localhost:8180',
     STORE_API_URL: `http://127.0.0.1:${PROXY_PORT}`,
     RECOMMENDATIONS_TIMEOUT_MS: String(DEADLINE_MS),
   },

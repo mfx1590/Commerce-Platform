@@ -21,7 +21,13 @@
 export function e2eServerEnv(env) {
   // Invoices come from the store itself (`Store.payment.methods`: the seed allows them, and so does
   // the contract's example store the mock serves) — no switch needed any more (#372).
-  const serverEnv = { ...env, E2E_LOCAL_IMAGES: '1' };
+  // The local stack's Keycloak (`.env.example`) unless the shell names another: a production
+  // build refuses to build its CSP without KEYCLOAK_URL (#783 review), so the run must say it.
+  const serverEnv = {
+    ...env,
+    E2E_LOCAL_IMAGES: '1',
+    KEYCLOAK_URL: env.KEYCLOAK_URL || 'http://localhost:8180',
+  };
   const core = env.E2E_STORE_API_URL;
   if (core === undefined || core === '') {
     // A mock run: nothing the shell exports may point the app anywhere else.
