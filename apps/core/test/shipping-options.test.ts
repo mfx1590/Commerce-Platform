@@ -217,6 +217,65 @@ describe('the update guard of an ACTIVE store (#811)', () => {
   });
 });
 
+describe('the create guard of an ACTIVE store (#815 review)', () => {
+  it('an active option in a SECONDARY currency adding a country is 409 on an active store; allowed when it covers itself or is inactive', async () => {
+    const hq = organizationClient({ organizationId: ORG });
+    await addCurrency(hq, C, 'EUR', {}, staff); // brand-c (USD, US, active) also sells in EUR
+    const euroToCanada = {
+      code: 'eu-ca',
+      name: 'EU to Canada',
+      price_minor: 990,
+      currency: 'EUR',
+      countries: ['CA'],
+    };
+    // CA would become a market country with no active USD option: activation would refuse the store from then on
+    const refused = await owner.post(optionsOf(C), euroToCanada);
+    expect(refused.status).toBe(409);
+    expect(refused.body).toMatchObject({
+      code: 'conflict',
+      details: { missing_shipping_countries: ['CA'] },
+    });
+    const codes = async () =>
+      ((await owner.get(optionsOf(C))).body.items as Array<{ code: string }>).map((o) => o.code);
+    expect(await codes()).not.toContain('eu-ca'); // rolled back with the transaction
+    // inactive: adds no market country
+    expect(
+      (await owner.post(optionsOf(C), { ...euroToCanada, code: 'eu-ca-off', is_active: false }))
+        .status,
+    ).toBe(201);
+    // in the store currency: CA is covered by the option itself; after it, the EUR option is allowed too
+    expect(
+      (await owner.post(optionsOf(C), { ...euroToCanada, code: 'us-ca', currency: 'USD' })).status,
+    ).toBe(201);
+    expect((await owner.post(optionsOf(C), euroToCanada)).status).toBe(201);
+  });
+
+  it('on a store that is not active the same create is allowed (activation reports it later)', async () => {
+    const hq = organizationClient({ organizationId: ORG });
+    const le = await hq.query<{ id: string }>(`SELECT id FROM legal_entity ORDER BY code LIMIT 1`);
+    const draft = await createStore(
+      hq,
+      {
+        legal_entity_id: le.rows[0]!.id,
+        code: 'brand-draft-ca',
+        name: 'Brand Draft',
+        default_currency: 'USD',
+        default_locale: 'en-US',
+        default_country: 'US',
+      },
+      staff,
+    );
+    await addCurrency(hq, draft.id, 'EUR', {}, staff);
+    const option = await createShippingOption(
+      hq,
+      draft.id,
+      { code: 'eu-ca', name: 'EU to Canada', price_minor: 990, currency: 'EUR', countries: ['CA'] },
+      staff,
+    );
+    expect(option.is_active).toBe(true);
+  });
+});
+
 describe('activation readiness with shipping options (#809)', () => {
   it('a JPY store needs an active JPY option for its market countries; another currency does not count', async () => {
     const hq = organizationClient({ organizationId: ORG });

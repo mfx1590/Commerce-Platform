@@ -8,8 +8,9 @@
 // - `currency` must be one of the store's currencies; `code` and `currency` never change (a new currency is a new
 //   option). Rows are never deleted (carts and orders reference them): `is_active: false` retires one.
 // - Every mutation locks the store row first (`lockStore`, as the registry's other sub-resources), so the update
-//   guard reads a settled set: on an ACTIVE store a change that leaves a market country newly without an active
-//   option in the store currency is 409 `conflict` `{ missing_shipping_countries }` — what activation demands.
+//   guard reads a settled set: on an ACTIVE store a create or update that leaves a market country newly without an
+//   active option in the store currency is 409 `conflict` `{ missing_shipping_countries }` — what activation demands
+//   (`keepActiveStoreSellable`).
 // - Audit row + `store.updated` (`changed_fields: ['shipping_options']`) in the same transaction.
 import type { Queryable, ScopedClient } from '@platform/db';
 import { SYSTEM_ACTOR, writeAudit, type Actor } from '../../lib/audit';
@@ -163,6 +164,33 @@ async function requireOwnSalesChannel(
   }
 }
 
+/**
+ * The rule activation enforces, kept on an ACTIVE store (#811): `write` may not leave a market country NEWLY without
+ * an active option in the store's `default_currency` — 409 `{ missing_shipping_countries }`, and the caller's
+ * transaction rolls back. A create can trip it too: an active option in a SECONDARY currency adds its countries to
+ * the market countries without covering them (#815 review). Countries uncovered before `write` (a store that
+ * predates the guard) do not block it. Runs under the store-row lock the caller holds.
+ */
+async function keepActiveStoreSellable<T>(
+  tx: Queryable,
+  store: { id: string; status: string; default_country: string; default_currency: string },
+  write: () => Promise<T>,
+): Promise<T> {
+  if (store.status !== 'active') return write();
+  const wasUncovered = new Set(await unshippableMarketCountries(tx, store));
+  const out = await write();
+  const newlyUncovered = (await unshippableMarketCountries(tx, store)).filter(
+    (c) => !wasUncovered.has(c),
+  );
+  if (newlyUncovered.length) {
+    throw conflict(
+      'this change would leave a market country of this active store without an active shipping option in the store currency',
+      { missing_shipping_countries: newlyUncovered },
+    );
+  }
+  return out;
+}
+
 /** `GET /admin/stores/{storeId}/shipping-options` (viewer): every option, active or not, by code. */
 export async function listShippingOptions(
   client: ScopedClient,
@@ -180,7 +208,9 @@ export async function listShippingOptions(
 
 /**
  * `POST /admin/stores/{storeId}/shipping-options` (store_admin): 201. 400 for a bad body, a currency that is not the
- * store's or a sales channel of another store; 409 `conflict` `{ shipping_option_id }` when the code is taken.
+ * store's or a sales channel of another store; 409 `conflict` `{ shipping_option_id }` when the code is taken, and
+ * on an ACTIVE store 409 `{ missing_shipping_countries }` when the option would add a market country it does not
+ * cover (an active option in a secondary currency, #815 review) — the same rule as the update.
  */
 export async function createShippingOption(
   client: ScopedClient,
@@ -218,42 +248,44 @@ export async function createShippingOption(
     await requireOwnSalesChannel(tx, storeId, input.sales_channel_id);
     // The code's uniqueness is the database's (UNIQUE (store_id, code)); the savepoint keeps the transaction usable
     // after the 23505 so the existing option can be named in the 409.
-    await tx.query('SAVEPOINT shipping_option_create');
-    let row: ShippingOptionRow;
-    try {
-      const r = await tx.query<ShippingOptionRow>(
-        `INSERT INTO shipping_option (organization_id, store_id, code, name, carrier, service, price_minor, currency,
+    // On an ACTIVE store the new option may not add a market country it does not cover (a secondary currency).
+    const row = await keepActiveStoreSellable(tx, store, async () => {
+      await tx.query('SAVEPOINT shipping_option_create');
+      try {
+        const r = await tx.query<ShippingOptionRow>(
+          `INSERT INTO shipping_option (organization_id, store_id, code, name, carrier, service, price_minor, currency,
                                       countries, sales_channel_id, rules, is_active)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING ${COLS}`,
-        [
-          organizationId,
-          storeId,
-          input.code.trim(),
-          input.name.trim(),
-          input.carrier?.trim() ?? 'manual',
-          input.service?.trim() ?? null,
-          input.price_minor,
-          input.currency,
-          countries,
-          input.sales_channel_id ?? null,
-          JSON.stringify(input.rules ?? {}),
-          input.is_active ?? true,
-        ],
-      );
-      row = r.rows[0]!;
-    } catch (err) {
-      const e = err as { code?: string; constraint?: string };
-      if (e?.code !== '23505' || e.constraint !== CODE_INDEX) throw err;
-      await tx.query('ROLLBACK TO SAVEPOINT shipping_option_create');
-      const existing = await tx.query<{ id: string }>(
-        `SELECT id FROM shipping_option WHERE store_id = $1 AND code = $2`,
-        [storeId, input.code.trim()],
-      );
-      throw conflict('this store already has a shipping option with this code', {
-        shipping_option_id: existing.rows[0]?.id ?? null,
-      });
-    }
-    await tx.query('RELEASE SAVEPOINT shipping_option_create');
+          [
+            organizationId,
+            storeId,
+            input.code.trim(),
+            input.name.trim(),
+            input.carrier?.trim() ?? 'manual',
+            input.service?.trim() ?? null,
+            input.price_minor,
+            input.currency,
+            countries,
+            input.sales_channel_id ?? null,
+            JSON.stringify(input.rules ?? {}),
+            input.is_active ?? true,
+          ],
+        );
+        await tx.query('RELEASE SAVEPOINT shipping_option_create');
+        return r.rows[0]!;
+      } catch (err) {
+        const e = err as { code?: string; constraint?: string };
+        if (e?.code !== '23505' || e.constraint !== CODE_INDEX) throw err;
+        await tx.query('ROLLBACK TO SAVEPOINT shipping_option_create');
+        const existing = await tx.query<{ id: string }>(
+          `SELECT id FROM shipping_option WHERE store_id = $1 AND code = $2`,
+          [storeId, input.code.trim()],
+        );
+        throw conflict('this store already has a shipping option with this code', {
+          shipping_option_id: existing.rows[0]?.id ?? null,
+        });
+      }
+    });
     const option = toShippingOption(row);
     await writeAudit(tx, {
       organizationId,
@@ -303,11 +335,9 @@ export async function updateShippingOption(
     if (!current.rows[0]) throw notFound('shipping option', optionId);
     const before = toShippingOption(current.rows[0]);
     await requireOwnSalesChannel(tx, storeId, patch.sales_channel_id);
-    const uncoveredBefore =
-      store.status === 'active' ? await unshippableMarketCountries(tx, store) : [];
-
-    const r = await tx.query<ShippingOptionRow>(
-      `UPDATE shipping_option SET
+    const r = await keepActiveStoreSellable(tx, store, () =>
+      tx.query<ShippingOptionRow>(
+        `UPDATE shipping_option SET
          name = CASE WHEN $3::boolean THEN $4 ELSE name END,
          carrier = CASE WHEN $5::boolean THEN $6 ELSE carrier END,
          service = CASE WHEN $7::boolean THEN $8 ELSE service END,
@@ -318,39 +348,28 @@ export async function updateShippingOption(
          is_active = CASE WHEN $17::boolean THEN $18 ELSE is_active END,
          updated_at = now()
        WHERE id = $1 AND store_id = $2 RETURNING ${COLS}`,
-      [
-        optionId,
-        storeId,
-        patch.name !== undefined,
-        patch.name?.trim() ?? null,
-        patch.carrier !== undefined,
-        patch.carrier?.trim() ?? null,
-        patch.service !== undefined,
-        patch.service?.trim() ?? null,
-        patch.price_minor !== undefined,
-        patch.price_minor ?? null,
-        countries !== undefined,
-        countries ?? null,
-        patch.sales_channel_id !== undefined,
-        patch.sales_channel_id ?? null,
-        patch.rules !== undefined,
-        patch.rules === undefined ? null : JSON.stringify(patch.rules),
-        patch.is_active !== undefined,
-        patch.is_active ?? null,
-      ],
+        [
+          optionId,
+          storeId,
+          patch.name !== undefined,
+          patch.name?.trim() ?? null,
+          patch.carrier !== undefined,
+          patch.carrier?.trim() ?? null,
+          patch.service !== undefined,
+          patch.service?.trim() ?? null,
+          patch.price_minor !== undefined,
+          patch.price_minor ?? null,
+          countries !== undefined,
+          countries ?? null,
+          patch.sales_channel_id !== undefined,
+          patch.sales_channel_id ?? null,
+          patch.rules !== undefined,
+          patch.rules === undefined ? null : JSON.stringify(patch.rules),
+          patch.is_active !== undefined,
+          patch.is_active ?? null,
+        ],
+      ),
     );
-    if (store.status === 'active') {
-      const wasUncovered = new Set(uncoveredBefore);
-      const newlyUncovered = (await unshippableMarketCountries(tx, store)).filter(
-        (c) => !wasUncovered.has(c),
-      );
-      if (newlyUncovered.length) {
-        throw conflict(
-          'this change would leave a market country of this active store without an active shipping option in the store currency',
-          { missing_shipping_countries: newlyUncovered },
-        );
-      }
-    }
     const after = toShippingOption(r.rows[0]!);
     await writeAudit(tx, {
       organizationId,

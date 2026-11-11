@@ -118,7 +118,7 @@ The options (`shipping-options.ts`): `listShippingOptions` (exported as `listSto
 whatever its exponent (1980 = ¥1,980; nothing converts or rounds). `currency` must be one of the store's
 currencies; `countries` are upper-cased, distinct and sorted; a `sales_channel_id` must be the store's (400);
 `code` is unique per store (409 `{ shipping_option_id }`). `code` and `currency` are immutable, rows are never
-deleted (`is_active: false` retires one), and on an ACTIVE store an update that leaves a market country NEWLY
+deleted (`is_active: false` retires one), and on an ACTIVE store a create or update that leaves a market country NEWLY
 without an active option in the store currency is 409 `{ missing_shipping_countries }` (a country that was
 already uncovered does not block an unrelated edit). Every write locks the store row first.
 

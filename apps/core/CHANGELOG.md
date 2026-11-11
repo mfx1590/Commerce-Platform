@@ -8,8 +8,9 @@
   viewer, `createShippingOption` / `updateShippingOption` store_admin; `src/modules/registry/shipping-options.ts`):
   tenant client, audit row and `store.updated` (`changed_fields: ['shipping_options']`) in the same transaction.
   `price_minor` in the currency's minor unit (1980 = ¥1,980); the currency must be the store's; `code` and
-  `currency` immutable; `is_active: false` retires an option; an ACTIVE store cannot lose its last sellable option
-  for a market country (409 `missing_shipping_countries`).
+  `currency` immutable; `is_active: false` retires an option; on an ACTIVE store neither a create nor an update may
+  leave a market country newly without a sellable option (409 `missing_shipping_countries`; #815 review: a create of
+  an active option in a secondary currency adds a country it does not cover).
 - Activation (`activateStore`, `updateStore` → active): the new prerequisite `shipping_options` — an active option in
   the store's `default_currency` for every market country; the 409 lists `missing_shipping_countries`.
 - Tests: `test/shipping-options.test.ts` (tenancy, validation, the update guard, JPY readiness, and ¥1,980 = 1980
