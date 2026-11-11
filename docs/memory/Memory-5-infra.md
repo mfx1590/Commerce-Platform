@@ -122,7 +122,7 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
-- **Brand D prep: add-brand-client (2026-11-11), branch infra/phase6-add-brand-client from main 61ed4d4f.**
+- **Brand D prep: add-brand-client (2026-11-11), branch integration/brand-d-keycloak (manager approved option a; window 2 named as owner) from main 61ed4d4f.**
   Ownership question to the manager: infra/keycloak/** is window 2's row (my infra/** also matches); I recommended
   an integration/ branch. ONBOARDING-GAPS §6 is window 10's; corrected text sent to the manager to route.
   The template regenerates A/B/C byte-exactly. Files written via 2-space stringify + prettier (byte-stable).
