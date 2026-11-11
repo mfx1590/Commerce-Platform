@@ -22,30 +22,34 @@ const realm = JSON.parse(realmText);
 const fileClient = (id) => realm.clients.find((c) => c.clientId === id);
 const SCRIPT = fileURLToPath(new URL('./add-brand-client.mjs', import.meta.url));
 
-// brand A also serves the starter's port and keeps the shop.dev/staging placeholder hosts; B and C are one port each
-const PARAMS = {
-  'brand-a': { ports: [3100, 3101], hosts: ['shop.dev.example.com', 'shop.staging.example.com'] },
-  'brand-b': { ports: [3102] },
-  'brand-c': { ports: [3103] },
-};
+/** A client's template inputs, read back from the client itself: localhost ports from its redirects, https hosts. */
+const paramsOf = (c) => ({
+  code: c.clientId.replace(/^storefront-/, ''),
+  ports: c.redirectUris
+    .map((u) => /^http:\/\/localhost:(\d+)\/\*$/.exec(u)?.[1])
+    .filter(Boolean)
+    .map(Number),
+  hosts: c.webOrigins
+    .filter((o) => o.startsWith('https://'))
+    .map((o) => o.slice('https://'.length)),
+});
 
-test('ONE template: brand-a/b/c in customers-realm.json are exactly its output (key order included)', () => {
-  for (const [code, p] of Object.entries(PARAMS)) {
-    const want = brandClient({ code, ...p });
+test('ONE template: EVERY storefront-* client in customers-realm.json is exactly its output (key order included)', () => {
+  const storefronts = realm.clients.filter((c) => c.clientId.startsWith('storefront-'));
+  // generic, so a brand the script adds (brand D) is covered with no edit here (#817 review)
+  for (const c of storefronts)
     assert.equal(
-      JSON.stringify(want),
-      JSON.stringify(fileClient(`storefront-${code}`)),
-      `storefront-${code} drifted from the template`,
+      JSON.stringify(brandClient(paramsOf(c))),
+      JSON.stringify(c),
+      `${c.clientId} drifted from the template`,
     );
-  }
-  // and the realm has no other storefront client the template does not account for
-  const storefronts = realm.clients
-    .map((c) => c.clientId)
-    .filter((id) => id.startsWith('storefront-'));
-  assert.deepEqual(
-    storefronts,
-    Object.keys(PARAMS).map((c) => `storefront-${c}`),
-  );
+  // today's three, read back to the inputs they were written from
+  assert.deepEqual(paramsOf(fileClient('storefront-brand-a')), {
+    code: 'brand-a',
+    ports: [3100, 3101],
+    hosts: ['shop.dev.example.com', 'shop.staging.example.com'],
+  });
+  assert.ok(storefronts.length >= 3);
 });
 
 test('the security shape of every brand client: public, code + PKCE S256 only, its own store_code, the core-api audience', () => {
@@ -81,6 +85,10 @@ test('inputs are refused, not guessed', () => {
   assert.throws(() => parseArgs(['brand-d', '--json-only', '--live-only']), /exclude each other/);
   assert.throws(() => parseArgs(['brand-d', '--port']), /needs a value/);
   assert.throws(() => parseArgs(['brand-d', '--force']), /unknown flag/);
+  assert.throws(
+    () => parseArgs(['brand-d', '--target-realm', '../master']),
+    /--target-realm must be/,
+  );
   assert.equal(defaultOrigin('brand-d'), 'https://shop-d.example.com');
 });
 
@@ -167,14 +175,32 @@ test('the files: brand D is ADDED after the last storefront client, nothing else
     realmText: r.realm,
     profileText: r.profile,
   });
-  assert.deepEqual(again, { realm: null, profile: null, drift: [] });
+  assert.deepEqual(again, { realm: null, profile: null, drift: [], notes: [] });
+  // and the added client passes the template test's own read-back
+  const d = JSON.parse(r.realm).clients.find((c) => c.clientId === 'storefront-brand-d');
+  assert.equal(JSON.stringify(brandClient(paramsOf(d))), JSON.stringify(d));
   // an existing brand: nothing written; a different port is reported, never rewritten
   const b = await planFiles(
     brandClient({ code: 'brand-b', ports: [3102] }),
     'https://shop-b.example.com',
     { realmText, profileText },
   );
-  assert.deepEqual(b, { realm: null, profile: null, drift: [] });
+  assert.deepEqual(b, { realm: null, profile: null, drift: [], notes: [] });
+  // a deployed brand's real domain in the profile is a NOTE, never drift (exit 3) (#817 review)
+  const a = await planFiles(
+    brandClient({
+      code: 'brand-a',
+      ports: [3100, 3101],
+      hosts: ['shop.dev.example.com', 'shop.staging.example.com'],
+    }),
+    defaultOrigin('brand-a'),
+    { realmText, profileText },
+  );
+  assert.deepEqual(a.drift, []);
+  assert.match(
+    a.notes[0],
+    /storefront-brand-a is .*shop\.example\.com.* \(kept; the placeholder would be/,
+  );
   const moved = await planFiles(
     brandClient({ code: 'brand-b', ports: [3112] }),
     'https://shop-b.example.com',
@@ -188,23 +214,20 @@ test('the files: brand D is ADDED after the last storefront client, nothing else
 function fakeKeycloak(existing = []) {
   const calls = [];
   const clients = existing.map((c, i) => ({ ...structuredClone(c), id: `id-${i}` }));
-  const scopes = [
-    'openid',
-    'profile',
-    'email',
-    'roles',
-    'web-origins',
-    'basic',
-    'offline_access',
-    'acr',
-  ].map((name) => ({
-    id: `s-${name}`,
-    name,
-  }));
+  // like Keycloak 26: there is NO client scope `openid` (an OIDC protocol scope value)
+  const scopes = ['profile', 'email', 'roles', 'web-origins', 'basic', 'offline_access', 'acr'].map(
+    (name) => ({
+      id: `s-${name}`,
+      name,
+    }),
+  );
   const links = new Map(
     clients.map((c) => [
       c.id,
-      { default: [...c.defaultClientScopes], optional: [...c.optionalClientScopes] },
+      {
+        default: c.defaultClientScopes.filter((n) => scopes.some((s) => s.name === n)),
+        optional: c.optionalClientScopes.filter((n) => scopes.some((s) => s.name === n)),
+      },
     ]),
   );
   const json = (b) => new Response(JSON.stringify(b), { status: 200 });
@@ -220,8 +243,12 @@ function fakeKeycloak(existing = []) {
       const rep = JSON.parse(init.body);
       const c = { ...rep, id: `id-${clients.length}` };
       clients.push(c);
-      // like Keycloak: link the representation's default scopes, but (say) not the optional ones
-      links.set(c.id, { default: [...rep.defaultClientScopes], optional: [] });
+      // like Keycloak: link the representation's default scopes THAT EXIST (`openid` is ignored), and (say) not the
+      // optional ones, so the script's own link step is exercised
+      links.set(c.id, {
+        default: rep.defaultClientScopes.filter((n) => scopes.some((s) => s.name === n)),
+        optional: [],
+      });
       return new Response('', { status: 201 });
     }
     if (
@@ -275,6 +302,39 @@ test('live: a new brand is POSTed, the missing scope linked on IT, and nothing e
   assert.ok(!kc.calls.some((c) => c.startsWith('DELETE')));
 });
 
+test('live: openid is never linked nor drift; a scope the realm lacks fails BEFORE the POST', async () => {
+  const kc = fakeKeycloak([]);
+  const logs = [];
+  const r = await withFetch(kc, () =>
+    applyLive(brandClient({ code: 'brand-d', ports: [3104] }), {
+      ...opts,
+      log: (l) => logs.push(l),
+    }),
+  );
+  assert.deepEqual(r, { created: true, drift: [] });
+  assert.ok(
+    !kc.calls.some((c) => c.includes('/s-openid')),
+    'openid is not a client scope: never PUT',
+  );
+  assert.ok(logs.some((l) => /not linked \(OIDC protocol scopes/.test(l)));
+
+  const want = brandClient({ code: 'brand-e', ports: [3105] });
+  want.optionalClientScopes = ['offline_access', 'no-such-scope'];
+  const kc2 = fakeKeycloak([]);
+  await assert.rejects(
+    withFetch(kc2, () => applyLive(want, opts)),
+    /realm customers has no client scope "no-such-scope": nothing created/,
+  );
+  assert.ok(!kc2.calls.some((c) => c.startsWith('POST /admin')), 'nothing was created');
+  assert.equal(
+    drift(want, want, {
+      defaultScopes: ['profile', 'email', 'roles', 'web-origins', 'basic'],
+      optionalScopes: want.optionalClientScopes,
+    }).length,
+    0,
+  );
+});
+
 test('live: an existing client is only read; drift is reported, never written', async () => {
   const b = fileClient('storefront-brand-b');
   const kc = fakeKeycloak([b]);
@@ -308,6 +368,7 @@ test('--dry-run prints the request, sends nothing (no token), writes no file', (
   assert.match(r.stdout, /"claim\.value": "brand-d"/);
   assert.match(r.stdout, /DRY RUN would add storefront-brand-d to customers-realm\.json/);
   assert.match(r.stdout, /DRY RUN would add storefront-brand-d to production-profile\.json/);
+  assert.match(r.stdout, /DRY RUN then: node infra\/keycloak\/derive-production\.mjs customers/);
   assert.deepEqual([statSync(REALM_FILE).mtimeMs, statSync(PROFILE_FILE).mtimeMs], before);
 });
 

@@ -16,6 +16,15 @@
 export const REALM = 'customers';
 export const CODE_RE = /^[a-z][a-z0-9-]{1,30}[a-z0-9]$/;
 
+/**
+ * Scope VALUES of the OIDC protocol that the realm file lists among a client's default scopes but that are not
+ * Keycloak client scopes: Keycloak 26 has no client scope `openid` (the protocol handles it), and ignores the name
+ * on import and on POST /clients alike. Kept in the representation (brand-a/b/c must stay byte-identical), never
+ * linked, never compared (#817: the first live CI run failed on it).
+ */
+export const PROTOCOL_SCOPES = ['openid'];
+export const linkable = (names) => (names ?? []).filter((n) => !PROTOCOL_SCOPES.includes(n));
+
 const tokenClaims = {
   'id.token.claim': 'true',
   'access.token.claim': 'true',
@@ -172,14 +181,14 @@ export function drift(want, live, { defaultScopes = [], optionalScopes = [] } = 
   for (const name of liveMappers.keys())
     if (!want.protocolMappers.some((m) => m.name === name))
       out.push(`protocolMappers: extra "${name}" (not in the template)`);
-  if (!eq(set(want.defaultClientScopes), set(defaultScopes)))
-    out.push(
-      `defaultClientScopes: want ${set(want.defaultClientScopes).join(',')}, live ${set(defaultScopes).join(',')}`,
-    );
-  if (!eq(set(want.optionalClientScopes), set(optionalScopes)))
-    out.push(
-      `optionalClientScopes: want ${set(want.optionalClientScopes).join(',')}, live ${set(optionalScopes).join(',')}`,
-    );
+  for (const [k, w, l] of [
+    ['defaultClientScopes', want.defaultClientScopes, defaultScopes],
+    ['optionalClientScopes', want.optionalClientScopes, optionalScopes],
+  ]) {
+    const a = set(linkable(w));
+    const b = set(linkable(l));
+    if (!eq(a, b)) out.push(`${k}: want ${a.join(',')}, live ${b.join(',')}`);
+  }
   return out;
 }
 

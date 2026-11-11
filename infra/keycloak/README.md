@@ -122,7 +122,15 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
   - Adds the client to this file and its entry to `production/production-profile.json` (default origin
     `https://shop-<letter>.example.com`, the placeholder pattern; set the real domain there), so an import keeps it.
 
-  The port defaults to the brand app's `dev --port`; `--dry-run` prints every request and change and sends nothing.
+  - Works on the live realm FIRST, then the files, so a live failure leaves the checkout clean. After writing the
+    files it re-derives `production/customers-realm.json` (`derive-production.mjs customers`).
+  - `openid` stays in the representation but is never linked or compared: Keycloak has no client scope by that name
+    (it is the OIDC protocol scope). Every other template scope must exist in the realm before anything is created.
+  - A profile entry that differs from the placeholder (a deployed brand's real domain) is a note, not drift.
+
+  **One manual edit in the same PR:** `packages/auth-sdk/test/production-realms.test.ts` pins the production
+  storefront client list; the script prints the line to add. The port defaults to the brand app's `dev --port`.
+  `--dry-run` prints every request and change and sends nothing.
   `reimport.mjs customers` deletes the realm first (every shopper and session in it): an owner-approved last resort,
   not the way to add a brand.
 

@@ -34,7 +34,16 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL, URLSearchParams } from 'node:url';
-import { brandClient, devPortFrom, drift, profileEntry, REALM } from './brand-client.mjs';
+import { spawnSync } from 'node:child_process';
+import {
+  brandClient,
+  devPortFrom,
+  drift,
+  linkable,
+  PROTOCOL_SCOPES,
+  profileEntry,
+  REALM,
+} from './brand-client.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
@@ -60,8 +69,11 @@ export function parseArgs(argv) {
     if (v === '--port') a.ports.push(Number(next()));
     else if (v === '--host') a.hosts.push(next());
     else if (v === '--production-origin') a.productionOrigin = next();
-    else if (v === '--target-realm') a.targetRealm = next();
-    else if (v === '--dry-run') a.dryRun = true;
+    else if (v === '--target-realm') {
+      a.targetRealm = next();
+      if (!/^[a-z0-9-]+$/.test(a.targetRealm))
+        throw new Error(`--target-realm must be [a-z0-9-]+, got "${a.targetRealm}"`);
+    } else if (v === '--dry-run') a.dryRun = true;
     else if (v === '--json-only') a.jsonOnly = true;
     else if (v === '--live-only') a.liveOnly = true;
     else if (v === '--allow-remote') a.allowRemote = true;
@@ -104,7 +116,7 @@ async function formatJson(obj, filepath) {
 export async function planFiles(want, origin, { realmText, profileText }) {
   const realm = JSON.parse(realmText);
   const profile = JSON.parse(profileText);
-  const out = { realm: null, profile: null, drift: [] };
+  const out = { realm: null, profile: null, drift: [], notes: [] };
 
   const have = realm.clients.find((c) => c.clientId === want.clientId);
   if (have) {
@@ -127,8 +139,9 @@ export async function planFiles(want, origin, { realmText, profileText }) {
   const entry = profileEntry(origin);
   if (clients[want.clientId]) {
     if (JSON.stringify(clients[want.clientId]) !== JSON.stringify(entry))
-      out.drift.push(
-        `production-profile.json: ${want.clientId} is ${JSON.stringify(clients[want.clientId])}, the default would be ${JSON.stringify(entry)} (kept: the profile holds the real domain)`,
+      // Expected once the brand is deployed (the profile holds its real domain): a note, not drift (#817 review).
+      out.notes.push(
+        `production-profile.json: ${want.clientId} is ${JSON.stringify(clients[want.clientId])} (kept; the placeholder would be ${JSON.stringify(entry)})`,
       );
   } else {
     clients[want.clientId] = entry;
@@ -204,6 +217,17 @@ export async function applyLive(want, { realm, url, admin, password, dryRun, log
     );
     return { created: false, drift: [] };
   }
+  // Every client scope the template links must exist BEFORE anything is created: a missing one fails here, with the
+  // realm untouched, not half-way after the POST (#817 review).
+  const scopes = (await api('GET', `/admin/realms/${realm}/client-scopes`)) ?? [];
+  const missing = [
+    ...linkable(want.defaultClientScopes),
+    ...linkable(want.optionalClientScopes),
+  ].filter((n) => !scopes.some((s) => s.name === n));
+  if (missing.length)
+    throw new Error(
+      `realm ${realm} has no client scope ${missing.map((n) => `"${n}"`).join(', ')}: nothing created`,
+    );
   const before = await liveState(api, realm, want.clientId);
   if (before) {
     log(
@@ -215,14 +239,15 @@ export async function applyLive(want, { realm, url, admin, password, dryRun, log
   log(`created ${want.clientId} in realm ${realm}`);
   // Keycloak links the representation's scopes on create; link any it did not, on THIS client only (additive).
   let now = await liveState(api, realm, want.clientId);
-  const scopes = (await api('GET', `/admin/realms/${realm}/client-scopes`)) ?? [];
+  log(
+    `not linked (OIDC protocol scopes, not Keycloak client scopes): ${PROTOCOL_SCOPES.join(', ')}`,
+  );
   for (const [kind, wanted, have] of [
-    ['default', want.defaultClientScopes, now.defaultScopes],
-    ['optional', want.optionalClientScopes, now.optionalScopes],
+    ['default', linkable(want.defaultClientScopes), now.defaultScopes],
+    ['optional', linkable(want.optionalClientScopes), now.optionalScopes],
   ]) {
     for (const name of wanted.filter((n) => !have.includes(n))) {
       const s = scopes.find((x) => x.name === name);
-      if (!s) throw new Error(`realm ${realm} has no client scope "${name}"`);
       await api(
         'PUT',
         `/admin/realms/${realm}/clients/${now.client.id}/${kind}-client-scopes/${s.id}`,
@@ -253,27 +278,8 @@ async function main() {
     `${want.clientId}: redirects ${want.redirectUris.join(' ')}; store_code ${a.code}; production origin ${origin}`,
   );
 
-  const files = a.liveOnly
-    ? { realm: undefined, profile: undefined, drift: [] }
-    : await planFiles(want, origin, {
-        realmText: readFileSync(REALM_FILE, 'utf8'),
-        profileText: readFileSync(PROFILE_FILE, 'utf8'),
-      });
-  for (const [name, file, text] of a.liveOnly
-    ? []
-    : [
-        ['customers-realm.json', REALM_FILE, files.realm],
-        ['production-profile.json', PROFILE_FILE, files.profile],
-      ]) {
-    if (text === null) log(`${name}: ${want.clientId} already there`);
-    else if (a.dryRun) log(`DRY RUN would add ${want.clientId} to ${name}`);
-    else {
-      writeFileSync(file, text);
-      log(`${name}: added ${want.clientId}`);
-    }
-  }
-  const allDrift = [...files.drift];
-
+  const allDrift = [];
+  // The live realm FIRST: a failure there (Keycloak down, a 4xx) leaves the checkout clean (#817 review).
   if (!a.jsonOnly) {
     const url = (process.env.KEYCLOAK_URL ?? 'http://localhost:8180').replace(/\/+$/, '');
     const host = new URL(url).hostname;
@@ -290,6 +296,44 @@ async function main() {
       log,
     });
     allDrift.push(...live.drift.map((d) => `live realm: ${d}`));
+  }
+
+  if (!a.liveOnly) {
+    const files = await planFiles(want, origin, {
+      realmText: readFileSync(REALM_FILE, 'utf8'),
+      profileText: readFileSync(PROFILE_FILE, 'utf8'),
+    });
+    let wrote = false;
+    for (const [name, file, text] of [
+      ['customers-realm.json', REALM_FILE, files.realm],
+      ['production-profile.json', PROFILE_FILE, files.profile],
+    ]) {
+      if (text === null) log(`${name}: ${want.clientId} already there`);
+      else if (a.dryRun) log(`DRY RUN would add ${want.clientId} to ${name}`);
+      else {
+        writeFileSync(file, text);
+        wrote = true;
+        log(`${name}: added ${want.clientId}`);
+      }
+    }
+    for (const n of files.notes) log(`note: ${n}`);
+    allDrift.push(...files.drift);
+    if (a.dryRun && (files.realm !== null || files.profile !== null))
+      log(
+        'DRY RUN then: node infra/keycloak/derive-production.mjs customers (production/customers-realm.json)',
+      );
+    if (wrote) {
+      // production/customers-realm.json is DERIVED from the two files above; production-realms.test.ts re-derives
+      // and compares byte for byte, so it moves in the same change (#817 review).
+      const r = spawnSync(process.execPath, [resolve(here, 'derive-production.mjs'), 'customers'], {
+        encoding: 'utf8',
+      });
+      if (r.status !== 0) throw new Error(`derive-production.mjs customers failed:\n${r.stderr}`);
+      log('production/customers-realm.json: re-derived (derive-production.mjs customers)');
+      log(
+        `next: packages/auth-sdk/test/production-realms.test.ts pins the production storefront clients (window 2's file): add ${want.clientId} there in the same PR`,
+      );
+    }
   }
 
   if (allDrift.length) {

@@ -648,6 +648,8 @@ jobs:
       - name: add-brand-client, live (create, idempotent re-run, drift reported)
         if: needs.changes.outputs.e2e == 'true'
         run: |
+          # pipefail: the re-run's own exit code must survive `| tee` (bash -e alone takes tee's) (#817 review)
+          set -o pipefail
           node infra/keycloak/add-brand-client.mjs brand-zz --port 3199 --live-only
           node infra/keycloak/add-brand-client.mjs brand-zz --port 3199 --live-only | tee "$RUNNER_TEMP/abc-2.log"
           grep -q 'already exists' "$RUNNER_TEMP/abc-2.log" || { echo 'the re-run did not find the client'; exit 1; }
