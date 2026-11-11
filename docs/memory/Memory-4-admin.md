@@ -562,7 +562,10 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   removed: a failed store read renders ApiStatePanel, with no money input. test/promotions-currency.test.tsx
   (6 tests: JPY → "Amount in JPY, whole units" / Currency JPY; 503 → no form, no EUR); the failed-read
   cases all fail on main's code. Unit tests 1029/1029. The core site (promotions.ts:316) is window 9's.
-  Next: PR "Refs #810", Opus review.
+  **PR #812** (head after merging main, see git log); reviewed: MERGE once green (manager queues it).
+- **Brand D pre-flight PR (2026-11-11, Manager session twelve).** Branch `admin/phase6-brand-d-preflight` from
+  main b517a76d, Memory-4 only: the "Brand D pre-flight" section below (Japan, JPY), written read-only. The
+  earlier draft had never been pushed. **PR #808 MERGED (2026-11-11).** Brand D start message to 4, 5, 10 next.
 - **#763 MERGED (2026-11-10)** = c9215997 on main (admin CSP, next 15.5.28, zod 4.6.7).
 - **#763 follow-ups (2026-11-10, Manager session twelve).** Branch `admin/phase6-security-followup`
   from origin/main c9215997. Code-only, no machine. **3baabc1d**: middleware.test pins the
@@ -870,6 +873,155 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     shipments` → 404 not_found) would show "not available" instead of "not found". Decide: e.g.
     only collection reads with no id segment after the store id, or prefer the core's marker.
   - (Still open from #338) `apps/admin/CLAUDE.md:8` "Admin API 0.4.0" / "Phase 1" — owner's call.
+
+## Brand D pre-flight (admin side; input for window 10's wave-3 D8 task — brand D = Japan)
+
+Written 2026-11-10 and extended 2026-11-11 for **brand D = Japan** (JPY, ja-JP, ships to JP). Read-only, on
+main b517a76d. Spot-checked by me: the readiness list, the shipping-option gap, no `verified_at` writer, the
+price-list path, and the JPY code paths. Nothing has been built for it yet (manager's instruction).
+File:line refs are as of that commit.
+
+**A. Inputs, in order (what to type for Japan).**
+1. **Wizard step 1, legal entity** (`(hq)/onboarding/onboarding-wizard.tsx`, `src/lib/onboarding/index.ts`;
+   owner on organization:hq only):
+   - new (inline): code (kebab, e.g. `brand-d-kk`), registered name, country **JP** (default NL), currency
+     **JPY** (default EUR), VAT number optional;
+   - or pick an existing one (uuid, from `listLegalEntities`).
+2. **Wizard step 2, store.**
+   - code (kebab): it also becomes the CMS content space and the `<code>_products` search index, so it MUST
+     EQUAL new-brand.mjs's code.
+   - name.
+   - default currency **JPY**, default locale **ja-JP**, default country **JP**, timezone **Asia/Tokyo**. The
+     defaults are EUR / en-GB / NL / Europe/Amsterdam.
+   - **currencies** and **locales**: comma lists in their OWN fields (`currenciesText` starts as `'EUR'`,
+     wizard.tsx:82), so type `JPY` and `ja-JP` (plus `en-GB` if wanted). The default is forced first, so
+     leaving `EUR` there gives the store `[JPY, EUR]`, not an error.
+   - optional settings JSON object.
+3. **Wizard step 3, domain.** Hostname only, lowercase, no scheme. It is created UNVERIFIED.
+4. **Wizard step 4, review**, then `onboardStore` (POST /admin/onboarding/stores).
+   - 201 shows the publishable key `pk_<code>_<40 hex>` ONCE.
+   - A repeat with the identical body is 200 with no key, and it also repairs a missing FGA object.
+5. **Tax rates** (Settings › Tax rates, or the quick-create on the readiness panel): **JP, 1000 bp** (10 %;
+   the 8 % reduced rate is a per-category row, 800 bp). Basis points, not money, so JPY changes nothing here.
+6. **A default price list in JPY**: Promotions › Price lists › new, type `default`, currency `JPY`
+   (`PRICE_LIST_TYPES`, `src/lib/forms/schemas.ts:336`). Onboarding creates none, and a variant price is
+   refused without one (`apps/core/src/modules/catalog/service.ts:752-759`, "store has no default price
+   list for JPY"). Prices then go in through that list's editor or its CSV import (whole yen, see G).
+7. **Shipping options for JP**: NO UI and NO API today (see D.7). This blocks checkout, not activation.
+8. **Activate** on `/onboarding/<storeId>`.
+
+**B. What it writes.** The core does it in one transaction (`modules/registry/onboarding.ts:188-385`):
+- legal_entity (inline mode only), store (status draft), store_locale / store_currency, store_domain (primary),
+  sales_channel `web`, store_api_key (publishable, hash only)
+- audit `store.onboard`, outbox `store.created`
+
+After the commit, outside the transaction: one OpenFGA tuple `store:<id>#organization@organization:hq`.
+- Nothing goes to Keycloak, and no staff role is assigned.
+- No tax_rate, price_list or shipping_option rows are created.
+- `activateStore` sets status active, writes audit `store.activate` and outbox `store.updated`.
+
+**C. Activation gates** (`modules/registry/readiness.ts:9-17`): legal_entity, locale, currency,
+primary_domain, a non-revoked publishable key, fga_object, and tax_rates for each market country
+(default_country plus the countries of active shipping options).
+- Fixable in the admin UI: tax rates, domains, sales channels, keys.
+- fga_object: no screen. Re-POST the identical onboardStore body, or run auth-sdk `fga:reconcile`.
+- NOT gated: domain verification, shipping options, price lists, payment provider, CMS, Keycloak. A store can
+  therefore be ACTIVE and still unable to take an order (see D.7).
+- The readiness page text omits tax rates (`[storeId]/page.tsx:23`): an admin nit, mine.
+
+**D. Steps that need a person outside the admin UI today:**
+1. Keycloak customers-realm client `storefront-<code>` (store_code mapper, redirect URIs). Only brand-a/b/c
+   exist in `infra/keycloak/customers-realm.json`. Then `node infra/keycloak/reimport.mjs customers` on the
+   shared stack (window 5 per the brief).
+2. CMS dataset entry in `cms/src/datasets.ts` (`datasetForStore` throws for an unknown code): REQUEST to
+   window 6.
+3. Paste the one-time pk into the storefront config: dev `next.config.mjs` (new-brand.mjs writes a
+   `pk_<code>_dev_000…` placeholder that resolves for SEEDED brands only), staging secret
+   `staging/stores/<code>/storefront`. `infra/helm/check-values.sh` rejects `_dev_` keys in staging.
+4. Infra for the new storefront app: Dockerfile / bake target / Terraform `var.apps` / `deploy-staging.yml`
+   APPS / helm storefront values (brand-a only today). This is #439. Expect `app images` red on the brand PR.
+5. DNS, TLS and domain verification. Nothing writes `store_domain.verified_at` (no operation, no core writer);
+   TLS handling UNCONFIRMED.
+6. Payments: `STRIPE_SECRET_KEY_<CODE>` / `STRIPE_WEBHOOK_SECRET_<CODE>` (else the global ones), plus a
+   Stripe webhook endpoint `/webhooks/stripe/<code>`. Per-store env for search (Algolia `_<CODE>`) and
+   shipping (EasyPost webhook `_<CODE>`).
+7. **Shipping options — the checkout blocker for ANY non-seeded brand.**
+   - Checkout offers only `shipping_option` rows that are active, in the cart's currency and that list the
+     destination country. A carrier only PRICES those rows (`modules/shipping/rate-shopping.ts:255-270`,
+     `offered.length === 0 → []`).
+   - Placing an order requires one (`modules/checkout/service.ts:333`).
+   - The contract has `createShippingOption` (store_admin), but there is NO admin wrapper and NO core admin
+     route; the core mounts only the cart listing (`http/store-routes.ts:428`).
+   - So brand D needs `shipping_option` rows (currency JPY, countries [JP], a flat price in whole yen)
+     written by SQL/seed by the manager, until the route and a screen exist (window 1 core route; then my
+     screen). Without them: no order.
+8. First store_admin: possible in the UI (HQ › Roles invite / assign), but the core needs
+   `KEYCLOAK_ADMIN_CLIENT_ID` / `_SECRET` (the #525 lesson).
+9. Products / catalogue, CMS prose (Japanese), legal pages, media, theme: new-brand.mjs prints these as MANUAL.
+
+**E. Seed assumptions on brand D's path:**
+- The core's `bootstrap/verify.ts:149-153` checks only brand-a/b/c keys (and pins `'EUR'` for brand A,
+  `:151`).
+- `cms/src/datasets.ts` is a hard-coded list.
+- The starter's OIDC falls back to `storefront-brand-a` when `KEYCLOAK_CLIENT_ID` is unset.
+- Helm dev values are hard-coded to brand-a's key.
+- The Prism mock is single-store, so the brand-D e2e must run in core mode.
+- The admin wizard and settings code has no hard-coded seeded ids (only hints, and the dev-only `/states`).
+
+**F. Suggested order for the timed run:**
+1. new-brand.mjs `<code>` (same code as the wizard).
+2. Wizard (A.1-4) → copy the key.
+3. Tax JP 1000 bp.
+4. Default JPY price list.
+5. [shipping_option rows, by the manager]
+6. Activate.
+7. Keycloak client + reimport.
+8. CMS dataset (REQUEST).
+9. Paste the key.
+10. HQ › Roles: first store_admin.
+11. Products + JPY prices.
+12. Then infra (#439), DNS/TLS, Stripe.
+
+Steps 5 and 7-12 are outside the wizard, and each one is an issue per D8.
+
+**G. JPY (zero-decimal) end to end: does it work today?** Mostly yes. Money is integer minor units
+everywhere, and for JPY one minor unit = one yen. Every conversion I found derives the exponent from the
+currency, not from a constant 2.
+- **Wizard / core onboarding:** currency is `^[A-Z]{3}$` (`src/lib/onboarding/index.ts`), so JPY is
+  accepted. Activation checks only that a store_currency row exists; no money is involved.
+- **Price entry (admin):** `src/lib/forms/money.ts:13-21` `currencyDigits` reads the digits from
+  `Intl.NumberFormat` (JPY → 0).
+  - `parseMoney` rejects `1200.5` for JPY (`too_many_decimals`) and stores `1200` as 1200.
+  - `formatMoneyInput` / `formatMoney` print no decimals.
+  - Used by the money field, variant prices (`variants-panel.tsx:268-270`), the price-list editor and CSV
+    (`src/lib/pricing/csv.ts:45-52`), promotions, orders, refunds and BI.
+- **Display (storefront):** `packages/ui/src/components/price.tsx:17-35` `minorUnitDigits` via Intl, so
+  ¥1,200 is right.
+- **Core:** no `* 100` / `/ 100` on money in payments, checkout, cart, tax, orders, promotions, catalog or
+  registry.
+  - Feeds (`modules/marketing/feed-render.ts:12-48`) and carrier quotes (`modules/shipping/money.ts:5-66`)
+    have exponent tables with **JPY: 0**.
+  - The Stripe Tax `* 100` (`modules/tax/stripe-provider.ts:44`) is percent → bp, not money.
+  - Stripe takes JPY amounts in yen, which equals our minor units, so no conversion is needed (UNCONFIRMED
+    against a live JPY PaymentIntent).
+- **Where a 2-decimal / EUR assumption WOULD bite:**
+  1. Admin promotions and price lists fall back to `'EUR'` when the store read fails:
+     `(store)/[storeId]/promotions/new/page.tsx:39`, `promotions/[promotionId]/page.tsx:82`,
+     `promotions/price-lists/page.tsx:126`. A fixed-amount discount typed then would be parsed with 2
+     digits: `500` typed means ¥50,000 stored. Only on a failed store read, but silent. Fix: refuse to render
+     the money field without the store's currency (mine, small).
+  2. Core promotions: `default_currency ?? 'EUR'` (`modules/promotions/promotions.ts:316`, window 9). Only
+     when the store row is missing.
+  3. The manual carrier quotes only `['EUR','GBP','USD']` (`modules/shipping/manual-provider.ts:50`, window
+     8). A JPY cart gets no LIVE manual rate, so a shipping_option row marked `live` falls back to its flat
+     price. Use flat-priced rows for JP; its `baseMinor: 490` would be ¥490 anyway.
+  4. The BI "ask" golden evaluation formats minor values as `/ 100` with `toFixed(2)`
+     (`modules/reporting/ask/golden/run.ts:40,61`, window 12). That is an evaluation harness, not a product
+     path, but JPY golden questions would compare wrongly.
+  5. Wizard defaults are EUR / NL / en-GB in four separate fields (wizard.tsx:28,31,82 plus locales): typing
+     mistakes, not code bugs. The timed run should check the review step.
+- **Not checked:** the storefront's checkout and Stripe Element with JPY live, and the tax calculation
+  rounding on yen (the code rounds in integer minor units, which for yen is whole yen).
 
 ## Next — Phase 2 (GitHub issues; acceptance criteria there are authoritative)
 - [x] **#113 · 2.1** Catalog editor — in PR
