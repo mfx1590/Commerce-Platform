@@ -9,6 +9,7 @@
   - the Payment Element is checked on the **review** step, where it mounts (core + Stripe TEST key runs); `SCRIPTS.md` corrected;
   - new: back and forward across the checkout boundary land on each zone's own document;
   - new: handler-prefix paths answer a plain-text 404 with the policy, and `/health` stays 200.
+- **Visual suite, REQUEST #797:** the three pages use the app's own default locale (`e2e/support/locale.ts`), not a hard-coded `/en-GB`. Brand C (en-US only) was screenshotting its 404 page, and the full-page shot passed because a 404 is perfectly stable. Before any screenshot each page must answer **200** and show its own content (home: its h1; PLP: a product card; PDP: the add-to-cart form), so a stable wrong page can never baseline again.
 - **Visual suite (#781 review):**
   - the e2e server gives the recommendation rail a 5 s deadline, so a slow call cannot remove it from the PDP shot;
   - the README says a baseline belongs to one machine and Chrome version;
