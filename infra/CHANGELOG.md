@@ -17,6 +17,9 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 - `infra/ci/check-image-manifests.sh`: every Dockerfile's `ARG NODE_VERSION=` default must equal the build
   compose's `NODE_VERSION` arg, which overrides it in every CI and staging build. A Dependabot base-image bump
   edits only the Dockerfiles, so without this check the images would silently keep the old base.
+- Turbo never replays a result from another runtime: `.nvmrc` joins turbo.json's `globalDependencies`, and CI's turbo
+  cache keys carry `node${NODE_VERSION}`. The guard's failure footer names the Node-base mismatch and the hand edit a
+  Dependabot base-image PR needs; infra/README says the same.
 - `.github/dependabot.yml`: `@types/node` is ignored from 23 (`versions: ['>=23']`), not by major. The rest of
   the old "UNTIL THE NODE 22 MOVE" block is now the follow-ups, lifted by their owning windows (Medusa 2.22,
   axe 4.14 + jest-dom 7, Sanity 6). The OTLP exporters stay until Medusa takes the SDK 3 line. `apps/engagement`

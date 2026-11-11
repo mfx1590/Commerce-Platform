@@ -377,6 +377,12 @@ lifts it in its own PR, after the Node 22 runtime move. The storefront starter's
 tests accept a plain-semver version bump on a shared key, so Dependabot's grouped PRs can bump the starter and the
 brands together. The file names the failure behind each remaining ignore.
 
+**The grouped base-image PR needs one hand edit.** Dependabot's `docker` group bumps each Dockerfile's
+`ARG NODE_VERSION=` (e.g. `22.23-alpine` → `22.24-alpine`), but every CI and staging build takes the tag from the
+`NODE_VERSION` build arg in `infra/docker/docker-compose.build.yml`, which Dependabot does not edit. So that PR is red
+by design: `infra/ci/check-image-manifests.sh` fails on the mismatch and says so. Edit the compose arg to the same
+tag in that PR, and the images really move.
+
 ## Helm
 
 ```

@@ -122,6 +122,14 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
+- **#806 status:**
+  - Commits: 9e4883f9 (the runtime), then a15d0887 (Opus BLOCK fix: storefront smoke KEYCLOAK_URL placeholder + the
+    Node-base guard). a15d0887 had 3 green CI runs plus both k6 proofs; the manager's Opus verdict was MERGE.
+  - Then the manager's pre-merge items, which reset the three runs: turbo `globalDependencies` += `.nvmrc`; the turbo
+    cache keys carry `node${NODE_VERSION}`; the guard's footer names the Node base and the Dependabot hand edit; the
+    infra README paragraph.
+  - The merge is held until the owner has Node 22 on the laptop.
+  - Lesson: turbo's cache did not key on the runtime. Any runtime move must also move the cache keys.
 - **Node 22 move, step 0 (2026-11-11, plan APPROVED by manager twelve): branch `integration/node22` (it may write
   anywhere: the @types/node lines in 20 package.json files are done here; NEVER `apps/core/.medusa/server/package.json`,
   which is build output).** It covers the runtime only:
