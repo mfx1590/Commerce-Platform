@@ -8,9 +8,9 @@
  *       writes <out-dir>/tracking.md (one comment per scheduled run), <out-dir>/issue.md (the regression issue's
  *       body) and <out-dir>/verdict.txt (pass | retried | breach)
  *
- * A run dir is what infra/load/run.sh writes: load.exit (k6's exit code) and load-summary.json. A breach counts only
- * when the second pass breaches too (runner noise is real). A first-pass breach that the second pass clears is
- * printed, never hidden: "retried".
+ * A run dir is what infra/load/run.sh writes: load.exit (k6's exit code), load-summary.json and run.exit (run.sh's
+ * own exit code, from its EXIT trap). A breach counts only when the second pass breaches too (runner noise is real).
+ * A first-pass breach that the second pass clears is printed, never hidden: "retried".
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -61,6 +61,26 @@ export function readPass(dir) {
       routes,
       metrics,
       reason: `k6 exited ${code}`,
+    };
+  // run.sh's own exit code (its EXIT trap writes run.exit). k6 can write a passing summary and run.sh still fail after
+  // it (a later k6 phase, the report, the stack's stop): the step is red, so the verdict must not be "within the
+  // SLOs". A missing run.exit means run.sh was killed before its trap ran (a step timeout, a cancel).
+  const runExitFile = join(dir, 'run.exit');
+  const runCode = existsSync(runExitFile)
+    ? Number(readFileSync(runExitFile, 'utf8').trim())
+    : undefined;
+  if (runCode !== 0)
+    return {
+      state: 'broken',
+      code,
+      summary,
+      crossed,
+      routes,
+      metrics,
+      reason:
+        runCode === undefined
+          ? `run.sh did not finish (killed or timed out after k6 exited ${code}): see the run log`
+          : `run.sh exited ${runCode} after k6 finished (k6 exited ${code}): a later phase or the report failed, see the run log`,
     };
   if (unmeasured.length)
     return {

@@ -4,6 +4,14 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 6
 
+### Fixed (the k6 gate never says "within the SLOs" on a red job)
+
+- `infra/load/run.sh` writes its own exit code to `run.exit` from its EXIT trap, as the last thing it does.
+  `slo-gate.mjs` judges a pass as `broken` when `run.exit` is non-zero. That covers k6 writing a passing summary
+  and run.sh failing after it (a later phase, the report): the reason is "run.sh exited N after k6 finished".
+  It is also `broken` when `run.exit` is missing (run.sh killed before its trap, e.g. a step timeout). The
+  measured numbers are still shown. Before this, such a pass rendered "within the SLOs" next to a red job.
+
 ### Fixed (#801 review: the k6 SLO regression)
 
 - `.github/workflows/load.yml`: `inputs.metrics_months` reaches the seed step through env (`METRICS_MONTHS`), never

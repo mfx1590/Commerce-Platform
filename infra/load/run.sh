@@ -63,8 +63,12 @@ stop_sampler() {
   sampler_pid=''
 }
 cleanup() {
+  local rc=$?
   stop_sampler
   bash infra/ci/boot-smoke.sh --stop || true
+  # run.sh's own exit code, for slo-gate.mjs: k6 can write a passing summary and run.sh still fail after it (a later
+  # phase, the report). Written last, so a run.exit of 0 means everything above finished.
+  echo "$rc" > "$OUT/run.exit"
 }
 trap cleanup EXIT
 
