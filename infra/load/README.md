@@ -45,6 +45,38 @@ the k6 image. `run.sh` never starts, stops or touches the stack's containers. Ho
 `localhost` (on Windows `localhost` resolves to `::1` first). On the laptop k6 reaches the core through
 `host.docker.internal`; on Linux it uses `--network host`.
 
+## Scheduled SLO regression (weekly, plan wave 3)
+
+`.github/workflows/load.yml` also runs on a **schedule: Mondays 04:00 UTC**.
+
+- **What runs:** the target run only (50 browse req/s + 30 orders/min, 10 min), on a fresh core and database on a
+  GitHub runner. The two ramps are measurements, not gates, so they don't run on the schedule.
+- **The gates are the SLOs.** `k6/slo-thresholds.js` is the one place k6 reads them, and
+  `slo-thresholds.test.mjs` (CI's `changes` job) fails unless they equal `infra/observability/rules/slo.mjs`:
+
+  | SLO                                           | k6 gate                                                                                                    |
+  | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+  | store-api-latency                             | p95 < 500 ms on GET /store, product list, product detail                                                   |
+  | checkout-latency                              | p95 < 2 s on `complete`; a **lower bound**: the run uses the `manual` payment provider, so no network call |
+  | store-api-availability, checkout-availability | failed requests and failed placements < 0.1% (k6 also counts 4xx: stricter)                                |
+
+  admin-metrics latency is not covered yet (#785: it needs ClickHouse and a staff token). The ingest and relay lag
+  SLOs belong to the Prometheus rules, not to k6.
+
+- **Retry once.** Runner noise is real, so when pass 1 crosses a gate, a second fresh pass runs, and only a second
+  breach counts. When the retry fired, the summary says so ("the retry fired"): a flaky first pass is visible, not
+  hidden. `slo-gate.mjs` is the judge (`slo-gate.test.mjs`).
+- **Results:**
+  - Every scheduled run comments on the tracking issue "load: weekly SLO regression tracking (scheduled k6)": the
+    per-route p95 and failure rates against their gates, week by week.
+  - A **confirmed** breach also opens, or comments on, ONE issue, "load regression (scheduled k6)", and fails the run.
+  - Only the schedule writes issues, from a separate job holding `issues: write`. A manual run prints both texts in
+    its job summary instead (a dry run). Nothing is committed to the repo.
+  - The full reports and Postgres samples are in the run's artifact for 90 days.
+- **Proving the breach path by hand:** run the workflow with `threshold_factor` below 1 (e.g. `0.05`). That scales the
+  latency gates through `LOAD_THRESHOLD_FACTOR`, so both passes breach, and the summary shows the retry and the dry-run
+  issue.
+
 ## Known limits
 
 - **Laptop numbers are not a server's.** The core, Postgres, Redis and k6 share one machine; the report states
