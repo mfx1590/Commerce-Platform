@@ -1,5 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { hydrated } from './support/journey';
+// The app's own default locale (#797): a hard-coded `/en-GB` shot brand C's 404 page.
+import { localePath } from './support/locale';
 
 /**
  * Visual regression for home / PLP / PDP (#140, tolerances from #766's measurement).
@@ -37,15 +39,26 @@ test.skip(process.env.E2E_VISUAL !== '1', 'visual regression is opt-in: set E2E_
 const FULL_PAGE = { fullPage: true, maxDiffPixelRatio: 0.0001, animations: 'disabled' } as const;
 const ELEMENT = { maxDiffPixelRatio: 0.002, animations: 'disabled' } as const;
 
-const PAGES: { name: string; path: string; elements: (page: Page) => Record<string, Locator> }[] = [
+/**
+ * Each page, and what proves it IS that page (#797): a wrong page can be perfectly stable, so a
+ * baseline would happily record a 404. Checked (with a 200 status) before any screenshot.
+ */
+const PAGES: {
+  name: string;
+  path: string;
+  marker: (page: Page) => Locator;
+  elements: (page: Page) => Record<string, Locator>;
+}[] = [
   {
     name: 'home',
-    path: '/en-GB',
+    path: localePath(''),
+    marker: (page) => page.getByRole('heading', { level: 1 }).first(),
     elements: (page) => ({ h1: page.getByRole('heading', { level: 1 }).first() }),
   },
   {
     name: 'plp',
-    path: '/en-GB/products',
+    path: localePath('/products'),
+    marker: (page) => page.getByTestId('product-card').first(),
     elements: (page) => ({
       h1: page.getByRole('heading', { level: 1 }).first(),
       card: page.getByTestId('product-card').first(),
@@ -53,7 +66,8 @@ const PAGES: { name: string; path: string; elements: (page: Page) => Record<stri
   },
   {
     name: 'pdp',
-    path: '/en-GB/products/classic-tee',
+    path: localePath('/products/classic-tee'),
+    marker: (page) => page.getByTestId('add-to-cart'),
     elements: (page) => ({
       h1: page.getByRole('heading', { level: 1 }).first(),
       button: page.getByTestId('add-to-cart').getByRole('button').first(),
@@ -63,7 +77,13 @@ const PAGES: { name: string; path: string; elements: (page: Page) => Record<stri
 
 for (const entry of PAGES) {
   test(`${entry.name} matches its visual baselines`, async ({ page }) => {
-    await page.goto(entry.path);
+    const response = await page.goto(entry.path);
+    // The expected page, not a 404 or an error page that happens to render the same every time.
+    expect(response?.status(), `${entry.name}: ${entry.path} answers 200`).toBe(200);
+    await expect(
+      entry.marker(page),
+      `${entry.name}: the page's own content is there`,
+    ).toBeVisible();
     await hydrated(page);
     // A snapshot needs every image painted. Hydration does not wait for them; asking the images
     // themselves does, without waiting on unrelated requests as a network-idle wait would (#327).

@@ -46,9 +46,11 @@ export function ZoneBoundary() {
       const url = new URL(anchor.href, window.location.href);
       if (url.origin !== window.location.origin) return;
       if (isCheckoutZone(url.pathname) === isCheckoutZone(window.location.pathname)) return;
-      // Stop Next's <Link> from turning it into a soft navigation.
+      // `preventDefault` alone is enough to stop Next's <Link>: it still calls the link's own
+      // `onClick` (an analytics handler keeps working), then returns because the event was
+      // default-prevented, so no soft navigation starts (#790). No `stopPropagation`: other click
+      // handlers on the page still see the click.
       event.preventDefault();
-      event.stopPropagation();
       window.location.assign(url.href);
     };
     document.addEventListener('click', onClick, true);
