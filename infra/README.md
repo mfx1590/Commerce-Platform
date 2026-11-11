@@ -372,8 +372,8 @@ bumps (npm production, npm development, GitHub Actions, the apps' Dockerfile bas
 own PR for the owning window to review. A few majors are ignored, each with its reason in the file:
 `@types/node` 23+ and the `node` base image major (they move with the Node 22 runtime, once, everywhere), and `@medusajs/*`,
 `@opentelemetry/*`, `express` and `@types/express` (they run inside Medusa's process and move with Medusa).
-`@medusajs/*` is its own `medusa` group (its packages must move together), and Medusa 2.22+ is ignored until the
-Node 22 move. The storefront starter's packages are no longer ignored (#758, after #789): the brands' sync-merge
+`@medusajs/*` is its own `medusa` group (its packages must move together), and Medusa 2.22+ stays ignored until core
+lifts it in its own PR, after the Node 22 runtime move. The storefront starter's packages are no longer ignored (#758, after #789): the brands' sync-merge
 tests accept a plain-semver version bump on a shared key, so Dependabot's grouped PRs can bump the starter and the
 brands together. The file names the failure behind each remaining ignore.
 

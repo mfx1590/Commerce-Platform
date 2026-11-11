@@ -12,7 +12,11 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
   (`apps/core/.medusa/server` is build output). The lockfile's resolved set changes by that one package.
 - `infra/docker/smoke-images.sh`: every image must run `.nvmrc`'s Node major. Each storefront is booted with a
   repo JPEG under `public/__smoke/` and must answer one `/_next/image` as `image/webp`: Next loads sharp lazily,
-  so a sharp that cannot load on the base image only shows at the first optimised image.
+  so a sharp that cannot load on the base image only shows at the first optimised image. The storefront gets a
+  loopback `KEYCLOAK_URL` placeholder, since production refuses to boot without one (#806 review).
+- `infra/ci/check-image-manifests.sh`: every Dockerfile's `ARG NODE_VERSION=` default must equal the build
+  compose's `NODE_VERSION` arg, which overrides it in every CI and staging build. A Dependabot base-image bump
+  edits only the Dockerfiles, so without this check the images would silently keep the old base.
 - `.github/dependabot.yml`: `@types/node` is ignored from 23 (`versions: ['>=23']`), not by major. The rest of
   the old "UNTIL THE NODE 22 MOVE" block is now the follow-ups, lifted by their owning windows (Medusa 2.22,
   axe 4.14 + jest-dom 7, Sanity 6). The OTLP exporters stay until Medusa takes the SDK 3 line. `apps/engagement`

@@ -23,16 +23,19 @@
 #                 that a configured app serves /health is the staging deploy's job (tasks 2.3/2.4),
 #                 not an image test's.
 #
-# Used locally and by the `images` job in .github/workflows/ci.yml.
 #   every image   also runs the Node major in .nvmrc (`node -v` inside the image): the runtime moves once,
 #                 everywhere (Node 22 move, step 0), and an image left on the old base is caught here.
 #
-#   storefronts   are booted, with one real JPEG mounted under public/, and must answer ONE
-#                 /_next/image request as image/webp. Next loads sharp lazily, at the first optimised
-#                 image, not at boot, so a sharp that cannot load on this base image (a missing
-#                 linux-musl prebuild, a Node ABI it does not support) passes every other check and
-#                 only fails in front of a shopper. webp, not 200, is the proof: without a working sharp
-#                 the original JPEG is what comes back.
+#   storefronts   the one exception to "not booted": with one real JPEG mounted under public/, each must
+#                 answer ONE /_next/image request as image/webp. Next loads sharp lazily, at the first
+#                 optimised image, not at boot, so a sharp that cannot load on this base image (a missing
+#                 linux-musl prebuild, a Node ABI it does not support) passes every other check and only
+#                 fails in front of a shopper. webp, not 200, is the proof: without a working sharp Next
+#                 returns the original JPEG. A storefront needs no database for that, only KEYCLOAK_URL
+#                 (production refuses to boot without it: the CSP's form-action), given a loopback
+#                 placeholder here.
+#
+# Used locally and by the `images` job in .github/workflows/ci.yml.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -40,12 +43,7 @@ TAG="${IMAGE_TAG:-dev}"
 TIMEOUT="${SMOKE_TIMEOUT:-120}"
 NODE_MAJOR="${SMOKE_NODE_MAJOR:-$(tr -d ' v\r\n' < "$ROOT/.nvmrc")}"
 
-# The storefront image fixture: a real JPEG from the repo, mounted read-only as the app's public/__smoke/.
-FIXTURE_DIR="$(mktemp -d)"
-cp "$ROOT/apps/admin/public/medusa-face.jpg" "$FIXTURE_DIR/face.jpg"
-chmod 755 "$FIXTURE_DIR"; chmod 644 "$FIXTURE_DIR/face.jpg"
-HOST_FIXTURE_DIR="$FIXTURE_DIR"
-if command -v cygpath >/dev/null 2>&1; then HOST_FIXTURE_DIR="$(cygpath -w "$FIXTURE_DIR")"; export MSYS_NO_PATHCONV=1; fi
+FIXTURE_DIR=''
 
 # app : host port (container port comes from the image's own PORT default)
 APPS=(
@@ -69,20 +67,33 @@ cleanup() {
   for entry in "${APPS[@]}"; do
     docker rm -f "smoke-${entry%%:*}" "smoke-img-${entry%%:*}" >/dev/null 2>&1 || true
   done
-  rm -rf "$FIXTURE_DIR"
+  [ -n "$FIXTURE_DIR" ] && rm -rf "$FIXTURE_DIR"
+  return 0
 }
+trap cleanup EXIT
+
+# The storefront image fixture: a real JPEG from the repo, mounted read-only as the app's public/__smoke/.
+FIXTURE_DIR="$(mktemp -d)"
+cp "$ROOT/apps/admin/public/medusa-face.jpg" "$FIXTURE_DIR/face.jpg"
+chmod 755 "$FIXTURE_DIR"; chmod 644 "$FIXTURE_DIR/face.jpg"
+HOST_FIXTURE_DIR="$FIXTURE_DIR"
+if command -v cygpath >/dev/null 2>&1; then HOST_FIXTURE_DIR="$(cygpath -w "$FIXTURE_DIR")"; export MSYS_NO_PATHCONV=1; fi
 
 # One optimised image from a booted storefront: 0 when it came back as image/webp (sharp ran).
 next_image() {
   local app="$1" port="$2" image="$3" waited=0 code="" ctype=""
   docker rm -f "smoke-img-$app" >/dev/null 2>&1 || true
-  docker run -d --name "smoke-img-$app" -p "$port:$port" \
+  # KEYCLOAK_URL: a loopback placeholder, never contacted; production refuses to boot (starter) or to
+  # answer a matched path (brands' middleware) without it.
+  docker run -d --name "smoke-img-$app" -p "$port:$port" -e KEYCLOAK_URL=http://127.0.0.1:8180 \
     -v "$HOST_FIXTURE_DIR:/app/public/__smoke:ro" "$image" >/dev/null
   local url="http://127.0.0.1:$port/_next/image?url=%2F__smoke%2Fface.jpg&w=64&q=75"
   while [ "$waited" -lt "$TIMEOUT" ]; do
     read -r code ctype < <(curl -s -o /dev/null -H 'Accept: image/webp,*/*' \
-      -w '%{http_code} %{content_type}\n' "$url" 2>/dev/null || echo "000 -")
+      -w '%{http_code} %{content_type}\n' "$url" 2>/dev/null || true) || true
     [ "$code" = "200" ] && break
+    # a container that died will not come back: fail now, not after the timeout
+    [ "$(docker inspect -f '{{.State.Running}}' "smoke-img-$app" 2>/dev/null)" = "true" ] || break
     sleep 3
     waited=$((waited + 3))
   done
@@ -96,7 +107,6 @@ next_image() {
   docker rm -f "smoke-img-$app" >/dev/null 2>&1 || true
   return 1
 }
-trap cleanup EXIT
 
 FAIL=0
 

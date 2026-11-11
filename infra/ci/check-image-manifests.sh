@@ -98,6 +98,19 @@ for dockerfile in apps/*/Dockerfile apps/storefronts/*/Dockerfile; do
   fi
 done
 
+# One Node base everywhere (#806 review): infra/docker/docker-compose.build.yml passes NODE_VERSION as a build
+# arg, which OVERRIDES each Dockerfile's `ARG NODE_VERSION=` default for every CI and staging build. A Dependabot
+# base-image bump edits the Dockerfiles only, so without this check the images would silently keep the old base.
+compose_node="$(sed -nE 's/^[[:space:]]+NODE_VERSION:[[:space:]]*([^[:space:]#]+).*/\1/p' infra/docker/docker-compose.build.yml | head -1)"
+for dockerfile in apps/*/Dockerfile apps/storefronts/*/Dockerfile; do
+  file_node="$(sed -nE 's/^ARG NODE_VERSION=([^[:space:]]+).*/\1/p' "$dockerfile" | head -1)"
+  if [ -z "$compose_node" ] || [ "$file_node" != "$compose_node" ]; then
+    fail=1
+    echo "FAIL $dockerfile"
+    echo "  NODE_VERSION: Dockerfile default '${file_node:-none}', docker-compose.build.yml arg '${compose_node:-none}'"
+  fi
+done
+
 if [ "$fail" -ne 0 ]; then
   cat >&2 <<'EOF'
 
