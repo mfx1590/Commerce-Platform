@@ -12,20 +12,65 @@ import { classifyPath, ROUTE_HANDLERS } from '@/lib/route-handlers';
 
 const APP = fileURLToPath(new URL('../src/app', import.meta.url));
 
-/** Every `route.ts` outside `[locale]`, as a request path (a `[param]` segment becomes a word). */
+/** Every file Next treats as a route handler (#793 review: not only `route.ts`). */
+const ROUTE_FILE = /^route\.(ts|tsx|js|jsx|mjs)$/;
+
+/**
+ * A handler's folder (relative to `src/app`) as a request path that reaches it:
+ * - a route group `(name)` adds no segment;
+ * - an optional catch-all `[[...x]]` and a catch-all `[...x]` take sample segments;
+ * - a dynamic `[x]` takes one sample word.
+ */
+export function samplePath(folder: string): string {
+  const segments = folder
+    .split('/')
+    .filter((segment) => segment !== '' && !/^\(.+\)$/.test(segment))
+    .map((segment) =>
+      /^\[\[\.\.\..+\]\]$/.test(segment)
+        ? 'sample-a'
+        : /^\[\.\.\..+\]$/.test(segment)
+          ? 'sample-a/sample-b'
+          : /^\[.+\]$/.test(segment)
+            ? 'sample-value'
+            : segment,
+    );
+  return `/${segments.join('/')}`;
+}
+
+/** Every route handler outside `[locale]`, as a request path that reaches it. */
 function handlersOnDisk(dir = APP): string[] {
   const found: string[] = [];
   for (const name of readdirSync(dir)) {
     const path = join(dir, name);
     if (statSync(path).isDirectory()) {
       if (name !== '[locale]') found.push(...handlersOnDisk(path));
-    } else if (name === 'route.ts') {
-      const route = relative(APP, dir).split(sep).join('/');
-      found.push(`/${route.replace(/\[[^\]]+\]/g, 'sample-value')}`);
+    } else if (ROUTE_FILE.test(name)) {
+      found.push(samplePath(relative(APP, dir).split(sep).join('/')));
     }
   }
   return found;
 }
+
+describe('samplePath: a handler folder as a request path', () => {
+  it.each([
+    ['health', '/health'],
+    ['r/[code]', '/r/sample-value'],
+    ['(marketing)/api/hook', '/api/hook'],
+    ['api/files/[...path]', '/api/files/sample-a/sample-b'],
+    ['api/docs/[[...slug]]', '/api/docs/sample-a'],
+  ])('%s → %s', (folder, path) => {
+    expect(samplePath(folder)).toBe(path);
+  });
+
+  it('every file name Next treats as a route handler is found, not only route.ts', () => {
+    for (const name of ['route.ts', 'route.tsx', 'route.js', 'route.jsx', 'route.mjs']) {
+      expect(ROUTE_FILE.test(name), name).toBe(true);
+    }
+    for (const name of ['page.tsx', 'route.test.ts', 'router.ts']) {
+      expect(ROUTE_FILE.test(name), name).toBe(false);
+    }
+  });
+});
 
 describe('route handlers outside the locale tree', () => {
   // sitemap.xml is a route handler too, but a file path: the middleware's file branch serves it.
