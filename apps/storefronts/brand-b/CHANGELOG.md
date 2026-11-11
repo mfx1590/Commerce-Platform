@@ -1,5 +1,20 @@
 # Changelog — @platform/storefront-brand-b
 
+## Unreleased — 2026-11-11 · re-synced for #793 (every response carries the policy)
+
+- **Re-synced from the starter** (#793): `src/lib/route-handlers.ts` and its tests, the
+  `KEYCLOAK_URL` boot check in `src/instrumentation*.ts`, `ZoneBoundary` without
+  `stopPropagation`, and the cart page's zone-aware link. `sync --check` clean; no dependency moved.
+- **`e2e/visual.spec.ts` takes its paths from the locale helper** and asserts each page is the page
+  it means to shoot before taking any screenshot (#797, which this brand's re-sync filed). A 404 can
+  no longer be baselined as a passing full-page shot.
+- **CSP e2e: 6 passed**, up from 3 passed / 1 skipped. The account/Keycloak test now **runs** rather
+  than skipping — the shared stack's host ports were dead on 2026-11-10 and came back after the
+  owner's Docker restart — and #790's two new cases are covered: back and forward across the
+  checkout boundary each land on their own zone's document, and a path under a route-handler prefix
+  with no handler answers a plain-text 404 that still carries the policy.
+- Visual baselines **unchanged** after the spec's path change.
+
 ## Unreleased — 2026-11-10 · re-synced onto the nonce CSP and the starter's visual suite (#783, #781)
 
 - **Nonce + `'strict-dynamic'` CSP arrives from the starter** (#783, starter 0.16.0): `src/lib/csp.ts`,

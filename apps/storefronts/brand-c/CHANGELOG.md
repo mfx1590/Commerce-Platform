@@ -1,5 +1,30 @@
 # Changelog — @platform/storefront-brand-c
 
+## Unreleased — 2026-11-11 · re-synced for #793 (every response carries the policy)
+
+- **Re-synced from the starter** (#793): `src/lib/route-handlers.ts` and its tests, the
+  `KEYCLOAK_URL` boot check in `src/instrumentation*.ts`, `ZoneBoundary` without
+  `stopPropagation`, and the cart page's zone-aware link. `sync --check` clean; no dependency moved.
+- **`e2e/visual.spec.ts` takes its paths from the locale helper** and asserts each page is the page
+  it means to shoot before taking any screenshot (#797, which this brand's re-sync filed). A 404 can
+  no longer be baselined as a passing full-page shot.
+- **CSP e2e: 6 passed**, up from 3 passed / 1 skipped. The account/Keycloak test now **runs** rather
+  than skipping — the shared stack's host ports were dead on 2026-11-10 and came back after the
+  owner's Docker restart — and #790's two new cases are covered: back and forward across the
+  checkout boundary each land on their own zone's document, and a path under a route-handler prefix
+  with no handler answers a plain-text 404 that still carries the policy.
+- **Brand C has visual baselines at last** — all eight, each reviewed. #797 was the blocker: the
+  spec hard-coded `/en-GB`, this brand serves `en-US`, so every shot was of the 404 page and the
+  full-page `home` shot passed because a 404 is perfectly stable. The fix is in the starter and the
+  baselines are real pages now: "Brand C" in the header, `© 2026 Brand C · Ships to US · Prices in
+USD` in the footer, the red theme throughout.
+- **Read one thing out of those PNGs carefully: the product prices in them say `€`.** The mock
+  serves this brand's **store** (via `scripts/e2e-store-mock.mjs`) over the **contract's**
+  catalogue, whose example products are priced in EUR — so a page states USD in the footer and
+  renders €19.99 in the body. That is the mock, not this brand: against a core its products are
+  USD. The consequence worth knowing is that these baselines **cannot catch a currency-formatting
+  regression** for brand C; everything about the theme, type, spacing and layout they do catch.
+
 ## Unreleased — 2026-11-10 · re-synced onto the nonce CSP and the starter's visual suite (#783, #781)
 
 - **Nonce + `'strict-dynamic'` CSP arrives from the starter** (#783, starter 0.16.0): `src/lib/csp.ts`,
