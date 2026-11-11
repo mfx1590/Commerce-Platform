@@ -122,6 +122,9 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
+- **#758 (2026-11-10), after window 10's #789 merged:** the 19 starter-package ignores are removed from
+  dependabot.yml (10 ignores left: the Node 22 block + the Medusa/OTel/express majors). The @types/node comment's
+  'ignored in full further down' parenthetical is gone. One green run is enough (config only).
 - **Scheduled k6 SLO regression (2026-11-10), approved: weekly Mon 04:00 UTC; issues on confirmed breach + a tracking
   comment per run; admin-metrics later = #785.** Branch infra/phase6-k6-slo-regression from main d38d51ff; push AFTER
   the hygiene PR is up. k6/slo-thresholds.js (no k6 import, so Node can load it; LOAD_THRESHOLD_FACTOR scales latency
