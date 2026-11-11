@@ -71,6 +71,12 @@ Window 1 owns the order lifecycle and the core side of the chain. Current task: 
 - [x] **1.1 Medusa 2 boots in apps/core (issue #1)** — 2026-09-04, commit `e36b80e`, PR #49 **merged** (merge commit `a0c02c9`). Delivered: Medusa 2.20.1 project, `medusa-config.ts` (schema `medusa`, `databaseDriverOptions` search_path pin, Redis cache/event bus, admin off), `src/server.ts` custom entry with `/health` + `X-Publishable-Key` alias ahead of Medusa, `src/lib/db.ts` (initDb/tenantClient/organizationClient), `scripts/db-medusa-migrate.ts` (role `medusa_owner`), README/CLAUDE/CHANGELOG, 3 unit tests. Verified locally: `GET /health` 200; public schema untouched (42 tables), 145 Medusa tables in `medusa`. Side issue filed: #40 REQUEST default export condition.
 
 ## In progress
+- **#809 follow-up: scope-cache invalidation after onboarding (Manager session twelve), 2026-11-11, branch core/phase6-scope-invalidate from origin/main 97218bd2 (#815 merged).**
+  - `KeycloakStaffTokenVerifier.invalidateAll()` = ScopeCache.clear(); onStoreScopeChange in StaffAuth / mountCoreMiddleware / adminRouter; called after onboardStore.
+  - It clears ALL entries, not just the creator's: an org-level grant reaches every HQ user (it changes WHEN scopes refresh, not WHAT they grant → Opus review).
+  - The symptom was `/admin/me` `stores` (from the cached scope.storeIds); storeClientFor / listStores for org users never used the cache.
+  - Test: test/scope-invalidate.test.ts (the real verifier with the default ScopeCache, a fake JWT and OpenFGA, plus a control).
+  - BLOCKED 13:30 UTC: Postgres 127.0.0.1:5433 does not accept connections (8 s timeout); every DB test hook times out (store-key-cache too). Reported to the manager; no docker action.
 - **#809 shipping options + activation guard (Manager session twelve), BUILT 2026-11-11 on core/phase6-809 from origin/main b517a76d.** #786 (Medusa 2.21.2) merged; the dev DB was migrated by the manager.
   - CONTRACT CHANGE #811 filed: the prerequisite `shipping_options` + `missing_shipping_countries` (still the 409 ActivationBlocked, NOT a 422 — told the manager), createShippingOption 400/404, the NEW updateShippingOption + ShippingOptionPatch.
   - Local admin-api.yaml is patched with scratchpad apply-cc811.py and NEVER committed.

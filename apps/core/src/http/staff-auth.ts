@@ -110,6 +110,7 @@ export class KeycloakStaffTokenVerifier implements StaffTokenVerifier {
   constructor(private readonly opts: KeycloakStaffTokenVerifierOptions = {}) {
     this.fga = opts.fga ?? createOpenFgaClient();
     this.invalidate = this.invalidate.bind(this);
+    this.invalidateAll = this.invalidateAll.bind(this);
   }
 
   private scopeMiddleware(): StaffScopeMiddleware {
@@ -141,6 +142,15 @@ export class KeycloakStaffTokenVerifier implements StaffTokenVerifier {
   /** Drops the cached scope of a staff user; wire as `onRoleChange` of hq-rbac. */
   invalidate(staffUserId: string): void {
     this.scopeMiddleware().invalidate(staffUserId);
+  }
+
+  /**
+   * Drops EVERY cached scope (#809 follow-up): a store's OpenFGA object reaches every organization-level staff user
+   * (owner, finance, analyst, support, operations), not only the one who onboarded it, so after onboarding no cached
+   * scope may still lack the store. Changes when scopes refresh, never what they grant; onboarding is rare.
+   */
+  invalidateAll(): void {
+    this.scopeMiddleware().cache.clear();
   }
 }
 
