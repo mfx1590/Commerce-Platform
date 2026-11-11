@@ -122,6 +122,12 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
+- **Load PR: run.exit (2026-11-11), branch infra/phase6-load-run-exit from main 3f1481fe (#813 merged).**
+  run.sh's EXIT trap writes run.exit; readPass treats a non-zero or missing run.exit as broken (k6 checks first).
+  32 load tests; both halves are mutation-checked. Proof: a fixture-level render in the PR body, plus both dispatch
+  proofs, because run.sh changed and a run.exit bug would make every week broken.
+- **#806 merged with main after #813: head f4bcfc88, 3 runs in progress (CI 43017872147).** The merge is held
+  for the laptop's Node 22.
 - **#801 nits PR (2026-11-11), branch infra/phase6-801-load-nits from main ecce0702 (#801 merged ~10:00, #785
   closed):** METRICS_MONTHS goes through env. The gate step runs `if: ${{ !cancelled() }}`, so a failed setup
   step renders broken ("this pass never ran") and the schedule comments. 31 load tests; both fixes are
