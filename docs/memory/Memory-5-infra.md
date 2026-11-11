@@ -122,6 +122,20 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
+- **#785 admin-metrics latency (2026-11-11), approved: token A, 2 req/s, 1 month (+metrics_months knob).** Branch
+  infra/phase6-785-metrics-slo from main 7b2c9299 (#788 merged).
+  - k6/metrics.js: a per-VU test-cli grant for analyst, re-granted 60 s before expiry; the realm's tokens live 900 s.
+  - ch-seed.mjs: generateMonth → envelopeToMessage → classify → createRawEventsSink. Packages resolved through
+    apps/analytics-ingest/node_modules, because they export `import` only (require.resolve fails). loadConfig is
+    (env, argv). Dry run: 783 events, Oct 2026, ~260 per store.
+  - The gate counts metrics routes as required only when meta.json says metrics: true (run.sh writes it).
+  - Workflow: openssl passwords + ::add-mask::; turbo builds the ingest + test-utils before ch:migrate and the seed;
+    fga:seed as in CI's live job; the analyst's password read via node from the realm file, masked.
+  - PROOF: both dispatch runs (green + factor breach) on the PR.
+  - Proof round 1 (2d697898): the seed WORKED in CI (783 events) but GET /admin/metrics → 401. The staff realm pins
+    frontendUrl http://localhost:8180, so tokens' iss is localhost, and the core pins the issuer from KEYCLOAK_URL, which
+    I had set to 127.0.0.1. Fix: KEYCLOAK_URL=localhost (as CI's live job). Also: a broken pass 1 used to exit in
+    the pass-2 step (no render, no comment); now it reaches the gate as 'broken'. A test pins both.
 - **#758 (2026-11-10), after window 10's #789 merged:** the 19 starter-package ignores are removed from
   dependabot.yml (10 ignores left: the Node 22 block + the Medusa/OTel/express majors). The @types/node comment's
   'ignored in full further down' parenthetical is gone. One green run is enough (config only).

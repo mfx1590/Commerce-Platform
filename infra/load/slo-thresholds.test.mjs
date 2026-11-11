@@ -5,7 +5,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { SLOS } from '../observability/rules/slo.mjs';
-import { BROWSE_ROUTES, CHECKOUT_ROUTE, routeP95Ms, SLO } from './k6/slo-thresholds.js';
+import {
+  BROWSE_ROUTES,
+  CHECKOUT_ROUTE,
+  METRICS_ROUTES,
+  routeP95Ms,
+  SLO,
+} from './k6/slo-thresholds.js';
 
 const slo = (name) => {
   const s = SLOS.find((x) => x.name === name);
@@ -30,6 +36,14 @@ test('complete p95 = checkout-latency', () => {
   const s = slo('checkout-latency');
   assert.equal(s.target, 0.95);
   assert.equal(SLO.completeP95Ms, leSeconds(s) * 1000);
+});
+
+test('metrics p95 = admin-metrics-latency (#785)', () => {
+  const s = slo('admin-metrics-latency');
+  assert.equal(s.target, 0.95);
+  assert.equal(SLO.adminMetricsP95Ms, leSeconds(s) * 1000);
+  for (const r of METRICS_ROUTES) assert.equal(routeP95Ms(r, 1), SLO.adminMetricsP95Ms);
+  assert.equal(routeP95Ms('metrics_query', 0.1), 30);
 });
 
 test('the failure-rate gate = 1 - target of both availability SLOs', () => {
