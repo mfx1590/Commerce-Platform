@@ -60,22 +60,49 @@ test.describe('HQ onboarding', () => {
     expect(await page.content()).not.toContain(value);
     const storeId = /\/onboarding\/([0-9a-f-]{36})$/.exec(page.url())![1]!;
 
-    // The readiness panel. A fresh onboarding has every prerequisite but a tax rate (#520): the
-    // first Activate is refused for the store's market country (its default country, NL), the panel
-    // offers "Create a rate for NL", and after that rate the second Activate goes through.
+    // The readiness panel. A fresh onboarding has every prerequisite but a tax rate (#520) and a
+    // shipping option (#809) for its market country (its default country, NL): the first Activate
+    // is refused for both. A rate alone is not enough — the second Activate is refused for the
+    // shipping option only; the panel's "Create a shipping option for NL" makes one in the store
+    // currency (EUR 4.95 typed → 495 minor units), and the third Activate goes through.
+    const missing = page.getByRole('list', { name: 'Missing prerequisites' });
     await page.getByRole('button', { name: 'Activate' }).click();
-    await expect(page.getByRole('list', { name: 'Missing prerequisites' })).toHaveText(
-      /a tax rate for NL/,
-    );
+    await expect(missing).toHaveText(/a tax rate for NL/);
+    await expect(missing).toHaveText(/a shipping option for NL/);
     const nl = page.getByRole('form', { name: 'Create a rate for NL' });
     await nl.getByLabel('Rate name', { exact: true }).fill('VAT 21%');
     await nl.getByLabel('Rate (basis points)', { exact: true }).fill('2100');
     await nl.getByRole('button', { name: 'Create a rate for NL' }).click();
     await expect(page.getByText('NL: rate created.')).toBeVisible();
+    console.info(
+      `G1 tax: Activate refused for NL without a rate; "VAT 21%" (2100 bp) created from the readiness panel`,
+    );
+
+    await page.getByRole('button', { name: 'Activate' }).click();
+    await expect(missing).toHaveText(/a shipping option for NL/);
+    await expect(missing).not.toHaveText(/a tax rate/);
+    const ship = page.getByRole('form', { name: 'Create a shipping option for NL' });
+    await expect(ship.getByText('Amount in EUR', { exact: true })).toBeVisible();
+    await ship.getByLabel('Option name', { exact: true }).fill('Standard');
+    await ship.getByLabel('Price (EUR)', { exact: true }).fill('4.95');
+    await ship.getByRole('button', { name: 'Create a shipping option for NL' }).click();
+    await expect(page.getByText('NL: shipping option created.')).toBeVisible();
     await page.getByRole('button', { name: 'Activate' }).click();
     await expect(page.getByRole('status').filter({ hasText: /Active/ })).toBeVisible();
+
+    // Read back where a store admin manages them: one active option, €4.95 (495 minor units), NL.
+    // The core caches a staff member's store scope for up to 30 s (hq-rbac scope.ts), so the store
+    // created a minute ago may not be in the owner's scope yet: reload until it is.
+    const option = page.getByRole('row', { name: 'Shipping option Standard (standard-nl)' });
+    await expect(async () => {
+      await page.goto(`/${storeId}/settings`);
+      await expect(option).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 45_000, intervals: [5_000] });
+    await expect(option).toContainText('€4.95');
+    await expect(option).toContainText('NL');
+    await expect(option).toContainText('active');
     console.info(
-      `G1 tax: Activate refused for NL without a rate; "VAT 21%" (2100 bp) created from the readiness panel; ${code} active`,
+      `G1 shipping: Activate refused for NL without a shipping option (after the rate); "Standard" EUR 4.95 → 495 created from the readiness panel, read back on Settings; ${code} active`,
     );
 
     await page.goto('/stores?sort=created_at');

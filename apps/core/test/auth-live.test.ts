@@ -266,15 +266,16 @@ describe.runIf(live)(
       expect(outside.status).toBe(403);
       spec.assertSchema('Error', outside.body);
 
-      // #520: onboarding creates no tax rate — the only prerequisite left is a rate for the market country
+      // #520 / #809: onboarding creates no tax rate and no shipping option — the two prerequisites left
       const untaxed = await request(app)
         .post(`/admin/stores/${id}/activate`)
         .set('Authorization', owner);
       expect(untaxed.status).toBe(409);
       spec.assertSchema('Error', untaxed.body);
       expect(untaxed.body.details).toEqual({
-        missing: ['tax_rates'],
+        missing: ['tax_rates', 'shipping_options'],
         missing_tax_countries: ['NL'],
+        missing_shipping_countries: ['NL'],
       });
       const rate = await request(app)
         .post(`/admin/stores/${id}/tax-rates`)
@@ -282,6 +283,19 @@ describe.runIf(live)(
         .send({ country: 'NL', name: 'VAT 21%', rate_bp: 2100 });
       expect(rate.status).toBe(201);
       spec.assertSchema('TaxRate', rate.body);
+      // #809: and a shipping option to NL in the store currency (createShippingOption, store_admin via OpenFGA)
+      const option = await request(app)
+        .post(`/admin/stores/${id}/shipping-options`)
+        .set('Authorization', owner)
+        .send({
+          code: 'nl-standard',
+          name: 'Standard',
+          price_minor: 495,
+          currency: 'EUR',
+          countries: ['NL'],
+        });
+      expect(option.status).toBe(201);
+      spec.assertSchema('ShippingOption', option.body);
 
       // the fga_object prerequisite is read from the real OpenFGA: activation passes
       const active = await request(app)

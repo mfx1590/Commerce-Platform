@@ -38,6 +38,8 @@ export type ActionResult<T> =
       missing?: string[];
       /** With `missing` containing `tax_rates`: the uncovered market countries (sorted). */
       missingTaxCountries?: string[];
+      /** With `missing` containing `shipping_options`: the countries without a sellable option (sorted). */
+      missingShippingCountries?: string[];
     } & FormErrors);
 
 export function actionSuccess<T>(data: T): ActionResult<T> {

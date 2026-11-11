@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Added — #809: shipping options (Admin API 0.4.28), in #815
+
+- Store · Settings › **Shipping options** (`#shipping-options`):
+  - **list:** code, name, price in its own currency, countries, active/inactive.
+  - **add:** code, name, a currency from the store's, price, countries.
+  - **edit:** name, price, countries; only changed fields are sent.
+  - **deactivate / reactivate:** rows are never deleted.
+  - Viewer reads, store_admin writes.
+  - Prices are typed in the currency's own units and parsed with its digits (#810): `1980` for JPY is 1980
+    (¥1,980), `4.95` for EUR is 495.
+  - A live store's 409 `missing_shipping_countries` is said in words ("would leave JP without an active
+    shipping option …").
+- Readiness panel:
+  - `shipping_options` in the missing list ("a shipping option for NL");
+  - one inline "Create a shipping option for XX" per country (store default currency, flat `manual` price);
+  - a link to Settings.
+  - Both inline creates (tax rates too) are now offered only with store_admin on the store; otherwise the
+    relation needed is named.
+- New code: `src/lib/shipping-options` (SHIPPING_PERMISSIONS guard rows, schemas, patch, words),
+  `src/app/actions/shipping-options.ts`, `src/components/shipping-options`.
+- Tests: actions 24, screens 9. hq-onboarding.spec now walks tax → refused for shipping → quick-create EUR
+  4.95 → active → read back on Settings.
+
 ### Fixed — #810: no currency fallback on the promotion and price-list pages
 
 - New promotion, promotion detail and price lists took `'EUR'` when the store read failed, and money is

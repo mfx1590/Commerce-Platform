@@ -151,8 +151,15 @@ describe('registry: stores', () => {
     await expect(updateStore(hq, store!.id, { status: 'active' }, actor)).rejects.toMatchObject({
       code: 'conflict',
       details: {
-        missing: ['primary_domain', 'publishable_key', 'fga_object', 'tax_rates'],
+        missing: [
+          'primary_domain',
+          'publishable_key',
+          'fga_object',
+          'tax_rates',
+          'shipping_options',
+        ],
         missing_tax_countries: ['NL'],
+        missing_shipping_countries: ['NL'],
       },
     });
     const updated = await updateStore(hq, store!.id, { name: 'Brand A!', status: 'paused' }, actor);

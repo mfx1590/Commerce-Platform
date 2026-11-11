@@ -7,6 +7,7 @@ import { AppError } from '../../lib/errors';
 import {
   activateStore,
   createStore,
+  createShippingOption,
   createTaxRate,
   deleteTaxRate,
   inMemoryStoreRegistrar,
@@ -388,12 +389,29 @@ describe('activateStore and the readiness gate (#413)', () => {
     // #520: onboarding creates no tax rate — the store would sell at 0 bp, so readiness refuses it
     await expect(activateStore(hq, result.store.id, registrar, actor)).rejects.toMatchObject({
       code: 'conflict',
-      details: { missing: ['tax_rates'], missing_tax_countries: ['NL'] },
+      details: {
+        missing: ['tax_rates', 'shipping_options'],
+        missing_tax_countries: ['NL'],
+        missing_shipping_countries: ['NL'],
+      },
     });
     const vat = await createTaxRate(
       hq,
       result.store.id,
       { country: 'NL', name: 'VAT 21%', rate_bp: 2100 },
+      actor,
+    );
+    // #809: and a cart to NL could not check out without an active option in the store currency
+    await createShippingOption(
+      hq,
+      result.store.id,
+      {
+        code: 'nl-standard',
+        name: 'Standard',
+        price_minor: 495,
+        currency: 'EUR',
+        countries: ['NL'],
+      },
       actor,
     );
     const active = await activateStore(hq, result.store.id, registrar, actor);
@@ -414,9 +432,11 @@ describe('activateStore and the readiness gate (#413)', () => {
       'store.created',
       'store.updated',
       'store.updated',
+      'store.updated',
     ]);
     expect(events.rows.slice(1).map((r) => r.payload.changed_fields)).toEqual([
       ['tax_rates'],
+      ['shipping_options'],
       ['status'],
     ]);
     const audit = await db.owner.query<{ action: string }>(
@@ -444,15 +464,29 @@ describe('activateStore and the readiness gate (#413)', () => {
       code: 'conflict',
       status: 409,
       details: {
-        missing: ['primary_domain', 'publishable_key', 'fga_object', 'tax_rates'],
+        missing: [
+          'primary_domain',
+          'publishable_key',
+          'fga_object',
+          'tax_rates',
+          'shipping_options',
+        ],
         missing_tax_countries: ['NL'],
+        missing_shipping_countries: ['NL'],
       },
     });
     // the same gate on updateStore; without a registrar the OpenFGA object counts as missing
     await expect(updateStore(hq, bare.id, { status: 'active' }, actor)).rejects.toMatchObject({
       details: {
-        missing: ['primary_domain', 'publishable_key', 'fga_object', 'tax_rates'],
+        missing: [
+          'primary_domain',
+          'publishable_key',
+          'fga_object',
+          'tax_rates',
+          'shipping_options',
+        ],
         missing_tax_countries: ['NL'],
+        missing_shipping_countries: ['NL'],
       },
     });
     expect((await updateStore(hq, bare.id, { name: 'Brand I!' }, actor)).name).toBe('Brand I!'); // other patches pass
@@ -475,6 +509,19 @@ describe('activateStore and the readiness gate (#413)', () => {
       hq,
       result.store.id,
       { country: 'NL', name: 'VAT 21%', rate_bp: 2100 },
+      actor,
+    );
+    // #809: and a cart to NL could not check out without an active option in the store currency
+    await createShippingOption(
+      hq,
+      result.store.id,
+      {
+        code: 'nl-standard',
+        name: 'Standard',
+        price_minor: 495,
+        currency: 'EUR',
+        countries: ['NL'],
+      },
       actor,
     );
     await updateStore(hq, result.store.id, { status: 'paused' }, actor);

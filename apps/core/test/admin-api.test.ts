@@ -267,8 +267,15 @@ describe('registry routes', () => {
     expect(activated.body).toMatchObject({
       code: 'conflict',
       details: {
-        missing: ['primary_domain', 'publishable_key', 'fga_object', 'tax_rates'],
+        missing: [
+          'primary_domain',
+          'publishable_key',
+          'fga_object',
+          'tax_rates',
+          'shipping_options',
+        ],
         missing_tax_countries: ['NL'],
+        missing_shipping_countries: ['NL'],
       },
     });
 
@@ -1214,13 +1221,33 @@ describe('store onboarding (#413, Admin API 0.4.11): onboardStore, activateStore
     const untaxed = await owner.post(`/admin/stores/${id}/activate`);
     expect(untaxed.status).toBe(409);
     spec.assertSchema('Error', untaxed.body);
-    expect(untaxed.body.details).toEqual({ missing: ['tax_rates'], missing_tax_countries: ['NL'] });
+    expect(untaxed.body.details).toEqual({
+      missing: ['tax_rates', 'shipping_options'],
+      missing_tax_countries: ['NL'],
+      missing_shipping_countries: ['NL'],
+    });
     const rate = await owner.post(`/admin/stores/${id}/tax-rates`, {
       country: 'NL',
       name: 'VAT 21%',
       rate_bp: 2100,
     });
     expect(rate.status).toBe(201);
+    // #809: still no way to ship to NL — the shipping-option route closes the gap
+    const unshippable = await owner.post(`/admin/stores/${id}/activate`);
+    expect(unshippable.status).toBe(409);
+    expect(unshippable.body.details).toEqual({
+      missing: ['shipping_options'],
+      missing_shipping_countries: ['NL'],
+    });
+    const option = await owner.post(`/admin/stores/${id}/shipping-options`, {
+      code: 'nl-standard',
+      name: 'Standard',
+      price_minor: 495,
+      currency: 'EUR',
+      countries: ['NL'],
+    });
+    expect(option.status).toBe(201);
+    spec.assertSchema('ShippingOption', option.body);
     const active = await owner.post(`/admin/stores/${id}/activate`);
     expect(active.status).toBe(200);
     spec.assertSchema('Store', active.body);
@@ -1240,8 +1267,15 @@ describe('store onboarding (#413, Admin API 0.4.11): onboardStore, activateStore
     expect(refused.body).toMatchObject({
       code: 'conflict',
       details: {
-        missing: ['primary_domain', 'publishable_key', 'fga_object', 'tax_rates'],
+        missing: [
+          'primary_domain',
+          'publishable_key',
+          'fga_object',
+          'tax_rates',
+          'shipping_options',
+        ],
         missing_tax_countries: ['NL'],
+        missing_shipping_countries: ['NL'],
       },
     });
     expect(
@@ -1653,8 +1687,13 @@ describe('readiness with tax rates (#520): the seeded stores stay ready', () => 
     const registered = { hasStoreObject: async () => true, ensureStoreObject: async () => {} };
     for (const id of [A, B, SEED_IDS.stores.brandC]) {
       const readiness = await hq.transaction(async (tx) => {
-        const s = await tx.query<{ id: string; legal_entity_id: string; default_country: string }>(
-          'SELECT id, legal_entity_id, default_country FROM store WHERE id = $1',
+        const s = await tx.query<{
+          id: string;
+          legal_entity_id: string;
+          default_country: string;
+          default_currency: string;
+        }>(
+          'SELECT id, legal_entity_id, default_country, default_currency FROM store WHERE id = $1',
           [id],
         );
         return {
@@ -1664,6 +1703,7 @@ describe('readiness with tax rates (#520): the seeded stores stay ready', () => 
       });
       expect(readiness.missing).toEqual([]);
       expect(readiness.missing_tax_countries).toEqual([]);
+      expect(readiness.missing_shipping_countries).toEqual([]); // #809: every seeded market can be shipped to
       expect(readiness.markets.length).toBeGreaterThan(0);
     }
   });
