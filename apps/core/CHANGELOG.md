@@ -2,6 +2,20 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-11-11 · shipping options and the activation guard (#809, CONTRACT CHANGE #811)
+
+- Admin API `GET` / `POST /admin/stores/{storeId}/shipping-options` and `PATCH …/{optionId}` (`listShippingOptions`
+  viewer, `createShippingOption` / `updateShippingOption` store_admin; `src/modules/registry/shipping-options.ts`):
+  tenant client, audit row and `store.updated` (`changed_fields: ['shipping_options']`) in the same transaction.
+  `price_minor` in the currency's minor unit (1980 = ¥1,980); the currency must be the store's; `code` and
+  `currency` immutable; `is_active: false` retires an option; an ACTIVE store cannot lose its last sellable option
+  for a market country (409 `missing_shipping_countries`).
+- Activation (`activateStore`, `updateStore` → active): the new prerequisite `shipping_options` — an active option in
+  the store's `default_currency` for every market country; the 409 lists `missing_shipping_countries`.
+- Tests: `test/shipping-options.test.ts` (tenancy, validation, the update guard, JPY readiness, and ¥1,980 = 1980
+  minor units through the option, the cart total and the order); the readiness expectations of the registry,
+  admin-api and live tests gain `shipping_options`.
+
 ### 2026-11-10 · Medusa 2.20.1 → 2.21.2 (supersedes Dependabot #774)
 
 - `@medusajs/cli`, `draft-order`, `framework`, `medusa` 2.21.2 (Node `^20.19.0 || >=22.12.0`, so Node 20 stays).
