@@ -13,6 +13,8 @@ import { promotionTone } from '../promotions-table.config';
 
 export const dynamic = 'force-dynamic';
 
+// No currency fallback (#810): amounts are parsed with the store's currency digits, so a guessed
+// one turns ¥500 into ¥50,000. Without the store there is no money input at all.
 export default async function PromotionDetailPage({
   params,
 }: {
@@ -73,13 +75,20 @@ export default async function PromotionDetailPage({
             }
           />
           <CardBody>
-            {manage ? (
+            {manage && !store.ok ? (
+              <ApiStatePanel
+                status={store.status}
+                error={store.error}
+                what="This store"
+                storeId={storeId}
+              />
+            ) : manage && store.ok ? (
               <PromotionForm
                 action={updatePromotionAction.bind(null, storeId, promotionId)}
                 defaultValues={fromPromotion(current)}
                 mode="edit"
                 submitLabel="Save changes"
-                storeCurrency={store.ok ? store.data.default_currency : 'EUR'}
+                storeCurrency={store.data.default_currency}
               />
             ) : (
               <dl className="grid gap-3 text-sm sm:grid-cols-2">

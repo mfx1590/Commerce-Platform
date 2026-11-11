@@ -410,6 +410,37 @@ branch), dropping versions from the manifest (`--check`'s drift report needs the
 `bump-starter-dep.mjs` as the primary path — **a script of mine cannot make a starter edit legal**;
 bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
+## In progress — brand C's catalogue currency (2026-11-11, machine used)
+
+Branch `brands/phase6-brand-c-currency` from `origin/main` `ecce0702`. Brand C's
+`scripts/e2e-store-mock.mjs` prices the catalogue in the store's own currency (read from
+`perf/store.example.json`, never hard-coded), so the mocked world stops saying `Prices in USD` over
+`€19.99`. Three baselines re-taken (`plp`, `pdp`, `plp-card`), reviewed; the other five hold no
+price and are byte-identical.
+
+### THE FINDING, and it undercuts the reason the task was asked for
+
+**The visual suite cannot catch a currency change even with the catalogue in the right currency.**
+Measured at zero tolerance against the committed baseline: `€` → `$` on the PLP card is **37
+pixels**, and the element tolerance `maxDiffPixelRatio: 0.002` allows about **111** on that image.
+A full-page shot dilutes it further. #781 chose those numbers against a heading weight and a
+typeface swap, both far larger; one glyph sits below them by design. So `--update-snapshots`
+**did not rewrite the files** — it saw a match — and they had to be deleted and re-taken.
+
+So the overlay is still worth having (the pages agree with themselves and nobody is misled by the
+images), but it does NOT make the baselines guard currency. `test/brand-money.test.ts` does, in
+three cheap unit assertions, and that is where this brand's currency is now pinned (#810 is the
+platform's EUR-fallback removal).
+
+### Two traps hit on the way, both the same shape
+
+1. **A stale Prism held the port.** My new mock exited with `EADDRINUSE` in the background while the
+   OLD one kept answering — so a baseline re-take ran against the previous currency, passed, and
+   proved nothing. The script now checks the port first and refuses with an explanation. **If a
+   re-take produces no diff, suspect the backend before believing the pixels.**
+2. **Next's `fetch-cache` survives between e2e runs** (`.next/cache/fetch-cache`), so a changed mock
+   payload can still be served from disk. Clearing it is part of changing what the mock serves.
+
 ## In progress — the #793 re-sync + brand C's first baselines (2026-11-11)
 
 **PR #807**, head/code **`ef4b18ec`**, branch `brands/phase6-resync-793` from `origin/main`

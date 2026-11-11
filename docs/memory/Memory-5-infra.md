@@ -153,6 +153,13 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 - **#801 nits for my NEXT load PR:**
   - pass `inputs.metrics_months` through env, not shell interpolation;
   - a failure before pass 1 posts no weekly tracking comment.
+- **#801 nits PR (2026-11-11), branch infra/phase6-801-load-nits from main ecce0702 (#801 merged ~10:00, #785
+  closed):** METRICS_MONTHS goes through env. The gate step runs `if: ${{ !cancelled() }}`, so a failed setup
+  step renders broken ("this pass never ran") and the schedule comments. 31 load tests; both fixes are
+  mutation-checked. PROOF: both dispatch proofs on the head + one green CI run; Opus review.
+- **#806 Node 22 step 0: FINAL head a15d0887, 3 green CI runs, both k6 proofs, smoke v22.23.4 + webp ×4.**
+  The manager's rule-C review is running. The merge is held until the owner installs Node 22. Do not push to
+  integration/node22.
 - **#785 admin-metrics latency (2026-11-11), approved: token A, 2 req/s, 1 month (+metrics_months knob).** Branch
   infra/phase6-785-metrics-slo from main 7b2c9299 (#788 merged).
   - k6/metrics.js: a per-VU test-cli grant for analyst, re-granted 60 s before expiry; the realm's tokens live 900 s.

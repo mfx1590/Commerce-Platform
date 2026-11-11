@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed — #810: no currency fallback on the promotion and price-list pages
+
+- New promotion, promotion detail and price lists took `'EUR'` when the store read failed, and money is
+  parsed with the currency's digits: `500` typed for a JPY store became ¥50,000. A failed store read
+  now renders the error panel instead of the form (the detail still shows the promotion, the list
+  page still lists). Tests per site with a JPY store (`test/promotions-currency.test.tsx`).
+
 ### Tests — #763 follow-ups (Refs #731)
 
 - The middleware's authenticated and token-refresh paths are pinned: the response carries the CSP,
