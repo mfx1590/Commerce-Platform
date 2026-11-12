@@ -410,6 +410,41 @@ branch), dropping versions from the manifest (`--check`'s drift report needs the
 `bump-starter-dep.mjs` as the primary path — **a script of mine cannot make a starter edit legal**;
 bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
+## In progress — brand D, the D8 onboarding proving run (2026-11-12)
+
+**No PR of my own.** My branch `brands/phase6-brand-d` (code commit `036dd733`, from `origin/main`
+46439328) **lands in PR #821 via `integration/brand-d`** — the manager merges it there himself and
+window 5 adds the Docker/bake/helm entries. The timing table goes in #821's body and on #731.
+
+Clock: **13:45:39Z**, when window 4 opened the wizard. I lead and hold it.
+
+- 13:51:03 — `new-brand.mjs`: **1 s**, 260 files. Typecheck clean; **749 passed / 3 skipped first
+  try, no edits**.
+- 14:05:53 — **the storefront serves brand D's store: `￥1,980` for `{amount_minor: 1980,
+  currency: "JPY"}`**, no decimal yen anywhere. Nothing in the storefront needed changing for a
+  zero-decimal currency: `minorUnitDigits` asks CLDR.
+- Issues filed with their cost: **#826** (the generator keeps the template's locale AND rewrites the
+  comment to claim otherwise — 12 min, the largest single item), **#827** (the seeded publishable
+  key cannot work for a wizard-created brand), **#828** (four undocumented env values, each failing
+  separately). All three **fixed in the generator in the same push**, so the next brand pays none.
+- `localeMismatch` no longer claims a new brand's e2e "does not run against this brand": #783/#793/
+  #797 fixed it and brand D proved it the day it was generated (10 passed against a real core). Two
+  tests that pinned the stale claim now pin the current one.
+- Brand D's README/CHANGELOG/CLAUDE.md are **hand-written — the generator makes none of them**; the
+  manager asked for that as its own issue.
+
+### The thing this run is really for
+
+**Four store-shaped preconditions, each visible only after the previous was satisfied**: purchasable
+stock (#823), a payment method (#825, still open — `payment: {"methods": []}`), at least two listed
+products, at least one product in a category. None is written down and nothing checks them. A store
+can be ACTIVE and pass the admin's readiness panel while a brand's e2e suite cannot run against it.
+Same shape as #809. One issue for the list is proposed; it spans window 4's panel and window 3's
+specs, so not filed unilaterally.
+
+**The key never touched git.** Brand D's real publishable key lived only in my scratchpad; I grepped
+the staged diff for it before committing.
+
 ## In progress — brand C's catalogue currency (2026-11-11, machine used)
 
 Branch `brands/phase6-brand-c-currency` from `origin/main` `ecce0702`. Brand C's
