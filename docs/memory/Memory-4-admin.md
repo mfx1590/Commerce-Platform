@@ -557,6 +557,15 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **PR #833 (code commit 59b68aad; head = this memory commit).** First code commit faf2b4d8. The Fable review
+  follow-up 59b68aad syncs the form to a newer `updated_at` prop (a General save no longer makes the next
+  Payment save stale) and adds the invoice-off action test. main ec10b3c1 merged in. No more pushes to
+  admin/phase6-825-payment-settings.
+  - Nits left (#825 stays open): card state read-only from payment.methods; a confirm when turning invoice
+    off with no card; credit-risk wording.
+  - After it merges, the manager says when to rebuild the run's admin :3000 and enable invoice for brand-d IN
+    THE UI (timed), unless the owner's non-UI step came first. Do NOT rebuild before that.
+- **#831 MERGED** ec10b3c1; **#824 MERGED** 558eb3b4 (#823 closed); **#822 MERGED** 1eb16721.
 - **#825 fix (2026-11-12, Manager session thirteen; Fable review, payments).**
   - Branch `admin/phase6-825-payment-settings` from main e1c993b5.
   - Store › Settings › Payment: `updatePaymentSettingsAction` does refuse (updateStore) → re-read → stale
