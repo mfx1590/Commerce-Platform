@@ -455,6 +455,9 @@ async function CycleCounts({
     listStockItems({ limit: 100, ...(countSku === '' ? {} : { sku: countSku }) }),
   ]);
   const stockItems: StockItem[] = items.ok ? items.data.items : [];
+  // Capped only when the API says there are more than it sent (its `total`), never inferred from 100.
+  const itemsTotal = items.ok ? items.data.total : 0;
+  const capped = items.ok && itemsTotal > items.data.items.length;
   const stockOptions = stockItems.map((item) => ({
     value: item.id,
     label: `${item.sku} — ${item.name}`,
@@ -495,20 +498,29 @@ async function CycleCounts({
               <button type="submit" className="text-accent text-sm hover:underline">
                 Find
               </button>
-              <p className="text-muted basis-full text-xs">
-                {countSku === ''
-                  ? 'The list below shows the first 100 items by SKU; search to find any other.'
-                  : stockOptions.length === 0
-                    ? `No stock item’s SKU contains “${countSku}”.`
-                    : `Items whose SKU contains “${countSku}” (${stockOptions.length}${stockOptions.length === 100 ? ', the first 100' : ''}).`}
-              </p>
+              {items.ok && (countSku !== '' || capped) && (
+                <p className="text-muted basis-full text-xs">
+                  {countSku === ''
+                    ? `The list below shows the first ${stockOptions.length} of ${itemsTotal} items by SKU; search to find any other.`
+                    : stockOptions.length === 0
+                      ? `No stock item’s SKU contains “${countSku}”.`
+                      : capped
+                        ? `Items whose SKU contains “${countSku}”: the first ${stockOptions.length} of ${itemsTotal}; narrow the search.`
+                        : `Items whose SKU contains “${countSku}” (${stockOptions.length}).`}
+                </p>
+              )}
             </form>
-            <RecordCountForm
-              key={`${countSku}:${countItem}`}
-              warehouses={warehouseOptions}
-              stockItems={stockOptions}
-              defaultStockItemId={countItem}
-            />
+            {items.ok ? (
+              <RecordCountForm
+                key={`${countSku}:${countItem}`}
+                warehouses={warehouseOptions}
+                stockItems={stockOptions}
+                defaultStockItemId={countItem}
+              />
+            ) : (
+              // A failed item read is an error, not "no match": nothing to count until it answers.
+              <RequestErrorPanel status={items.status} error={items.error} />
+            )}
           </CardBody>
         </Card>
       )}

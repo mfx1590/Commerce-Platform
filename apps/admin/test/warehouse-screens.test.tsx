@@ -387,12 +387,42 @@ describe('the count form finds any item, not only the first 100 (#823)', () => {
       name: 'Stock item',
     });
 
-  it('unsearched: the first 100 by SKU, and says so', async () => {
+  const searchBox = () => screen.getByRole('search', { name: 'Find the item to count' });
+
+  it('unsearched and not capped (total 2): every item is listed, no hint', async () => {
     await renderPage({ tab: 'counts' });
     expect(api.listStockItems).toHaveBeenCalledWith({ limit: 100 });
-    expect(screen.getByRole('search', { name: 'Find the item to count' })).toHaveTextContent(
-      'The list below shows the first 100 items by SKU; search to find any other.',
+    expect(searchBox()).not.toHaveTextContent(/first/);
+  });
+
+  it('unsearched and capped: the hint says how many of how many, from the API total', async () => {
+    api.listStockItems.mockResolvedValue(
+      ok({ items: [pooled, single], page: 1, limit: 100, total: 340 }),
     );
+    await renderPage({ tab: 'counts' });
+    expect(searchBox()).toHaveTextContent(
+      'The list below shows the first 2 of 340 items by SKU; search to find any other.',
+    );
+  });
+
+  it('a capped search says to narrow it', async () => {
+    api.listStockItems.mockResolvedValue(ok({ items: [single], page: 1, limit: 100, total: 130 }));
+    await renderPage({ tab: 'counts', count_sku: 'C' });
+    expect(searchBox()).toHaveTextContent(
+      'Items whose SKU contains “C”: the first 1 of 130; narrow the search.',
+    );
+  });
+
+  it('a failed item read is the error, not "no match", and offers no form', async () => {
+    api.listStockItems.mockResolvedValue({
+      ok: false,
+      status: 503,
+      error: { code: 'unavailable', message: 'core unavailable' },
+    });
+    await renderPage({ tab: 'counts', count_sku: 'CAP' });
+    expect(searchBox()).not.toHaveTextContent(/No stock item/);
+    expect(screen.queryByRole('form', { name: 'Record a count' })).toBeNull();
+    expect(screen.getAllByRole('heading').length).toBeGreaterThan(0);
   });
 
   it('a SKU search asks the API for matching items, so an item past the first 100 is offered', async () => {

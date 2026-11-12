@@ -9,7 +9,8 @@
   one of them.
 - Now a "Find the item by SKU" search (`?count_sku=`) asks the API for matching items (`listStockItems({ sku })`).
 - Each stock-item row has "Record a count", which opens the form with that item preselected (`?count_item=`).
-- The form says when it shows only the first 100.
+- The form says when the list is capped (from the API's `total`, never inferred from 100), and a failed item read
+  shows the error instead of "no match".
 
 ### Changed — #815 review follow-ups (Refs #809)
 
