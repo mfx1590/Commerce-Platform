@@ -11,6 +11,10 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
   build compose, the bake targets, terraform `var.apps` (its ECR repository), the image smoke (port 3104, so the
   `/_next/image` sharp check covers it), and Dependabot's docker directories. `check-image-lists.sh` and
   `check-image-manifests.sh` agree. Helm values are not added: they list what is deployed (#342), not what is built.
+- `infra/ci/run-e2e.sh`: brand D's journeys are skipped BY NAME in the live job: it has no store in CI's seed.
+  CI run 43239694924 ran them against the seeded core: 25 failed, 24 passed, A-C all green. The skip prints
+  `== SKIPPED: brand-d storefront journeys — not in the CI seed (#832)` and the final line names it. It is never a
+  silent filter; `E2E_RUN_UNSEEDED_BRANDS=1` runs it. #832 seeds brand-d and removes the entry.
 - Keycloak: `storefront-brand-d` in the shared customers realm (created live at 14:02:44Z), in the realm file and
   the production profile.
 

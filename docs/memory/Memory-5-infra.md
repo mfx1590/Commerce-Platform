@@ -122,6 +122,11 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
+- **BRAND D (b), after #821's delta BLOCK:** CI 43239694924 on 01c008e0: images green (brand-d built + smoked),
+  brand-d perf red (window 10's missing perf/store.example.json, fixed in b90ab865), and the live job red ONLY on
+  brand-d's journeys (25 failed / 24 passed against CI's seed, which has no brand-d; A-C/admin/starter green), as
+  predicted. Fix: a named exclusion in run-e2e.sh (UNSEEDED_BRANDS 'brand-d:#832'), printed, with an override.
+  Issue #832 (seed brand-d). Merged window 10's b90ab865 (no infra files). Manager does the 3 reruns (rule F).
 - **BRAND D (b) continued:** the live client was created at 14:02:44Z, after the OWNER typed the command in this
   session (blocked ~13:49→14:02:44). PR #821 is a draft. Window 10's tree came at 14:35:10Z (036dd733); I merged it
   locally and added the Dockerfile + the COPY line in 11 Dockerfiles + compose/bake/terraform/smoke/dependabot.
