@@ -127,3 +127,9 @@ target "storefront-brand-c" {
   cache-from = cache_from("storefront-brand-c")
   cache-to   = cache_to("storefront-brand-c")
 }
+
+target "storefront-brand-d" {
+  context    = BAKE_CONTEXT
+  cache-from = cache_from("storefront-brand-d")
+  cache-to   = cache_to("storefront-brand-d")
+}

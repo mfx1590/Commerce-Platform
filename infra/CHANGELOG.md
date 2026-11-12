@@ -4,6 +4,16 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 6
 
+### Added (wave 3, brand D: its image, #439 pattern)
+
+- `apps/storefronts/brand-d/Dockerfile`: brand C's, for `@platform/storefront-brand-d` on PORT 3104.
+- Brand D's manifest is copied in every app Dockerfile's deps stage (19 workspace manifests); the image is in the
+  build compose, the bake targets, terraform `var.apps` (its ECR repository), the image smoke (port 3104, so the
+  `/_next/image` sharp check covers it), and Dependabot's docker directories. `check-image-lists.sh` and
+  `check-image-manifests.sh` agree. Helm values are not added: they list what is deployed (#342), not what is built.
+- Keycloak: `storefront-brand-d` in the shared customers realm (created live at 14:02:44Z), in the realm file and
+  the production profile.
+
 ### Added (wave 3, brand D: a brand's Keycloak client without a reimport)
 
 - `infra/keycloak/add-brand-client.mjs <code>`: creates `storefront-<code>` in the live customers realm through the

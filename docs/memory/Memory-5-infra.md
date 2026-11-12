@@ -122,6 +122,11 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
+- **BRAND D (b) continued:** the live client was created at 14:02:44Z, after the OWNER typed the command in this
+  session (blocked ~13:49→14:02:44). PR #821 is a draft. Window 10's tree came at 14:35:10Z (036dd733); I merged it
+  locally and added the Dockerfile + the COPY line in 11 Dockerfiles + compose/bake/terraform/smoke/dependabot.
+  Gotcha: generating brand D's Dockerfile by renaming brand C's also renamed C's own manifest COPY line; the
+  manifest guard caught it.
 - **BRAND D run (2026-11-12), step (b) on integration/brand-d (manager's approval).** Store `brand-d`
   was created as a draft at 13:46:41Z and went active at 13:48:04Z.
   - `add-brand-client.mjs brand-d --port 3104 --json-only`: realm JSON +84/-0, the profile, production/ re-derived,
