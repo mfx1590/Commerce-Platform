@@ -32,6 +32,18 @@ export function PaymentSettingsForm({
   } | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
+  // The page re-renders with the store as it is now after any save on it (General, this form), so
+  // a newer `updated_at` prop is the store's real state: take it as the stale-check baseline, or the
+  // next Payment save after a General save would be refused as stale until a reload (#833 review).
+  // Adjusting state during render (React's documented pattern), not remounting: a remount would
+  // drop this form's own "Saved" status. An unsaved tick of the checkbox is kept.
+  const [seenUpdatedAt, setSeenUpdatedAt] = useState(updatedAt);
+  if (seenUpdatedAt !== updatedAt) {
+    setSeenUpdatedAt(updatedAt);
+    setLoadedAt(updatedAt);
+    setSaved(invoiceAllowed);
+  }
+
   return (
     <form
       aria-label="Payment settings"

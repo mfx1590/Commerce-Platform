@@ -59,6 +59,38 @@ describe('PaymentSettingsForm', () => {
     expect(refresh).toHaveBeenCalled();
   });
 
+  it('after a save elsewhere on the page (General), the next Payment save uses the new updated_at (#833 review)', async () => {
+    action.mockResolvedValue({
+      status: 'success',
+      data: { invoice_allowed: true, updated_at: 'T6' },
+    });
+    const user = userEvent.setup();
+    const view = render(
+      <PaymentSettingsForm storeId={STORE} invoiceAllowed={false} updatedAt="T1" />,
+    );
+    // General saved: the page refreshes and re-renders this form with the store as it is now.
+    view.rerender(<PaymentSettingsForm storeId={STORE} invoiceAllowed={false} updatedAt="T5" />);
+
+    await user.click(screen.getByRole('checkbox', { name: /Pay on invoice/ }));
+    await user.click(screen.getByRole('button', { name: 'Save payment settings' }));
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+    expect(action).toHaveBeenLastCalledWith(STORE, {
+      invoice_allowed: true,
+      loaded_updated_at: 'T5',
+    });
+  });
+
+  it('a newer store keeps an unsaved tick, and Save compares against the new saved value', () => {
+    const view = render(
+      <PaymentSettingsForm storeId={STORE} invoiceAllowed={false} updatedAt="T1" />,
+    );
+    // Someone turned invoice on elsewhere; the page re-renders with it.
+    view.rerender(<PaymentSettingsForm storeId={STORE} invoiceAllowed={true} updatedAt="T7" />);
+    // The box still shows what this reader had (off), which now differs from what is saved.
+    expect(screen.getByRole('checkbox', { name: /Pay on invoice/ })).not.toBeChecked();
+    expect(screen.getByRole('button', { name: 'Save payment settings' })).toBeEnabled();
+  });
+
   it('a refusal (stale page, 422) is said under the form', async () => {
     action.mockResolvedValue({
       status: 'error',

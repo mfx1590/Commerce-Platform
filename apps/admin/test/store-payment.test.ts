@@ -165,6 +165,20 @@ describe('updatePaymentSettingsAction', () => {
     expect(api.updateStore).not.toHaveBeenCalled();
   });
 
+  it('turning invoice OFF sends false and still keeps every other key (#833 review)', async () => {
+    api.getStore.mockResolvedValue(
+      ok(store({ ...otherSettings, payment: { some_future_key: 'kept', invoice_allowed: true } })),
+    );
+    const result = await updatePaymentSettingsAction(STORE, {
+      invoice_allowed: false,
+      loaded_updated_at: LOADED,
+    });
+    expect(api.updateStore).toHaveBeenCalledWith(STORE, {
+      settings: { ...otherSettings, payment: { some_future_key: 'kept', invoice_allowed: false } },
+    });
+    expect(result).toMatchObject({ status: 'success', data: { invoice_allowed: false } });
+  });
+
   it('no change: no write', async () => {
     api.getStore.mockResolvedValue(
       ok(store({ ...otherSettings, payment: { invoice_allowed: true } })),
