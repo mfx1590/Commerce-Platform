@@ -557,6 +557,14 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#820 fix (2026-11-12).** Branch `admin/phase6-820-default-variant` from main e1c993b5.
+  - `missingCombinations` offers `{}` when no option is named; `variantTitle({})` = "Default".
+  - Core check: `validateVariantInput` needs a non-empty sku + title, and `assertOptionsMatch({})` passes.
+  - Tests +5, mutation-checked; unit 1080/1080.
+  - The cosmetic wizard flash noted in #820 (the Review step re-renders after "Done") is NOT in this PR.
+- **Brand D run, category step (admin UI only):** "Kitchen linen" (kitchen-linen) with both products,
+  14:39:05Z → 14:39:48Z (43 s); the Store API lists it. Payment #825: the manager's recorded non-UI
+  updateStore, which the owner runs; nothing for me.
 - **#815 review follow-ups (2026-11-11, Manager session twelve).**
   - Branch `admin/phase6-shipping-followups` from main 97218bd2. **Code sha aac7555b.**
   - `updateShippingOptionAction(storeId, optionId, values)` re-reads the option from the core (stored currency,
