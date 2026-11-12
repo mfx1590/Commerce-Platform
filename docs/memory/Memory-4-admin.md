@@ -557,6 +557,8 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **PR #831 (code commit 307ccfcb; head = this memory commit).** Manager-read: MERGE on green CI. No more
+  pushes to admin/phase6-820-default-variant. #820 stays open for the wizard flash.
 - **#820 fix (2026-11-12).** Branch `admin/phase6-820-default-variant` from main e1c993b5.
   - `missingCombinations` offers `{}` when no option is named; `variantTitle({})` = "Default".
   - Core check: `validateVariantInput` needs a non-empty sku + title, and `assertOptionsMatch({})` passes.
