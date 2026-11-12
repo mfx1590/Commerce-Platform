@@ -567,6 +567,47 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
 - **Brand D run, category step (admin UI only):** "Kitchen linen" (kitchen-linen) with both products,
   14:39:05Z → 14:39:48Z (43 s); the Store API lists it. Payment #825: the manager's recorded non-UI
   updateStore, which the owner runs; nothing for me.
+- **PR #824 (code commit 733788d5; head = this memory commit).** First code commit c973fc14. The review
+  follow-up 733788d5 shows the hint only when capped (from the API `total`), and a failed item read is an
+  error. main e1c993b5 merged in. After this push: do NOT push to admin/phase6-823-count-sku again; the
+  manager queues it on green.
+- **Brand D run, later steps (2026-11-12):**
+  - Payment: `brand-d` payment.methods [], with no admin path. **#825**, options with the manager (I can't
+    mint an owner API token).
+  - Second product, the manager's decision: cotton-napkin-set ¥2,480 (COTTONNA-ONESIZE). Created in the UI
+    14:23:14Z → 14:24:19Z; stocked by the #823 workaround 14:24:35Z → 14:25:25Z. Both products in stock.
+- **#823 fix (2026-11-12, Manager session thirteen; not on the brand D clock).**
+  - Branch `admin/phase6-823-count-sku` from main 314e65bd.
+  - The count form's SKU search (`count_sku` → `listStockItems({ limit: 100, sku })`), a per-row "Record a
+    count" link (`count_item` preselect), and a hint about the 100 cap. Tests +6, mutation-checked; unit
+    1081/1081.
+  - NOT built locally: the brand D run's admin :3000 serves this worktree's `.next`, so no `next build` until
+    the run is over.
+- **Brand D stock (manager's option (b), NON-UI, recorded on #823):** 14:10:09Z → 14:11:49Z.
+  - The capped select was given Brand D's item from the console. React state was VERIFIED before submitting:
+    the first attempt left it on BRANDA-0001-L-OLI, and that attempt was NOT submitted.
+  - Then Record count → Reconcile (flagged +50) → Approve.
+  - Rotterdam 50 on hand; the Store API says in_stock true.
+  - Lesson: a DOM change before hydration does not reach React. Always read the element's `__reactProps` value
+    before submitting.
+- **Brand D (Japan) timed run, step (a) DONE (2026-11-12, Manager session thirteen).**
+  - Clock: 13:45:39Z (wizard opened) → onboarded 13:46:39Z → ACTIVE 13:47:58Z (2 min 19 s) → verified
+    13:50:11Z (4 min 32 s).
+  - The owner signed in in my browser pane BEFORE the clock: I do not enter credentials, so the owner did it
+    once.
+  - Store: brand-d (id 9f3c3c2a-42a5-4903-bb1d-fd47e4f6324e), Brand D K.K. (brand-d-kk), JPY / [ja-JP] / JP /
+    Asia/Tokyo, domain brand-d.localhost.
+  - Set up in the UI: tax JP 1000 bp; shipping standard-jp ¥990; price list "Default JPY" (default-jpy);
+    product linen-tea-towel, variant LINENTEA-ONESIZE ¥1,980, published.
+  - The Store API with the key answers amount_minor 1980 JPY.
+  - The key went to window 10 by message only. It is never in git.
+  - Issue **#820** (3 min 27 s on the clock): a no-options product can never get its default variant
+    (variant-matrix returns [] for zero options). Workaround "Size: One size". Mine to fix.
+  - Core :9000 + admin :3000 (production build) run for the whole run, from main c51e02ba. Stop them only when
+    the manager says the run is over.
+- **#819 follow-up:** branch `admin/phase6-drop-scope-reload` from main 314e65bd. hq-onboarding.spec drops the
+  45 s toPass reload loop: goto Settings, expect the row. NOT run locally (the machine and :3000 belong to the
+  run); CI's core leg is the proof.
 - **#815 review follow-ups (2026-11-11, Manager session twelve).**
   - Branch `admin/phase6-shipping-followups` from main 97218bd2. **Code sha aac7555b.**
   - `updateShippingOptionAction(storeId, optionId, values)` re-reads the option from the core (stored currency,

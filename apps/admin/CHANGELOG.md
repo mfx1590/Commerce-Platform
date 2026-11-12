@@ -13,6 +13,22 @@
 - Options that are named but have no values still offer nothing.
 - Found in the brand D run (worked around there with "Size: One size").
 
+### Fixed — #823: the count form can reach any stock item
+
+- HQ › Warehouse › Cycle counts' "Stock item" list was the first 100 items by SKU, so an item past them could
+  never be counted, and counting is the only admin path that puts stock on hand. Brand D's first product was
+  one of them.
+- Now a "Find the item by SKU" search (`?count_sku=`) asks the API for matching items (`listStockItems({ sku })`).
+- Each stock-item row has "Record a count", which opens the form with that item preselected (`?count_item=`).
+- The form says when the list is capped (from the API's `total`, never inferred from 100), and a failed item read
+  shows the error instead of "no match".
+
+### Tests — the onboarding e2e no longer waits out the scope cache (#819)
+
+- `e2e/hq-onboarding.spec.ts` reads the new store's Settings straight after activation. The 45 s reload loop
+  is gone: since #819 the core drops its cached staff scopes on onboarding, so the store is in the owner's
+  scope on the next request.
+
 ### Changed — #815 review follow-ups (Refs #809)
 
 - `updateShippingOptionAction(storeId, optionId, values)` re-reads the option from the core
