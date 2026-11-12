@@ -557,6 +557,24 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **Brand D (Japan) timed run, step (a) DONE (2026-11-12, Manager session thirteen).**
+  - Clock: 13:45:39Z (wizard opened) → onboarded 13:46:39Z → ACTIVE 13:47:58Z (2 min 19 s) → verified
+    13:50:11Z (4 min 32 s).
+  - The owner signed in in my browser pane BEFORE the clock: I do not enter credentials, so the owner did it
+    once.
+  - Store: brand-d (id 9f3c3c2a-42a5-4903-bb1d-fd47e4f6324e), Brand D K.K. (brand-d-kk), JPY / [ja-JP] / JP /
+    Asia/Tokyo, domain brand-d.localhost.
+  - Set up in the UI: tax JP 1000 bp; shipping standard-jp ¥990; price list "Default JPY" (default-jpy);
+    product linen-tea-towel, variant LINENTEA-ONESIZE ¥1,980, published.
+  - The Store API with the key answers amount_minor 1980 JPY.
+  - The key went to window 10 by message only. It is never in git.
+  - Issue **#820** (3 min 27 s on the clock): a no-options product can never get its default variant
+    (variant-matrix returns [] for zero options). Workaround "Size: One size". Mine to fix.
+  - Core :9000 + admin :3000 (production build) run for the whole run, from main c51e02ba. Stop them only when
+    the manager says the run is over.
+- **#819 follow-up:** branch `admin/phase6-drop-scope-reload` from main 314e65bd. hq-onboarding.spec drops the
+  45 s toPass reload loop: goto Settings, expect the row. NOT run locally (the machine and :3000 belong to the
+  run); CI's core leg is the proof.
 - **#815 review follow-ups (2026-11-11, Manager session twelve).**
   - Branch `admin/phase6-shipping-followups` from main 97218bd2. **Code sha aac7555b.**
   - `updateShippingOptionAction(storeId, optionId, values)` re-reads the option from the core (stored currency,

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Tests — the onboarding e2e no longer waits out the scope cache (#819)
+
+- `e2e/hq-onboarding.spec.ts` reads the new store's Settings straight after activation. The 45 s reload loop
+  is gone: since #819 the core drops its cached staff scopes on onboarding, so the store is in the owner's
+  scope on the next request.
+
 ### Changed — #815 review follow-ups (Refs #809)
 
 - `updateShippingOptionAction(storeId, optionId, values)` re-reads the option from the core
