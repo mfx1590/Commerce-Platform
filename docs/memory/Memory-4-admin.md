@@ -557,6 +557,20 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#825 fix (2026-11-12, Manager session thirteen; Fable review, payments).**
+  - Branch `admin/phase6-825-payment-settings` from main e1c993b5.
+  - Store › Settings › Payment: `updatePaymentSettingsAction` does refuse (updateStore) → re-read → stale
+    `updated_at` refused → `withInvoiceAllowed` (every key kept, `payment.methods` dropped) → PATCH
+    `{settings}` only.
+  - The core's 422 is said in words. Only `invoice_allowed` + `updated_at` reach the browser.
+  - No contract change: StoreInput has no required keys and already has `settings`.
+  - The form tracks the last saved value. The first version compared against the prop and stayed disabled
+    after a save until the refresh landed; the test caught it.
+  - Mutation-checked (merge from {}, stale guard off). Unit 1093/1093.
+  - Not built locally (the run's admin :3000).
+- **Lesson (tests):** `vi.clearAllMocks()` does NOT clear a `mockResolvedValueOnce` queue; a leftover once-value
+  leaked into the next test. Use `mockReset()` for hoisted action mocks, and `waitFor` after a click that
+  starts a transition.
 - **#815 review follow-ups (2026-11-11, Manager session twelve).**
   - Branch `admin/phase6-shipping-followups` from main 97218bd2. **Code sha aac7555b.**
   - `updateShippingOptionAction(storeId, optionId, values)` re-reads the option from the core (stored currency,
