@@ -1,0 +1,278 @@
+'use server';
+
+import { cookies } from 'next/headers';
+import { redirectLocalized } from './navigate';
+import { clearCart, getCart, getOrCreateCart, refreshCartAttribution } from './cart';
+import { mapCheckoutError, mapCompletionError, parseAddressForm, stepPath } from './checkout';
+import { asCustomerOrGuest, type CartCallMode } from './customer-link';
+import { checkoutIdempotencyKey, clearIdempotencyKey } from './idempotency';
+import { paymentChoice, rememberPaymentChoice } from './payment-choice';
+import { offers, paymentOptions } from './payment-options';
+import { getStoreOrNull } from './store';
+import { storeApi } from './store-api';
+
+/**
+ * Every mutation the storefront performs. They run on the server with the typed client, so the
+ * browser never holds the API key and never sets a price, a total or a stock number itself.
+ *
+ * Shape: do the network call inside try/catch and return an error state; call `redirect()` only
+ * after it, because `redirect` signals by throwing and would otherwise be caught as a failure.
+ */
+
+export interface ActionState {
+  error?: string;
+  fieldErrors?: Record<string, string>;
+  /** For `out_of_stock`, so the page can offer to reduce the quantity to what is left. */
+  availableQuantity?: number;
+}
+
+const OK: ActionState = {};
+
+/** The email is needed to look an order up after checkout (`GET /store/orders/{id}?email=`). */
+const ORDER_EMAIL_COOKIE = 'order_email';
+
+function intField(formData: FormData, name: string): number | undefined {
+  const raw = formData.get(name);
+  if (typeof raw !== 'string') return undefined;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function stringField(formData: FormData, name: string): string | undefined {
+  const raw = formData.get(name);
+  return typeof raw === 'string' && raw !== '' ? raw : undefined;
+}
+
+// ── cart ─────────────────────────────────────────────────────────────────────────────────────────
+
+export async function addToCartAction(
+  _previous: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const variantId = stringField(formData, 'variant_id');
+  const quantity = intField(formData, 'quantity') ?? 1;
+  if (variantId === undefined) return { error: 'Choose an option before adding to the cart.' };
+
+  try {
+    const cart = await getOrCreateCart();
+    await storeApi().addLineItem(cart.id, { variant_id: variantId, quantity });
+  } catch (error) {
+    const mapped = mapCheckoutError(error);
+    return {
+      error: mapped.message,
+      ...(mapped.availableQuantity === undefined
+        ? {}
+        : { availableQuantity: mapped.availableQuantity }),
+    };
+  }
+  return redirectLocalized('/cart');
+}
+
+export async function updateLineItemAction(
+  _previous: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const lineItemId = stringField(formData, 'line_item_id');
+  const quantity = intField(formData, 'quantity');
+  if (lineItemId === undefined || quantity === undefined) return { error: 'Invalid quantity.' };
+
+  const cart = await getCart();
+  if (!cart) return { error: 'Your cart has expired. Please start again.' };
+
+  try {
+    if (quantity <= 0) await storeApi().removeLineItem(cart.id, lineItemId);
+    else await storeApi().updateLineItem(cart.id, lineItemId, { quantity });
+  } catch (error) {
+    const mapped = mapCheckoutError(error);
+    return {
+      error: mapped.message,
+      ...(mapped.availableQuantity === undefined
+        ? {}
+        : { availableQuantity: mapped.availableQuantity }),
+    };
+  }
+  return OK;
+}
+
+export async function removeLineItemAction(formData: FormData): Promise<void> {
+  const lineItemId = stringField(formData, 'line_item_id');
+  const cart = await getCart();
+  if (cart && lineItemId !== undefined) {
+    await storeApi().removeLineItem(cart.id, lineItemId);
+  }
+}
+
+// ── checkout steps ───────────────────────────────────────────────────────────────────────────────
+
+export async function saveAddressAction(
+  _previous: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const parsed = parseAddressForm(formData);
+  if (parsed.address === undefined || parsed.email === undefined) {
+    return { error: 'Please correct the highlighted fields.', fieldErrors: parsed.errors };
+  }
+
+  const cart = await getCart();
+  if (!cart) return { error: 'Your cart has expired. Please start again.' };
+
+  try {
+    await storeApi().updateCart(cart.id, {
+      email: parsed.email,
+      shipping_address: parsed.address,
+      // Phase 1 bills to the delivery address; a separate billing address is Phase 2 work.
+      billing_address: parsed.address,
+      country: parsed.address.country,
+    });
+  } catch (error) {
+    return { error: mapCheckoutError(error).message };
+  }
+  return redirectLocalized(stepPath('shipping'));
+}
+
+export async function saveShippingAction(
+  _previous: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const shippingOptionId = stringField(formData, 'shipping_option_id');
+  if (shippingOptionId === undefined) return { error: 'Choose a delivery option.' };
+
+  const cart = await getCart();
+  if (!cart) return { error: 'Your cart has expired. Please start again.' };
+
+  try {
+    await storeApi().updateCart(cart.id, { shipping_option_id: shippingOptionId });
+  } catch (error) {
+    return { error: mapCheckoutError(error).message };
+  }
+  return redirectLocalized(stepPath('payment'));
+}
+
+/**
+ * The payment method the customer chose (#358): `stripe` (card, Payment Element on the review step)
+ * or `manual` (pay on invoice). Re-checked here against what the store offers — the form is a
+ * convenience, not the gate. Card data never reaches this server: the session only yields the
+ * PaymentIntent's `client_secret` for Stripe's hosted fields.
+ */
+export async function createPaymentSessionAction(
+  _previous: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const cart = await getCart();
+  if (!cart) return { error: 'Your cart has expired. Please start again.' };
+
+  const provider = stringField(formData, 'provider') ?? '';
+  const store = await getStoreOrNull();
+  if (!offers(paymentOptions(store), provider)) {
+    return { error: 'That payment method is not available. Please choose another.' };
+  }
+
+  try {
+    await storeApi().createPaymentSession(cart.id, { provider });
+    await rememberPaymentChoice(cart.id, provider);
+  } catch (error) {
+    return { error: mapCheckoutError(error).message };
+  }
+  return redirectLocalized(stepPath('review'));
+}
+
+export async function placeOrderAction(
+  _previous: ActionState,
+  _formData: FormData,
+): Promise<ActionState> {
+  const cart = await getCart();
+  if (!cart) return { error: 'Your cart has expired. Please start again.' };
+
+  // Never a *new* payment method behind the customer's back (#358). A missing session is renewed only
+  // for the method the customer chose at the payment step (a backend may keep none — Prism answers
+  // every cart with `payment_session: null` — or it may have expired), and only an invoice can be
+  // renewed here: a card needs the browser to confirm it. A failed session likewise. Everything else
+  // goes back to the payment step. Decided before the try: `redirect` signals by throwing, and the
+  // catch below would swallow it.
+  const session = cart.payment_session;
+  const invoiceOffered = paymentOptions(await getStoreOrNull()).invoice;
+  let renewInvoiceSession = false;
+  if (session === null) {
+    if ((await paymentChoice(cart.id)) !== 'manual' || !invoiceOffered) {
+      return redirectLocalized(stepPath('payment'));
+    }
+    renewInvoiceSession = true;
+  } else if (session.status === 'failed') {
+    if (session.provider !== 'manual' || !invoiceOffered) {
+      return redirectLocalized(`${stepPath('payment')}?error=payment_failed`);
+    }
+    renewInvoiceSession = true;
+  }
+
+  let orderId: string;
+  // Which attempt the completion is on — set before each attempt, so a 409 thrown by the customer
+  // attempt is read as the customer's (#329 review). Decides what a 409 at completion means.
+  let mode: CartCallMode = 'guest';
+  try {
+    // Refresh the attribution before placing the order, so the *last* touch reflects the campaign
+    // that actually closed the sale rather than the one that created the cart, which may be days
+    // old. It goes on the cart because `POST …/complete` has no request body at all — see
+    // CONTRACT CHANGE #100.
+    await refreshCartAttribution(cart.id);
+
+    // An invoice session that is missing or failed is renewed here rather than stranding the
+    // customer (the cases that go back to the payment step are decided above, outside the try).
+    if (renewInvoiceSession) {
+      await storeApi().createPaymentSession(cart.id, { provider: 'manual' });
+    }
+    // Generated once for this cart and reused on every retry, so a timeout cannot double-charge.
+    const idempotencyKey = await checkoutIdempotencyKey(cart.id);
+    // As the signed-in customer when there is one (Store API 0.5.1, #312): a guest cart is linked
+    // to the customer inside the placement transaction, so a cart begun before signing in still
+    // places an order that shows in the customer's history. A refused token drops the session
+    // and completes as a guest, once. The same idempotency key covers both attempts: a 401
+    // placed nothing.
+    const completion = await asCustomerOrGuest(
+      (options) => storeApi().completeCart(cart.id, idempotencyKey, options),
+      {
+        onAttempt: (attempt) => {
+          mode = attempt;
+        },
+      },
+    );
+    orderId = completion.result.id;
+
+    if (cart.email !== null) {
+      (await cookies()).set(ORDER_EMAIL_COOKIE, cart.email, {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 60 * 60,
+      });
+    }
+    await clearCart();
+    await clearIdempotencyKey();
+  } catch (error) {
+    const mapped = mapCompletionError(error, mode);
+    // The total changed under a confirmed card: the core refreshes (or replaces) the PaymentIntent
+    // when the session is created again, so the review step shows the new total with an Element that
+    // can confirm it. Best effort — the message is shown either way.
+    if (mapped.code === 'price_changed' && cart.payment_session?.provider === 'stripe') {
+      await storeApi()
+        .createPaymentSession(cart.id, { provider: 'stripe' })
+        .catch(() => undefined);
+    }
+    // The cart was already completed: send the customer to the order rather than to an error.
+    if (mapped.orderId !== undefined) {
+      await clearCart();
+      await clearIdempotencyKey();
+      return redirectLocalized(`/orders/${mapped.orderId}`);
+    }
+    if (mapped.step !== undefined) {
+      return redirectLocalized(`${stepPath(mapped.step)}?error=${mapped.code}`);
+    }
+    return {
+      error: mapped.message,
+      ...(mapped.availableQuantity === undefined
+        ? {}
+        : { availableQuantity: mapped.availableQuantity }),
+    };
+  }
+  return redirectLocalized(`/orders/${orderId}`);
+}
