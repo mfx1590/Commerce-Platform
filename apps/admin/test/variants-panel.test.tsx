@@ -111,6 +111,20 @@ describe('variants are created deliberately, not as a side effect of saving opti
     });
   });
 
+  it('a product with no options offers and creates its single default variant (#820)', async () => {
+    const user = userEvent.setup();
+    render(<VariantsPanel storeId="s1" product={product({ options: [] })} />);
+
+    expect(screen.getByText(/1 variant/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Create all 1' }));
+
+    expect(createVariantAction).toHaveBeenCalledWith('s1', 'p1', {
+      sku: 'CLASSICT',
+      title: 'Default',
+      options: {},
+    });
+  });
+
   it('creates the whole gap only from the button that names the count', async () => {
     const user = userEvent.setup();
     render(<VariantsPanel storeId="s1" product={product()} />);

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Fixed — #820: a product with no options gets its single default variant
+
+- The new-product page promised a single default variant for a product without options, but the product
+  page's Variants panel offered nothing to create: `missingCombinations` went through `variantMatrix([])`,
+  which is empty.
+- Now a product with no named option is missing exactly one combination, the empty one, until a variant
+  with no options exists. It is created as SKU = the handle's slug, title "Default" (`DEFAULT_VARIANT_TITLE`;
+  the core requires a title), `options: {}`.
+- Options that are named but have no values still offer nothing.
+- Found in the brand D run (worked around there with "Size: One size").
+
 ### Fixed — #823: the count form can reach any stock item
 
 - HQ › Warehouse › Cycle counts' "Stock item" list was the first 100 items by SKU, so an item past them could

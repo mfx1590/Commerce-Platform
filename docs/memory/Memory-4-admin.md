@@ -557,6 +557,16 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **PR #831 (code commit 307ccfcb; head = this memory commit).** Manager-read: MERGE on green CI. No more
+  pushes to admin/phase6-820-default-variant. #820 stays open for the wizard flash.
+- **#820 fix (2026-11-12).** Branch `admin/phase6-820-default-variant` from main e1c993b5.
+  - `missingCombinations` offers `{}` when no option is named; `variantTitle({})` = "Default".
+  - Core check: `validateVariantInput` needs a non-empty sku + title, and `assertOptionsMatch({})` passes.
+  - Tests +5, mutation-checked; unit 1080/1080.
+  - The cosmetic wizard flash noted in #820 (the Review step re-renders after "Done") is NOT in this PR.
+- **Brand D run, category step (admin UI only):** "Kitchen linen" (kitchen-linen) with both products,
+  14:39:05Z → 14:39:48Z (43 s); the Store API lists it. Payment #825: the manager's recorded non-UI
+  updateStore, which the owner runs; nothing for me.
 - **PR #824 (code commit 733788d5; head = this memory commit).** First code commit c973fc14. The review
   follow-up 733788d5 shows the hint only when capped (from the API `total`), and a failed item read is an
   error. main e1c993b5 merged in. After this push: do NOT push to admin/phase6-823-count-sku again; the
