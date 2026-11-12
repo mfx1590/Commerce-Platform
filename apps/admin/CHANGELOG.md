@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Added — #825: Store › Settings › Payment ("Pay on invoice")
+
+- A wizard-onboarded store had no payment method (`GET /store` `payment.methods: []`) and no admin way to
+  get one. The admin had no payment control, and `updateStoreAction`'s schema drops `settings`. Brand D's
+  run could not take an order.
+- The new Payment section (`#payment`, store_admin; read-only with the relation needed below it) turns
+  `settings.payment.invoice_allowed` on or off through `updatePaymentSettingsAction`.
+- `updateStore` REPLACES `settings`, so the action re-reads the store and changes only
+  `payment.invoice_allowed`, keeping every other key (tax, fraud, shipping, fulfillment, content, refund limit,
+  unknown keys).
+- The derived `payment.methods` is never written.
+- A page whose `updated_at` is older than the store's is refused ("reload").
+- The core's 422 `details.settings` is said in words.
+- Only `invoice_allowed` and `updated_at` reach the browser.
+- Tests: `store-payment` (merge and actions, 15), `store-payment-form` (2), `settings` (+ Payment per role).
+
 ### Fixed — #820: a product with no options gets its single default variant
 
 - The new-product page promised a single default variant for a product without options, but the product

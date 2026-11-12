@@ -534,6 +534,21 @@ batch test in `test/pricing.test.ts`, which is the standard for any money-adjace
 
 ## Store settings (task 2.5 + 2.5b, issue #117; Admin API 0.4.8)
 
+**Payment (#825).** "Pay on invoice" is `settings.payment.invoice_allowed`. Without it, and without the store's
+Stripe key, `GET /store` offers no payment method and no order can be placed.
+
+`updateStore` replaces the whole `settings` object, and other modules keep keys there, so
+`updatePaymentSettingsAction` (store_admin, checked server-side first) works like this:
+
+- it re-reads the store;
+- it refuses if the page's `updated_at` is older than the store's;
+- it sends back every key with only `payment.invoice_allowed` changed (`withInvoiceAllowed` in
+  `src/lib/settings/payment.ts`);
+- it never writes the derived `payment.methods`.
+
+The contract has no If-Match, so a write landing between the re-read and the PATCH is still possible (one
+request wide). The core's 422 `details.settings` is said in words.
+
 **Store · Settings** (`settings`, `/{storeId}/settings`) is open to **store_staff and up**, and
 read-only below store_admin. One page, four cards, each form offered only to the relation its
 operation needs and otherwise replaced by a line naming that relation (`src/lib/settings`):

@@ -150,3 +150,11 @@ export function statusChangeQuestion(from: StoreStatus, to: StoreStatus): string
   }
   return null;
 }
+
+// Payment (#825): "Pay on invoice", a read-modify-write of `settings` that keeps every other key.
+export {
+  describeSettingsError,
+  paymentSettingsFrom,
+  withInvoiceAllowed,
+  type PaymentSettingsView,
+} from './payment';

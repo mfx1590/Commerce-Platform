@@ -25,6 +25,7 @@ import { loadPrincipal } from '@/lib/principal';
 import {
   forChannelOptions,
   forStoreSettings,
+  paymentSettingsFrom,
   settingsPermissions,
   type SettingsPermissions,
 } from '@/lib/settings';
@@ -36,6 +37,7 @@ import {
 } from '@/components/shipping-options/shipping-option-forms';
 import { CreateTaxRateForm, TaxRatesTable } from '@/components/tax-rates/tax-rate-forms';
 import { GeneralSettingsForm } from './general-form';
+import { PaymentSettingsForm } from './payment-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -150,6 +152,34 @@ export default async function SettingsPage({ params }: { params: Promise<{ store
               <div className="space-y-4">
                 <ReadOnlyGeneral store={store.data} />
                 <Needs relation="store_admin" object={storeObject} to="Changing these" />
+              </div>
+            )}
+          </CardBody>
+        </Card>
+
+        <Card id="payment">
+          <CardHeader
+            title="Payment"
+            description="How customers can pay. Card payments need the store's Stripe key, which an operator sets outside the admin; without card or invoice, no order can be placed."
+          />
+          <CardBody>
+            {!store.ok ? (
+              <RequestErrorPanel status={store.status} error={store.error} />
+            ) : can.canEditStore ? (
+              <PaymentSettingsForm
+                storeId={storeId}
+                invoiceAllowed={paymentSettingsFrom(store.data.settings).invoice_allowed}
+                updatedAt={store.data.updated_at}
+              />
+            ) : (
+              <div className="space-y-3">
+                <p className="text-sm">
+                  Pay on invoice:{' '}
+                  <span className="font-medium">
+                    {paymentSettingsFrom(store.data.settings).invoice_allowed ? 'on' : 'off'}
+                  </span>
+                </p>
+                <Needs relation="store_admin" object={storeObject} to="Changing payment settings" />
               </div>
             )}
           </CardBody>
