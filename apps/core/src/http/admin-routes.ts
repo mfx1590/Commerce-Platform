@@ -151,6 +151,11 @@ export interface AdminRouterOptions {
    * unless a test hands in the in-memory one from the registry module.
    */
   storeRegistrar?: StoreRegistrar;
+  /**
+   * Called after `onboardStore` wrote a store and its OpenFGA object: the staff scopes cached by the verifier no
+   * longer list every visible store (src/server.ts passes the Keycloak verifier's `invalidateAll`; default none).
+   */
+  onStoreScopeChange?: () => void;
 }
 
 export function adminRouter(opts: AdminRouterOptions = {}): Router {
@@ -615,6 +620,8 @@ export function adminRouter(opts: AdminRouterOptions = {}): Router {
         requireRegistrar(registrar),
         p.actor,
       );
+      // The new store is visible to every org-level user at once, not after the 30 s scope cache (#809 follow-up).
+      opts.onStoreScopeChange?.();
       res.status(created ? 201 : 200).json(result);
     }),
   );

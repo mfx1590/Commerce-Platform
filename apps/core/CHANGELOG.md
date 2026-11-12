@@ -2,6 +2,16 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-11-11 · a just-onboarded store is in scope at once (#809 follow-up)
+
+- `KeycloakStaffTokenVerifier.invalidateAll()` drops every cached staff scope (hq-rbac's `ScopeCache.clear()`, read
+  only — window 2's code is unchanged). `buildStaffAuth()` exposes it as `onStoreScopeChange`; `mountCoreMiddleware`
+  hands it to `adminRouter`, whose `POST /admin/onboarding/stores` calls it after `onboardStore` succeeds. A new
+  store's OpenFGA object reaches every organization-level user, so every cached scope goes, not only the creator's;
+  it changes when scopes refresh, never what they grant. Before: up to 30 s without the store in `/admin/me`.
+- `test/scope-invalidate.test.ts`: the real verifier with the default 30 s cache — the onboarded store is in the
+  owner's `/admin/me` immediately; the control without the callback still lacks it; a refused onboarding clears nothing.
+
 ### 2026-11-11 · shipping options and the activation guard (#809, CONTRACT CHANGE #811)
 
 - Admin API `GET` / `POST /admin/stores/{storeId}/shipping-options` and `PATCH …/{optionId}` (`listShippingOptions`
