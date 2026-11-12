@@ -693,6 +693,11 @@ asks first, naming both brands — it changes which shelf that brand sells from.
 variant's current item still holds stock or open reservations) is said with `details.on_hand` /
 `details.open_reservations`: move the stock first. 404 = unknown item or variant.
 
+**Finding the item to count (#823).** The count form's item list is the first 100 items by SKU unless
+searched: "Find the item by SKU" (`?count_sku=`) loads the matching items from the API. Each stock-item row's
+"Record a count" opens the form with that item preselected (`?count_item=`). Without this, an item past the
+first 100 (any brand onboarded later) could not be stocked from the admin.
+
 **Cycle counts** (`listCycleCounts`, operations on hq): newest first, filters warehouse / stock
 item / status; `counted_by` null shows as WMS. **Record a count** (`createCycleCount`) changes no
 stock. **Reconcile** (`recorded` counts, no body) answers applied (one movement of the delta, none
