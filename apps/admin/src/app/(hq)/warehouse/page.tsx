@@ -384,6 +384,15 @@ async function StockItems({
                       </Link>
                     </div>
                     {canOperate && (
+                      <Link
+                        href={`/warehouse?tab=counts&count_sku=${encodeURIComponent(item.sku)}&count_item=${item.id}`}
+                        className="text-accent text-sm hover:underline"
+                        aria-label={`Record a count of ${item.sku}`}
+                      >
+                        Record a count
+                      </Link>
+                    )}
+                    {canOperate && (
                       <PoolVariantForm
                         stockItemId={item.id}
                         itemSku={item.sku}
@@ -430,6 +439,10 @@ async function CycleCounts({
     ? statusParam
     : '';
   const page = pageParam(raw);
+  // The count form's item list (#823): the first 100 items by SKU, unless searched — a store
+  // onboarded later sells items past the first 100, which a fixed list never offered.
+  const countSku = param(raw, 'count_sku');
+  const countItem = uuidParam(raw, 'count_item');
 
   const [result, items] = await Promise.all([
     listCycleCounts({
@@ -439,9 +452,12 @@ async function CycleCounts({
       page,
       limit: LIMIT,
     }),
-    listStockItems({ limit: 100 }),
+    listStockItems({ limit: 100, ...(countSku === '' ? {} : { sku: countSku }) }),
   ]);
   const stockItems: StockItem[] = items.ok ? items.data.items : [];
+  // Capped only when the API says there are more than it sent (its `total`), never inferred from 100.
+  const itemsTotal = items.ok ? items.data.total : 0;
+  const capped = items.ok && itemsTotal > items.data.items.length;
   const stockOptions = stockItems.map((item) => ({
     value: item.id,
     label: `${item.sku} — ${item.name}`,
@@ -461,8 +477,50 @@ async function CycleCounts({
             title="Record a count"
             description="Writes the count down; stock changes only when it is reconciled."
           />
-          <CardBody>
-            <RecordCountForm warehouses={warehouseOptions} stockItems={stockOptions} />
+          <CardBody className="space-y-4">
+            <form
+              method="get"
+              action="/warehouse"
+              role="search"
+              aria-label="Find the item to count"
+              className="flex flex-wrap items-end gap-2"
+            >
+              <input type="hidden" name="tab" value="counts" />
+              <label className="flex flex-col gap-1 text-sm">
+                <span>Find the item by SKU</span>
+                <input
+                  name="count_sku"
+                  defaultValue={countSku}
+                  placeholder="e.g. LINENTEA"
+                  className="border-line bg-surface h-9 w-56 rounded-md border px-3 text-sm"
+                />
+              </label>
+              <button type="submit" className="text-accent text-sm hover:underline">
+                Find
+              </button>
+              {items.ok && (countSku !== '' || capped) && (
+                <p className="text-muted basis-full text-xs">
+                  {countSku === ''
+                    ? `The list below shows the first ${stockOptions.length} of ${itemsTotal} items by SKU; search to find any other.`
+                    : stockOptions.length === 0
+                      ? `No stock item’s SKU contains “${countSku}”.`
+                      : capped
+                        ? `Items whose SKU contains “${countSku}”: the first ${stockOptions.length} of ${itemsTotal}; narrow the search.`
+                        : `Items whose SKU contains “${countSku}” (${stockOptions.length}).`}
+                </p>
+              )}
+            </form>
+            {items.ok ? (
+              <RecordCountForm
+                key={`${countSku}:${countItem}`}
+                warehouses={warehouseOptions}
+                stockItems={stockOptions}
+                defaultStockItemId={countItem}
+              />
+            ) : (
+              // A failed item read is an error, not "no match": nothing to count until it answers.
+              <RequestErrorPanel status={items.status} error={items.error} />
+            )}
           </CardBody>
         </Card>
       )}
