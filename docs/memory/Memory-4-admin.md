@@ -557,6 +557,20 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#823 fix (2026-11-12, Manager session thirteen; not on the brand D clock).**
+  - Branch `admin/phase6-823-count-sku` from main 314e65bd.
+  - The count form's SKU search (`count_sku` → `listStockItems({ limit: 100, sku })`), a per-row "Record a
+    count" link (`count_item` preselect), and a hint about the 100 cap. Tests +6, mutation-checked; unit
+    1081/1081.
+  - NOT built locally: the brand D run's admin :3000 serves this worktree's `.next`, so no `next build` until
+    the run is over.
+- **Brand D stock (manager's option (b), NON-UI, recorded on #823):** 14:10:09Z → 14:11:49Z.
+  - The capped select was given Brand D's item from the console. React state was VERIFIED before submitting:
+    the first attempt left it on BRANDA-0001-L-OLI, and that attempt was NOT submitted.
+  - Then Record count → Reconcile (flagged +50) → Approve.
+  - Rotterdam 50 on hand; the Store API says in_stock true.
+  - Lesson: a DOM change before hydration does not reach React. Always read the element's `__reactProps` value
+    before submitting.
 - **#815 review follow-ups (2026-11-11, Manager session twelve).**
   - Branch `admin/phase6-shipping-followups` from main 97218bd2. **Code sha aac7555b.**
   - `updateShippingOptionAction(storeId, optionId, values)` re-reads the option from the core (stored currency,

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed — #823: the count form can reach any stock item
+
+- HQ › Warehouse › Cycle counts' "Stock item" list was the first 100 items by SKU, so an item past them could
+  never be counted, and counting is the only admin path that puts stock on hand. Brand D's first product was
+  one of them.
+- Now a "Find the item by SKU" search (`?count_sku=`) asks the API for matching items (`listStockItems({ sku })`).
+- Each stock-item row has "Record a count", which opens the form with that item preselected (`?count_item=`).
+- The form says when it shows only the first 100.
+
 ### Changed — #815 review follow-ups (Refs #809)
 
 - `updateShippingOptionAction(storeId, optionId, values)` re-reads the option from the core

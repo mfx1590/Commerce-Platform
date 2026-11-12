@@ -188,14 +188,21 @@ export function PoolVariantForm({
 export function RecordCountForm({
   warehouses,
   stockItems,
+  defaultStockItemId = '',
 }: {
   warehouses: readonly Option[];
   stockItems: readonly Option[];
+  /** Preselected when it is among `stockItems` (an item row's "Record a count", #823). */
+  defaultStockItemId?: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [warehouseId, setWarehouseId] = useState(warehouses[0]?.value ?? '');
-  const [stockItemId, setStockItemId] = useState(stockItems[0]?.value ?? '');
+  const [stockItemId, setStockItemId] = useState(
+    stockItems.some((option) => option.value === defaultStockItemId)
+      ? defaultStockItemId
+      : (stockItems[0]?.value ?? ''),
+  );
   const [quantity, setQuantity] = useState('');
   const [countedAt, setCountedAt] = useState('');
   const [note, setNote] = useState('');

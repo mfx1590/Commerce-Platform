@@ -381,6 +381,59 @@ describe('cycle counts', () => {
   });
 });
 
+describe('the count form finds any item, not only the first 100 (#823)', () => {
+  const itemSelect = () =>
+    within(screen.getByRole('form', { name: 'Record a count' })).getByRole('combobox', {
+      name: 'Stock item',
+    });
+
+  it('unsearched: the first 100 by SKU, and says so', async () => {
+    await renderPage({ tab: 'counts' });
+    expect(api.listStockItems).toHaveBeenCalledWith({ limit: 100 });
+    expect(screen.getByRole('search', { name: 'Find the item to count' })).toHaveTextContent(
+      'The list below shows the first 100 items by SKU; search to find any other.',
+    );
+  });
+
+  it('a SKU search asks the API for matching items, so an item past the first 100 is offered', async () => {
+    // The brand D run: LINENTEA-ONESIZE sorted after 100+ BRANDA items and was never offered.
+    api.listStockItems.mockResolvedValue(ok({ items: [single], page: 1, limit: 100, total: 1 }));
+    await renderPage({ tab: 'counts', count_sku: 'CAP' });
+    expect(api.listStockItems).toHaveBeenCalledWith({ limit: 100, sku: 'CAP' });
+    expect(itemSelect()).toHaveValue(ITEM_B);
+    expect(screen.getByRole('search', { name: 'Find the item to count' })).toHaveTextContent(
+      'Items whose SKU contains “CAP” (1).',
+    );
+  });
+
+  it('opened from an item row, that item is preselected', async () => {
+    await renderPage({ tab: 'counts', count_sku: 'CAP-BLUE', count_item: ITEM_B });
+    expect(itemSelect()).toHaveValue(ITEM_B);
+  });
+
+  it('a preselect that is not in the list falls back to the first item', async () => {
+    await renderPage({ tab: 'counts', count_item: '71000000-0000-4000-8000-0000000000ff' });
+    expect(itemSelect()).toHaveValue(ITEM);
+  });
+
+  it('no match is said in words', async () => {
+    api.listStockItems.mockResolvedValue(ok({ items: [], page: 1, limit: 100, total: 0 }));
+    await renderPage({ tab: 'counts', count_sku: 'NOPE' });
+    expect(screen.getByRole('search', { name: 'Find the item to count' })).toHaveTextContent(
+      'No stock item’s SKU contains “NOPE”.',
+    );
+  });
+
+  it('each stock item row links to a count of that item (operations only)', async () => {
+    await renderPage();
+    const link = screen.getByRole('link', { name: 'Record a count of CAP-BLUE' });
+    expect(link).toHaveAttribute(
+      'href',
+      `/warehouse?tab=counts&count_sku=CAP-BLUE&count_item=${ITEM_B}`,
+    );
+  });
+});
+
 describe('ReconcileButton renders every error from the brief', () => {
   const cases: Array<[string, ReturnType<typeof err>, RegExp]> = [
     [
