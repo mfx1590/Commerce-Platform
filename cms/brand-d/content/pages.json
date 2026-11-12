@@ -1,0 +1,44 @@
+[
+  {
+    "_id": "page.ja-JP.about",
+    "_type": "page",
+    "locale": "ja-JP",
+    "title": "[[PAGE_ABOUT_TITLE]]",
+    "slug": {
+      "_type": "slug",
+      "current": "about"
+    },
+    "hero": {
+      "_type": "hero",
+      "headline": "[[PAGE_ABOUT_HEADLINE]]",
+      "subheadline": "[[PAGE_ABOUT_SUBHEADLINE]]",
+      "layout": "full-bleed"
+    },
+    "blocks": [],
+    "seo": {
+      "metaTitle": "[[PAGE_ABOUT_META_TITLE]]",
+      "metaDescription": "[[PAGE_ABOUT_META_DESCRIPTION]]"
+    }
+  },
+  {
+    "_id": "page.ja-JP.made",
+    "_type": "page",
+    "locale": "ja-JP",
+    "title": "[[PAGE_MADE_TITLE]]",
+    "slug": {
+      "_type": "slug",
+      "current": "made"
+    },
+    "hero": {
+      "_type": "hero",
+      "headline": "[[PAGE_MADE_HEADLINE]]",
+      "subheadline": "[[PAGE_MADE_SUBHEADLINE]]",
+      "layout": "full-bleed"
+    },
+    "blocks": [],
+    "seo": {
+      "metaTitle": "[[PAGE_MADE_META_TITLE]]",
+      "metaDescription": "[[PAGE_MADE_META_DESCRIPTION]]"
+    }
+  }
+]

@@ -1,0 +1,74 @@
+[
+  {
+    "_id": "footer.ja-JP.default",
+    "_type": "footer",
+    "locale": "ja-JP",
+    "columns": [
+      {
+        "_type": "footerColumn",
+        "_key": "col-shop",
+        "heading": "[[FOOTER_SHOP_HEADING]]",
+        "links": [
+          {
+            "_type": "link",
+            "_key": "f-all",
+            "label": "[[NAV_ALL_LABEL]]",
+            "href": "/products"
+          },
+          {
+            "_type": "link",
+            "_key": "f-campaign",
+            "label": "[[NAV_CAMPAIGN_LABEL]]",
+            "href": "/campaign/launch"
+          }
+        ]
+      },
+      {
+        "_type": "footerColumn",
+        "_key": "col-about",
+        "heading": "[[BRAND_NAME]]",
+        "links": [
+          {
+            "_type": "link",
+            "_key": "f-about",
+            "label": "[[NAV_ABOUT_LABEL]]",
+            "href": "/about"
+          },
+          {
+            "_type": "link",
+            "_key": "f-made",
+            "label": "[[NAV_MADE_LABEL]]",
+            "href": "/made"
+          }
+        ]
+      }
+    ],
+    "legalLinks": [
+      {
+        "_type": "link",
+        "_key": "f-imprint",
+        "label": "Company details",
+        "href": "/legal/imprint"
+      },
+      {
+        "_type": "link",
+        "_key": "f-privacy",
+        "label": "Privacy",
+        "href": "/legal/privacy"
+      },
+      {
+        "_type": "link",
+        "_key": "f-terms",
+        "label": "Terms",
+        "href": "/legal/terms"
+      },
+      {
+        "_type": "link",
+        "_key": "f-returns",
+        "label": "Returns",
+        "href": "/legal/returns"
+      }
+    ],
+    "copyright": "© [[COPYRIGHT_YEAR]] [[COMPANY_LEGAL_NAME]]. All rights reserved."
+  }
+]
