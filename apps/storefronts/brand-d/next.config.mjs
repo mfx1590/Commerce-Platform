@@ -14,22 +14,31 @@ import { analyticsConsentMode } from './src/lib/analytics/consent-mode.mjs';
  * from a real deployment — the #298 defect. Runs set it (README, `scripts/e2e-server.mjs` via
  * playwright.config.ts, `scripts/perf.mjs`).
  *
- * The publishable key is brand D's seeded dev key (packages/db `SEED_IDS.publishableKeys.brandD`,
- * hashed in the database) — it is public by design and carries no entropy; production deployments
- * set `STORE_PUBLISHABLE_KEY` in the environment. The Store API resolves the store (`brand-d`) and
- * sales channel from the key, so no store code appears in this app.
+ * **No publishable key is defaulted here, and that is deliberate (#827).** Brands A, B and C each
+ * have a seeded dev key (`SEED_IDS.publishableKeys.brandA` and friends), which is public by design
+ * and works against a local database. Brand D has none: `SEED_IDS.publishableKeys.brandD` does not
+ * exist, because this store was created in the onboarding wizard rather than seeded. The generated
+ * file used to carry `pk_brand-d_dev_000…` anyway — a value that looks configured and
+ * authenticates as nothing, so the core answers 401 and the app renders nothing.
+ *
+ * `STORE_PUBLISHABLE_KEY` therefore comes from the environment, and only from there. The wizard
+ * shows the real key once; it must never be committed (CLAUDE.md, and the secret scan reads every
+ * branch's whole history). The Store API resolves the store (`brand-d`) and sales channel from the
+ * key, so no store code appears in this app.
  */
-process.env.STORE_PUBLISHABLE_KEY ??= 'pk_brand-d_dev_00000000000000000000';
 
 /**
- * **Brand D sells in en-GB only** (`cms/src/datasets.ts`, and `store.locales` in the seed), where the
- * starter's `src/i18n/routing.ts` defaults `SUPPORTED_LOCALES` to `'en-GB,de-DE'`.
+ * **Brand D sells in `ja-JP` only**, where the starter's `src/i18n/routing.ts` defaults
+ * `SUPPORTED_LOCALES` to `'en-GB,de-DE'`.
  *
  * That file is SYNCED, not preserved, so the default cannot be changed per brand without creating
  * drift the next sync would undo. The right lever is this one: a runtime default here, read by
- * `next build`, `next dev` and `next start` alike, with the environment still winning. Brand A never
- * needed it because A happens to sell exactly the starter's two locales — B is the first brand where
- * the locale list is genuinely the brand's own.
+ * `next build`, `next dev` and `next start` alike, with the environment still winning.
+ *
+ * Unlike brands A, B and C, this one is **not in `packages/db`'s seed and not in
+ * `cms/src/datasets.ts`**: its store was created in the onboarding wizard (D8). So the locale list
+ * here is the only place in this repo that states what brand D sells — there is no seed row to
+ * check it against, which is why `playwright.config.ts` has to repeat it for the e2e process.
  */
 process.env.SUPPORTED_LOCALES ??= 'ja-JP';
 

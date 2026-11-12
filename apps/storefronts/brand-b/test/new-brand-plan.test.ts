@@ -210,6 +210,23 @@ describe('substitutions', () => {
 });
 
 describe('runtimeDefaults — the two levers brand A never needed', () => {
+  it('writes a seeded key only for a brand that is IN the seed (#827)', () => {
+    // The brand D run's 401: the generator wrote `pk_brand-d_dev_000…` into a brand whose store
+    // came from the onboarding wizard. That value is real for a seeded brand and authenticates as
+    // nothing for any other, so the file looked configured and the core refused it — a long way
+    // from the cause. A non-seeded brand takes the key from the environment, where the wizard's
+    // one-time key goes, and nothing writes it down.
+    for (const code of SEEDED_BRANDS) {
+      const names = runtimeDefaults({ code, locales: ['en-GB'] }).map((d) => d.name);
+      expect(names, `${code} is seeded and keeps its key`).toContain('STORE_PUBLISHABLE_KEY');
+    }
+    const fourth = runtimeDefaults({ code: 'brand-d', locales: ['ja-JP'] });
+    expect(fourth.map((d) => d.name)).not.toContain('STORE_PUBLISHABLE_KEY');
+    // The other two levers are unconditional: a brand that stays quiet about them serves a URL
+    // space with no content and signs its customers in through brand A's client.
+    expect(fourth.map((d) => d.name)).toEqual(['SUPPORTED_LOCALES', 'KEYCLOAK_CLIENT_ID']);
+  });
+
   it('emits the publishable key, the locale list and the brand OWN Keycloak client', () => {
     const defaults = runtimeDefaults({ code: 'brand-c', locales: ['en-US'] });
     expect(defaults).toEqual([
