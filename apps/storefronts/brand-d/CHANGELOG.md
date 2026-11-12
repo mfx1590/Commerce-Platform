@@ -32,5 +32,18 @@
   Two wait on the store offering no payment method at all (`payment: {"methods": []}` — #825), so
   the funnel cannot complete; the third needs a second listed product. The CSP suite is **5 passed,
   1 failed**, that one failure being the same payment gap.
+- **After #821's delta review:**
+  - **`perf/store.example.json`** — without it `scripts/perf.mjs` falls back to the contract's
+    brand A store (EUR, `en-GB`/`de-DE`) while Lighthouse asks for `/ja-JP/…`, so the perf leg
+    measures 404s (#447's failure). The example is this store's real shape, with `card` and
+    `invoice` so the funnel pages are measurable.
+  - **The dead publishable key is gone from both config files**, and the generator no longer writes
+    one for a brand outside `SEEDED_BRANDS` (#827). The comment claiming
+    `SEED_IDS.publishableKeys.brandD` was doubly wrong: that constant does not exist, and the value
+    it described authenticated as nothing.
+  - **Three generated comments said brand B's facts under brand D's name** — "sells in en-GB only",
+    "ships GB only", "GBP prices", and an `e2e/journey.spec.ts` this brand does not have. All
+    corrected; the missing journey spec is now stated as the gap it is rather than described as
+    filled. Same class as #826: the substitution rewrites the sentence and not the fact.
 - `messages/ja-JP.json` is a copy of `en-GB` and **untranslated**. Without the file the app does not
   render at all, so the generator copies it; every string in it is English.

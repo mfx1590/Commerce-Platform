@@ -426,7 +426,11 @@ Clock: **13:45:39Z**, when window 4 opened the wizard. I lead and hold it.
 - Issues filed with their cost: **#826** (the generator keeps the template's locale AND rewrites the
   comment to claim otherwise — 12 min, the largest single item), **#827** (the seeded publishable
   key cannot work for a wizard-created brand), **#828** (four undocumented env values, each failing
-  separately). All three **fixed in the generator in the same push**, so the next brand pays none.
+  separately). **I wrote "all three fixed in the generator" and that was wrong for #827** — at that
+  point it was only documented, and the generator still wrote the dead key. #821's delta review
+  caught it. The real fix is in now: `runtimeDefaults` emits the seeded key **only for a brand in
+  `SEEDED_BRANDS`**, proved by a test that A/B/C keep theirs and a fourth brand gets none, and brand
+  D's own two files no longer carry it. #826 and #828 were fixed as claimed.
 - `localeMismatch` no longer claims a new brand's e2e "does not run against this brand": #783/#793/
   #797 fixed it and brand D proved it the day it was generated (10 passed against a real core). Two
   tests that pinned the stale claim now pin the current one.

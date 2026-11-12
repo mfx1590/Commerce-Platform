@@ -293,21 +293,38 @@ export const LOCALE_DATA_FILES = ['lighthouserc.json'];
  * @param {{ code: string, locales: readonly string[] }} target
  */
 export function localeProse(template, target) {
-  if (localePairs(template, target).length === 0) return [];
+  const marketDiffers =
+    localePairs(template, target).length > 0 ||
+    (target.currency !== undefined && template.currency !== undefined
+      ? target.currency !== template.currency
+      : false) ||
+    (target.jurisdiction !== undefined && template.jurisdiction !== undefined
+      ? target.jurisdiction !== template.jurisdiction
+      : false);
+  if (!marketDiffers) return [];
   return [
     {
       path: 'next.config.mjs',
-      what: `the SUPPORTED_LOCALES block explains why ${template.code} needs the runtime default`,
+      what:
+        'the SUPPORTED_LOCALES block, and the publishable-key comment above it, argue from the ' +
+        "TEMPLATE brand's facts",
       why:
-        "it quotes the starter's own default and says which brand was the first to need the " +
-        'override. Both are facts about other apps; neither is rewritten.',
+        "the locale block quotes the starter's own default and says which brand first needed the " +
+        'override \u2014 facts about other apps, so neither is rewritten. The key comment is worse: ' +
+        'substitution turns "SEED_IDS.publishableKeys.brandB" into a constant that does not ' +
+        'exist for a brand outside the seed, and the sentence around it then describes a key ' +
+        'this brand does not have (#827). MEASURED on brand D: the generated file said ' +
+        '"Brand D sells in en-GB only" about a brand that sells ja-JP.',
     },
     {
       path: 'playwright.config.ts',
-      what: 'the locale-plural exclusion block quotes the literal seo-head.spec.ts declares',
+      what: "the exclusion block states the TEMPLATE brand's market, currency and spec list",
       why:
-        'the quote must stay the starter list or the comment stops matching the file it is ' +
-        'about, while the surrounding argument is about the template brand.',
+        'the seo-head quote must stay the starter list or the comment stops matching the file it ' +
+        'is about. The rest is the trap: substitution rewrites "brand B" to this brand and leaves ' +
+        '"ships GB only", "GBP prices" and a reference to an `e2e/journey.spec.ts` the new brand ' +
+        'does not have. MEASURED on brand D \u2014 all four sentences were false, and a comment that ' +
+        'claims correctness costs more than no comment, because a reader believes it (#826).',
     },
   ];
 }
@@ -409,7 +426,15 @@ export const TEMPLATE_FILES = {
  */
 export function runtimeDefaults(target) {
   return [
-    { name: 'STORE_PUBLISHABLE_KEY', value: devPublishableKey(target.code) },
+    // Only for a brand that IS in the seed (#827). The seeded key is a real, working key for a
+    // local database; for a brand created in the onboarding wizard there is no such value, and
+    // writing one anyway produces a file that looks configured and authenticates as nothing — the
+    // core answers 401 and the app renders nothing, which is a long way from the cause. Such a
+    // brand takes `STORE_PUBLISHABLE_KEY` from the environment, where the wizard's one-time key
+    // goes; it must never be committed.
+    ...(SEEDED_BRANDS.includes(target.code)
+      ? [{ name: 'STORE_PUBLISHABLE_KEY', value: devPublishableKey(target.code) }]
+      : []),
     { name: 'SUPPORTED_LOCALES', value: target.locales.join(',') },
     { name: 'KEYCLOAK_CLIENT_ID', value: `storefront-${target.code}` },
   ];

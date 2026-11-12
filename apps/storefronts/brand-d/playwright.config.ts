@@ -34,13 +34,15 @@ const SITE_URL = process.env.SITE_URL;
  * a 403 that reads like a permissions bug and is really a missing variable. `journey.spec.ts`
  * never hit it because it carries the same fallback itself.
  *
- * The same value as `next.config.mjs`, deliberately: a dev **publishable** key, which is public by
- * design and already in this repo. Keep the two in step.
+ * **Brand D has no dev key to default to (#827).** Brands A, B and C use their seeded one here,
+ * the same value as their `next.config.mjs`. This store came from the onboarding wizard, so the
+ * only key that works is the real one, it is not in this repo, and it must never be: pass
+ * `STORE_PUBLISHABLE_KEY` in the environment for any run that talks to a core. A mock run needs no
+ * key at all, which is why the suite still works without one.
  *
  * Window 3 is hardening the spec separately (#382: assert `ok()` with status and body on
  * `GET /store` and every admin call) so the next missing variable fails where it happens.
  */
-process.env.STORE_PUBLISHABLE_KEY ??= 'pk_brand-d_dev_00000000000000000000';
 /**
  * **Brand D's locale and market, for the Playwright process** (#441 parts 4 and 3).
  *
@@ -129,13 +131,15 @@ const WORKERS = workersFromEnv(process.env.E2E_WORKERS);
  *   against brand D's one locale, and **brand D has its `<head>` metadata coverage back** — the gap
  *   `ONBOARDING-GAPS.md` § 3.12 recorded is closed.
  * - Four funnel tests were excluded because `completeAddressStep` filled a Netherlands address and
- *   brand D ships GB only. Part 3 made the address come from `E2E_SHIP_ADDRESS_JSON`, set above.
+ *   **brand D ships JP only**. Part 3 made the address come from `E2E_SHIP_ADDRESS_JSON`, set
+ *   above — a Tokyo address, because the generated one was the template brand's Manchester street
+ *   and this store refuses it.
  *
- * `e2e/journey.spec.ts` stays. It is not the same coverage: it asserts brand D's **identity** (one
- * locale served, `/de-DE` not served as de-DE, GBP prices against the core) and carries the
- * `GET /store` payment precondition with the CI-visible skip and success lines (#442). The funnel
- * overlap with the inherited specs is deliberate — a brand proving its own checkout on its own
- * market is worth one duplicated walk.
+ * **Brand D has no `e2e/journey.spec.ts` of its own.** Brands B and C each wrote one to assert
+ * their identity and carry the `GET /store` payment precondition (#442); this brand was generated
+ * in the D8 proving run and has not. Until it does, the inherited specs are the whole suite, and
+ * nothing here asserts brand D's **JPY** prices or that `/de-DE` is not served — the gap is real
+ * and is recorded in `CHANGELOG.md` rather than described here as if it were filled.
  */
 
 export default defineConfig({
