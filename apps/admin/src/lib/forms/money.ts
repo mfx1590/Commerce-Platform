@@ -87,7 +87,21 @@ export function formatMoney(amountMinor: number, currency: string, locale = 'en-
   }
 }
 
-export function moneyErrorMessage(reason: MoneyParseError['reason'], currency: string): string {
+export function moneyErrorMessage(
+  reason: MoneyParseError['reason'],
+  currency: string,
+  typed?: string,
+): string {
+  // A zero-decimal currency typed with thousands separators ("1,980" or "1.980.000" for JPY) reads
+  // as decimals, or as nothing at all: say exactly what to type instead.
+  if (
+    typed !== undefined &&
+    (reason === 'too_many_decimals' || reason === 'not_a_number') &&
+    currencyDigits(currency) === 0 &&
+    /^-?\d{1,3}([.,]\d{3})+$/.test(typed.trim())
+  ) {
+    return `Type ${typed.trim().replace(/[.,]/g, '')} without separators: ${currency} amounts are whole units`;
+  }
   switch (reason) {
     case 'empty':
       return 'Enter an amount';

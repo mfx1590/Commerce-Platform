@@ -636,6 +636,29 @@ jobs:
       - name: playwright journeys (apps/* on Prism, brand storefronts on the core)
         if: needs.changes.outputs.e2e == 'true'
         run: bash infra/ci/run-e2e.sh
+      # The brand-client template (brand-a/b/c in customers-realm.json must be its exact output), the files' additive
+      # plan, the admin-API calls against a fake, the dry run. Here, not in `changes`: the file plan needs prettier.
+      - name: add-brand-client unit tests (one template for every brand client)
+        if: needs.changes.outputs.e2e == 'true'
+        run: node --test infra/keycloak/brand-client.test.mjs
+      # add-brand-client.mjs against THIS job's Keycloak (a fresh one per run, never the shared stack), after every
+      # suite so the extra client cannot touch one: a real create in the customers realm, a re-run that must find it
+      # and change nothing, and a re-run with another port that must report drift (exit 3) and change nothing.
+      # `--live-only`: the checkout's realm files are not written. brand-zz / 3199 exist nowhere else.
+      - name: add-brand-client, live (create, idempotent re-run, drift reported)
+        if: needs.changes.outputs.e2e == 'true'
+        run: |
+          # pipefail: the re-run's own exit code must survive `| tee` (bash -e alone takes tee's) (#817 review)
+          set -o pipefail
+          node infra/keycloak/add-brand-client.mjs brand-zz --port 3199 --live-only
+          node infra/keycloak/add-brand-client.mjs brand-zz --port 3199 --live-only | tee "$RUNNER_TEMP/abc-2.log"
+          grep -q 'already exists' "$RUNNER_TEMP/abc-2.log" || { echo 'the re-run did not find the client'; exit 1; }
+          set +e
+          node infra/keycloak/add-brand-client.mjs brand-zz --port 3198 --live-only
+          rc=$?
+          set -e
+          [ "$rc" -eq 3 ] || { echo "drift was not reported (exit $rc, want 3)"; exit 1; }
+          git diff --exit-code -- infra/keycloak/ || { echo '--live-only wrote a realm file'; exit 1; }
       - name: keycloak and openfga logs on failure
         if: failure() && needs.changes.outputs.e2e == 'true'
         run: docker compose -f infra/docker/docker-compose.yml --profile analytics logs --tail=100 keycloak openfga redpanda clickhouse

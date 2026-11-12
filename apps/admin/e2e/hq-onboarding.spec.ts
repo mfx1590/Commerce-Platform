@@ -86,7 +86,7 @@ test.describe('HQ onboarding', () => {
     await ship.getByLabel('Option name', { exact: true }).fill('Standard');
     await ship.getByLabel('Price (EUR)', { exact: true }).fill('4.95');
     await ship.getByRole('button', { name: 'Create a shipping option for NL' }).click();
-    await expect(page.getByText('NL: shipping option created.')).toBeVisible();
+    await expect(page.getByText('NL: shipping option created (standard-nl).')).toBeVisible();
     await page.getByRole('button', { name: 'Activate' }).click();
     await expect(page.getByRole('status').filter({ hasText: /Active/ })).toBeVisible();
 

@@ -50,7 +50,7 @@ export function ActivatePanel({
   const [taxCountries, setTaxCountries] = useState<string[]>([]);
   const [shippingCountries, setShippingCountries] = useState<string[]>([]);
   const [covered, setCovered] = useState<ReadonlySet<string>>(new Set());
-  const [shipped, setShipped] = useState<ReadonlySet<string>>(new Set());
+  const [shipped, setShipped] = useState<ReadonlyMap<string, string>>(new Map());
   const [failure, setFailure] = useState<{
     message: string | null;
     refusal?: ActionRefusalInfo | undefined;
@@ -137,7 +137,7 @@ export function ActivatePanel({
             shippingCountries.map((country) =>
               shipped.has(country) ? (
                 <p key={country} role="status" className="text-success text-sm">
-                  {country}: shipping option created.
+                  {shipped.get(country)}
                 </p>
               ) : (
                 <ShippingOptionQuickCreate
@@ -145,7 +145,7 @@ export function ActivatePanel({
                   storeId={storeId}
                   country={country}
                   currency={defaultCurrency}
-                  onCreated={(c) => setShipped((prev) => new Set([...prev, c]))}
+                  onCreated={(c, done) => setShipped((prev) => new Map(prev).set(c, done))}
                 />
               ),
             )
@@ -176,7 +176,7 @@ export function ActivatePanel({
             setTaxCountries(result.missingTaxCountries ?? []);
             setShippingCountries(result.missingShippingCountries ?? []);
             setCovered(new Set());
-            setShipped(new Set());
+            setShipped(new Map());
             setFailure({ message: result.formError, refusal: result.refusal });
           });
         }}
