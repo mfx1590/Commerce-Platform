@@ -106,6 +106,7 @@ Local URLs: console `http://localhost:8180` (admin / admin), discovery
   |                      | `https://shop.dev.example.com/auth/callback`, `https://shop.staging.example.com/auth/callback` | the storefront on dev / staging (`infra/helm`)    |
   | `storefront-brand-b` | `http://localhost:3102/*`                                                                      | brand B, once cloned                              |
   | `storefront-brand-c` | `http://localhost:3103/*`                                                                      | brand C, once cloned                              |
+  | `storefront-brand-d` | `http://localhost:3104/*`                                                                      | brand D (wave 3), via `add-brand-client.mjs`      |
 
   Web origins are the origins of those URIs, spelled out (no `*`, no `+`). Post-logout redirects: the same
   `http://localhost:<port>/*` locally and exactly `https://shop.<env>.example.com/` on dev/staging — the
