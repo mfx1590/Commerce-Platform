@@ -557,6 +557,15 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **PR #824 (code commit 733788d5; head = this memory commit).** First code commit c973fc14. The review
+  follow-up 733788d5 shows the hint only when capped (from the API `total`), and a failed item read is an
+  error. main e1c993b5 merged in. After this push: do NOT push to admin/phase6-823-count-sku again; the
+  manager queues it on green.
+- **Brand D run, later steps (2026-11-12):**
+  - Payment: `brand-d` payment.methods [], with no admin path. **#825**, options with the manager (I can't
+    mint an owner API token).
+  - Second product, the manager's decision: cotton-napkin-set ¥2,480 (COTTONNA-ONESIZE). Created in the UI
+    14:23:14Z → 14:24:19Z; stocked by the #823 workaround 14:24:35Z → 14:25:25Z. Both products in stock.
 - **#823 fix (2026-11-12, Manager session thirteen; not on the brand D clock).**
   - Branch `admin/phase6-823-count-sku` from main 314e65bd.
   - The count form's SKU search (`count_sku` → `listStockItems({ limit: 100, sku })`), a per-row "Record a
