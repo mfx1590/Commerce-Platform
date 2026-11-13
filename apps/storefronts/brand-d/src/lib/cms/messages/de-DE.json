@@ -1,0 +1,43 @@
+{
+  "nav": {
+    "label": "Hauptnavigation",
+    "shop": "Shop",
+    "about": "Über uns",
+    "account": "Konto",
+    "cart": "Warenkorb"
+  },
+  "footer": {
+    "label": "Fußzeile",
+    "legal": "Rechtliches",
+    "social": "Folge uns",
+    "copyright": "© {year} {store}"
+  },
+  "page": {
+    "notFound": {
+      "title": "Seite nicht gefunden",
+      "body": "Diese Seite gibt es in diesem Shop nicht, oder sie ist nicht mehr veröffentlicht.",
+      "back": "Zurück zur Startseite"
+    }
+  },
+  "legal": {
+    "lastReviewed": "Zuletzt geprüft am {date}",
+    "kind": {
+      "terms": "Allgemeine Geschäftsbedingungen",
+      "privacy": "Datenschutzerklärung",
+      "imprint": "Impressum",
+      "cookies": "Cookie-Richtlinie",
+      "returns": "Rückgabe"
+    }
+  },
+  "product": {
+    "view": "Produkt ansehen",
+    "unavailable": "Dieses Produkt ist gerade nicht verfügbar."
+  },
+  "image": {
+    "missing": "Bild nicht verfügbar"
+  },
+  "preview": {
+    "banner": "Vorschau: Sie sehen unveröffentlichte Entwürfe.",
+    "exit": "Vorschau beenden"
+  }
+}

@@ -137,14 +137,24 @@ test('drift: the same client is none; a changed redirect, a missing or extra map
 });
 
 test('the files: brand D is ADDED after the last storefront client, nothing else changes, and a re-run does nothing', async () => {
-  const want = brandClient({ code: 'brand-d', ports: [3104] });
-  const r = await planFiles(want, defaultOrigin('brand-d'), { realmText, profileText });
+  const want = brandClient({ code: 'brand-zz', ports: [3199] });
+  const r = await planFiles(want, defaultOrigin('brand-zz'), { realmText, profileText });
   assert.deepEqual(r.drift, []);
   const after = JSON.parse(r.realm);
   const ids = after.clients.map((c) => c.clientId);
-  assert.equal(ids.indexOf('storefront-brand-d'), ids.indexOf('storefront-brand-c') + 1);
+  assert.equal(
+    ids.indexOf('storefront-brand-zz'),
+    ids.findLastIndex(
+      (id, i) => i < ids.indexOf('storefront-brand-zz') && id.startsWith('storefront-'),
+    ) + 1,
+    'right after the last storefront client',
+  );
+  assert.ok(
+    ids.slice(ids.indexOf('storefront-brand-zz') + 1).every((id) => !id.startsWith('storefront-')),
+    'and no storefront client after it',
+  );
   assert.deepEqual(
-    after.clients.filter((c) => c.clientId !== 'storefront-brand-d'),
+    after.clients.filter((c) => c.clientId !== 'storefront-brand-zz'),
     realm.clients,
     'every other client is untouched',
   );
@@ -161,23 +171,23 @@ test('the files: brand D is ADDED after the last storefront client, nothing else
   assert.equal(j, before.length, 'the realm file only gained lines');
 
   const profile = JSON.parse(r.profile);
-  assert.deepEqual(profile.realms.customers.clients['storefront-brand-d'], {
-    origin: 'https://shop-d.example.com',
-    callback: 'https://shop-d.example.com/auth/callback',
+  assert.deepEqual(profile.realms.customers.clients['storefront-brand-zz'], {
+    origin: 'https://shop-zz.example.com',
+    callback: 'https://shop-zz.example.com/auth/callback',
   });
   assert.deepEqual(
-    { ...profile.realms.customers.clients, 'storefront-brand-d': undefined },
-    { ...JSON.parse(profileText).realms.customers.clients, 'storefront-brand-d': undefined },
+    { ...profile.realms.customers.clients, 'storefront-brand-zz': undefined },
+    { ...JSON.parse(profileText).realms.customers.clients, 'storefront-brand-zz': undefined },
   );
 
   // idempotent: run on its own output, nothing to write, nothing drifted
-  const again = await planFiles(want, defaultOrigin('brand-d'), {
+  const again = await planFiles(want, defaultOrigin('brand-zz'), {
     realmText: r.realm,
     profileText: r.profile,
   });
   assert.deepEqual(again, { realm: null, profile: null, drift: [], notes: [] });
   // and the added client passes the template test's own read-back
-  const d = JSON.parse(r.realm).clients.find((c) => c.clientId === 'storefront-brand-d');
+  const d = JSON.parse(r.realm).clients.find((c) => c.clientId === 'storefront-brand-zz');
   assert.equal(JSON.stringify(brandClient(paramsOf(d))), JSON.stringify(d));
   // an existing brand: nothing written; a different port is reported, never rewritten
   const b = await planFiles(
@@ -355,7 +365,7 @@ test('live: an existing client is only read; drift is reported, never written', 
 
 test('--dry-run prints the request, sends nothing (no token), writes no file', () => {
   const before = [statSync(REALM_FILE).mtimeMs, statSync(PROFILE_FILE).mtimeMs];
-  const r = spawnSync(process.execPath, [SCRIPT, 'brand-d', '--port', '3104', '--dry-run'], {
+  const r = spawnSync(process.execPath, [SCRIPT, 'brand-zz', '--port', '3199', '--dry-run'], {
     encoding: 'utf8',
     // a port nothing listens on: any request would fail the run
     env: { ...process.env, KEYCLOAK_URL: 'http://127.0.0.1:9' },
@@ -363,11 +373,11 @@ test('--dry-run prints the request, sends nothing (no token), writes no file', (
   assert.equal(r.status, 0, r.stderr);
   assert.match(
     r.stdout,
-    /DRY RUN POST http:\/\/127\.0\.0\.1:9\/admin\/realms\/customers\/clients\n\{\n {2}"clientId": "storefront-brand-d"/,
+    /DRY RUN POST http:\/\/127\.0\.0\.1:9\/admin\/realms\/customers\/clients\n\{\n {2}"clientId": "storefront-brand-zz"/,
   );
-  assert.match(r.stdout, /"claim\.value": "brand-d"/);
-  assert.match(r.stdout, /DRY RUN would add storefront-brand-d to customers-realm\.json/);
-  assert.match(r.stdout, /DRY RUN would add storefront-brand-d to production-profile\.json/);
+  assert.match(r.stdout, /"claim\.value": "brand-zz"/);
+  assert.match(r.stdout, /DRY RUN would add storefront-brand-zz to customers-realm\.json/);
+  assert.match(r.stdout, /DRY RUN would add storefront-brand-zz to production-profile\.json/);
   assert.match(r.stdout, /DRY RUN then: node infra\/keycloak\/derive-production\.mjs customers/);
   assert.deepEqual([statSync(REALM_FILE).mtimeMs, statSync(PROFILE_FILE).mtimeMs], before);
 });

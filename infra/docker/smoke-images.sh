@@ -41,6 +41,7 @@ APPS=(
   "storefront-brand-a:3101"
   "storefront-brand-b:3102"
   "storefront-brand-c:3103"
+  "storefront-brand-d:3104"
   "engagement:4040"      # a real app (has `start`): only non-root and dist/ are checked, it is not booted
 )
 
