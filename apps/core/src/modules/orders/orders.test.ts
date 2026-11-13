@@ -601,8 +601,42 @@ describe('compensation', () => {
 });
 
 describe('order edits before fulfilment', () => {
+  // #855 review: line edits are behind ORDER_LINE_EDITS_ENABLED (off by default, until #867) and refuse a payment
+  // that is authorized or captured. Placement authorises, so no public flow reaches an editable order: the order's
+  // payment_status is set to `awaiting` here, at the module level, to exercise the edit itself.
+  beforeAll(() => {
+    process.env.ORDER_LINE_EDITS_ENABLED = '1';
+  });
+  afterAll(() => {
+    delete process.env.ORDER_LINE_EDITS_ENABLED;
+  });
+
+  it('switched off (the default): both edits are 409 order_edits, after the 404s', async () => {
+    const order = await placeOrder(2);
+    delete process.env.ORDER_LINE_EDITS_ENABLED;
+    try {
+      const [l1] = order.items;
+      await expect(decreaseLineQuantity(a, order.id, l1!.id, 1, actor)).rejects.toMatchObject({
+        code: 'conflict',
+        details: { field: 'order_edits' },
+      });
+      await expect(cancelLine(a, order.id, l1!.id, actor)).rejects.toMatchObject({
+        code: 'conflict',
+        details: { field: 'order_edits' },
+      });
+      await expect(
+        cancelLine(a, order.id, '00000000-0000-4000-8000-000000000855', actor),
+      ).rejects.toMatchObject({ code: 'not_found' });
+    } finally {
+      process.env.ORDER_LINE_EDITS_ENABLED = '1';
+    }
+  });
+
   it('quantity down and line cancel recompute totals with the tax calculator, record the delta, emit order.updated', async () => {
     const order = await placeOrder(2);
+    await db.owner.query(`UPDATE "order" SET payment_status = 'awaiting' WHERE id = $1`, [
+      order.id,
+    ]);
     const [l1, l2] = order.items;
     const unit1 = l1!.unit_price.amount_minor;
     const edited = await decreaseLineQuantity(a, order.id, l1!.id, 1, actor);

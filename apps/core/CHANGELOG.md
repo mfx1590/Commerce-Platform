@@ -12,14 +12,20 @@
 - The edits now release the removed units' stock reservations in their transaction (new inventory
   `releaseForOrderLine`: least-preferred warehouse first; a partly covered reservation keeps its id with a lower
   quantity). Before, a lowered or cancelled line kept its units reserved until the order was cancelled.
-- An order with a shipment that is not `cancelled` can no longer be edited (409, `details.field: shipments`), nor one
-  whose payment is `captured`, `partially_refunded` or `refunded` (409, `details.field: payment_status`): nothing
-  refunds `metadata.edits[].delta_minor`, capture defaults to the original authorisation and accounting does not
-  consume `order.updated` — filed as #868.
-- `test/order-line-edits.test.ts` (4 tests, through HTTP): EUR and JPY (brand D, ¥1,980 × 3 → 1: line ¥2,178, the
+- **The edits are switched OFF by default** (`ORDER_LINE_EDITS_ENABLED`, manager decision on the #863 review): both
+  operations answer 409 `order_edits` for every order, after the permission check and the 404s, until #867 gives
+  edits a money side — the ledger posts at placement and never hears of an edit, capture takes the original
+  authorisation, nothing refunds `metadata.edits`. Not to be set in production before #867 closes.
+- With the switch on, an order with a shipment that is not `cancelled` (409 `shipments`) or a payment that is
+  `authorized`, `captured`, `partially_refunded` or `refunded` (409 `payment`) is refused; only `awaiting` proceeds.
+- `test/order-line-edits.test.ts` (8 tests, through HTTP): switched off → 409 for both, tenancy answers unchanged;
+  with it on (payment moved to `awaiting` at the module level — no public flow leaves one): EUR and JPY (brand D, ¥1,980 × 3 → 1: line ¥2,178, the
   order −¥4,356) totals exact in minor units and recomputed independently; reservations and the pool's `reserved`;
   exactly one `order.updated` per edit; a tax-provider failure after the line update rolls back the line, the
-  reservations, the totals and the outbox. Mutation-checked: without the release, or without the shipment rule, it fails.
+  reservations, the totals and the outbox; the shipment 409 through `createShipment`; the payment 409 for
+  `authorized` (from placement) and `captured` (`markPaymentCaptured`) in EUR and JPY; two lines of one variant
+  release only their own quantity. Mutation-checked: the switch forced on, `authorized` allowed, no shipment rule,
+  no release — each fails.
 
 ### 2026-11-11 · a just-onboarded store is in scope at once (#809 follow-up)
 

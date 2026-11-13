@@ -119,11 +119,21 @@ transaction on another connection would deadlock behind it (tested in `orders.te
 ## Order edits before fulfilment (`edits.ts`)
 
 `decreaseLineQuantity(client, orderId, lineItemId, quantity, actor)` and `cancelLine(client, orderId, lineItemId, actor)`
-(the last line cannot be cancelled — cancel the order). Allowed while `status ∈ {pending, confirmed}`,
-`fulfillment_status = unfulfilled` and no shipment that is not `cancelled` exists for the order (a planned shipment
-keeps the order `confirmed` and unfulfilled, but its lines are allocated to a parcel; #855) — else 409. Also 409
-(`details.field: payment_status`) once the payment is `captured`, `partially_refunded` or `refunded`: an edit would
-leave the customer overpaid, and nothing refunds, captures less or books the difference yet (#868). Line `tax_minor` / `total_minor` and the order totals are recomputed with the
+(the last line cannot be cancelled — cancel the order).
+
+**Switched OFF by default (#855 review, until #867).** `ORDER_LINE_EDITS_ENABLED` is unset → both functions (and
+both routes) answer 409 `conflict` "order line edits are not enabled until the ledger handles them",
+`details.field: order_edits`, for every order — after the permission check and the 404s, so tenancy answers do not
+change. Why: nothing downstream knows an edit happened. The ledger posts the order at PLACEMENT (receivable, VAT
+payable, contract liability) and never hears of the edit — `order.updated` v1 carries no amounts and is not a ledger
+topic; capture takes the ORIGINAL authorisation (`payments/capture.ts`); nothing refunds `metadata.edits`; analytics
+identities break. No payment status is ledger-safe. **`ORDER_LINE_EDITS_ENABLED=1` is for tests and #867's work only
+and must not be set in production before #867 closes.**
+
+With the switch on: allowed while `status ∈ {pending, confirmed}`, `fulfillment_status = unfulfilled`, no shipment
+that is not `cancelled` (a planned shipment keeps the order `confirmed` and unfulfilled, but its lines are allocated
+to a parcel) and the payment is NOT `authorized`, `captured`, `partially_refunded` or `refunded` (409,
+`details.field: payment`) — i.e. only `awaiting`, which placement never leaves behind today (it authorises). Line `tax_minor` / `total_minor` and the order totals are recomputed with the
 **same `TaxCalculator`** the cart used (cart module seam — window 7's Stripe Tax included); shipping is unchanged.
 Money is untouched: the difference is appended to `order.metadata.edits[]` as
 `{ at, line_item_id, sku, from_quantity, to_quantity, delta_minor }` (positive = owed to the customer; window 7

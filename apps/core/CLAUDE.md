@@ -138,7 +138,9 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   `markPayment*`, `markShipmentStarted`, `markShipped`, `markDelivered`, `markReturned`, `cancelOrder` with a
   scoped client + ids (idempotent on the target state); `markShipmentCreated` is a kept no-op. Edits before fulfilment
   recompute totals with the cart's `TaxCalculator`, release the removed units' reservations and leave money to
-  window 7 (`order.metadata.edits`); Admin `updateOrderLineItem` / `cancelOrderLineItem` since #855.
+  window 7 (`order.metadata.edits`); Admin `updateOrderLineItem` / `cancelOrderLineItem` since #855 — switched OFF by
+  default (`ORDER_LINE_EDITS_ENABLED`, 409 `order_edits`) until #867 gives edits a money side; never on in production
+  before then.
 - Inventory (`src/modules/inventory`): `on_hand` changes only through `moveStock` (append-only `stock_movement` +
   one `stock.moved` v2); stock lies in the SHARED POOL — per (stock item, warehouse), every variant that maps the
   item sells from it (#456). Reservations are the placement stock check (`reserveForOrder` from the checkout; lock

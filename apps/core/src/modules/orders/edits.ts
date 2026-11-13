@@ -33,12 +33,39 @@ export interface OrderEdit {
 }
 
 /**
- * Editable while nothing has left: status pending | confirmed, fulfilment `unfulfilled`, and no shipment planned for
- * the order (a `pending` shipment keeps the order `confirmed` and unfulfilled, but its lines are allocated to a
- * parcel — #855). And no money taken (#855 review): once the payment is captured (or partly / fully refunded), an
- * edit would leave the customer overpaid, and nothing refunds `metadata.edits` automatically — 409.
+ * The server-side switch (#855 review, manager decision 2026-11-13): line edits stay OFF until the money side exists
+ * (#867). Nothing downstream knows an edit happened: the ledger posted the order at placement (AR, VAT, contract
+ * liability) and never hears of the edit (`order.updated` v1 carries no amounts and is not a ledger topic), capture
+ * takes the ORIGINAL authorisation, nothing refunds `metadata.edits`. Off (default): both operations answer 409 for
+ * every order, after the permission check and the 404s. `ORDER_LINE_EDITS_ENABLED=1` is for tests and #867's work
+ * only — never in production before #867 closes.
  */
-const MONEY_TAKEN: ReadonlySet<string> = new Set(['captured', 'partially_refunded', 'refunded']);
+export function orderLineEditsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.ORDER_LINE_EDITS_ENABLED === '1';
+}
+
+function refuseUnlessEditsEnabled(): void {
+  if (!orderLineEditsEnabled()) {
+    throw conflict('order line edits are not enabled until the ledger handles them', {
+      field: 'order_edits',
+      reason: 'disabled until #867',
+    });
+  }
+}
+
+/**
+ * With the switch on — editable while nothing has left: status pending | confirmed, fulfilment `unfulfilled`, no
+ * shipment planned for the order (a `pending` shipment keeps the order `confirmed` and unfulfilled, but its lines
+ * are allocated to a parcel), and no payment held or taken: `authorized` (capture would take the original
+ * authorisation), `captured`, `partially_refunded`, `refunded` (the customer would be overpaid) — 409. `awaiting`
+ * proceeds.
+ */
+const PAYMENT_HELD: ReadonlySet<string> = new Set([
+  'authorized',
+  'captured',
+  'partially_refunded',
+  'refunded',
+]);
 
 async function assertEditable(tx: Queryable, o: OrderRow): Promise<void> {
   if (
@@ -51,11 +78,11 @@ async function assertEditable(tx: Queryable, o: OrderRow): Promise<void> {
       to: o.fulfillment_status !== 'unfulfilled' ? 'unfulfilled' : 'pending | confirmed',
     });
   }
-  if (MONEY_TAKEN.has(o.payment_status)) {
-    throw conflict('order can no longer be edited: its payment is captured', {
-      field: 'payment_status',
+  if (PAYMENT_HELD.has(o.payment_status)) {
+    throw conflict('order can no longer be edited: its payment is authorized or captured', {
+      field: 'payment',
       from: o.payment_status,
-      to: 'awaiting | authorized',
+      to: 'awaiting',
     });
   }
   const shipments = await tx.query<{ n: number }>(
@@ -199,8 +226,9 @@ export async function decreaseLineQuantity(
   }
   return client.transaction(async (tx) => {
     const o = await loadOrder(tx, orderId, true);
+    const line = await loadLine(tx, orderId, lineItemId); // the 404s first: tenancy answers do not change
+    refuseUnlessEditsEnabled();
     await assertEditable(tx, o);
-    const line = await loadLine(tx, orderId, lineItemId);
     if (quantity >= line.quantity) {
       throw validationError('quantity can only go down', {
         quantity: `less than the current ${line.quantity}`,
@@ -249,8 +277,9 @@ export async function cancelLine(
 ): Promise<AdminOrder> {
   return client.transaction(async (tx) => {
     const o = await loadOrder(tx, orderId, true);
+    const line = await loadLine(tx, orderId, lineItemId); // the 404s first: tenancy answers do not change
+    refuseUnlessEditsEnabled();
     await assertEditable(tx, o);
-    const line = await loadLine(tx, orderId, lineItemId);
     const lines = await loadOrderLines(tx, orderId);
     if (lines.length === 1) {
       throw conflict('the last line cannot be cancelled; cancel the order', {

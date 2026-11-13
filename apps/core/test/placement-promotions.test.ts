@@ -403,9 +403,16 @@ describe('an order edit scales the frozen discount pro rata (cumulative floor, f
           line.id,
         ])
       ).rows[0]!;
+    // #855 review: line edits are OFF by default and refuse an authorised payment until #867; this test checks the
+    // edit's own arithmetic, so the switch is on and the payment is moved to `awaiting` at the module level.
+    process.env.ORDER_LINE_EDITS_ENABLED = '1';
+    await db.owner.query(`UPDATE "order" SET payment_status = 'awaiting' WHERE id = $1`, [
+      order.id,
+    ]);
     await decreaseLineQuantity(a, order.id, line.id, 2, staff);
     expect(Number((await lineRow()).discount_minor)).toBe(Math.floor((placedDiscount * 2) / 3));
     const two = await decreaseLineQuantity(a, order.id, line.id, 1, staff);
+    delete process.env.ORDER_LINE_EDITS_ENABLED;
     const row = await lineRow();
     expect(Number(row.discount_minor)).toBe(Math.floor(placedDiscount / 3)); // from the line as placed
     expect(row.metadata.discount_base).toEqual({ quantity: 3, discount_minor: placedDiscount });

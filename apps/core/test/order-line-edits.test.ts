@@ -3,6 +3,14 @@
 // over a seeded throwaway database. Money is checked in minor units for a two-decimal (EUR, brand A) and a
 // zero-decimal (JPY, brand D) order; the removed units' reservations are released; one `order.updated` per edit,
 // in the same transaction as the change (a failure after the line update leaves nothing behind).
+//
+// Manager decision on the #863 review: edits are behind ORDER_LINE_EDITS_ENABLED, OFF by default (409 `order_edits`
+// for every order) until #867 gives them a money side; with it on, an order whose payment is authorized or captured
+// is refused too. Placement authorises (manual provider and Stripe alike), so NO public flow reaches an editable
+// order: the edit tests set the order's `payment_status` to `awaiting` (and its payment row to `pending`) at the
+// module level — `awaitingPayment()` below — and say so. The 409s use the states the real flow produces:
+// `authorized` straight from placement, `captured` through the orders module's `markPaymentCaptured` (the call
+// window 7's capture makes).
 import express from 'express';
 import request from 'supertest';
 import { SEED_IDS, seed } from '@platform/db';
@@ -19,6 +27,7 @@ import {
   updateCart,
 } from '../src/modules/cart';
 import { completeCart, createPaymentSession } from '../src/modules/checkout';
+import { markPaymentCaptured } from '../src/modules/orders';
 import { mountCoreMiddleware } from '../src/server';
 import { specValidator } from './helpers/openapi';
 
@@ -31,6 +40,8 @@ let db: TestDatabase;
 let app: express.Express;
 
 const as = (subject: string) => ({
+  post: (path: string, body?: unknown) =>
+    request(app).post(path).set('Authorization', `Bearer dev:${subject}`).send(body),
   patch: (path: string, body?: unknown) =>
     request(app).patch(path).set('Authorization', `Bearer dev:${subject}`).send(body),
   delete: (path: string) => request(app).delete(path).set('Authorization', `Bearer dev:${subject}`),
@@ -38,6 +49,16 @@ const as = (subject: string) => ({
 const owner = as('seed-owner');
 const storeAdmin = as('seed-store-admin');
 const storeStaff = as('seed-store-staff');
+const operations = as('seed-operations');
+
+/**
+ * MODULE-LEVEL state (see the header): no public flow leaves a placed order's payment un-authorised, so the edit
+ * tests move it to `awaiting` / `pending` directly — the only payment state in which an edit is allowed.
+ */
+async function awaitingPayment(orderId: string): Promise<void> {
+  await db.owner.query(`UPDATE "order" SET payment_status = 'awaiting' WHERE id = $1`, [orderId]);
+  await db.owner.query(`UPDATE payment SET status = 'pending' WHERE order_id = $1`, [orderId]);
+}
 
 interface Placed {
   orderId: string;
@@ -235,7 +256,65 @@ afterAll(async () => {
   await db?.drop();
 });
 
-describe('updateOrderLineItem / cancelOrderLineItem (#855)', () => {
+describe('switched off (the default, until #867): 409 order_edits for every order', () => {
+  it('both operations answer 409 after the permission check and the 404s; nothing changes', async () => {
+    delete process.env.ORDER_LINE_EDITS_ENABLED;
+    const [v1, v2] = await variants(A, 'EUR', 2);
+    const placed = await place(
+      A,
+      [
+        { variantId: v1!.id, quantity: 2 },
+        { variantId: v2!.id, quantity: 1 },
+      ],
+      NL,
+    );
+    await awaitingPayment(placed.orderId); // even the one state the switch-on rules allow
+    const line = placed.lines.find((l) => l.variant_id === v1!.id)!;
+    const path = `/admin/stores/${A}/orders/${placed.orderId}/line-items/${line.id}`;
+    const before = await stored(placed.orderId);
+    const events0 = await orderUpdatedRows(placed.orderId);
+    for (const r of [
+      await storeAdmin.patch(path, { quantity: 1 }),
+      await storeAdmin.delete(path),
+    ]) {
+      expect(r.status).toBe(409);
+      spec.assertSchema('Error', r.body);
+      expect(r.body).toMatchObject({
+        code: 'conflict',
+        message: 'order line edits are not enabled until the ledger handles them',
+        details: { field: 'order_edits' },
+      });
+    }
+    // tenancy answers are unchanged: 403 (permission), 404 (unknown line, another store's path)
+    expect((await storeStaff.patch(path, { quantity: 1 })).status).toBe(403);
+    expect(
+      (
+        await storeAdmin.delete(
+          `/admin/stores/${A}/orders/${placed.orderId}/line-items/00000000-0000-4000-8000-000000000855`,
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await owner.patch(
+          `/admin/stores/${SEED_IDS.stores.brandB}/orders/${placed.orderId}/line-items/${line.id}`,
+          { quantity: 1 },
+        )
+      ).status,
+    ).toBe(404);
+    expect(await stored(placed.orderId)).toEqual(before);
+    expect(await orderUpdatedRows(placed.orderId)).toEqual(events0);
+  });
+});
+
+describe('updateOrderLineItem / cancelOrderLineItem (#855), ORDER_LINE_EDITS_ENABLED=1', () => {
+  beforeAll(() => {
+    process.env.ORDER_LINE_EDITS_ENABLED = '1';
+  });
+  afterAll(() => {
+    delete process.env.ORDER_LINE_EDITS_ENABLED;
+  });
+
   it('EUR (two decimals): lower 3 → 1, then cancel the other line — exact totals, reservations released, one order.updated each', async () => {
     const [v1, v2] = await variants(A, 'EUR', 2);
     const placed = await place(
@@ -246,6 +325,7 @@ describe('updateOrderLineItem / cancelOrderLineItem (#855)', () => {
       ],
       NL,
     );
+    await awaitingPayment(placed.orderId);
     const line1 = placed.lines.find((l) => l.variant_id === v1!.id)!;
     const line2 = placed.lines.find((l) => l.variant_id === v2!.id)!;
     const before = await stored(placed.orderId);
@@ -333,6 +413,7 @@ describe('updateOrderLineItem / cancelOrderLineItem (#855)', () => {
       ],
       JP,
     );
+    await awaitingPayment(placed.orderId);
     const line = placed.lines.find((l) => l.variant_id === yen!.id)!;
     expect(line.unit_price_minor).toBe(1980);
     const before = await stored(placed.orderId);
@@ -363,7 +444,7 @@ describe('updateOrderLineItem / cancelOrderLineItem (#855)', () => {
     });
   });
 
-  it('400 / 403 / 404 / 409 per the contract (incl. a captured payment)', async () => {
+  it('400 / 403 / 404 / 409 per the contract', async () => {
     const [v1, v2] = await variants(A, 'EUR', 2);
     const placed = await place(
       A,
@@ -373,6 +454,7 @@ describe('updateOrderLineItem / cancelOrderLineItem (#855)', () => {
       ],
       NL,
     );
+    await awaitingPayment(placed.orderId);
     const line = placed.lines.find((l) => l.variant_id === v1!.id)!;
     const path = `/admin/stores/${A}/orders/${placed.orderId}/line-items/${line.id}`;
 
@@ -405,19 +487,6 @@ describe('updateOrderLineItem / cancelOrderLineItem (#855)', () => {
       { quantity: 1 },
     );
     expect(viaB.status).toBe(404);
-    // 409: a shipment is planned for the order (its lines are allocated to a parcel)
-    const shipment = await db.owner.query<{ id: string }>(
-      `INSERT INTO shipment (organization_id, store_id, order_id, warehouse_id, currency)
-       VALUES ($1, $2, $3, $4, 'EUR') RETURNING id`,
-      [SEED_IDS.organization, A, placed.orderId, SEED_IDS.warehouses.eu],
-    );
-    const planned = await storeAdmin.patch(path, { quantity: 1 });
-    expect(planned.status).toBe(409);
-    spec.assertSchema('Error', planned.body);
-    expect(planned.body.details).toMatchObject({ field: 'shipments' });
-    await db.owner.query(`UPDATE shipment SET status = 'cancelled' WHERE id = $1`, [
-      shipment.rows[0]!.id,
-    ]);
     // 409: fulfilled
     await db.owner.query(`UPDATE "order" SET fulfillment_status = 'fulfilled' WHERE id = $1`, [
       placed.orderId,
@@ -428,22 +497,116 @@ describe('updateOrderLineItem / cancelOrderLineItem (#855)', () => {
     await db.owner.query(`UPDATE "order" SET fulfillment_status = 'unfulfilled' WHERE id = $1`, [
       placed.orderId,
     ]);
-    // 409: the payment is captured (an edit would leave the customer overpaid; nothing refunds the delta)
-    for (const st of ['captured', 'partially_refunded', 'refunded']) {
-      await db.owner.query(`UPDATE "order" SET payment_status = $2 WHERE id = $1`, [
-        placed.orderId,
-        st,
-      ]);
-      const taken = await storeAdmin.patch(path, { quantity: 1 });
-      expect(taken.status).toBe(409);
-      expect(taken.body.details).toMatchObject({ field: 'payment_status', from: st });
-      expect((await storeAdmin.delete(path)).status).toBe(409);
-    }
-    await db.owner.query(`UPDATE "order" SET payment_status = 'authorized' WHERE id = $1`, [
-      placed.orderId,
-    ]);
-    // a cancelled shipment does not block: the edit goes through
     expect((await storeAdmin.patch(path, { quantity: 1 })).status).toBe(200);
+  });
+
+  it('409 when a shipment is planned (createShipment through the Admin API)', async () => {
+    const [v1, v2] = await variants(A, 'EUR', 2);
+    const placed = await place(
+      A,
+      [
+        { variantId: v1!.id, quantity: 2 },
+        { variantId: v2!.id, quantity: 1 },
+      ],
+      NL,
+    );
+    await awaitingPayment(placed.orderId);
+    const line = placed.lines.find((l) => l.variant_id === v1!.id)!;
+    const shipment = await operations.post(
+      `/admin/stores/${A}/orders/${placed.orderId}/shipments`,
+      {
+        warehouse_id: SEED_IDS.warehouses.eu,
+        items: [{ order_line_item_id: line.id, quantity: 1 }],
+      },
+    );
+    expect(shipment.status).toBe(201);
+    const path = `/admin/stores/${A}/orders/${placed.orderId}/line-items/${line.id}`;
+    for (const r of [
+      await storeAdmin.patch(path, { quantity: 1 }),
+      await storeAdmin.delete(path),
+    ]) {
+      expect(r.status).toBe(409);
+      spec.assertSchema('Error', r.body);
+      expect(r.body.details).toMatchObject({ field: 'shipments' });
+    }
+  });
+
+  it('409 when the payment is authorized (straight from placement) or captured (markPaymentCaptured) — EUR and JPY', async () => {
+    const hqOf = (storeId: string) =>
+      tenantClient({ organizationId: SEED_IDS.organization, storeIds: [storeId] });
+    for (const [storeId, currency, address, who] of [
+      [A, 'EUR', NL, storeAdmin],
+      [D, 'JPY', JP, owner],
+    ] as const) {
+      const [v1, v2] = await variants(storeId, currency, 2);
+      const placed = await place(
+        storeId,
+        [
+          { variantId: v1!.id, quantity: 2 },
+          { variantId: v2!.id, quantity: 1 },
+        ],
+        address,
+      );
+      const line = placed.lines.find((l) => l.variant_id === v1!.id)!;
+      const path = `/admin/stores/${storeId}/orders/${placed.orderId}/line-items/${line.id}`;
+      const before = await stored(placed.orderId);
+      const reserved0 = await reservedFor(placed.orderId, v1!.id, v1!.stock_item_id);
+      for (const state of ['authorized', 'captured'] as const) {
+        if (state === 'captured') await markPaymentCaptured(hqOf(storeId), placed.orderId, guest);
+        for (const r of [await who.patch(path, { quantity: 1 }), await who.delete(path)]) {
+          expect(r.status, `${currency} ${state}`).toBe(409);
+          spec.assertSchema('Error', r.body);
+          expect(r.body.details).toMatchObject({ field: 'payment', from: state });
+        }
+      }
+      expect(await stored(placed.orderId)).toEqual(before);
+      expect(await reservedFor(placed.orderId, v1!.id, v1!.stock_item_id)).toEqual(reserved0);
+    }
+  });
+
+  it('two lines of ONE variant: each edit releases only its own quantity of that variant', async () => {
+    // The cart merges a repeated variant into one line, so two lines of one variant are built here at the module
+    // level: an order of 3 units is split into lines of 2 and 1 (same price, discount 0), its reservation unchanged.
+    const [v1, v2] = await variants(A, 'EUR', 2);
+    const placed = await place(
+      A,
+      [
+        { variantId: v1!.id, quantity: 3 },
+        { variantId: v2!.id, quantity: 1 },
+      ],
+      NL,
+    );
+    await awaitingPayment(placed.orderId);
+    const line = placed.lines.find((l) => l.variant_id === v1!.id)!;
+    await db.owner.query(`UPDATE order_line_item SET quantity = 2 WHERE id = $1`, [line.id]);
+    const twin = await db.owner.query<{ id: string }>(
+      `INSERT INTO order_line_item (organization_id, store_id, order_id, variant_id, sku, title, variant_title,
+         thumbnail_url, quantity, unit_price_minor, discount_minor, tax_rate_bp, tax_minor, total_minor, metadata)
+       SELECT organization_id, store_id, order_id, variant_id, sku, title, variant_title, thumbnail_url, 1,
+              unit_price_minor, 0, tax_rate_bp, 0, unit_price_minor, metadata
+       FROM order_line_item WHERE id = $1 RETURNING id`,
+      [line.id],
+    );
+    const r0 = await reservedFor(placed.orderId, v1!.id, v1!.stock_item_id);
+    expect(r0.open).toBe(3);
+    const cancelTwin = await storeAdmin.delete(
+      `/admin/stores/${A}/orders/${placed.orderId}/line-items/${twin.rows[0]!.id}`,
+    );
+    expect(cancelTwin.status).toBe(200);
+    expect(await reservedFor(placed.orderId, v1!.id, v1!.stock_item_id)).toEqual({
+      open: 2,
+      pool: r0.pool - 1,
+    });
+    const lower = await storeAdmin.patch(
+      `/admin/stores/${A}/orders/${placed.orderId}/line-items/${line.id}`,
+      { quantity: 1 },
+    );
+    expect(lower.status).toBe(200);
+    expect(await reservedFor(placed.orderId, v1!.id, v1!.stock_item_id)).toEqual({
+      open: 1,
+      pool: r0.pool - 2,
+    });
+    expectExactTotals(await stored(placed.orderId), 0);
   });
 
   it('one transaction: a failure after the line update leaves the line, the reservations, the totals and the outbox untouched', async () => {
@@ -456,6 +619,7 @@ describe('updateOrderLineItem / cancelOrderLineItem (#855)', () => {
       ],
       NL,
     );
+    await awaitingPayment(placed.orderId);
     const line = placed.lines.find((l) => l.variant_id === v1!.id)!;
     const before = await stored(placed.orderId);
     const res0 = await reservedFor(placed.orderId, v1!.id, v1!.stock_item_id);
