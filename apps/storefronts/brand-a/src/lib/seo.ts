@@ -2,6 +2,19 @@ import { minorUnitDigits } from '@platform/ui';
 import { brandConfig, siteUrl } from '@/brand/config';
 import { locales } from '@/i18n/routing';
 import type { Product, Variant } from './store-api';
+import { firstBlock, firstText, productName } from './text';
+
+// The text helpers moved to `./text` (no imports, so client components can use them); re-exported
+// here so existing callers keep working.
+export {
+  categoryName,
+  firstBlock,
+  firstText,
+  imageAlt,
+  productName,
+  STORE_NAME_FALLBACK,
+  storeDisplayName,
+} from './text';
 
 /**
  * SEO as pure functions.
@@ -106,20 +119,6 @@ export interface ProductJsonLd {
 export const META_DESCRIPTION_MAX = 160;
 
 /**
- * The first candidate that has text, whitespace collapsed; `undefined` when none does (#837).
- * Every step is skipped when it is missing OR empty after trimming. A `??` chain falls past `null`
- * and `undefined` only, so an empty `subtitle` (the onboarding wizard's default) stopped it with
- * `""` and an empty description reached the page.
- */
-export function firstText(...candidates: (string | null | undefined)[]): string | undefined {
-  for (const candidate of candidates) {
-    const text = candidate?.replace(/\s+/g, ' ').trim();
-    if (text) return text;
-  }
-  return undefined;
-}
-
-/**
  * `firstText`, cut to `META_DESCRIPTION_MAX` for a `<meta name="description">`: at a word boundary
  * when there is one in the last stretch, with an ellipsis. `undefined` means "emit no description",
  * which is right for something that genuinely has none, never an empty one.
@@ -143,9 +142,12 @@ type DescribedProduct = Pick<Product, 'subtitle' | 'description'> & {
   seo?: { description?: string | null } | null;
 };
 
-/** A product's description, in order: SEO description, subtitle, description (#837). */
+/**
+ * A product's description, in order: SEO description, subtitle, description (#837). Full text with
+ * its paragraphs, for JSON-LD; the meta tag uses `productMetaDescription`.
+ */
 export function productDescriptionText(product: DescribedProduct): string | undefined {
-  return firstText(product.seo?.description, product.subtitle, product.description);
+  return firstBlock(product.seo?.description, product.subtitle, product.description);
 }
 
 /** The same choice, sized for the PDP's meta description and Open Graph description. */
@@ -186,20 +188,21 @@ export function productJsonLd(
   const gtin = stringAttribute(product.attributes, 'gtin');
   // Structured data carries the full text: no truncation (#837).
   const description = productDescriptionText(product);
+  const brandName = firstText(product.brand_name);
+  const categoryText = firstText(product.category?.name);
 
   return {
     '@context': 'https://schema.org',
     '@type': 'Product',
-    name: product.title,
+    name: productName(product),
     url,
     inLanguage: locale,
     ...(description === undefined ? {} : { description }),
     ...(images.length === 0 ? {} : { image: images }),
-    ...(product.brand_name === null
-      ? {}
-      : { brand: { '@type': 'Brand', name: product.brand_name } }),
+    ...(brandName === undefined ? {} : { brand: { '@type': 'Brand', name: brandName } }),
     ...(gtin === undefined ? {} : { gtin }),
-    ...(product.category === null ? {} : { category: product.category.name }),
+    // Optional in schema.org: a blank name omits it (a handle is not a category name, #846 review).
+    ...(categoryText === undefined ? {} : { category: categoryText }),
     ...(offers.length === 0 ? {} : { offers }),
   };
 }

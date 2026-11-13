@@ -7,6 +7,7 @@ import { getContent } from '@/lib/cms/content';
 import { Link } from '@/i18n/navigation';
 import { organizationJsonLd } from '@/lib/seo';
 import { getStoreOrNull } from '@/lib/store';
+import { storeDisplayName } from '@/lib/text';
 
 /**
  * Rendered per request: this page has no cacheable data of its own, but the layout above it calls
@@ -46,7 +47,7 @@ export default async function HomePage({ params }: { params: Promise<{ locale: s
       <CmsHome locale={locale} />
       <section className="flex flex-col items-start gap-4">
         <Badge variant="outline">{store.sales_channel.type}</Badge>
-        <h1 className="text-4xl font-bold leading-tight">{store.name}</h1>
+        <h1 className="text-4xl font-bold leading-tight">{storeDisplayName(store)}</h1>
         <p className="max-w-prose text-muted-foreground">{t('intro')}</p>
         {/* A link that looks like a button: an <a> inside a <button> would be invalid HTML. */}
         <Link href="/products" className={buttonVariants({ size: 'lg' })}>

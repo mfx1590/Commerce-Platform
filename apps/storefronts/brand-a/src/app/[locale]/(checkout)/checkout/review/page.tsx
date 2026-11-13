@@ -11,6 +11,7 @@ import { requireCheckoutStep } from '@/lib/checkout-page';
 import { stepPath } from '@/lib/checkout';
 import { paymentOptions } from '@/lib/payment-options';
 import { getStoreOrNull } from '@/lib/store';
+import { firstText } from '@/lib/text';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getTranslations('checkout.review'))('title') };
@@ -65,7 +66,8 @@ export default async function ReviewStepPage({
         <div className="flex flex-col gap-1 text-sm">
           <h3 className="font-medium">{t('deliveryAndPayment')}</h3>
           <p className="text-muted-foreground">
-            {cart.shipping_option?.name ?? '—'} · {cart.shipping_option?.carrier ?? '—'}
+            {firstText(cart.shipping_option?.name) ?? '—'} ·{' '}
+            {firstText(cart.shipping_option?.carrier) ?? '—'}
           </p>
           <p className="text-muted-foreground">
             {cart.payment_session?.provider ?? '—'} ({cart.payment_session?.status ?? '—'})
