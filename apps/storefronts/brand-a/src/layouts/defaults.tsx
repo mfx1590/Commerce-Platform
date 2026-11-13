@@ -4,6 +4,7 @@ import { Link } from '@/i18n/navigation';
 import { getCurrency } from '@/lib/i18n';
 import { getComponents, type LayoutSlots } from '@/lib/slots';
 import type { Store } from '@/lib/store-api';
+import { firstText, storeDisplayName } from '@/lib/text';
 
 const NAV = [
   { href: '/products', key: 'shop' },
@@ -19,7 +20,7 @@ function Header({ store }: { store: Store | null }) {
       <Announcement store={store} />
       <header className="border-b border-border">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-6 px-4">
-          <Logo storeName={store?.name ?? 'Storefront'} />
+          <Logo storeName={storeDisplayName(store)} />
           <nav aria-label={t('main')} className="flex items-center gap-6 text-sm">
             {NAV.map((item) => (
               <Link key={item.href} href={item.href} className="hover:underline">
@@ -49,12 +50,10 @@ async function Footer({ store }: { store: Store | null }) {
   return (
     <footer className="mt-16 border-t border-border">
       <div className="mx-auto flex max-w-6xl flex-col gap-1 px-4 py-8 text-sm text-muted-foreground">
-        <p>
-          {t('copyright', { year: new Date().getFullYear(), store: store?.name ?? 'Storefront' })}
-        </p>
+        <p>{t('copyright', { year: new Date().getFullYear(), store: storeDisplayName(store) })}</p>
         <p>
           {t('shipsTo', {
-            country: store?.default_country ?? '—',
+            country: firstText(store?.default_country) ?? '—',
             currency,
           })}
         </p>

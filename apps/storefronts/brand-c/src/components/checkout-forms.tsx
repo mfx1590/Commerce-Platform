@@ -12,6 +12,7 @@ import {
   type ActionState,
 } from '@/lib/actions';
 import type { Address, Cart, ShippingOption } from '@/lib/store-api';
+import { firstText } from '@/lib/text';
 
 /**
  * The checkout forms. Each one posts to a server action — the browser never calls the Store API,
@@ -230,7 +231,7 @@ export function ShippingForm({
                 className="h-4 w-4"
               />
               <span className="flex flex-col">
-                <span className="font-medium">{option.name}</span>
+                <span className="font-medium">{firstText(option.name) ?? option.code}</span>
                 <span className="text-sm text-muted-foreground">{option.carrier}</span>
               </span>
             </span>
