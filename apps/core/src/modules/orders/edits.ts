@@ -2,8 +2,9 @@
 // is pending | confirmed and nothing has shipped. Totals are recomputed with the SAME TaxCalculator the cart used
 // (cart module seam, window 7's Stripe Tax included); money stays untouched — the difference is recorded on
 // `order.metadata.edits[]` for window 7 to refund — and exactly one `order.updated` (`changed_fields`) is
-// emitted through `transition()`. Admin API 0.3.0 has no order-edit operation: these are module functions until
-// the CONTRACT CHANGE for `PATCH /admin/stores/{storeId}/orders/{orderId}/line-items/{lineItemId}` lands.
+// emitted through `transition()`. The removed units' stock reservations are released in the same transaction
+// (#855, `releaseForOrderLine`). Served as Admin API `updateOrderLineItem` (PATCH) and `cancelOrderLineItem` (DELETE)
+// on `/admin/stores/{storeId}/orders/{orderId}/line-items/{lineItemId}` (src/http/admin-routes.ts, #855).
 import type { Queryable, ScopedClient } from '@platform/db';
 import type { Actor } from '../../lib/audit';
 import { conflict, notFound, validationError } from '../../lib/errors';
@@ -16,6 +17,7 @@ import {
   type TaxMode,
   type PricingContext,
 } from '../cart';
+import { releaseForOrderLine } from '../inventory';
 import { loadOrder, loadOrderLines, renderAdminOrder } from './read-model';
 import { transition } from './service';
 import type { AdminOrder, OrderLineRow, OrderRow } from './types';
@@ -30,7 +32,42 @@ export interface OrderEdit {
   delta_minor: number;
 }
 
-function assertEditable(o: OrderRow): void {
+/**
+ * The server-side switch (#855 review, manager decision 2026-11-13): line edits stay OFF until the money side exists
+ * (#867). Nothing downstream knows an edit happened: the ledger posted the order at placement (AR, VAT, contract
+ * liability) and never hears of the edit (`order.updated` v1 carries no amounts and is not a ledger topic), capture
+ * takes the ORIGINAL authorisation, nothing refunds `metadata.edits`. Off (default): both operations answer 409 for
+ * every order, after the permission check and the 404s. `ORDER_LINE_EDITS_ENABLED=1` is for tests and #867's work
+ * only — never in production before #867 closes.
+ */
+export function orderLineEditsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.ORDER_LINE_EDITS_ENABLED === '1';
+}
+
+function refuseUnlessEditsEnabled(): void {
+  if (!orderLineEditsEnabled()) {
+    throw conflict('order line edits are not enabled until the ledger handles them', {
+      field: 'order_edits',
+      reason: 'disabled until #867',
+    });
+  }
+}
+
+/**
+ * With the switch on — editable while nothing has left: status pending | confirmed, fulfilment `unfulfilled`, no
+ * shipment planned for the order (a `pending` shipment keeps the order `confirmed` and unfulfilled, but its lines
+ * are allocated to a parcel), and no payment held or taken: `authorized` (capture would take the original
+ * authorisation), `captured`, `partially_refunded`, `refunded` (the customer would be overpaid) — 409. `awaiting`
+ * proceeds.
+ */
+const PAYMENT_HELD: ReadonlySet<string> = new Set([
+  'authorized',
+  'captured',
+  'partially_refunded',
+  'refunded',
+]);
+
+async function assertEditable(tx: Queryable, o: OrderRow): Promise<void> {
   if (
     o.fulfillment_status !== 'unfulfilled' ||
     !(o.status === 'pending' || o.status === 'confirmed')
@@ -39,6 +76,24 @@ function assertEditable(o: OrderRow): void {
       field: o.fulfillment_status !== 'unfulfilled' ? 'fulfillment_status' : 'status',
       from: o.fulfillment_status !== 'unfulfilled' ? o.fulfillment_status : o.status,
       to: o.fulfillment_status !== 'unfulfilled' ? 'unfulfilled' : 'pending | confirmed',
+    });
+  }
+  if (PAYMENT_HELD.has(o.payment_status)) {
+    throw conflict('order can no longer be edited: its payment is authorized or captured', {
+      field: 'payment',
+      from: o.payment_status,
+      to: 'awaiting',
+    });
+  }
+  const shipments = await tx.query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM shipment WHERE order_id = $1 AND status <> 'cancelled'`,
+    [o.id],
+  );
+  if ((shipments.rows[0]?.n ?? 0) > 0) {
+    throw conflict('order can no longer be edited', {
+      field: 'shipments',
+      from: shipments.rows[0]!.n,
+      to: 0,
     });
   }
 }
@@ -171,8 +226,9 @@ export async function decreaseLineQuantity(
   }
   return client.transaction(async (tx) => {
     const o = await loadOrder(tx, orderId, true);
-    assertEditable(o);
-    const line = await loadLine(tx, orderId, lineItemId);
+    const line = await loadLine(tx, orderId, lineItemId); // the 404s first: tenancy answers do not change
+    refuseUnlessEditsEnabled();
+    await assertEditable(tx, o);
     if (quantity >= line.quantity) {
       throw validationError('quantity can only go down', {
         quantity: `less than the current ${line.quantity}`,
@@ -194,6 +250,9 @@ export async function decreaseLineQuantity(
         JSON.stringify({ ...(line.metadata ?? {}), discount_base: base }),
       ],
     );
+    if (line.variant_id) {
+      await releaseForOrderLine(tx, orderId, line.variant_id, line.quantity - quantity);
+    }
     const changed = await recomputeTotals(tx, o);
     const after = await loadOrder(tx, orderId, false);
     await recordEdit(tx, after, {
@@ -218,8 +277,9 @@ export async function cancelLine(
 ): Promise<AdminOrder> {
   return client.transaction(async (tx) => {
     const o = await loadOrder(tx, orderId, true);
-    assertEditable(o);
-    const line = await loadLine(tx, orderId, lineItemId);
+    const line = await loadLine(tx, orderId, lineItemId); // the 404s first: tenancy answers do not change
+    refuseUnlessEditsEnabled();
+    await assertEditable(tx, o);
     const lines = await loadOrderLines(tx, orderId);
     if (lines.length === 1) {
       throw conflict('the last line cannot be cancelled; cancel the order', {
@@ -232,6 +292,7 @@ export async function cancelLine(
       lineItemId,
       orderId,
     ]);
+    if (line.variant_id) await releaseForOrderLine(tx, orderId, line.variant_id, line.quantity);
     const changed = await recomputeTotals(tx, o);
     const after = await loadOrder(tx, orderId, false);
     await recordEdit(tx, after, {
