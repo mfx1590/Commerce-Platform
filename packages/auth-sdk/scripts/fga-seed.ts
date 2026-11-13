@@ -28,8 +28,9 @@ if (existsSync(envFile)) {
 const log = (m: string) => console.info(`fga:seed: ${m}`);
 
 /**
- * The store ids this database has, or null when it cannot be reached in 5 s (#832). With them, a seed tuple about a
- * store the database lacks is skipped (the seed skipped that store: brand-d is the wizard's on the shared dev stack).
+ * The store ids this database has, or null when it cannot be read in 5 s — unreachable, or not migrated (no `store`
+ * table) (#832). With them, a seed tuple about a store the database lacks is skipped (the seed skipped that store:
+ * brand-d is the wizard's on the shared dev stack); an EMPTY set (migrated, not seeded) filters nothing.
  */
 async function storeIdsInDatabase(): Promise<Set<string> | null> {
   let pool: ReturnType<typeof createPool> | undefined;
@@ -51,7 +52,7 @@ async function storeIdsInDatabase(): Promise<Set<string> | null> {
 const storeIds = await storeIdsInDatabase();
 const tuples = storeIds
   ? withoutAbsentStores(loadSeedTuples(), storeIds, log)
-  : (log('database not reachable: writing every seed tuple'), loadSeedTuples());
+  : (log('database not reachable or not migrated: writing every seed tuple'), loadSeedTuples());
 const result = await seedOpenFga({ tuples, log });
 
 function upsertEnv(content: string, key: string, value: string): string {

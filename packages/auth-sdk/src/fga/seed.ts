@@ -48,12 +48,20 @@ async function readAllTuples(client: OpenFgaClient): Promise<TupleKey[]> {
  * exists under another id (brand-d onboarded through the wizard on a shared dev database), so its seeded id has no
  * row there; writing `organization:hq → store:<that id>` anyway would put an id with no store into every HQ scope
  * (ListObjects answers ids straight from OpenFGA). One log line per skipped tuple; every other tuple is kept.
+ *
+ * A database with NO store row at all has not been seeded yet (fga:seed run before db:seed, a fresh clone): then
+ * every tuple is kept and one line says so — filtering there would drop A–C's store tuples too and fail every live
+ * journey on authorization. Only a database with at least one store row filters.
  */
 export function withoutAbsentStores(
   tuples: TupleKey[],
   storeIds: ReadonlySet<string>,
   log: (m: string) => void = () => {},
 ): TupleKey[] {
+  if (storeIds.size === 0) {
+    log('the database has no stores yet (not seeded): writing every seed tuple');
+    return tuples;
+  }
   return tuples.filter((t) => {
     if (!t.object.startsWith('store:')) return true;
     const id = t.object.slice('store:'.length);

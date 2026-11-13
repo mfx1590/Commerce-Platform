@@ -5,8 +5,10 @@
 - `fga:seed` skips a seed tuple about a store the database does not have (`withoutAbsentStores`, exported): one log
   line each. The seed skips brand D on a database whose `brand-d` is the onboarding wizard's (shared dev stack), so
   `organization:hq → store:<D's seeded id>` would otherwise put an id with no store row into every HQ scope. Database
-  unreachable in 5 s → every tuple is written, as before, and it says so. `tuples.seed.json` gains brand D's org tuple.
-- Tests: `seed-filter.test.ts` (+2); store counts 3 → 4 in `openfga-model.test.ts`, `store-object.test.ts` (its own
+  unreachable or not migrated (5 s) → every tuple is written, as before, and it says so; a database with NO store row
+  yet (fga:seed before db:seed) → every tuple too, one line — only a database with at least one store filters.
+  `tuples.seed.json` gains brand D's org tuple.
+- Tests: `seed-filter.test.ts` (+3); store counts 3 → 4 in `openfga-model.test.ts`, `store-object.test.ts` (its own
   unseeded store is `brand-x` now) and hq-rbac's live `gate.test.ts` / `scope.test.ts`.
 
 ## 0.1.0 — 2026-09-04

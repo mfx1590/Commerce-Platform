@@ -25,6 +25,17 @@ describe('withoutAbsentStores (#832)', () => {
     expect(kept.some((t) => t.object === 'organization:hq')).toBe(true);
   });
 
+  it('keeps every tuple, with one line, when the database has no store row at all (db:seed has not run yet)', () => {
+    const tuples = loadSeedTuples();
+    const lines: string[] = [];
+    const kept = withoutAbsentStores(tuples, new Set<string>(), (m) => lines.push(m));
+    expect(kept).toEqual(tuples);
+    expect(kept.filter((t) => t.object.startsWith('store:')).length).toBeGreaterThanOrEqual(4); // A–D's org tuples
+    expect(lines).toEqual([
+      'the database has no stores yet (not seeded): writing every seed tuple',
+    ]);
+  });
+
   it('keeps every tuple when the database has every seeded store (a freshly seeded one, CI)', () => {
     const tuples = loadSeedTuples();
     const all = new Set<string>(Object.values(S));
