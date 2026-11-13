@@ -14,6 +14,8 @@ vi.mock('@/lib/api/admin', () => ({
   updateVariant: vi.fn(),
 }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
+// actions/catalog now imports the permission guard (publish / archive, #870), which is server-only.
+vi.mock('server-only', () => ({}));
 
 const { createProductAction, updateProductAction } = await import('@/app/actions/catalog');
 

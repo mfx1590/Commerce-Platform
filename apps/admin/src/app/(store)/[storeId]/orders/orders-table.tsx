@@ -4,7 +4,9 @@ import type { ColumnDef } from '@tanstack/react-table';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { BulkAction } from '@/components/table/bulk-action';
 import { DataTable } from '@/components/table/data-table';
+import { bulkCancelOrdersAction } from '@/app/actions/bulk-orders';
 import type { AdminError } from '@/lib/api/admin-client';
 import { formatMoney } from '@/lib/forms/money';
 import type { OrderRow } from '@/lib/orders/projection';
@@ -40,8 +42,11 @@ export function OrdersTable({
   query,
   emptyState,
   error,
+  canCancel = false,
 }: {
   storeId: string;
+  /** Offer bulk Cancel (store_admin). A convenience: the server decides, per row. */
+  canCancel?: boolean;
   /** The store's `default_locale`, for money and dates. */
   locale: string;
   /** `OrderRow` projections — the columns shown, without the `customer_id` the table never renders. */
@@ -130,6 +135,28 @@ export function OrdersTable({
       searchPlaceholder="Order number or email"
       emptyState={emptyState}
       error={error}
+      {...(canCancel
+        ? {
+            bulkActions: (selection, { clear }) => (
+              <BulkAction
+                label="Cancel…"
+                noun={{ one: 'order', many: 'orders' }}
+                selection={selection}
+                filters={query.filters}
+                run={(sent, reason) => bulkCancelOrdersAction(storeId, sent, reason)}
+                onClose={clear}
+                destructive
+                reason={{
+                  label: 'Reason (sent with every order)',
+                  placeholder: 'e.g. out of stock',
+                }}
+                question={(_, words) =>
+                  `Cancel ${words}? Each authorised payment is voided; orders already fulfilled or cancelled are skipped.`
+                }
+              />
+            ),
+          }
+        : {})}
     />
   );
 }

@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+### Added — #870 wave 1 item 2 (part 1): bulk actions, page size and filters on Orders and Catalog (window 3)
+
+- **Bulk actions on the shared table.** The DataTable already had selection, including "select all N matching", but no page used it. Now:
+  - Catalog: **Publish** (store_staff) and **Archive…** (store_admin; the API has no unarchive, and the question says so).
+  - Orders: **Cancel…** (store_admin) with one required reason for every order.
+
+  Each action is offered only to principals who hold its relation; the server decides regardless.
+
+- **One way to run a bulk action** (`src/lib/table/bulk.ts`, `bulk-server.ts`). The Admin API has no bulk endpoint, so it is N single calls:
+  - Refused up front, before any read, without the relation; then **checked again per row** before that row's call.
+  - The selection is resolved on the server. Ticked rows are uuid ids, at most 500. "All matching" re-runs the list with only the table's own filters (anything else in the request is dropped) and is **refused when the total moved** since the user saw it, or when it exceeds 500.
+  - Concurrency 4.
+  - Every row is reported: done, skipped (the API's 409 in its words, e.g. already fulfilled), failed, refused, or **outcome unknown** (status 0 / 5xx: never retried, because no mutation takes an idempotency key).
+  - The report lists what needs attention first and stays until closed, which clears the selection.
+- **Page size**: 20 / 50 / 100 rows per page on every DataTable (the contract caps at 100). It writes `limit` and goes back to page 1.
+- **Filters the API already took**:
+  - Orders: **Placed from / to** (`placed_from` / `placed_to`, whole days in UTC; they were only reachable by editing the URL).
+  - Catalog: **Category** (`category_id`, from `listCategories`).
+
+  Generic `SelectFilter` / `DateRangeFilter` (`src/components/table/url-filters.tsx`) for the next tables.
+
+- **Fixed**: the single-row `publishProductAction` / `archiveProductAction` checked no permission server-side; catalog was not in the guard. `CATALOG_PERMISSIONS` (yaml-pinned) now guards both, single row and bulk.
+- Tests:
+  - `test/bulk-actions.test.ts` (20): resolution with the drift and cap refusals, outcomes, concurrency, the report, catalog and orders bulk with up-front and per-row refusal, the filter whitelist, a required reason, a 409 reported as skipped, catalog permissions pinned, and single-row publish / archive refused.
+  - `test/bulk-ui.test.tsx` (11): the page-size picker, BulkAction from ask to report, both filters, and the orders bulk bar gated.
+  - Mutation-checked: the per-row check, the filter whitelist and the drift refusal each fail the suite when removed.
+  - Two existing tests gained a mock for the bulk server module they now import.
+
 ### Fixed — #860: a section guard no longer reports a failed /admin/me as "you need the owner relation"; service accounts are read-only on Roles
 
 - `HqSectionGuard` / `StoreSectionGuard` rendered "You do not have access to this — you need the owner relation"

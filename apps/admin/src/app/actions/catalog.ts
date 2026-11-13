@@ -13,6 +13,7 @@ import {
 import { compact, compactList } from '@/lib/api/payload';
 import type { AdminComponents } from '@/lib/api/admin-client';
 import { toActionResult, type ActionResult } from '@/lib/forms/action-result';
+import { refuseUnlessPermitted } from '@/lib/permissions/guard';
 import {
   categoryCreateSchema,
   fieldNames,
@@ -86,6 +87,8 @@ export async function publishProductAction(
   storeId: string,
   productId: string,
 ): Promise<ActionResult<Product>> {
+  const refused = await refuseUnlessPermitted('publishProduct', storeId);
+  if (refused !== null) return refused;
   const result = await publishProduct(storeId, productId);
   if (result.ok) revalidateProduct(storeId, productId);
   return toActionResult(result, []);
@@ -99,6 +102,8 @@ export async function archiveProductAction(
   storeId: string,
   productId: string,
 ): Promise<ActionResult<null>> {
+  const refused = await refuseUnlessPermitted('archiveProduct', storeId);
+  if (refused !== null) return refused;
   const result = await archiveProduct(storeId, productId);
   if (result.ok) revalidateProduct(storeId, productId);
   return toActionResult(result, []);

@@ -3,7 +3,9 @@
 import type { ColumnDef } from '@tanstack/react-table';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
+import { BulkAction } from '@/components/table/bulk-action';
 import { DataTable } from '@/components/table/data-table';
+import { bulkArchiveProductsAction, bulkPublishProductsAction } from '@/app/actions/bulk-catalog';
 import type { AdminComponents, AdminError } from '@/lib/api/admin-client';
 import type { ReactNode } from 'react';
 import type { TableQuery } from '@/lib/table/query-state';
@@ -30,8 +32,13 @@ export function ProductsTable({
   query,
   emptyAction,
   error,
+  canPublish = false,
+  canArchive = false,
 }: {
   storeId: string;
+  /** Offer bulk Publish (store_staff) / Archive (store_admin). A convenience: the server decides. */
+  canPublish?: boolean;
+  canArchive?: boolean;
   rows: readonly Product[];
   total: number;
   query: TableQuery;
@@ -100,6 +107,39 @@ export function ProductsTable({
       searchPlaceholder="Title or handle"
       emptyAction={emptyAction}
       error={error}
+      {...(canPublish || canArchive
+        ? {
+            bulkActions: (selection, { clear }) => (
+              <>
+                {canPublish && (
+                  <BulkAction
+                    label="Publish"
+                    noun={{ one: 'product', many: 'products' }}
+                    selection={selection}
+                    filters={query.filters}
+                    run={(sent) => bulkPublishProductsAction(storeId, sent)}
+                    onClose={clear}
+                    question={(_, words) => `Publish ${words}? Each becomes visible in the store.`}
+                  />
+                )}
+                {canArchive && (
+                  <BulkAction
+                    label="Archive…"
+                    noun={{ one: 'product', many: 'products' }}
+                    selection={selection}
+                    filters={query.filters}
+                    run={(sent) => bulkArchiveProductsAction(storeId, sent)}
+                    onClose={clear}
+                    destructive
+                    question={(_, words) =>
+                      `Archive ${words}? They leave the store; the Admin API has no "unarchive".`
+                    }
+                  />
+                )}
+              </>
+            ),
+          }
+        : {})}
     />
   );
 }

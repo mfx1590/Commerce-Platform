@@ -315,6 +315,18 @@ are real `<button>`s inside `<th aria-sort>`, so the sort state is announced rat
 the range line is `aria-live="polite"`; the bulk bar is a `role="status"`; and a column that cannot
 be sorted never claims it can.
 
+### Bulk actions, page size and filters (#870 wave 1 item 2)
+
+A table offers bulk actions by passing `bulkActions={(selection, { clear }) => …}` to `DataTable` with one `<BulkAction>` per action. The server action calls `runStoreBulkAction` (`src/lib/table/bulk-server.ts`), which:
+
+- refuses up front without the operation's relation, and again per row before each call;
+- resolves the selection on the server: ticked ids (≤ 500), or "all matching" by re-running the list with only the table's filter keys. That is refused if the total moved since the user saw it, or if it is over 500;
+- runs 4 rows at a time and reports every row as done / skipped (409) / failed / refused / outcome unknown (0 or 5xx, never retried).
+
+There is no bulk endpoint in the Admin API; this is N single calls by design.
+
+Live today: Catalog Publish / Archive…, Orders Cancel… (a reason is required). Every DataTable has a 20 / 50 / 100 page-size picker. `SelectFilter` and `DateRangeFilter` (`src/components/table/url-filters.tsx`) expose list parameters that had no control: Orders placed from / to, and Catalog category.
+
 ## Forms: `useContractForm`
 
 Every form in this app is built the same way:

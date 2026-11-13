@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { DateRangeFilter } from '@/components/table/url-filters';
 import { StoreSectionGuard } from '@/components/shell/section-guard';
 import { EmptyPanel } from '@/components/states/state-panel';
 import { Button } from '@/components/ui/button';
@@ -41,7 +42,8 @@ export default async function OrdersPage({
     loadPrincipal(),
   ]);
   const locale = store.ok ? store.data.default_locale : 'en-GB';
-  const canFulfil = principal.ok && orderPermissions(principal.data, storeId).canFulfil;
+  const access = principal.ok ? orderPermissions(principal.data, storeId) : null;
+  const canFulfil = access?.canFulfil ?? false;
 
   return (
     <StoreSectionGuard storeId={storeId} id="orders">
@@ -63,6 +65,13 @@ export default async function OrdersPage({
         />
         <CardBody className="space-y-3">
           <OrderFilters query={query} />
+          <DateRangeFilter
+            query={query}
+            defaults={ORDERS_TABLE_DEFAULTS}
+            fromKey="placed_from"
+            toKey="placed_to"
+            label="Placed"
+          />
           <OrdersTable
             storeId={storeId}
             locale={locale}
@@ -76,6 +85,7 @@ export default async function OrdersPage({
               />
             }
             error={result.ok ? undefined : { status: result.status, error: result.error }}
+            canCancel={access?.canEditOrder ?? false}
           />
         </CardBody>
       </Card>

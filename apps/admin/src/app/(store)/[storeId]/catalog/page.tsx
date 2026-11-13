@@ -2,7 +2,11 @@ import Link from 'next/link';
 import { StoreSectionGuard } from '@/components/shell/section-guard';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
-import { listProducts } from '@/lib/api/admin';
+import { SelectFilter } from '@/components/table/url-filters';
+import { listCategories, listProducts } from '@/lib/api/admin';
+import { CATALOG_PERMISSIONS } from '@/lib/catalog/permissions';
+import { holds, type PermissionRule } from '@/lib/permissions/rules';
+import { loadPrincipal } from '@/lib/principal';
 import { parseTableQuery, toContractQuery } from '@/lib/table/query-state';
 import { ProductsTable } from './products-table';
 import { PRODUCTS_TABLE_DEFAULTS, PRODUCT_FILTER_KEYS } from './products-table.config';
@@ -27,7 +31,12 @@ export default async function CatalogPage({
   }
 
   const query = parseTableQuery(search, PRODUCT_FILTER_KEYS, PRODUCTS_TABLE_DEFAULTS);
-  const result = await listProducts(storeId, toContractQuery(query, { sortable: true }));
+  const [result, categories, principal] = await Promise.all([
+    listProducts(storeId, toContractQuery(query, { sortable: true })),
+    listCategories(storeId),
+    loadPrincipal(),
+  ]);
+  const can = (rule: PermissionRule) => principal.ok && holds(principal.data, rule, storeId);
 
   return (
     <StoreSectionGuard storeId={storeId} id="catalog">
@@ -49,7 +58,22 @@ export default async function CatalogPage({
           }
         />
         <CardBody className="space-y-3">
-          <StatusFilter query={query} />
+          <div className="flex flex-wrap items-center gap-4">
+            <StatusFilter query={query} />
+            {categories.ok && (
+              <SelectFilter
+                query={query}
+                defaults={PRODUCTS_TABLE_DEFAULTS}
+                filterKey="category_id"
+                label="Category"
+                anyLabel="Any category"
+                options={categories.data.items.map((category) => ({
+                  value: category.id,
+                  label: category.name,
+                }))}
+              />
+            )}
+          </div>
           <ProductsTable
             storeId={storeId}
             rows={result.ok ? result.data.items : []}
@@ -61,6 +85,8 @@ export default async function CatalogPage({
               </Link>
             }
             error={result.ok ? undefined : { status: result.status, error: result.error }}
+            canPublish={can(CATALOG_PERMISSIONS.publishProduct)}
+            canArchive={can(CATALOG_PERMISSIONS.archiveProduct)}
           />
         </CardBody>
       </Card>
