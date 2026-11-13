@@ -2,6 +2,21 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-11-13 · payment_method as an activation prerequisite; getStoreReadiness (#839, Admin API 0.4.29)
+
+- `READINESS_PREREQUISITES` gains `payment_method` (last): activation needs a method the checkout can offer — `card`
+  with the store's Stripe key, `invoice` with `settings.payment.invoice_allowed`. The rule moved from
+  `src/http/store-routes.ts` to the registry (`paymentMethodsOf`, `payment-methods.ts`) so `GET /store` and the gate
+  share it; `src/http` re-exports it. Only a move to `active` is gated: active stores are not re-checked or
+  deactivated. The seed's stores A–D allow invoice and still activate.
+- `GET /admin/stores/{storeId}/readiness` (`getStoreReadiness`, viewer): the activation check without a change, plus
+  `payment_methods`, `purchasable_products` (one query: published, priced for one unit on the active default list
+  in the store currency, stock available) and `warnings` (`no_purchasable_product`). p95 ≈ 25 ms on a seeded store.
+- Tests: `test/store-readiness.test.ts` (6: A–D exact against an independent count, five ways a product stops being
+  purchasable, `missing` equal to the 409's, payment_method alone blocking then cleared, an active store that loses
+  its method stays active, `card` with a key); activation fixtures that expect success set `invoice_allowed`
+  (`onboarding.test.ts`, `auth-live.test.ts`); the bare-store 409 lists gain `payment_method`. Mutation-checked.
+
 ### 2026-11-11 · a just-onboarded store is in scope at once (#809 follow-up)
 
 - `KeycloakStaffTokenVerifier.invalidateAll()` drops every cached staff scope (hq-rbac's `ScopeCache.clear()`, read

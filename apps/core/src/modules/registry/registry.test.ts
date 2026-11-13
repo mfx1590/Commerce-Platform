@@ -157,6 +157,7 @@ describe('registry: stores', () => {
           'fga_object',
           'tax_rates',
           'shipping_options',
+          'payment_method', // #839: no card key, invoice not allowed
         ],
         missing_tax_countries: ['NL'],
         missing_shipping_countries: ['NL'],

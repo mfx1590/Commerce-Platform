@@ -380,6 +380,7 @@ describe('activateStore and the readiness gate (#413)', () => {
       {
         ...brandC,
         code: 'brand-h',
+        settings: { payment: { invoice_allowed: true } }, // #839: a payment method the checkout can offer
         domain: { hostname: 'h.localhost' },
         legal_entity: { ...brandC.legal_entity!, code: 'brand-h-bv' },
       },
@@ -470,6 +471,7 @@ describe('activateStore and the readiness gate (#413)', () => {
           'fga_object',
           'tax_rates',
           'shipping_options',
+          'payment_method', // #839: no card key, invoice not allowed
         ],
         missing_tax_countries: ['NL'],
         missing_shipping_countries: ['NL'],
@@ -484,6 +486,7 @@ describe('activateStore and the readiness gate (#413)', () => {
           'fga_object',
           'tax_rates',
           'shipping_options',
+          'payment_method', // #839: no card key, invoice not allowed
         ],
         missing_tax_countries: ['NL'],
         missing_shipping_countries: ['NL'],
@@ -499,6 +502,7 @@ describe('activateStore and the readiness gate (#413)', () => {
       {
         ...brandC,
         code: 'brand-j',
+        settings: { payment: { invoice_allowed: true } }, // #839: a payment method the checkout can offer
         domain: { hostname: 'j.localhost' },
         legal_entity: { ...brandC.legal_entity!, code: 'brand-j-bv' },
       },

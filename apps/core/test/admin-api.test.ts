@@ -276,6 +276,7 @@ describe('registry routes', () => {
           'fga_object',
           'tax_rates',
           'shipping_options',
+          'payment_method', // #839: no card key, invoice not allowed
         ],
         missing_tax_countries: ['NL'],
         missing_shipping_countries: ['NL'],
@@ -1276,6 +1277,7 @@ describe('store onboarding (#413, Admin API 0.4.11): onboardStore, activateStore
           'fga_object',
           'tax_rates',
           'shipping_options',
+          'payment_method', // #839: no card key, invoice not allowed
         ],
         missing_tax_countries: ['NL'],
         missing_shipping_countries: ['NL'],
@@ -1688,15 +1690,17 @@ describe('readiness with tax rates (#520): the seeded stores stay ready', () => 
   it('every seeded store has a tax rate for each of its market countries', async () => {
     const hq = organizationClient({ organizationId: SEED_IDS.organization });
     const registered = { hasStoreObject: async () => true, ensureStoreObject: async () => {} };
-    for (const id of [A, B, SEED_IDS.stores.brandC]) {
+    for (const id of [A, B, SEED_IDS.stores.brandC, SEED_IDS.stores.brandD]) {
       const readiness = await hq.transaction(async (tx) => {
         const s = await tx.query<{
           id: string;
+          code: string;
+          settings: Record<string, unknown>;
           legal_entity_id: string;
           default_country: string;
           default_currency: string;
         }>(
-          'SELECT id, legal_entity_id, default_country, default_currency FROM store WHERE id = $1',
+          'SELECT id, code, settings, legal_entity_id, default_country, default_currency FROM store WHERE id = $1',
           [id],
         );
         return {
@@ -1707,6 +1711,7 @@ describe('readiness with tax rates (#520): the seeded stores stay ready', () => 
       expect(readiness.missing).toEqual([]);
       expect(readiness.missing_tax_countries).toEqual([]);
       expect(readiness.missing_shipping_countries).toEqual([]); // #809: every seeded market can be shipped to
+      expect(readiness.payment_methods).toContain('invoice'); // #839: the seed allows invoice for A–D
       expect(readiness.markets.length).toBeGreaterThan(0);
     }
   });

@@ -24,6 +24,7 @@ import {
 } from '../modules/catalog';
 import {
   activateStore,
+  getStoreReadiness,
   addDomain,
   createApiKey,
   createSalesChannel,
@@ -592,6 +593,16 @@ export function adminRouter(opts: AdminRouterOptions = {}): Router {
   );
 
   // ---- registry: onboarding (#413, Admin API 0.4.11) ------------------------------------------------------
+  // What activation would refuse now, and whether the store can sell (#839, Admin API 0.4.29). Viewer on the
+  // store; a read — nothing changes, an active store is never deactivated by it.
+  r.get(
+    '/admin/stores/:storeId/readiness',
+    permission('getStoreReadiness'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      res.json(await getStoreReadiness(client, storeId, requireRegistrar(registrar)));
+    }),
+  );
   r.post(
     '/admin/stores/:storeId/activate',
     permission('activateStore'),
