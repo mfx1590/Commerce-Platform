@@ -10,7 +10,7 @@ import { ZoneBoundary } from '@/components/zone-boundary';
 import { brandTokens } from '@/brand/tokens';
 import { routing } from '@/i18n/routing';
 import { assertStoreOffersLocale } from '@/lib/i18n';
-import { alternatesFor, localizedPath } from '@/lib/seo';
+import { alternatesFor, localizedPath, metaDescription } from '@/lib/seo';
 import { getStoreOrNull } from '@/lib/store';
 import './globals.css';
 
@@ -56,17 +56,19 @@ export async function generateMetadata({
   params: Promise<{ locale: string }>;
 }): Promise<Metadata> {
   const { locale } = await params;
+  // A brand's own copy; an empty one emits no description rather than an empty tag (#837).
+  const description = metaDescription(brandConfig.description);
 
   return {
     metadataBase: new URL(siteUrl()),
     title: { default: brandConfig.name, template: `%s · ${brandConfig.name}` },
-    description: brandConfig.description,
+    ...(description === undefined ? {} : { description }),
     alternates: alternatesFor(locale),
     openGraph: {
       type: 'website',
       siteName: brandConfig.name,
       title: brandConfig.name,
-      description: brandConfig.description,
+      ...(description === undefined ? {} : { description }),
       locale,
       url: localizedPath(locale),
     },
