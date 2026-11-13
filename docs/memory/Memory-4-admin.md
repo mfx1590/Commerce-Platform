@@ -1305,6 +1305,22 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   no build step, so typecheck must pass without generated `.next/types`.
 
 ## Blocked / waiting
+- **CONTRACT CHANGE #839** (filed 2026-11-13; #830 half one, the readiness panel):
+  - What it asks for:
+    - `payment_method` as an `activateStore` prerequisite (blocks, like tax/shipping);
+    - a new `GET /admin/stores/{storeId}/readiness` (`getStoreReadiness`, viewer) returning `StoreReadiness`
+      `{ status, missing[], missing_tax_countries[], missing_shipping_countries[], payment_methods[card|invoice],
+      purchasable_products, warnings[no_purchasable_product] }`;
+    - the core side for window 1.
+  - Why I'm blocked: card availability is the core's env (`paymentMethodsOf`, store-routes.ts:64-72), the
+    admin can't see it, and the activation gate is the core's. Purchasable-product counting belongs server-side.
+  - Meanwhile: the admin side against a local typed `StoreReadiness` fixture (vi.mock of the new wrapper), with
+    no Prism or yaml edits. The PR opens after #839 lands.
+  - Decisions in the issue: payment blocks; no purchasable product = warning; categories and images are not
+    readiness (window 3's half).
+  - Branch `admin/phase6-830-readiness` from main ec55cb3e.
+- **Brand D run OVER (2026-11-13).** Order 848ec7e3 at 1980/990/198/3168 JPY (window 10); final table on #731.
+  The run's core :9000 and admin :3000 are stopped. #821 MERGED ec55cb3e.
 - **CONTRACT CHANGE #279** (filed 2026-09-25, shape approved by the manager): `revokeApiKey`
   (409 `last_live_key`), `updateDomain {is_primary}` (owner on hq), `Store.currencies/locales` in
   the response + `updateStore` set-replacement → Admin API 0.4.7; core side is window 1's
