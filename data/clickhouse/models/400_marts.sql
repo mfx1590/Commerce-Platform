@@ -81,3 +81,64 @@ SELECT
 FROM fct_order AS o
 LEFT JOIN firsts AS f ON f.store_id = o.store_id AND f.customer_key = o.customer_key
 GROUP BY organization_id, store_id, day;
+
+-- mart_sales_daily (BI v2, #871): mart_bookings_daily's figures with the keys country, sales_channel_id and
+-- customer_type, plus the cancelled and placed counts the cancellation rate needs. mart_bookings_daily stays as it is
+-- (the reconcile identity 1 compares it row for row with the core): summed over the new keys, this mart equals it.
+-- Failed-only orders are out, as there; cancelled orders count only in cancelled_orders and placed_orders.
+CREATE OR REPLACE VIEW mart_sales_daily AS
+SELECT
+    o.organization_id                                                              AS organization_id,
+    o.store_id                                                                     AS store_id,
+    toDate(o.placed_at, 'UTC')                                                     AS day,
+    o.currency                                                                     AS currency,
+    o.country                                                                      AS country,
+    o.sales_channel_id                                                             AS sales_channel_id,
+    o.customer_type                                                                AS customer_type,
+    countIf(o.order_status != 'cancelled')                                         AS orders,
+    sumIf(o.subtotal_minor, o.order_status != 'cancelled')                         AS gross_minor,
+    sumIf(o.discount_minor, o.order_status != 'cancelled')                         AS discount_minor,
+    sumIf(o.shipping_minor, o.order_status != 'cancelled')                         AS shipping_minor,
+    sumIf(o.tax_minor, o.order_status != 'cancelled')                              AS tax_minor,
+    sumIf(o.total_minor, o.order_status != 'cancelled')                            AS total_minor,
+    sumIf(coalesce(r.refunded_minor, 0), o.order_status != 'cancelled')            AS refunded_minor,
+    sumIf(o.total_minor - coalesce(r.refunded_minor, 0), o.order_status != 'cancelled') AS net_minor,
+    countIf(o.order_status = 'cancelled')                                          AS cancelled_orders,
+    count()                                                                        AS placed_orders
+FROM fct_order AS o
+LEFT JOIN
+(
+    SELECT order_id, sum(amount_minor) AS refunded_minor FROM fct_refund GROUP BY order_id
+) AS r ON r.order_id = o.order_id
+WHERE o.order_id NOT IN
+  (
+      SELECT order_id FROM fct_payment
+      WHERE status = 'failed'
+        AND order_id NOT IN (SELECT order_id FROM fct_payment WHERE status = 'captured')
+  )
+GROUP BY organization_id, store_id, day, currency, country, sales_channel_id, customer_type;
+
+-- mart_stock_daily (BI v2, #871): stock movements per warehouse × stock item × UTC day. Before the pool (#456,
+-- stock.moved v1) a movement has no stock item: it is keyed by its variant (legacy_variant_id) instead.
+--   * stockout_events: movements that took on-hand from above 0 to 0 or below (a transition, not every movement
+--     while empty);
+--   * units_received: receipts and transfers in (positive deltas);
+--   * units_adjusted: adjustments and cycle counts (signed);
+--   * on_hand_end: on-hand after the day's last movement.
+-- store_id is the store that caused the movement (NULL for organization-level movements): a store caller sees its
+-- own store's movements only. The CURRENT position is never read from here (reservations are not movements).
+CREATE OR REPLACE VIEW mart_stock_daily AS
+SELECT
+    organization_id,
+    movement_store_id                                                    AS store_id,
+    warehouse_id,
+    stock_item_id,
+    if(stock_item_id IS NULL, variant_id, CAST(NULL AS Nullable(UUID)))  AS legacy_variant_id,
+    toDate(occurred_at, 'UTC')                                           AS day,
+    countIf(on_hand_after <= 0 AND on_hand_after - delta > 0)            AS stockout_events,
+    sumIf(delta, reason IN ('receipt', 'transfer_in') AND delta > 0)     AS units_received,
+    sumIf(delta, reason IN ('adjustment', 'cycle_count'))                AS units_adjusted,
+    argMax(on_hand_after, (occurred_at, toString(stock_movement_id)))    AS on_hand_end,
+    count()                                                              AS movements
+FROM stg_stock_moved
+GROUP BY organization_id, store_id, warehouse_id, stock_item_id, legacy_variant_id, day;

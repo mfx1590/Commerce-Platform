@@ -81,7 +81,11 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   parameters + parameters_source, a5 specialist controls per view. Manager + Fable review #871, lands contracts.
   LIVE models 22/22 (OK'd: throwaway CH DBs of that size need no machine — run, then tell the manager). stock.moved
   v1 staged too (pre-pool, no stock item) + union stg_stock_moved. Leftover analytics_test_nucddp (created 11-02,
-  not today's) reported, NOT dropped. NEXT: marts
+  not today's) reported, NOT dropped. MARTS built locally: mart_bookings_daily UNCHANGED (reconcile identity 1 reads
+  it row for row); NEW mart_sales_daily (+country, sales_channel_id, customer_type, cancelled/placed; Σ over keys =
+  mart_bookings_daily, tested A and B), fct_return_line, mart_stock_daily (stock-out = transition >0 → ≤0; v1 rows by
+  legacy_variant_id). #871 §b updated to match. Live models+erasure+live 42/42, unit 154. NEXT: wait for the #871
+  verdict + #839 on main; then catalogue v2 / compiler / ops / Ask tools in apps/core reporting (all local).
   (mart_bookings_daily keys, mart_product_daily, mart_stock_daily, mart_sales_rate) once #871 is decided.
 - INT5 3c FOLLOW-UP (2026-11-05, manager eleven): #718 MERGED 1fad84d4; #633 MERGED as #719 268a81bf (richPayments
   opt-in). Branch data/phase5-int5-3c. Done: gate month richPayments + reconcileAll(createFixtureSource(month.payouts))

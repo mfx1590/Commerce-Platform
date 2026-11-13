@@ -101,7 +101,28 @@ catalogue.push(
 );
 for (const l of moved.payload.line_items) expectedProduct.set(l.order_line_item_id, movedTo);
 
-const allEvents = [...catalogue, ...month.events];
+// BI v2 (#871): returns of the second order's lines, one unit each (fct_return_line attributes them to the sale)
+const returned = placed[1]!;
+const returnEvents: EventEnvelopeV1Base[] = returned.payload.line_items.map(
+  (l, i) =>
+    makeEvent({
+      topic: 'return.received',
+      organizationId: ORG,
+      storeId: returned.store_id,
+      aggregateType: 'return',
+      aggregateId: `00000000-0000-4000-8000-0000000e70${String(i).padStart(2, '0')}`,
+      occurredAt: new Date('2026-10-28T10:00:00.000Z'),
+      payload: {
+        return_id: `00000000-0000-4000-8000-0000000e70${String(i).padStart(2, '0')}`,
+        order_id: returned.payload.order_id,
+        warehouse_id: '00000000-0000-4000-8000-0000000000a1',
+        items: [{ order_line_item_id: l.order_line_item_id, quantity: 1, condition: 'resellable' }],
+        received_at: '2026-10-28T10:00:00.000Z',
+      },
+    }) as unknown as EventEnvelopeV1Base,
+);
+
+const allEvents = [...catalogue, ...returnEvents, ...month.events];
 for (const e of allEvents) {
   const check = validator.validateEnvelope(e);
   if (!check.ok) throw new Error(`fixture ${e.topic} invalid: ${check.errors.join('; ')}`);
@@ -367,6 +388,49 @@ describe.runIf(skip === null)('ClickHouse models on the generated month', () => 
     expect(categorised).toBeGreaterThan(0);
   });
 
+  it('BI v2 mart_sales_daily: summed over country, channel and customer type it IS mart_bookings_daily; cancelled counted apart', async () => {
+    for (const c of [a, b]) {
+      const keyed = await q(
+        c,
+        `SELECT toString(store_id) s, toString(day) d, currency, sum(orders) orders, sum(gross_minor) g,
+                sum(discount_minor) dis, sum(shipping_minor) sh, sum(tax_minor) t, sum(total_minor) tot,
+                sum(refunded_minor) r, sum(net_minor) net
+         FROM mart_sales_daily GROUP BY s, d, currency HAVING orders > 0 ORDER BY s, d, currency`,
+      );
+      const plain = await q(
+        c,
+        `SELECT toString(store_id) s, toString(day) d, currency, orders, gross_minor g, discount_minor dis,
+                shipping_minor sh, tax_minor t, total_minor tot, refunded_minor r, net_minor net
+         FROM mart_bookings_daily ORDER BY s, d, currency`,
+      );
+      expect(numeric(keyed)).toEqual(numeric(plain));
+    }
+    const [x] = await q(
+      a,
+      'SELECT sum(cancelled_orders) c, sum(placed_orders) p, sum(orders) o FROM mart_sales_daily',
+    );
+    expect(Number(x!.c)).toBe(cancelled.size);
+    expect(Number(x!.p)).toBe(Number(x!.o) + Number(x!.c));
+  });
+
+  it('BI v2 fct_return_line: every returned line attributed to its sale (product, category, country, channel)', async () => {
+    const rows = await q(
+      a,
+      `SELECT toString(r.order_line_item_id) li, r.quantity q, toString(r.product_id) p, r.country c,
+              toString(r.sales_channel_id) ch, r.currency cur
+       FROM fct_return_line AS r ORDER BY li`,
+    );
+    expect(rows.length).toBe(returned.payload.line_items.length);
+    for (const r of rows) {
+      expect(Number(r.q)).toBe(1);
+      expect(r.c).toBe(returned.payload.shipping_country);
+      expect(r.ch).toBe(returned.payload.sales_channel_id);
+      expect(r.cur).toBe(returned.payload.currency);
+      const product = expectedProduct.get(String(r.li));
+      expect(r.p === null || r.p === '' ? undefined : r.p).toBe(product);
+    }
+  });
+
   it('facts: one row per key, no NULL keys', async () => {
     const [o] = await q(a, 'SELECT count() n, uniqExact(order_id) u FROM fct_order');
     expect(numeric([o!])[0]).toMatchObject({ n: placed.length, u: placed.length });
@@ -494,6 +558,8 @@ describe.runIf(skip === null)('ClickHouse models on the generated month', () => 
       // BI v2 (#871): a class computed inside the models (new / returning / unknown), never the key
       'fct_order.customer_type',
       'fct_order_line.customer_type',
+      'fct_return_line.customer_type',
+      'mart_sales_daily.customer_type',
       'fct_order.customer_key',
       // counts, not identifiers (#603 new vs returning)
       'mart_customers_daily.new_customers',
@@ -546,6 +612,26 @@ describe.runIf(skip === null)(
         oh: moves.reduce((n, m) => n + Number(m.on_hand_after), 0),
       });
       expect(moves.length).toBeGreaterThan(0);
+    });
+
+    it('mart_stock_daily: stock-out transitions, receipts and adjustments per warehouse × item × day = the movements', async () => {
+      const moves = every.events
+        .filter((e) => e.topic === 'stock.moved')
+        .map((e) => e.payload as { delta: number; on_hand_after: number; reason: string });
+      const [r] = await q(
+        `SELECT sum(stockout_events) so, sum(units_received) rec, sum(units_adjusted) adj, sum(movements) m
+       FROM mart_stock_daily`,
+      );
+      expect(numeric([r!])[0]).toEqual({
+        so: moves.filter((m) => m.on_hand_after <= 0 && m.on_hand_after - m.delta > 0).length,
+        rec: moves
+          .filter((m) => ['receipt', 'transfer_in'].includes(m.reason) && m.delta > 0)
+          .reduce((n, m) => n + m.delta, 0),
+        adj: moves
+          .filter((m) => ['adjustment', 'cycle_count'].includes(m.reason))
+          .reduce((n, m) => n + m.delta, 0),
+        m: moves.length,
+      });
     });
 
     it('return.received v1: one row per returned line, quantities kept', async () => {

@@ -160,3 +160,27 @@ SELECT
     event_id                                             AS source_event_id
 FROM stg_shipment_shipped_v1
 ARRAY JOIN items AS it;
+
+-- fct_return_line (BI v2, #871): one row per returned line (return.received), attributed through its order line to
+-- the product, category, store, currency, country, channel and customer type of the sale. A return whose order line
+-- is not (yet) in the facts is left out until it is: the inner join, stated, not a silent zero.
+CREATE OR REPLACE VIEW fct_return_line AS
+SELECT
+    r.organization_id                                        AS organization_id,
+    l.store_id                                               AS store_id,
+    r.return_id                                              AS return_id,
+    r.order_id                                               AS order_id,
+    r.order_line_item_id                                     AS order_line_item_id,
+    r.warehouse_id                                           AS warehouse_id,
+    r.quantity                                               AS quantity,
+    r.condition                                              AS condition,
+    r.received_at                                            AS received_at,
+    l.product_id                                             AS product_id,
+    l.category_id                                            AS category_id,
+    l.currency                                               AS currency,
+    l.country                                                AS country,
+    l.sales_channel_id                                       AS sales_channel_id,
+    l.customer_type                                          AS customer_type,
+    r.event_id                                               AS source_event_id
+FROM stg_return_received_v1 AS r
+INNER JOIN fct_order_line AS l ON l.order_line_item_id = r.order_line_item_id;
