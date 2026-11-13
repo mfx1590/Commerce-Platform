@@ -85,6 +85,23 @@ first twelve can be bought it fails with **`Seed stock exhausted — reseed`** a
 it tried, rather than with a timeout on a disabled button. The remedy is the one the message
 names: reseed the store. On the shared development stack that is the manager's call, not a window's.
 
+**Store preconditions fail fast, by name (#830).** A spec that needs something from the store
+asserts it **before it interacts**, through `e2e/support/preconditions.ts`, and fails at once with
+`Store precondition not met: <what is missing>. This is the store's data or settings, not an app
+failure`. Search a run's log for `Store precondition not met` to tell a thin or misconfigured store
+from a frontend bug. The ones checked:
+
+- **a payment method:** the payment step's radios are read before one is chosen; a store whose
+  `GET /store` has `payment.methods: []` (or no Stripe test key, for the card journey) fails
+  naming what was offered, instead of a 180 s timeout on a radio that never renders;
+- **purchasable stock:** the `Seed stock exhausted — reseed` failure above;
+- **listing and filters:** at least two listed products, one with a category, and one outside that
+  category (both asserted before the first click), and two different prices (asserted on the sorted
+  lists, so a paged default order cannot change what passes);
+- **a product image:** the local-images spec.
+
+Nothing a seeded brand passed changes: the conditions are the ones the specs already depended on.
+
 **What each backend proves.** The mock is stateless and answers with the contract's examples, so
 against it the suite proves the pages render what the API returned, consistently — not that
 anything was really placed, sorted or filtered:

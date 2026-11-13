@@ -1,5 +1,12 @@
 # Changelog — @platform/storefront-starter
 
+## 0.16.4 — 2026-11-13 (window 3, #830: specs fail fast on a missing store precondition)
+
+- **The payment step no longer waits 180 s for a method the store does not offer.** `advanceToReview` reads the step's radios first and, when the wanted one (invoice, or card) is missing, fails at once naming the method, what was offered, and `GET /store` → `payment.methods` (plus the Stripe test key for card). Brand D's proving run (`payment.methods: []`) spent 180 s per payment spec on `locator.check`.
+- **One wording for every store precondition:** `Store precondition not met: <what>. This is the store's data or settings, not an app failure…`, from `e2e/support/preconditions.ts` (`storePrecondition`, `preconditionError`, `missingPaymentMethod`). Used by the stock search in `openPurchasableProduct`, the listing spec (two products, a category, a product outside it, two prices) and the local-images spec (a product image).
+- **The listing spec asserts its category preconditions before the first click**, not after the filter navigation. The two-prices check stays on the sorted lists, so nothing that passed before fails now.
+- **Tests:** `test/e2e-preconditions.test.ts` pins the messages (8 tests). (0.16.3 is #838.)
+
 ## 0.16.2 — 2026-11-11 (window 3, #793 review nits; refs #731)
 
 - **`test/route-handlers.test.ts` finds every route handler Next would serve:** `route.(ts|tsx|js|jsx|mjs)`, not only `route.ts`. A handler folder becomes a request path with route groups dropped and catch-all (`[...x]`) and optional catch-all (`[[...x]]`) segments sampled. `samplePath` has its own cases.

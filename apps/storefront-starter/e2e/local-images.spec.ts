@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { BACKEND, hydrated, readCards } from './support/journey';
 import { localePath } from './support/locale';
+import { storePrecondition } from './support/preconditions';
 
 /**
  * #327: an e2e run never leaves the machine for an image. `scripts/e2e-server.mjs` builds with
@@ -23,7 +24,11 @@ function watchRequests(page: Page): string[] {
 
 async function expectOnlyPlaceholders(page: Page, where: string): Promise<void> {
   const images = page.locator('main img');
-  expect(await images.count(), `${where} on ${BACKEND} shows product images`).toBeGreaterThan(0);
+  // A store precondition (#830): with no product image there is nothing to prove local.
+  storePrecondition(
+    (await images.count()) > 0,
+    `${where} on ${BACKEND} shows no product image; this spec needs a listed product with an image (media or thumbnail_url)`,
+  );
   for (const src of await images.evaluateAll((elements) =>
     elements.map(
       (element) => (element as HTMLImageElement).currentSrc || element.getAttribute('src'),

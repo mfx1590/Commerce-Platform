@@ -1,5 +1,12 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 import { localePath } from './locale';
+import {
+  missingPaymentMethod,
+  PAYMENT_LABEL,
+  type PaymentChoice,
+  preconditionError,
+  storePrecondition,
+} from './preconditions';
 import { shippingAddressFromEnv } from './ship-address';
 
 /** Read once: a value that cannot be used fails the run at the start, naming why. */
@@ -76,7 +83,7 @@ export async function completeAddressStep(page: Page, email: string): Promise<vo
 export async function advanceToReview(
   page: Page,
   email: string,
-  method: 'invoice' | 'card' = 'invoice',
+  method: PaymentChoice = 'invoice',
 ): Promise<string[]> {
   const visited: string[] = [];
 
@@ -94,14 +101,27 @@ export async function advanceToReview(
         // The first option is preselected, so submitting is a real choice, not a no-op.
         await page.getByRole('button', { name: 'Continue to payment' }).click();
         break;
-      case 'payment':
+      case 'payment': {
+        // A store precondition, asserted before touching the step (#830). The radios are
+        // server-rendered, so once `settleOn` is through, the set on screen is the whole set: a store
+        // with `payment.methods: []` otherwise cost a silent 180 s on `check()`.
+        const offered = await page
+          .locator('input[type="radio"][name="provider"]')
+          .evaluateAll((inputs) =>
+            inputs.map(
+              (input) =>
+                input.closest('label')?.querySelector('.font-medium')?.textContent?.trim() ??
+                (input as HTMLInputElement).value,
+            ),
+          );
+        const missing = missingPaymentMethod(method, offered);
+        if (missing !== null) throw preconditionError(missing);
         // Explicitly, not the preselected first method: with a Stripe key the first is Card, and the
         // card journey is its own spec (#358).
-        await page
-          .getByRole('radio', { name: method === 'card' ? /^Card/ : /Pay on invoice/ })
-          .check();
+        await page.getByRole('radio', { name: PAYMENT_LABEL[method] }).check();
         await page.getByRole('button', { name: 'Continue to review' }).click();
         break;
+      }
       default:
         throw new Error(`Unexpected checkout step: ${page.url()}`);
     }
@@ -258,7 +278,10 @@ export async function openPurchasableProduct(page: Page): Promise<{ handle: stri
     0,
     PURCHASABLE_SEARCH_LIMIT,
   );
-  expect(handles.length, `the listing on ${BACKEND} shows at least one product`).toBeGreaterThan(0);
+  storePrecondition(
+    handles.length > 0,
+    `buying needs at least one listed product; the listing on ${BACKEND} shows none`,
+  );
 
   const rejected: string[] = [];
   for (const handle of handles) {
@@ -274,10 +297,10 @@ export async function openPurchasableProduct(page: Page): Promise<{ handle: stri
     rejected.push(`${handle} (${(await form.getAttribute('data-availability')) ?? 'unknown'})`);
   }
 
-  throw new Error(
+  throw preconditionError(
     `Seed stock exhausted — reseed. None of the first ${handles.length} listed product(s) on ` +
       `${BACKEND} can be bought: ${rejected.join(', ')}. A run against the core places one real ` +
       'order and nothing cancels it, so the seed stock is a finite budget ' +
-      '(README, "Running against the core").',
+      '(README, "Running against the core")',
   );
 }
