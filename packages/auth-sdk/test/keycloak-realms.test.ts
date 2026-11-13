@@ -245,7 +245,7 @@ describe('customers realm export (static)', () => {
     expect(customers.bruteForceProtected).toBe(true);
   });
 
-  it.each(['brand-a', 'brand-b', 'brand-c'])(
+  it.each(['brand-a', 'brand-b', 'brand-c', 'brand-d'])(
     'has a public PKCE client for %s stamping store_code',
     (code) => {
       const c = client(customers, `storefront-${code}`);
@@ -290,6 +290,12 @@ describe('customers realm export (static)', () => {
       redirectUris: ['http://localhost:3103/*'],
       webOrigins: ['http://localhost:3103'],
       postLogout: ['http://localhost:3103/*'],
+    },
+    // brand D (Japan, wave 3): added by infra/keycloak/add-brand-client.mjs, not by hand
+    'storefront-brand-d': {
+      redirectUris: ['http://localhost:3104/*'],
+      webOrigins: ['http://localhost:3104'],
+      postLogout: ['http://localhost:3104/*'],
     },
   };
   const postLogoutUris = (c: Client) =>
@@ -622,6 +628,8 @@ describe.runIf(live)('staff realm (live Keycloak)', () => {
     ['storefront-brand-b', 'http://localhost:3101/auth/callback', 400],
     ['storefront-brand-b', 'http://localhost:3102/auth/callback', 200],
     ['storefront-brand-c', 'http://localhost:3103/auth/callback', 200],
+    ['storefront-brand-d', 'http://localhost:3104/auth/callback', 200],
+    ['storefront-brand-d', 'http://localhost:3103/auth/callback', 400],
   ])(
     'customers realm: %s authorization with redirect_uri %s → %i (#212)',
     async (id, uri, status) => {

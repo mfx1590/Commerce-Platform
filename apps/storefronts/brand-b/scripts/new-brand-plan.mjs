@@ -293,23 +293,50 @@ export const LOCALE_DATA_FILES = ['lighthouserc.json'];
  * @param {{ code: string, locales: readonly string[] }} target
  */
 export function localeProse(template, target) {
-  if (localePairs(template, target).length === 0) return [];
+  const marketDiffers =
+    localePairs(template, target).length > 0 ||
+    (target.currency !== undefined && template.currency !== undefined
+      ? target.currency !== template.currency
+      : false) ||
+    (target.jurisdiction !== undefined && template.jurisdiction !== undefined
+      ? target.jurisdiction !== template.jurisdiction
+      : false);
+  if (!marketDiffers) return [];
   return [
     {
       path: 'next.config.mjs',
-      what: `the SUPPORTED_LOCALES block explains why ${template.code} needs the runtime default`,
+      what:
+        'the SUPPORTED_LOCALES block, and the publishable-key comment above it, argue from the ' +
+        "TEMPLATE brand's facts",
       why:
-        "it quotes the starter's own default and says which brand was the first to need the " +
-        'override. Both are facts about other apps; neither is rewritten.',
+        "the locale block quotes the starter's own default and says which brand first needed the " +
+        'override \u2014 facts about other apps, so neither is rewritten. The key comment is worse: ' +
+        'substitution turns "SEED_IDS.publishableKeys.brandB" into a constant that does not ' +
+        'exist for a brand outside the seed, and the sentence around it then describes a key ' +
+        'this brand does not have (#827). MEASURED on brand D: the generated file said ' +
+        '"Brand D sells in en-GB only" about a brand that sells ja-JP.',
     },
     {
       path: 'playwright.config.ts',
-      what: 'the locale-plural exclusion block quotes the literal seo-head.spec.ts declares',
+      what: "the exclusion block states the TEMPLATE brand's market, currency and spec list",
       why:
-        'the quote must stay the starter list or the comment stops matching the file it is ' +
-        'about, while the surrounding argument is about the template brand.',
+        'the seo-head quote must stay the starter list or the comment stops matching the file it ' +
+        'is about. The rest is the trap: substitution rewrites "brand B" to this brand and leaves ' +
+        '"ships GB only", "GBP prices" and a reference to an `e2e/journey.spec.ts` the new brand ' +
+        'does not have. MEASURED on brand D \u2014 all four sentences were false, and a comment that ' +
+        'claims correctness costs more than no comment, because a reader believes it (#826).',
     },
   ];
+}
+
+/**
+ * The runtime-default assignment a brand's `playwright.config.ts` makes, exactly as it is written
+ * there. Used as a substitution source and target, so only the value moves (#826).
+ *
+ * @param {{ locales: readonly string[] }} brand
+ */
+export function localeAssignment(brand) {
+  return `process.env.SUPPORTED_LOCALES ??= '${brand.locales.join(',')}';`;
 }
 
 /**
@@ -325,6 +352,15 @@ export function substitutions(template, target, file = null) {
       ? templateProse.map((from, i) => [from, targetProse[i]])
       : []),
     ...(file !== null && LOCALE_DATA_FILES.includes(file) ? localePairs(template, target) : []),
+    // The one place the locale is a VALUE outside `LOCALE_DATA_FILES` (#826). `playwright.config.ts`
+    // sets the app's locales for the e2e process, and the e2e server warms up on the default one —
+    // so a brand that inherits the template's list dies before a single test runs, with twelve
+    // rounds of `warm-up N: page failed` and nothing pointing at the locale. Brand C paid for this
+    // by hand in #438 and brand D paid again in D8, twelve minutes of a timed onboarding run.
+    //
+    // Matched as the whole assignment, which prose never contains: the surrounding comment argues
+    // from the STARTER's list and must stay as it is (see `localeProse`).
+    [localeAssignment(template), localeAssignment(target)],
     [devPublishableKey(template.code), devPublishableKey(target.code)],
     [`storefront-${template.code}`, `storefront-${target.code}`],
     [`@platform/storefront-${template.code}`, `@platform/storefront-${target.code}`],
@@ -390,7 +426,15 @@ export const TEMPLATE_FILES = {
  */
 export function runtimeDefaults(target) {
   return [
-    { name: 'STORE_PUBLISHABLE_KEY', value: devPublishableKey(target.code) },
+    // Only for a brand that IS in the seed (#827). The seeded key is a real, working key for a
+    // local database; for a brand created in the onboarding wizard there is no such value, and
+    // writing one anyway produces a file that looks configured and authenticates as nothing — the
+    // core answers 401 and the app renders nothing, which is a long way from the cause. Such a
+    // brand takes `STORE_PUBLISHABLE_KEY` from the environment, where the wizard's one-time key
+    // goes; it must never be committed.
+    ...(SEEDED_BRANDS.includes(target.code)
+      ? [{ name: 'STORE_PUBLISHABLE_KEY', value: devPublishableKey(target.code) }]
+      : []),
     { name: 'SUPPORTED_LOCALES', value: target.locales.join(',') },
     { name: 'KEYCLOAK_CLIENT_ID', value: `storefront-${target.code}` },
   ];
@@ -506,18 +550,20 @@ export function localeMismatch(target, starterLocales = STARTER_LOCALES) {
     files: [
       {
         path: 'scripts/e2e-server.mjs',
-        what: `warms \`/${starterLocales[0]}\` before declaring the app ready`,
+        what: 'FIXED in the starter — it now refuses a redirect and names the cause',
         effect:
-          'MEASURED on brand C, and not by the mechanism one would guess. That path does not 404: ' +
-          'next-intl answers `307` with `location: /<brand locale>/<starter locale>`, treating the ' +
-          'unknown locale as a path segment. 307 is under 400, so `timed()` counts the page as a ' +
-          'success — the log really does read `page 5 ms` every attempt. But the warm-up ' +
-          '**discovers the chunk path by regex out of the page body**, and a 12-byte redirect body ' +
-          'contains no `/_next/static/chunks/…`, so `chunkPath` stays null, `chunk` is null ' +
-          'forever, and `warmUp()` throws after 120 s and 120 attempts. e2e does not start at all ' +
-          '— it does not fail a test, it fails before the first one. The error it prints is ' +
-          'misleading: "did not answer a page and a static chunk under 1000 ms", when the page ' +
-          'answered in 5 ms every time.',
+          'HISTORY, kept because the failure was expensive and the shape recurs: it used to warm ' +
+          '`/<starter locale>`, which does not 404 — next-intl answers 307 with ' +
+          '`location: /<brand locale>/<starter locale>`, treating the unknown locale as a path ' +
+          'segment. 307 is under 400, so the page counted as a success — the log really did read ' +
+          '`page 5 ms` every attempt — but the warm-up discovers the chunk path by regex out of ' +
+          'the body, and a 12-byte redirect has none. So e2e **does not start**: 120 s and 120 ' +
+          'attempts, then an error about a page that was never slow. Today the server stops on ' +
+          'the FIRST ' +
+          'redirect and says: `/en-GB answered 307 -> /ja-JP/en-GB: the warm-up page must be a ' +
+          "page. Is en-GB one of this app's locales (SUPPORTED_LOCALES / DEFAULT_LOCALE)?` " +
+          'MEASURED on brand D (D8, 2026-11-12): that one line is what found the real bug, which ' +
+          'was in this generator (#826), not in the starter.',
       },
       {
         path: 'the Prism mock itself',
@@ -538,22 +584,25 @@ export function localeMismatch(target, starterLocales = STARTER_LOCALES) {
       },
       {
         path: 'e2e/*.spec.ts',
-        what: `navigate to \`/${starterLocales[0]}/…\` and assert that URL back`,
+        what: 'FIXED in the starter — the specs take the locale from `e2e/support/locale.ts`',
         effect:
-          'every funnel, account, checkout, referral and image spec is written in the starter ' +
-          'locale. Excluding them would delete the suite rather than port it, so they are left ' +
-          'in place and reported here.',
+          'they used to navigate to `/<starter locale>/…` and assert that URL back, so every ' +
+          'funnel, account, checkout, referral and image spec was written in a locale the brand ' +
+          'does not sell. #783, #793 and #797 moved them onto `localePath`/`localeUrl`. MEASURED ' +
+          'on brand D: 9 of its 11 specs import the helper, and its suite ran **10 passed, 3 ' +
+          'failed, 1 skipped** against a real core on the day it was generated — none of the ' +
+          'three failures being the locale, or the app.',
       },
     ],
     remedy:
-      '#441 part 4 (window 3): take the locale from `src/i18n/routing.ts` (which already reads ' +
-      '`SUPPORTED_LOCALES`) in the specs and in the warm-up path, instead of a literal. #441 ' +
-      'parts 1 and 3 are the neighbouring version of this for the locale LIST and the address; ' +
-      'this is the same shape for the locale PREFIX. **And one thing more, from the measurement ' +
-      'above: the warm-up should treat a 3xx as NOT warm.** A redirect answers fast and carries ' +
-      'no chunk, so today it produces 120 identical attempts and an error message about a page ' +
-      'that was never slow. Failing on the first redirect would have said what was wrong in one ' +
-      'line.',
+      'Most of this is DONE, and the entries above say which parts and what proved it. What is ' +
+      'left for a brand on a locale the starter does not serve: the Prism mock serves one store, ' +
+      'so a mock e2e run and a mock render check are impossible — the e2e has to be a CORE leg ' +
+      "(CI runs one), and `perf.mjs` needs the brand's own `perf/store.example.json` (#447/#448). " +
+      'Brand C also ships `scripts/e2e-store-mock.mjs`, which serves that example from a temporary ' +
+      'copy of the spec so a laptop run is possible at all; a new brand on a new locale wants the ' +
+      "same. And `messages/<locale>.json` is a copy of the template's, so the app renders in " +
+      'English until someone translates it.',
   };
 }
 
@@ -568,6 +617,16 @@ export function manualSteps(target) {
       step: 'the brand name is a placeholder until the owner agrees it',
       where: `apps/storefronts/${target.code}/src/brand/config.ts`,
       why: `"${target.name}" came from the command line, not from the business. LAUNCH.md row 0.1.`,
+    },
+    {
+      step: 'the publishable key, if this brand is NOT in the seed',
+      where: `apps/storefronts/${target.code}/next.config.mjs`,
+      why:
+        `the generated line is \`${devPublishableKey(target.code)}\`, which exists only for a brand ` +
+        "in packages/db's seed. A brand created through the onboarding wizard gets a real, " +
+        'one-time key, and it must NOT be committed (CLAUDE.md, and the secret scan reads every ' +
+        "branch's whole history). Pass it as STORE_PUBLISHABLE_KEY from the environment instead; " +
+        'until then the core answers 401 and the app renders nothing (#827).',
     },
     {
       step: 'theme tokens',

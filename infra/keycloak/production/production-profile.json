@@ -25,6 +25,10 @@
         "storefront-brand-c": {
           "origin": "https://shop-c.example.com",
           "callback": "https://shop-c.example.com/auth/callback"
+        },
+        "storefront-brand-d": {
+          "origin": "https://shop-d.example.com",
+          "callback": "https://shop-d.example.com/auth/callback"
         }
       }
     }

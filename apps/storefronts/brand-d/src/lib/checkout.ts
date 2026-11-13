@@ -1,0 +1,266 @@
+import type { Address, Cart } from './store-api';
+import { isStoreApiError } from './store-api';
+
+/**
+ * Checkout rules that do not touch the network: which step comes next, how a form becomes an
+ * Address, and what an API failure means for the customer. Pure, so every branch is unit-tested
+ * rather than discovered in production.
+ */
+
+export const CHECKOUT_STEPS = ['address', 'shipping', 'payment', 'review'] as const;
+export type CheckoutStep = (typeof CHECKOUT_STEPS)[number];
+
+// Step labels live in the message catalogues (`checkout.steps.*`), not here: this module is pure
+// logic and must not hold display text.
+
+export function stepPath(step: CheckoutStep): string {
+  return `/checkout/${step}`;
+}
+
+/** What the cart still needs. Drives both the redirect and the progress indicator. */
+export function nextIncompleteStep(cart: Cart): CheckoutStep {
+  if (cart.email === null || cart.shipping_address === null) return 'address';
+  if (cart.shipping_option === null) return 'shipping';
+  if (cart.payment_session === null || cart.payment_session.status === 'failed') return 'payment';
+  return 'review';
+}
+
+/**
+ * A customer may go back to an earlier step, and may look ahead as far as their *own input* allows —
+ * but never past it: review with no address could place an incomplete order.
+ *
+ * Reachability deliberately does not depend on `payment_session`. That session is a PSP artifact,
+ * not customer input: the customer chooses a *method* at the payment step, and `placeOrderAction`
+ * creates the session immediately before authorising. Gating review on it would strand anyone whose
+ * session expired between steps. (Window 7 revisits this for Stripe hosted fields, which need the
+ * `client_secret` while the customer is still on the payment step.)
+ */
+export function isStepReachable(cart: Cart, step: CheckoutStep): boolean {
+  const hasAddress = cart.email !== null && cart.shipping_address !== null;
+  switch (step) {
+    case 'address':
+      return true;
+    case 'shipping':
+      return hasAddress;
+    case 'payment':
+    case 'review':
+      return hasAddress && cart.shipping_option !== null;
+  }
+}
+
+export function isCheckoutable(cart: Cart | null): cart is Cart {
+  return cart !== null && cart.status === 'active' && cart.items.length > 0;
+}
+
+// ── address form ─────────────────────────────────────────────────────────────────────────────────
+
+export interface AddressFormResult {
+  address?: Address;
+  email?: string;
+  errors: Record<string, string>;
+}
+
+const REQUIRED_ADDRESS_FIELDS = [
+  ['first_name', 'First name'],
+  ['last_name', 'Last name'],
+  ['line1', 'Address'],
+  ['city', 'City'],
+  ['postal_code', 'Postal code'],
+  ['country', 'Country'],
+] as const;
+
+function value(formData: FormData, name: string): string {
+  const raw = formData.get(name);
+  return typeof raw === 'string' ? raw.trim() : '';
+}
+
+function optional(formData: FormData, name: string): string | null {
+  const trimmed = value(formData, name);
+  return trimmed === '' ? null : trimmed;
+}
+
+/**
+ * Validate the address form before it reaches the API. The contract requires an ISO-3166 alpha-2
+ * country and a plausible email; catching that here gives a field-level message instead of a 400.
+ *
+ * `requireEmail` is false for the account's address book, where the customer is already identified
+ * and the form has no email field — same validation, one source of truth for the Address shape.
+ */
+export function parseAddressForm(
+  formData: FormData,
+  { requireEmail = true }: { requireEmail?: boolean } = {},
+): AddressFormResult {
+  const errors: Record<string, string> = {};
+
+  const email = value(formData, 'email');
+  if (requireEmail) {
+    if (email === '') errors.email = 'Enter your email address';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+      errors.email = 'Enter a valid email address';
+  }
+
+  for (const [field, label] of REQUIRED_ADDRESS_FIELDS) {
+    if (value(formData, field) === '') errors[field] = `${label} is required`;
+  }
+
+  const country = value(formData, 'country').toUpperCase();
+  if (country !== '' && !/^[A-Z]{2}$/.test(country)) {
+    errors.country = 'Use the two-letter country code, e.g. NL';
+  }
+
+  if (Object.keys(errors).length > 0) return { errors };
+
+  return {
+    ...(requireEmail ? { email } : {}),
+    address: {
+      first_name: value(formData, 'first_name'),
+      last_name: value(formData, 'last_name'),
+      company: optional(formData, 'company'),
+      line1: value(formData, 'line1'),
+      line2: optional(formData, 'line2'),
+      city: value(formData, 'city'),
+      region: optional(formData, 'region'),
+      postal_code: value(formData, 'postal_code'),
+      country,
+      phone: optional(formData, 'phone'),
+    },
+    errors: {},
+  };
+}
+
+// ── error mapping ────────────────────────────────────────────────────────────────────────────────
+
+export interface CheckoutError {
+  message: string;
+  /** The contract's machine-readable code, so a page can react without matching on text. */
+  code: string;
+  /** Where the customer has to go to fix it. */
+  step?: CheckoutStep;
+  /** Set for `out_of_stock`, so the page can say how many are actually left. */
+  availableQuantity?: number;
+  /** Set for `out_of_stock`: which variant ran out, when the API says so. */
+  variantId?: string;
+  /** Set for `cart_completed`: the order already exists and the customer should see it. */
+  orderId?: string;
+}
+
+function detailNumber(details: Record<string, unknown>, key: string): number | undefined {
+  const raw = details[key];
+  return typeof raw === 'number' ? raw : undefined;
+}
+
+function detailString(details: Record<string, unknown>, key: string): string | undefined {
+  const raw = details[key];
+  return typeof raw === 'string' ? raw : undefined;
+}
+
+/**
+ * Turn a Store API failure into something the checkout can act on. The contract's `code` is the
+ * contract; the message is only ever a fallback for display.
+ */
+/**
+ * `mapCheckoutError` for the completion call, which knows one more thing: whether the order was
+ * being placed **as the signed-in customer**. The contract (Store API 0.5.1, #310) reserves 409
+ * `conflict` at completion for a cart that is already linked to *another* customer than the
+ * token's — nothing was placed, nothing authorised. That is recoverable and must be said: sign out
+ * and place it as a guest, or start a new cart. As a guest, `conflict` keeps its usual meaning.
+ *
+ * **Not every 409 at completion is that one** (#329 review). The core also answers `conflict` for
+ * a promotion's last use lost to a race (`details.promotion_id`) and for an `Idempotency-Key`
+ * already used on another cart (`details['Idempotency-Key']`) — with a token or without. The
+ * contract gives the link conflict no code of its own; what sets it apart is that its `details`
+ * are **empty** (apps/core checkout service, `anotherCustomers`). So only an empty-details
+ * `conflict`, on the customer attempt, gets the link message; anything carrying details keeps the
+ * generic text. A `details.reason` in the contract would make this explicit — not asked for yet.
+ */
+export function mapCompletionError(error: unknown, mode: 'customer' | 'guest'): CheckoutError {
+  const mapped = mapCheckoutError(error);
+  if (mode === 'customer' && mapped.code === 'conflict' && isLinkConflict(error)) {
+    return {
+      code: 'conflict',
+      message:
+        'This cart was started by a different customer account, so it cannot be placed from yours. ' +
+        'Sign out to place it as a guest, or start a new cart.',
+    };
+  }
+  return mapped;
+}
+
+/** The link conflict carries no details; the core's other completion conflicts all do. */
+function isLinkConflict(error: unknown): boolean {
+  return isStoreApiError(error) && Object.keys(error.details).length === 0;
+}
+
+export function mapCheckoutError(error: unknown): CheckoutError {
+  if (!isStoreApiError(error)) {
+    return { code: 'internal', message: 'Something went wrong. Please try again.' };
+  }
+
+  const code = String(error.code);
+  switch (error.code) {
+    case 'out_of_stock': {
+      // The contract's payload is `details.available` (store-api.yaml, addLineItem 409).
+      // `available_quantity` is accepted as a fallback: it is the field name on Variant, and an
+      // implementation could plausibly reach for it.
+      const available =
+        detailNumber(error.details, 'available') ??
+        detailNumber(error.details, 'available_quantity');
+      const variantId = detailString(error.details, 'variant_id');
+      return {
+        code,
+        message:
+          available === undefined
+            ? 'That item is no longer in stock.'
+            : available === 0
+              ? 'That item just sold out.'
+              : `Only ${available} left in stock — reduce the quantity to continue.`,
+        ...(available === undefined ? {} : { availableQuantity: available }),
+        ...(variantId === undefined ? {} : { variantId }),
+      };
+    }
+    case 'price_changed':
+      // A price moved between review and placement (#358): nothing was placed; show the new total.
+      return {
+        code,
+        message:
+          'A price changed since you reviewed your order. Please check the new total and place it again.',
+        step: 'review',
+      };
+    case 'payment_failed':
+      return {
+        code,
+        message: error.message || 'Payment was not authorised. Try another payment method.',
+        step: 'payment',
+      };
+    case 'cart_completed': {
+      const orderId = detailString(error.details, 'order_id');
+      return {
+        code,
+        message: 'This order has already been placed.',
+        ...(orderId === undefined ? {} : { orderId }),
+      };
+    }
+    case 'validation_error':
+      return {
+        code,
+        message: error.message || 'Please check the details you entered.',
+        step: 'address',
+      };
+    case 'not_found':
+      return { code, message: 'Your cart has expired. Please start again.' };
+    // The core answers 401 `unauthorized` when the publishable key is missing, unknown or revoked
+    // (apps/core README, `storeContextMiddleware`) — issue #109 predicted `invalid_publishable_key`,
+    // which is not one of the contract's ERROR_CODES. Both are mapped: the deployment is
+    // misconfigured either way, and no wording about the customer's own input would be true.
+    case 'unauthorized':
+    case 'invalid_publishable_key':
+    case 'forbidden':
+      return { code, message: 'This store is not available right now. Please try again later.' };
+    // `conflict` is the contract's catch-all for "the cart moved under you" — re-reading it is the
+    // only recovery, and that is what the cart page does on the next render.
+    case 'conflict':
+      return { code, message: 'Your cart changed while you were checking out. Please review it.' };
+    default:
+      return { code, message: 'Something went wrong. Please try again.' };
+  }
+}

@@ -10,6 +10,7 @@ import {
   e2eExclusions,
   LOCALE_DATA_FILES,
   SEEDED_BRANDS,
+  localeAssignment,
   localeMismatch,
   localePairs,
   localeProse,
@@ -125,6 +126,31 @@ describe('substitutions', () => {
   const template = { code: 'brand-b', name: 'Stonecrop', port: 3102, locales: ['en-GB'] };
   const target = { code: 'brand-c', name: 'Brand C', port: 3103, locales: ['en-US'] };
 
+  it("rewrites playwright.config's locale assignment, which is a VALUE and not prose (#826)", () => {
+    // The bug this prevents, paid for twice: the template's `SUPPORTED_LOCALES` runtime default
+    // survived into the new brand, the e2e server warmed up on the TEMPLATE's locale, and the whole
+    // suite died before a test ran — twelve rounds of `warm-up N: page failed` with nothing naming
+    // the locale. Brand C fixed it by hand in #438; brand D hit it again in the D8 timed run and it
+    // cost twelve minutes there.
+    const pairs = substitutions(template, target, 'playwright.config.ts');
+    expect(rewrite(localeAssignment(template), pairs)).toBe(localeAssignment(target));
+  });
+
+  it('leaves the surrounding locale PROSE alone, because it argues from the starter', () => {
+    // `localeProse` exists because that comment quotes window 3's list and the template brand's
+    // history. Rewriting it turns true sentences false — brand C's first copy claimed the starter
+    // defaults to 'en-US,de-DE'. Only the assignment moves.
+    const prose = "the starter defaults SUPPORTED_LOCALES to 'en-GB,de-DE'";
+    const pairs = substitutions(template, target, 'playwright.config.ts');
+    expect(rewrite(prose, pairs)).toBe(prose);
+  });
+
+  it('adds no locale pair at all when the brand sells what the template sells', () => {
+    const sameLocale = { ...target, locales: [...template.locales] };
+    const pairs = substitutions(template, sameLocale, 'playwright.config.ts');
+    expect(pairs.some(([from]) => from.includes('SUPPORTED_LOCALES'))).toBe(false);
+  });
+
   it('rewrites the publishable key WHOLE, not by rewriting the code inside it', () => {
     // The trap this ordering exists for: `brand-b` is a substring of `pk_brand-b_dev_…`, so a
     // shorter pattern applied first would edit the key twice and the result would depend on
@@ -184,6 +210,23 @@ describe('substitutions', () => {
 });
 
 describe('runtimeDefaults — the two levers brand A never needed', () => {
+  it('writes a seeded key only for a brand that is IN the seed (#827)', () => {
+    // The brand D run's 401: the generator wrote `pk_brand-d_dev_000…` into a brand whose store
+    // came from the onboarding wizard. That value is real for a seeded brand and authenticates as
+    // nothing for any other, so the file looked configured and the core refused it — a long way
+    // from the cause. A non-seeded brand takes the key from the environment, where the wizard's
+    // one-time key goes, and nothing writes it down.
+    for (const code of SEEDED_BRANDS) {
+      const names = runtimeDefaults({ code, locales: ['en-GB'] }).map((d) => d.name);
+      expect(names, `${code} is seeded and keeps its key`).toContain('STORE_PUBLISHABLE_KEY');
+    }
+    const fourth = runtimeDefaults({ code: 'brand-d', locales: ['ja-JP'] });
+    expect(fourth.map((d) => d.name)).not.toContain('STORE_PUBLISHABLE_KEY');
+    // The other two levers are unconditional: a brand that stays quiet about them serves a URL
+    // space with no content and signs its customers in through brand A's client.
+    expect(fourth.map((d) => d.name)).toEqual(['SUPPORTED_LOCALES', 'KEYCLOAK_CLIENT_ID']);
+  });
+
   it('emits the publishable key, the locale list and the brand OWN Keycloak client', () => {
     const defaults = runtimeDefaults({ code: 'brand-c', locales: ['en-US'] });
     expect(defaults).toEqual([
@@ -471,12 +514,21 @@ describe('localeMismatch', () => {
     expect(warmUp.effect).not.toMatch(/returns null for any status/);
   });
 
-  it('does not propose excluding the specs, which would delete the suite', () => {
-    const specs = localeMismatch({ locales: ['en-US'] })!.files[2]!;
-    expect(specs.effect).toMatch(/rather than port it/);
-    expect(localeMismatch({ locales: ['en-US'] })!.remedy).toMatch(/#441 part 4/);
-    // And the remedy carries what the measurement added: a redirect must not count as warm.
-    expect(localeMismatch({ locales: ['en-US'] })!.remedy).toMatch(/3xx as NOT warm/);
+  it('says the specs and the warm-up are FIXED, because they are (#826, D8)', () => {
+    // This test used to pin the opposite: that the specs were left in the starter's locale and
+    // that the remedy still wanted #441 part 4 and "treat a 3xx as NOT warm". Both landed — #783,
+    // #793 and #797 moved the specs onto `localePath`, and the warm-up now refuses a redirect and
+    // names the cause. Brand D's suite ran 10 passed against a real core on the day it was
+    // generated. A manual-step list that still claimed otherwise would send the next brand
+    // hunting for a problem that no longer exists, which is its own kind of cost.
+    const gap = localeMismatch({ locales: ['en-US'] })!;
+    expect(gap.files[2]!.effect).toMatch(/localePath|support\/locale/);
+    expect(gap.files[2]!.what).toMatch(/FIXED/);
+    expect(gap.files[0]!.what).toMatch(/FIXED/);
+    expect(gap.remedy).not.toMatch(/3xx as NOT warm/);
+    // What is genuinely left is the mock, and the remedy has to keep saying so.
+    expect(gap.remedy).toMatch(/Prism mock/);
+    expect(gap.remedy).toMatch(/store\.example\.json/);
   });
 
   it('reports that the Prism mock cannot serve such a brand at all', () => {

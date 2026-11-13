@@ -106,6 +106,7 @@ updates:
       - /apps/storefronts/brand-a
       - /apps/storefronts/brand-b
       - /apps/storefronts/brand-c
+      - /apps/storefronts/brand-d
     schedule:
       interval: weekly
       day: monday
