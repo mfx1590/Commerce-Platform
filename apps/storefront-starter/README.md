@@ -631,13 +631,24 @@ Metadata, structured data and a sitemap, all built from the Store API and the br
 | `/sitemap.xml` (index) + `/sitemap/<n>.xml`           | `src/app/sitemap.xml/route.ts`, `src/app/sitemap.ts`  | Paged at 5 000 **URLs**                                     |
 | `/robots.txt`                                         | `src/app/robots.ts`                                   | Per request; `Disallow: /` unless `ROBOTS_ALLOW_INDEXING=1` |
 
-**Descriptions (#837).** Every description is chosen by `firstText` / `metaDescription` in `src/lib/seo.ts`: the first candidate with real text, each step **skipped when missing or empty after trimming**, whitespace collapsed.
+**Descriptions (#837).** Every description is chosen by `firstText` (`src/lib/text.ts`) / `metaDescription` (`src/lib/seo.ts`): the first candidate with real text, each step **skipped when missing or empty after trimming**, ASCII whitespace collapsed. Ideographic (U+3000) and no-break spaces are kept: Japanese text and French typography use them on purpose.
 
 - **PDP:** `seo.description`, then the subtitle, then `product.description` (`productMetaDescription`).
-- **Sizing:** the meta and Open Graph descriptions are cut to 160 characters at a word boundary, with an ellipsis. The product JSON-LD carries the same choice in full.
+- **Sizing:** the meta and Open Graph descriptions are cut to 160 characters at a word boundary, with an ellipsis. The product JSON-LD carries the same choice in full, paragraphs kept (`firstBlock`).
 - **Category and root layout:** the category name and the brand's configured description go through the same helper.
 - **When nothing has text, no description key is emitted, never an empty one.**
 - **Why:** a `??` chain falls past `null` only, so a product from the onboarding wizard (`subtitle: ""`, `seo: {}`) rendered an empty description and ignored its real one. The seeded brands never showed it, because the seed gives every product a subtitle.
+
+**Blank names (brand D sweep).** No Store API string has a `minLength`, and the onboarding wizard leaves several empty. A `??` fallback stops at `""`, so every rendered name goes through `src/lib/text.ts` (no imports, safe in client components):
+
+- `productName`: a blank title falls back to the handle. Used by the PDP heading, breadcrumb, product card, JSON-LD and share card.
+- `categoryName`: a blank name falls back to the handle. Used by the category title, filter links and breadcrumb.
+- `storeDisplayName`: falls back to `Storefront`. Used by the logo, copyright and home heading.
+- `imageAlt`: a blank alt falls back to the product's name.
+- A blank `seo.title` falls through to the product name (page title and share card). A blank subtitle, brand or description renders no element at all.
+- A blank shipping name or carrier shows `—` (review, order) or the option code (shipping radio). A blank `default_locale` uses the built-in default.
+- **Checkout country** (`checkoutCountry` in `src/lib/checkout-page.ts`): the store's `default_country`, else the cart's `country`, else empty, so the customer must choose. Never a hard-coded country for a store that answered: a wrong pre-filled country changes shipping options and tax. `NL` only when `GET /store` failed.
+- JSON-LD omits `category` when the category name is blank (a handle is not a category name).
 
 **Canonicals.** The API returns `seo.canonical` as a locale-less _path_ (`/products/classic-tee`),
 because it does not know which locale is rendering. Used verbatim that points at a URL which only

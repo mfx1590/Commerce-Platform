@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { defaultLocale } from '@/i18n/routing';
 import type { Store } from './store-api';
+import { firstText } from './text';
 
 /**
  * Where the build's locale/currency configuration meets what the store actually offers.
@@ -53,5 +54,5 @@ export async function getCurrency(store: Store | null): Promise<string> {
 
 /** The locale for links and formatting when a store is unavailable. */
 export function fallbackLocale(store: Store | null): string {
-  return store?.default_locale ?? defaultLocale;
+  return firstText(store?.default_locale) ?? defaultLocale;
 }
