@@ -557,6 +557,18 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#853 MERGED** (Finance part 1). **#859 re-targeted to main** after the Fable BLOCK fixes (code 94801ea1;
+  main merged in; head = this memory commit; one push). The advisory admin e2e job runs CORE mode, where
+  finance.spec skipped everything: core mode now starts `prism mock openapi/accounting.yaml` on :4013 from
+  playwright.config (unless E2E_ACCOUNTING_URL); refusal runs in both runs, the journey in core mode on the
+  contract examples; each prints a `FINANCE-E2E passed|skipped` line. TODO: quote that line from the
+  advisory job log in the PR once it runs. Payout page note for payout-level reasons → CONTRACT CHANGE #865
+  (reasons are only logged in reconcile.ts:332, not stored). Waiver on #851 (REQUEST #852).
+- **#862 (#860 guard):** Fable MERGE, queued after #853. Nits for later: import the service ids from
+  SEED_IDS + a test pinning them. #864 (manager) = core gaps. #860 comment: lying panel reachable only on
+  soft navigation (Shell handles a failed principal on full loads).
+- **Next after #859:** an orders e2e for line-item edits ("lower quantity", "cancel line", 409 with a
+  shipment, refund due after capture) once window 1's #863 merges (manager says when).
 - **PR #859 — #851 part 2, STACKED on #853 (code 85c8c1a9; head = this memory commit).** Branch
   `admin/phase6-851-finance-2` cut from #853 head 22a0f3c3; PR base `admin/phase6-851-finance` → re-target to
   `main` after #853 merges (then merge main in once, push once). Payouts tab (`listPayouts`, no currency param)
