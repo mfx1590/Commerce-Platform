@@ -410,6 +410,57 @@ branch), dropping versions from the manifest (`--check`'s drift report needs the
 `bump-starter-dep.mjs` as the primary path — **a script of mine cannot make a starter edit legal**;
 bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
+## In progress — #870 wave 1 item 3, admin history (2026-11-13)
+
+**PR #896**, branch `integration/admin-history` from main `62c13ee7` (code commit `0221813e`;
+head = this memory commit). **This is an ADMIN task, not a brands one**: the owner's new standard
+for the dashboard (#870) found window 4 to be the bottleneck, so the manager handed me an item on
+an **integration branch** — `integration/*` may write anywhere, a `brands/` prefix would fail the
+ownership job. The #846 + #806 re-sync before it: PR #849 MERGED.
+
+Built: an "Activity" panel on the product, customer and promotion detail pages, "Payment activity"
+on an order, an owner-only HQ › Audit view with filters / paging / CSV. Admin suite **1189** (was
+1155). Issues filed: **#887**, **#889**, **#891**.
+
+### Read the data before designing the screen — it changed the task
+
+The manager's brief named four detail pages. Grepping all **54 `writeAudit` call sites** in the core
+first showed **23 entity types and no `order`**: nothing writes `entity_type: 'order'` — not
+placement, not the status machine, not cancel, not the line-item edits. A "History" panel on the
+order page keyed the way the API allows would have been **permanently empty**, and an owner reads an
+empty history as "nobody changed it". So the order page shows its PAYMENTS' rows under the honest
+heading "Payment activity" (REQUEST #887 for the real rows).
+
+Two more facts only the grep gave: a product's variants and media are their own entity types under
+their own ids while `listAuditLog` takes ONE `entity_id` (CONTRACT CHANGE #889), and actor names
+come from `listUsers`, which is **`owner` on `organization:hq`** — so for a store admin the lookup
+403s and the panel degrades to "Unknown staff (ab12cd34)" rather than vanishing (REQUEST #891).
+
+**The rule: for a screen over someone else's data, read every writer before designing the reader.**
+
+### The redaction rule is the reviewable part
+
+`listAuditLog` returns `before`/`after` as RAW JSON (`additionalProperties: true`). The core is
+disciplined today — `customers/admin.ts` "never a name, a phone or an email", `payments/capture.ts`
+"ids and amounts only", the API key row "never the plain key or its hash" — but the admin must not
+DEPEND on that: one new `writeAudit` call changes what the screen renders without touching the
+admin, and `store.update` already writes the whole `Store` with `psp_account_id` and `settings`.
+
+So: allow-list per `(entity_type, field)`, a deny pattern that wins even over the allow-list, a
+nested object never rendered, unknown entity type = names only. `AuditRow` has no `before`/`after`
+**by construction**, so nothing unreviewed can reach a client component or the CSV. The test plants
+a marker inside a body and asserts it reaches neither.
+
+### Two engineering notes to keep
+
+- **An async child component breaks the admin's screen tests.** The first version had
+  `<ActivityPanel>` fetch its own data; four existing page tests then rendered an empty `<div/>`,
+  because `render(await Page(...))` cannot resolve an async child. The panels are now synchronous
+  and the page awaits `loadActivity` — which is the better shape anyway (the data belongs to the
+  page). Worth remembering before adding any self-fetching component to this app.
+- **The CSV neutralises a leading `=`, `+`, `-` or `@`.** An audit log carries text somebody typed;
+  a CSV export is how that becomes a formula in someone else's spreadsheet.
+
 ## In progress — the batched A–D re-sync for #846 + #806 (2026-11-13)
 
 **PR #849**, branch `brands/phase6-resync-846-806` from main `78c69dd9` (code commit `aae544a0`;

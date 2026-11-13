@@ -10,6 +10,8 @@ import { describeValue, fromPromotion, readPromotion } from '@/lib/promotions/fo
 import { canManagePromotions } from '../page';
 import { PromotionForm } from '../promotion-form';
 import { promotionTone } from '../promotions-table.config';
+import { ActivityPanel, activityPage } from '@/components/audit/activity-panel';
+import { loadActivity } from '@/lib/audit/load';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,14 +19,18 @@ export const dynamic = 'force-dynamic';
 // one turns ¥500 into ¥50,000. Without the store there is no money input at all.
 export default async function PromotionDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ storeId: string; promotionId: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { storeId, promotionId } = await params;
-  const [promotion, store, principal] = await Promise.all([
+  const page = activityPage((await searchParams)?.['activity']);
+  const [promotion, store, principal, activity] = await Promise.all([
     getPromotion(storeId, promotionId),
     getStore(storeId),
     loadPrincipal(),
+    loadActivity({ storeId, entityType: 'promotion', entityId: promotionId, page }),
   ]);
 
   if (!promotion.ok) {
@@ -120,6 +126,12 @@ export default async function PromotionDetailPage({
             )}
           </CardBody>
         </Card>
+
+        <ActivityPanel
+          activity={activity}
+          entityType="promotion"
+          basePath={`/${storeId}/promotions/${promotionId}`}
+        />
       </div>
     </StoreSectionGuard>
   );

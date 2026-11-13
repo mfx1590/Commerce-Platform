@@ -35,7 +35,14 @@ vi.mock('@/lib/principal', () => ({
     data: (await import('./fixtures/principals')).principals.storeStaff,
   }),
 }));
-const api = vi.hoisted(() => ({ getProduct: vi.fn(), getStore: vi.fn(), listCategories: vi.fn() }));
+const api = vi.hoisted(() => ({
+  getProduct: vi.fn(),
+  getStore: vi.fn(),
+  listCategories: vi.fn(),
+  // #870 item 3: the detail page now carries an Activity panel.
+  listAuditLog: vi.fn(),
+  listUsers: vi.fn(),
+}));
 vi.mock('@/lib/api/admin', () => api);
 
 const STORE = SEED.stores.brandA;
@@ -64,6 +71,8 @@ const ok = <T,>(data: T) => ({ ok: true as const, status: 200, data });
 
 beforeEach(() => {
   vi.clearAllMocks();
+  api.listAuditLog.mockResolvedValue(ok({ page: 1, limit: 20, total: 0, items: [] }));
+  api.listUsers.mockResolvedValue(ok({ page: 1, limit: 100, total: 0, items: [] }));
   api.listCategories.mockResolvedValue(ok({ items: [] }));
   api.getStore.mockResolvedValue(
     ok({ id: STORE, default_locale: 'en-GB', locales: ['en-GB'], status: 'active' }),
