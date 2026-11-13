@@ -1,5 +1,9 @@
 # Changelog — @platform/ui
 
+## 0.4.1 — 2026-11-13 (window 3, test tooling)
+
+- Dev only: `@testing-library/jest-dom` ^6.6.3 → ^7.0.1 (resolved 6.10.0 → 7.0.1; 6.10.0 is the release npm marks deprecated for shipping v7 breaking changes in a minor). No test or setup change needed: `test/setup.ts` already imports `@testing-library/jest-dom/vitest`, and the `types` entry in `tsconfig.test.json` still resolves. Typecheck and the 47 tests pass. No runtime dependency moved.
+
 ## 0.4.0 — 2026-09-21
 
 Task [storefront] 2.3 (issue #111).
