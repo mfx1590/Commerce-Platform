@@ -193,9 +193,11 @@ describe('registry routes', () => {
       'brand-a',
       'brand-b',
       'brand-c',
+      'brand-d',
     ]);
     const byCodeDesc = await owner.get('/admin/stores?sort=code');
     expect(byCodeDesc.body.items.map((s: { code: string }) => s.code)).toEqual([
+      'brand-d',
       'brand-c',
       'brand-b',
       'brand-a',
@@ -205,6 +207,7 @@ describe('registry routes', () => {
       'Brand A',
       'Brand B',
       'Brand C',
+      'Brand D',
     ]);
     const defaultOrder = await owner.get('/admin/stores');
     const orderOnly = await owner.get('/admin/stores?order=asc');

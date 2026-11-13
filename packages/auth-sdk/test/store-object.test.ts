@@ -165,10 +165,10 @@ describe.runIf(fgaUp && dbUp)('reconcileStoreObjects (live OpenFGA + throw-away 
   beforeAll(async () => {
     db = await createTestDatabase('platform_store_object');
     await seed(db.owner, { productsPerStore: 1, log: () => {} });
-    // A fourth store created "through the API" before #415: a row, no tuple.
+    // A fifth store created "through the API" before #415: a row, no tuple (brand-d is seeded since #832).
     await db.owner.query(
       `INSERT INTO store (id, organization_id, legal_entity_id, code, name, default_currency, default_locale, default_country)
-       VALUES ($1, $2, $3, 'brand-d', 'Brand D', 'EUR', 'en-GB', 'GB')`,
+       VALUES ($1, $2, $3, 'brand-x', 'Brand X', 'EUR', 'en-GB', 'GB')`,
       [extraStoreId, SEED_IDS.organization, SEED_IDS.legalEntities.brandA],
     );
     const seeded = await seedOpenFga({
@@ -190,13 +190,19 @@ describe.runIf(fgaUp && dbUp)('reconcileStoreObjects (live OpenFGA + throw-away 
     });
     const report = await reconcileStoreObjects(orgDb, { fga });
     expect(report.organization).toBe('organization:hq');
-    expect(report.stores.map((s) => s.code)).toEqual(['brand-a', 'brand-b', 'brand-c', 'brand-d']);
-    expect(report.missing).toEqual([{ id: extraStoreId, code: 'brand-d' }]);
+    expect(report.stores.map((s) => s.code)).toEqual([
+      'brand-a',
+      'brand-b',
+      'brand-c',
+      'brand-d',
+      'brand-x',
+    ]);
+    expect(report.missing).toEqual([{ id: extraStoreId, code: 'brand-x' }]);
     expect(report.fixed).toEqual([]);
 
     const fixed = await reconcileStoreObjects(orgDb, { fga, fix: true });
-    expect(fixed.missing).toEqual([{ id: extraStoreId, code: 'brand-d' }]);
-    expect(fixed.fixed).toEqual([{ id: extraStoreId, code: 'brand-d' }]);
+    expect(fixed.missing).toEqual([{ id: extraStoreId, code: 'brand-x' }]);
+    expect(fixed.fixed).toEqual([{ id: extraStoreId, code: 'brand-x' }]);
 
     const after = await reconcileStoreObjects(orgDb, { fga });
     expect(after.missing).toEqual([]);

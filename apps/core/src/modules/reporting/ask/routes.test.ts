@@ -208,7 +208,7 @@ describe('askMetrics', () => {
       const r = await ask({ question: 'bookings by store?' }, 'seed-analyst');
       expect(r.status).toBe(200);
       expect(r.body.excluded_store_ids).toEqual([C]);
-      for (const s of seen) expect((s.scope as string[]).sort()).toEqual([A, B].sort());
+      for (const s of seen) expect((s.scope as string[]).sort()).toEqual([A, B, D].sort());
       expect(gateways.runs[0]!.scope.storeId).toBeNull();
     } finally {
       await hq.query(`UPDATE store SET settings = settings - 'ai' WHERE id = $1`, [C]);

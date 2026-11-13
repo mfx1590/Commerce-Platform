@@ -206,10 +206,10 @@ describe.runIf(live)('PHASE 1 GATE (real tokens, live OpenFGA)', () => {
     expect(allowed).toEqual({ status: 200, body: { ok: true } });
   });
 
-  it('analyst: 200 on read-only store routes (viewer), organization scope over all three stores', async () => {
+  it('analyst: 200 on read-only store routes (viewer), organization scope over all four stores', async () => {
     const scope = scopes.get('analyst')!;
     expect(scope.scope).toBe('organization');
-    expect(scope.storeIds).toHaveLength(3);
+    expect(scope.storeIds).toHaveLength(4); // brands A–D (#832)
     for (const object of ['store:*', `store:${S.brandA}`]) {
       await expect(can(scope, 'viewer', object, { fga }), object).resolves.toBe(true);
     }

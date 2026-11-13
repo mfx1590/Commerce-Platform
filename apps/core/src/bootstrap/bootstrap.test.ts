@@ -39,6 +39,7 @@ describe('bootstrap verifier', () => {
       ['brand-a', 'EUR'],
       ['brand-b', 'GBP'],
       ['brand-c', 'USD'],
+      ['brand-d', 'JPY'], // seeded since #832
     ]);
     expect(r.stores[0]!.key_prefix).toBe('pk_brand');
   });
@@ -61,7 +62,7 @@ describe('bootstrap verifier', () => {
     const broken = await verifyBootstrap();
     expect(broken.ok).toBe(false);
     expect(byCheck(broken)).toEqual(['seed_keys', 'store_api_key']);
-    expect(broken.stores.map((s) => s.code)).toEqual(['brand-b', 'brand-c']);
+    expect(broken.stores.map((s) => s.code)).toEqual(['brand-b', 'brand-c', 'brand-d']);
     const seedFinding = broken.findings.find((f) => f.check === 'seed_keys')!;
     expect(seedFinding.message).toMatch(/does not resolve: invalid or revoked publishable key/);
     expect(seedFinding.fix).toContain('pnpm db:seed');

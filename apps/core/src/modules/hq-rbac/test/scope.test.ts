@@ -105,7 +105,7 @@ describe.runIf(live)('staff scope middleware (live Keycloak + Postgres + OpenFGA
     const scope = await build().resolve(await staffToken('finance'));
     expect(scope.scope).toBe('organization');
     expect(scope.organizationRelations).toEqual(['finance']);
-    expect(scope.storeIds).toEqual([S.brandA, S.brandB, S.brandC].sort()); // finance from organization → viewer
+    expect(scope.storeIds).toEqual([S.brandA, S.brandB, S.brandC, S.brandD].sort()); // finance from organization → viewer
   });
 
   it('owner → every organization relation (owner implies the rest)', async () => {
@@ -113,7 +113,7 @@ describe.runIf(live)('staff scope middleware (live Keycloak + Postgres + OpenFGA
     expect(scope.organizationRelations.sort()).toEqual(
       ['owner', 'finance', 'operations', 'analyst', 'support'].sort(),
     );
-    expect(scope.storeIds).toHaveLength(3);
+    expect(scope.storeIds).toHaveLength(4); // brands A–D (#832)
   });
 
   it('caches per subject for ≤ 30 s and drops the entry on role change (invalidate)', async () => {
