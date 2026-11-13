@@ -17,6 +17,11 @@
       "object": "store:00000000-0000-4000-8000-000000000033"
     },
     {
+      "user": "organization:hq",
+      "relation": "organization",
+      "object": "store:00000000-0000-4000-8000-000000000034"
+    },
+    {
       "user": "user:00000000-0000-4000-8000-000000000041",
       "relation": "owner",
       "object": "organization:hq"

@@ -37,6 +37,14 @@ export const BRAND_DATASETS = [
     locales: ['en-US'],
     defaultLocale: 'en-US',
   },
+  {
+    // #832: seeded since brand D (Japan, JPY) entered packages/db's seed; content lives in cms/brand-d
+    storeCode: 'brand-d',
+    dataset: 'brand-d',
+    title: 'Brand D',
+    locales: ['ja-JP'],
+    defaultLocale: 'ja-JP',
+  },
 ] as const satisfies readonly BrandDataset[];
 
 export type StoreCode = (typeof BRAND_DATASETS)[number]['storeCode'];

@@ -199,12 +199,13 @@ export const STARTER_LOCALES = ['en-GB', 'de-DE'];
 /**
  * The brands `packages/db`'s seed already creates a store, legal entity and publishable key for.
  *
- * Not a guess: `SEED_IDS` has `brandA`, `brandB` and `brandC`, and `packages/db/CLAUDE.md` says so.
+ * Not a guess: `SEED_IDS` has `brandA`, `brandB`, `brandC` and (since #832) `brandD`, and `packages/db/CLAUDE.md`
+ * says so.
  * It matters because the generator's advice is the opposite for the two cases — a seeded brand must
- * have its command-line currency and locale CHECKED against the seeded store, while a fourth brand
- * has to be created through the onboarding wizard (#428) instead.
+ * have its command-line currency and locale CHECKED against the seeded store, while a brand the seed does not
+ * have (the fifth on) has to be created through the onboarding wizard (#428) instead.
  */
-export const SEEDED_BRANDS = ['brand-a', 'brand-b', 'brand-c'];
+export const SEEDED_BRANDS = ['brand-a', 'brand-b', 'brand-c', 'brand-d'];
 
 /** The seeded dev publishable key for a brand code. Public by design; local databases only. */
 export function devPublishableKey(code) {
