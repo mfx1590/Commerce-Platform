@@ -70,9 +70,31 @@ export interface paths {
         put?: never;
         /**
          * Move a draft or paused store to active once every prerequisite is present
-         * @description Prerequisites: a legal entity, at least one locale and one currency, a primary domain, a live publishable key, the store's OpenFGA object, and at least one tax rate for each of the store's market countries (`tax_rates`) — the market countries are `default_country` plus every country of the store's active shipping options; a country is covered by any row for it (any region, any category) — and an active shipping option in the store's `default_currency` for each market country (`shipping_options`; without one a cart to that country cannot check out). Missing ones are listed in the 409's `details.missing`; with `tax_rates`, `details.missing_tax_countries` lists the uncovered countries, and with `shipping_options`, `details.missing_shipping_countries` lists the countries without a sellable option, both sorted. An active store answers 200 unchanged; an archived store answers 409 with `details.status: archived`. Writes an audit row and a `store.updated` event on the status change.
+         * @description Prerequisites: a legal entity, at least one locale and one currency, a primary domain, a live publishable key, the store's OpenFGA object, and at least one tax rate for each of the store's market countries (`tax_rates`) — the market countries are `default_country` plus every country of the store's active shipping options; a country is covered by any row for it (any region, any category) — and an active shipping option in the store's `default_currency` for each market country (`shipping_options`; without one a cart to that country cannot check out) — and at least one payment method the checkout can offer (`payment_method`: `card` when the store has its Stripe key, `invoice` when `settings.payment.invoice_allowed`; the same rule as the Store API's `payment.methods`). Missing ones are listed in the 409's `details.missing`; with `tax_rates`, `details.missing_tax_countries` lists the uncovered countries, and with `shipping_options`, `details.missing_shipping_countries` lists the countries without a sellable option, both sorted. An active store answers 200 unchanged; an archived store answers 409 with `details.status: archived`. Writes an audit row and a `store.updated` event on the status change.
          */
         post: operations["activateStore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * What activation would refuse now, and whether the store can sell
+         * @description The same check `activateStore` runs, without changing anything: `missing` is exactly the list its 409 would carry (with `missing_tax_countries` / `missing_shipping_countries`). `payment_methods` is what the checkout can offer (the Store API rule). `purchasable_products` counts published products with at least one variant priced in the store's `default_currency` (its default price list) and available stock (on hand minus reserved, any warehouse); `warnings` names what does not block activation but stops selling (`no_purchasable_product`). An active store answers the same shape.
+         */
+        get: operations["getStoreReadiness"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2156,6 +2178,16 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        StoreReadiness: {
+            /** @enum {string} */
+            status: "draft" | "active" | "paused" | "archived";
+            missing: string[];
+            missing_tax_countries: string[];
+            missing_shipping_countries: string[];
+            payment_methods: ("card" | "invoice")[];
+            purchasable_products: number;
+            warnings: "no_purchasable_product"[];
+        };
         Domain: {
             /** Format: uuid */
             id: string;
@@ -3914,7 +3946,8 @@ export interface components {
                  *           "primary_domain",
                  *           "publishable_key",
                  *           "tax_rates",
-                 *           "shipping_options"
+                 *           "shipping_options",
+                 *           "payment_method"
                  *         ],
                  *         "missing_tax_countries": [
                  *           "BE",
@@ -4199,6 +4232,46 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["ActivationBlocked"];
+        };
+    };
+    getStoreReadiness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "status": "draft",
+                     *       "missing": [
+                     *         "payment_method"
+                     *       ],
+                     *       "missing_tax_countries": [],
+                     *       "missing_shipping_countries": [],
+                     *       "payment_methods": [],
+                     *       "purchasable_products": 0,
+                     *       "warnings": [
+                     *         "no_purchasable_product"
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["StoreReadiness"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listDomains: {

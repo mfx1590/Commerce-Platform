@@ -561,3 +561,19 @@
 - Spec tests: the Admin version pins move to 0.4.28, the operation counts to 141, and the `ActivationBlocked`
   example pin includes `shipping_options`. `ShippingOptionInput`, `ShippingOption`, `listShippingOptions`, Store API
   (0.5.10), Accounting API and events are unchanged (`store.updated` already takes free `changed_fields` values).
+
+## 0.4.36 — 2026-11-13 (Admin API 0.4.29; CONTRACT CHANGE #839 (#830), manager landing)
+
+- Admin API: a new activation prerequisite `payment_method`, after `shipping_options` in `details.missing` (the same
+  409 `ActivationBlocked`, `code: conflict`). It is missing when the checkout can offer no payment method: `card` needs
+  the store's Stripe key, `invoice` needs `settings.payment.invoice_allowed` (the Store API's `payment.methods` rule).
+  `activateStore`'s description says so; the `ActivationBlocked` example gains `payment_method`. Already-active stores
+  are not deactivated.
+- Admin API: `getStoreReadiness` (`GET /admin/stores/{storeId}/readiness`, tag `registry`, `viewer` on the store;
+  200 / 401 / 403 / 404) returns the new closed `StoreReadiness`: `status`, `missing` (exactly what `activateStore`
+  would list), `missing_tax_countries`, `missing_shipping_countries`, `payment_methods` (`card` | `invoice`),
+  `purchasable_products` (published products with a variant priced in the default currency and available stock) and
+  `warnings` (`no_purchasable_product`: does not block activation). Nothing is changed by the read.
+- Spec tests: the Admin version pins move to 0.4.29, the operation counts to 142, the `ActivationBlocked` example pin
+  includes `payment_method`, and a new block pins `getStoreReadiness` and `StoreReadiness`. The Prism walk reads
+  `/readiness`. Store API (0.5.10), Accounting API and events are unchanged.
