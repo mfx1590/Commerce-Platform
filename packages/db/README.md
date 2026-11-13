@@ -132,6 +132,11 @@ Step 2 (0191, db 0.3.5) rekeys the stock tables onto the item:
   backfill), so the catalog keeps creating variants in store scope. Known and accepted within one organization: an
   item sku prefixed with the store code tells a store admin that another brand already holds that sku.
 
+The seed has four stores, brands A–D (brand D since 0.3.24, #832: Japan, JPY — a zero-decimal currency, every amount
+whole yen). A store whose code already exists under another id is skipped whole, with one log line: on the shared dev
+database brand-d is the onboarding wizard's store, so the seed leaves it alone and brand D's seeded key does not exist
+there (pass the wizard's key in `STORE_PUBLISHABLE_KEY` for a local brand-d run).
+
 The seed has one shared item, `SEED_IDS.sharedStock`: brand A's and brand B's first variants map it and it is
 stocked in `wh-eu`. `topUpStock` writes store-less movements.
 

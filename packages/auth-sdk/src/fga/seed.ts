@@ -43,6 +43,26 @@ async function readAllTuples(client: OpenFgaClient): Promise<TupleKey[]> {
   return out;
 }
 
+/**
+ * The seed tuples minus those about a store this database does not have (#832). The seed skips a store whose code
+ * exists under another id (brand-d onboarded through the wizard on a shared dev database), so its seeded id has no
+ * row there; writing `organization:hq → store:<that id>` anyway would put an id with no store into every HQ scope
+ * (ListObjects answers ids straight from OpenFGA). One log line per skipped tuple; every other tuple is kept.
+ */
+export function withoutAbsentStores(
+  tuples: TupleKey[],
+  storeIds: ReadonlySet<string>,
+  log: (m: string) => void = () => {},
+): TupleKey[] {
+  return tuples.filter((t) => {
+    if (!t.object.startsWith('store:')) return true;
+    const id = t.object.slice('store:'.length);
+    if (storeIds.has(id)) return true;
+    log(`skipped ${t.user}#${t.relation}@${t.object}: no store row with that id in this database`);
+    return false;
+  });
+}
+
 export async function seedOpenFga(opts: SeedOpenFgaOptions = {}): Promise<SeedOpenFgaResult> {
   const apiUrl = opts.apiUrl ?? process.env.OPENFGA_API_URL ?? DEFAULT_OPENFGA_API_URL;
   const storeName = opts.storeName ?? DEFAULT_OPENFGA_STORE_NAME;

@@ -1,5 +1,18 @@
 # Changelog — @platform/db
 
+## 0.3.24 — 2026-11-13
+
+- Seed (#832): brand D — `brand-d` "Brand D", legal entity "Brand D K.K." (JP), JPY (zero-decimal: the minor unit is the
+  yen), `ja-JP` only, JP, Asia/Tokyo, JCT 10%, ships JP; `SEED_IDS.legalEntities.brandD` …0014, `stores.brandD` …0034,
+  `publishableKeys.brandD` (the dev-key shape of A–C). Whole yen: shipping standard ¥990 / express ¥1,980 (per-store
+  `shippingMinor`; A–C keep 499 / 999), product 1 at ¥1,980; theme `{}` as the wizard's store has it. Each store keeps its
+  own RNG, so A–C's rows are unchanged (the test pins their price and shipping digests to the 0.3.23 seed).
+- Seed: a store whose CODE already exists under another id (brand-d onboarded through the wizard on a shared dev
+  database) is skipped entirely — legal entity, store, key, domain, locale, currency, channel, tax, shipping,
+  promotions, catalogue and stock — with one log line; the existing store is never updated or deleted. Before, `bulk`'s
+  untargeted `ON CONFLICT DO NOTHING` dropped the store row on `UNIQUE (organization_id, code)` and the next per-store
+  row failed on `store_domain_store_id_fkey`, failing the seed for every window.
+
 ## 0.3.23 — 2026-11-09
 
 - `0208_outbox_lag_owner_role.sql` (#737): `app.outbox_lag()` returns the true backlog on managed Postgres. It is SECURITY DEFINER and relied on its owner bypassing RLS; there the owner is NOBYPASSRLS and the outbox is FORCE RLS, so it returned 0 rows and the outbox-lag panel showed "no lag". The function is now owned by the new role `platform_outbox_lag` (NOLOGIN NOINHERIT NOBYPASSRLS, no members), which has column SELECT on `outbox (organization_id, store_id, topic, occurred_at, published_at, attempts)`, USAGE on schema `app`, and one policy `outbox_lag_read FOR SELECT TO platform_outbox_lag USING (published_at IS NULL)`. Body, result shape and the `platform_metrics` grant are unchanged; FORCE RLS stays on. `platform_app` loses EXECUTE on the function (cross-organization aggregate; the relay stopped using it in #751). README: "A read across every organization".

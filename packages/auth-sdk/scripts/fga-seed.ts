@@ -5,7 +5,13 @@
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { seedOpenFga } from '../src/index.js';
+import {
+  connectionStringFromEnv,
+  createOrganizationClient,
+  createPool,
+  SEED_IDS,
+} from '@platform/db';
+import { loadSeedTuples, seedOpenFga, withoutAbsentStores } from '../src/index.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const envFile = resolve(root, '.env');
@@ -19,7 +25,34 @@ if (existsSync(envFile)) {
   }
 }
 
-const result = await seedOpenFga({ log: (m) => console.info(`fga:seed: ${m}`) });
+const log = (m: string) => console.info(`fga:seed: ${m}`);
+
+/**
+ * The store ids this database has, or null when it cannot be reached in 5 s (#832). With them, a seed tuple about a
+ * store the database lacks is skipped (the seed skipped that store: brand-d is the wizard's on the shared dev stack).
+ */
+async function storeIdsInDatabase(): Promise<Set<string> | null> {
+  let pool: ReturnType<typeof createPool> | undefined;
+  try {
+    pool = createPool(connectionStringFromEnv('owner'), 1);
+    const hq = createOrganizationClient(pool, { organizationId: SEED_IDS.organization });
+    const rows = await Promise.race([
+      hq.query<{ id: string }>('SELECT id FROM store'),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5_000)),
+    ]);
+    return new Set(rows.rows.map((r) => r.id));
+  } catch {
+    return null;
+  } finally {
+    await pool?.end().catch(() => {});
+  }
+}
+
+const storeIds = await storeIdsInDatabase();
+const tuples = storeIds
+  ? withoutAbsentStores(loadSeedTuples(), storeIds, log)
+  : (log('database not reachable: writing every seed tuple'), loadSeedTuples());
+const result = await seedOpenFga({ tuples, log });
 
 function upsertEnv(content: string, key: string, value: string): string {
   const re = new RegExp(`^${key}=.*$`, 'm');

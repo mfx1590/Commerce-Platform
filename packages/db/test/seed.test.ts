@@ -356,6 +356,30 @@ describe("a store whose code exists under another id (#832: the wizard's brand-d
         [SEED_IDS.stores.brandD, FOREIGN_STORE],
       ],
       [`SELECT 1 FROM product WHERE store_id IN ($1, $2)`, [SEED_IDS.stores.brandD, FOREIGN_STORE]],
+      [
+        `SELECT 1 FROM store_locale WHERE store_id IN ($1, $2)`,
+        [SEED_IDS.stores.brandD, FOREIGN_STORE],
+      ],
+      [
+        `SELECT 1 FROM store_currency WHERE store_id IN ($1, $2)`,
+        [SEED_IDS.stores.brandD, FOREIGN_STORE],
+      ],
+      [
+        `SELECT 1 FROM sales_channel WHERE store_id IN ($1, $2)`,
+        [SEED_IDS.stores.brandD, FOREIGN_STORE],
+      ],
+      [
+        `SELECT 1 FROM price_list WHERE store_id IN ($1, $2)`,
+        [SEED_IDS.stores.brandD, FOREIGN_STORE],
+      ],
+      [
+        `SELECT 1 FROM promotion WHERE store_id IN ($1, $2)`,
+        [SEED_IDS.stores.brandD, FOREIGN_STORE],
+      ],
+      [
+        `SELECT 1 FROM product_category WHERE store_id IN ($1, $2)`,
+        [SEED_IDS.stores.brandD, FOREIGN_STORE],
+      ],
     ] as const) {
       expect((await owner.query(sql, [...args])).rowCount, sql).toBe(0);
     }
