@@ -401,3 +401,33 @@ describe('descriptions skip missing AND empty steps (#837)', () => {
     expect(metaDescription('Short.')).toBe('Short.');
   });
 });
+
+describe('metaDescription sizing never splits a character (#838 review)', () => {
+  /** A high surrogate not followed by a low one, or a low one not preceded by a high one. */
+  const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+  it('Japanese text with no spaces is hard-cut, sized and marked', () => {
+    const ja = '手織りのリネンのティータオル。'.repeat(20);
+    const meta = metaDescription(ja)!;
+    expect(meta.length).toBeLessThanOrEqual(META_DESCRIPTION_MAX);
+    expect(meta.endsWith('…')).toBe(true);
+    expect(ja.startsWith(meta.slice(0, -1))).toBe(true);
+  });
+
+  it('a non-BMP kanji straddling the cut is dropped whole, not halved', () => {
+    // 𠮷 is two UTF-16 units; placed so its high surrogate is the last unit before the cut.
+    const text = `${'あ'.repeat(META_DESCRIPTION_MAX - 2)}𠮷${'い'.repeat(40)}`;
+    const meta = metaDescription(text)!;
+    expect(meta).not.toMatch(LONE_SURROGATE);
+    expect(meta.length).toBeLessThanOrEqual(META_DESCRIPTION_MAX);
+    expect(text.startsWith(meta.slice(0, -1))).toBe(true);
+  });
+
+  it('an emoji-only text keeps whole emoji', () => {
+    const emoji = '🧺'.repeat(120);
+    const meta = metaDescription(emoji)!;
+    expect(meta).not.toMatch(LONE_SURROGATE);
+    expect(meta.endsWith('…')).toBe(true);
+    expect([...meta.slice(0, -1)].every((ch) => ch === '🧺')).toBe(true);
+  });
+});

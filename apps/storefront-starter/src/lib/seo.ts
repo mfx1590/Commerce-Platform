@@ -102,17 +102,6 @@ export interface ProductJsonLd {
   [key: string]: unknown;
 }
 
-/**
- * `Product` JSON-LD with one `Offer` per variant.
- *
- * Per-variant offers rather than one aggregate: a shopper searching for a specific size should be
- * told whether *that* variant is in stock, and window 17's feeds need the same per-SKU shape.
- *
- * `gtin` is not in the Store API's `Product` schema, so it is read from the free-form `attributes`
- * bag when a brand populates it — no contract change needed, and nothing is emitted when it is
- * absent. An empty or partial field is omitted entirely: Google penalises a declared-but-wrong
- * property harder than a missing one.
- */
 /** The usual SEO guidance for a meta description: search results show ~155–160 characters. */
 export const META_DESCRIPTION_MAX = 160;
 
@@ -134,11 +123,18 @@ export function firstText(...candidates: (string | null | undefined)[]): string 
  * `firstText`, cut to `META_DESCRIPTION_MAX` for a `<meta name="description">`: at a word boundary
  * when there is one in the last stretch, with an ellipsis. `undefined` means "emit no description",
  * which is right for something that genuinely has none, never an empty one.
+ *
+ * Lengths are UTF-16 code units. Text without spaces (Japanese, Chinese) is always hard-cut, so
+ * the cut backs off one unit rather than end on a high surrogate: splitting a pair (an emoji, a
+ * non-BMP kanji such as 𠮷) would put a lone surrogate into the tag (#838 review).
  */
 export function metaDescription(...candidates: (string | null | undefined)[]): string | undefined {
   const text = firstText(...candidates);
   if (text === undefined || text.length <= META_DESCRIPTION_MAX) return text;
-  const cut = text.slice(0, META_DESCRIPTION_MAX - 1);
+  let end = META_DESCRIPTION_MAX - 1;
+  const last = text.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+  const cut = text.slice(0, end);
   const space = cut.lastIndexOf(' ');
   return `${(space > META_DESCRIPTION_MAX * 0.6 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }
@@ -157,6 +153,17 @@ export function productMetaDescription(product: DescribedProduct): string | unde
   return metaDescription(product.seo?.description, product.subtitle, product.description);
 }
 
+/**
+ * `Product` JSON-LD with one `Offer` per variant.
+ *
+ * Per-variant offers rather than one aggregate: a shopper searching for a specific size should be
+ * told whether *that* variant is in stock, and window 17's feeds need the same per-SKU shape.
+ *
+ * `gtin` is not in the Store API's `Product` schema, so it is read from the free-form `attributes`
+ * bag when a brand populates it — no contract change needed, and nothing is emitted when it is
+ * absent. An empty or partial field is omitted entirely: Google penalises a declared-but-wrong
+ * property harder than a missing one.
+ */
 export function productJsonLd(
   product: Product,
   { url, locale }: { url: string; locale: string },
