@@ -20,6 +20,7 @@ import {
   canonicalFor,
   localizedPath,
   productJsonLd,
+  productMetaDescription,
 } from '@/lib/seo';
 import { fromProductMetadata } from '@/lib/reviews';
 import { EMPTY_RECOMMENDATIONS, loadRecommendations } from '@/lib/recommendations';
@@ -50,7 +51,8 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   // Deliberately currency-less: nothing in the metadata is priced, so asking for a currency would
   // fragment the fetch cache per currency for no gain — and make this read depend on the cookie.
   const product = await loadProduct(handle, undefined);
-  const description = product.seo?.description ?? product.subtitle ?? undefined;
+  // SEO description, then a non-empty subtitle, then the description, trimmed and sized (#837).
+  const description = productMetaDescription(product);
   const title = product.seo?.title ?? product.title;
 
   // Every locale is an alternate; the canonical honours an API-pinned value but localises a

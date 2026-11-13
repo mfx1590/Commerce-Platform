@@ -631,6 +631,14 @@ Metadata, structured data and a sitemap, all built from the Store API and the br
 | `/sitemap.xml` (index) + `/sitemap/<n>.xml`           | `src/app/sitemap.xml/route.ts`, `src/app/sitemap.ts`  | Paged at 5 000 **URLs**                                     |
 | `/robots.txt`                                         | `src/app/robots.ts`                                   | Per request; `Disallow: /` unless `ROBOTS_ALLOW_INDEXING=1` |
 
+**Descriptions (#837).** Every description is chosen by `firstText` / `metaDescription` in `src/lib/seo.ts`: the first candidate with real text, each step **skipped when missing or empty after trimming**, whitespace collapsed.
+
+- **PDP:** `seo.description`, then the subtitle, then `product.description` (`productMetaDescription`).
+- **Sizing:** the meta and Open Graph descriptions are cut to 160 characters at a word boundary, with an ellipsis. The product JSON-LD carries the same choice in full.
+- **Category and root layout:** the category name and the brand's configured description go through the same helper.
+- **When nothing has text, no description key is emitted, never an empty one.**
+- **Why:** a `??` chain falls past `null` only, so a product from the onboarding wizard (`subtitle: ""`, `seo: {}`) rendered an empty description and ignored its real one. The seeded brands never showed it, because the seed gives every product a subtitle.
+
 **Canonicals.** The API returns `seo.canonical` as a locale-less _path_ (`/products/classic-tee`),
 because it does not know which locale is rendering. Used verbatim that points at a URL which only
 redirects — Lighthouse flags it as "points to another `hreflang` location", and a crawler follows it
