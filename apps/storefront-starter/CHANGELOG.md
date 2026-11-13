@@ -1,5 +1,20 @@
 # Changelog — @platform/storefront-starter
 
+## 0.16.5 — 2026-11-13 (window 3, brand D sweep: blank Store API strings, plus the #838 nits)
+
+- **No empty tag from a blank Store API string.** No Store API string has a `minLength`, and the onboarding wizard leaves several empty (`seo: {}`, `subtitle: ""`, blank alt and brand). A `??` fallback stops at `""`. Each rendered fallback now goes through `src/lib/text.ts`:
+  - product title → handle (PDP h1, breadcrumb, card, JSON-LD, share card);
+  - category name → handle (title, filter links);
+  - store name → `Storefront` (logo, copyright, home h1);
+  - image alt → product name (PDP gallery, card);
+  - blank `seo.title` → product name (page title, share card);
+  - blank subtitle, brand or description → no element at all (was an empty `<p>`, or a "Description" heading over nothing);
+  - blank shipping name or carrier → `—` or the option code;
+  - blank `default_locale` or `default_country` → the built-in default.
+- **#838 nits.** `firstText` folds ASCII whitespace only, so an ideographic or no-break space in Japanese or French text is kept. The JSON-LD description keeps its paragraphs (`firstBlock`).
+- **Moved:** `firstText` moved to `src/lib/text.ts`, a module with no imports so client components (the cart line) can use it without pulling in the brand config. It is still re-exported from `src/lib/seo.ts`.
+- **Tests:** `test/display-text.test.ts`, on a wizard-shaped product fixture (10 tests).
+
 ## 0.16.4 — 2026-11-13 (window 3, #830: specs fail fast on a missing store precondition)
 
 - **The payment step no longer waits 180 s for a method the store does not offer.** `advanceToReview` reads the step's radios first and, when the wanted one (invoice, or card) is missing, fails at once. Brand D's proving run (`payment.methods: []`) spent 180 s per payment spec on `locator.check`. Which failure it is comes from the store, not the page (#840 review): the test reads `GET /store` itself (`classifyPayment`). It reports a store precondition only when `payment.methods` lacks the method (or, for card, the run has no Stripe test key). A store that lists the method, or a `GET /store` that cannot be read, is a plain app failure, because the app also shows "no invoice" when its own read fails.

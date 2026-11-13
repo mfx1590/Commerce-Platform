@@ -10,6 +10,7 @@ import {
 } from './checkout';
 import { getStoreOrNull } from './store';
 import type { Cart } from './store-api';
+import { firstText } from './text';
 
 export interface CheckoutContext {
   cart: Cart;
@@ -34,6 +35,6 @@ export async function requireCheckoutStep(step: CheckoutStep): Promise<CheckoutC
     // Formatting follows the locale the customer is reading, which is the one in the URL.
     cart,
     locale: await getLocaleForFormatting(),
-    country: store?.default_country ?? 'NL',
+    country: firstText(store?.default_country) ?? 'NL',
   };
 }
