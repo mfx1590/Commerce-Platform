@@ -119,16 +119,24 @@ transaction on another connection would deadlock behind it (tested in `orders.te
 ## Order edits before fulfilment (`edits.ts`)
 
 `decreaseLineQuantity(client, orderId, lineItemId, quantity, actor)` and `cancelLine(client, orderId, lineItemId, actor)`
-(the last line cannot be cancelled — cancel the order). Allowed while `status ∈ {pending, confirmed}` and
-`fulfillment_status = unfulfilled`. Line `tax_minor` / `total_minor` and the order totals are recomputed with the
+(the last line cannot be cancelled — cancel the order). Allowed while `status ∈ {pending, confirmed}`,
+`fulfillment_status = unfulfilled` and no shipment that is not `cancelled` exists for the order (a planned shipment
+keeps the order `confirmed` and unfulfilled, but its lines are allocated to a parcel; #855) — else 409. Payment status
+does not matter: the difference is recorded for the refund flow. Line `tax_minor` / `total_minor` and the order totals are recomputed with the
 **same `TaxCalculator`** the cart used (cart module seam — window 7's Stripe Tax included); shipping is unchanged.
 Money is untouched: the difference is appended to `order.metadata.edits[]` as
 `{ at, line_item_id, sku, from_quantity, to_quantity, delta_minor }` (positive = owed to the customer; window 7
 refunds from it), and one `order.updated` carries `changed_fields` (`line_items`, `subtotal_minor`, `tax_minor`,
 `total_minor`, `metadata`).
 
-Admin API 0.3.0 has **no order-edit operation**: these are module functions (tested) until the CONTRACT CHANGE for
-`PATCH /admin/stores/{storeId}/orders/{orderId}/line-items/{lineItemId}` lands (filed with the 2.3 PR).
+The removed units' stock reservations are released in the same transaction (inventory's `releaseForOrderLine`,
+#855): the order's `reserved` for that variant and the pool row's `reserved` drop by exactly the removed quantity.
+
+Served since #855 as Admin API `updateOrderLineItem` (`PATCH`, body `{ quantity }`, 1 ≤ quantity < current) and
+`cancelOrderLineItem` (`DELETE`) on `/admin/stores/{storeId}/orders/{orderId}/line-items/{lineItemId}`
+(`src/http/admin-routes.ts`; `store_admin` on the store; 200 `Order`, 400 / 403 / 404 / 409 per the contract).
+`test/order-line-edits.test.ts` checks them through HTTP: exact minor units for a EUR and a JPY order, the released
+reservations, one `order.updated` per edit, and that a failure after the line update leaves nothing behind.
 
 ## Read models (`read-model.ts`)
 

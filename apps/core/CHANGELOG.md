@@ -2,6 +2,22 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-11-13 · order line-item edits are served (#855)
+
+- Admin API `updateOrderLineItem` (`PATCH`) and `cancelOrderLineItem` (`DELETE`) on
+  `/admin/stores/{storeId}/orders/{orderId}/line-items/{lineItemId}` are mounted (`src/http/admin-routes.ts`) on the
+  orders module's existing `decreaseLineQuantity` / `cancelLine`: `store_admin` on the store, the body validated
+  against the spec, 200 `Order`; 400 (validation, not lower), 404 (unknown line, another store's order), 409 (not
+  editable, the last line). The admin's order-detail buttons stop ending in "the core does not serve … yet".
+- The edits now release the removed units' stock reservations in their transaction (new inventory
+  `releaseForOrderLine`: least-preferred warehouse first; a partly covered reservation keeps its id with a lower
+  quantity). Before, a lowered or cancelled line kept its units reserved until the order was cancelled.
+- An order with a shipment that is not `cancelled` can no longer be edited (409, `details.field: shipments`).
+- `test/order-line-edits.test.ts` (4 tests, through HTTP): EUR and JPY (brand D, ¥1,980 × 3 → 1: line ¥2,178, the
+  order −¥4,356) totals exact in minor units and recomputed independently; reservations and the pool's `reserved`;
+  exactly one `order.updated` per edit; a tax-provider failure after the line update rolls back the line, the
+  reservations, the totals and the outbox. Mutation-checked: without the release, or without the shipment rule, it fails.
+
 ### 2026-11-11 · a just-onboarded store is in scope at once (#809 follow-up)
 
 - `KeycloakStaffTokenVerifier.invalidateAll()` drops every cached staff scope (hq-rbac's `ScopeCache.clear()`, read

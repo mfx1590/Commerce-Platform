@@ -137,7 +137,8 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
   delivered (`markDelivered` checks the `shipment` rows); only `cancelOrder` is explicit. Windows 7 and 8 call
   `markPayment*`, `markShipmentStarted`, `markShipped`, `markDelivered`, `markReturned`, `cancelOrder` with a
   scoped client + ids (idempotent on the target state); `markShipmentCreated` is a kept no-op. Edits before fulfilment
-  recompute totals with the cart's `TaxCalculator` and leave money to window 7 (`order.metadata.edits`).
+  recompute totals with the cart's `TaxCalculator`, release the removed units' reservations and leave money to
+  window 7 (`order.metadata.edits`); Admin `updateOrderLineItem` / `cancelOrderLineItem` since #855.
 - Inventory (`src/modules/inventory`): `on_hand` changes only through `moveStock` (append-only `stock_movement` +
   one `stock.moved` v2); stock lies in the SHARED POOL — per (stock item, warehouse), every variant that maps the
   item sells from it (#456). Reservations are the placement stock check (`reserveForOrder` from the checkout; lock

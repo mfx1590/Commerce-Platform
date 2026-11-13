@@ -65,7 +65,9 @@ import {
 } from '../modules/inventory';
 import { getReturn, receiveReturn, requestReturn } from '../modules/returns';
 import {
+  cancelLine,
   cancelOrder,
+  decreaseLineQuantity,
   FULFILLMENT_STATUSES,
   getAdminOrder,
   listAdminOrders,
@@ -434,6 +436,42 @@ export function adminRouter(opts: AdminRouterOptions = {}): Router {
           reason: String((req.body as { reason: string }).reason),
           actor: p.actor,
         }),
+      );
+    }),
+  );
+  // Order edits before fulfilment (#855): the module functions recompute totals, release the removed units'
+  // reservations and emit one `order.updated` in one transaction; 409 once anything has left (or a shipment is planned).
+  r.patch(
+    '/admin/stores/:storeId/orders/:orderId/line-items/:lineItemId',
+    permission('updateOrderLineItem'),
+    body('updateOrderLineItem'),
+    handle(async (req, res) => {
+      const { client } = storeClient(req);
+      const p = requirePrincipal(req);
+      res.json(
+        await decreaseLineQuantity(
+          client,
+          uuidParam(req.params, 'orderId'),
+          uuidParam(req.params, 'lineItemId'),
+          (req.body as { quantity: number }).quantity,
+          p.actor,
+        ),
+      );
+    }),
+  );
+  r.delete(
+    '/admin/stores/:storeId/orders/:orderId/line-items/:lineItemId',
+    permission('cancelOrderLineItem'),
+    handle(async (req, res) => {
+      const { client } = storeClient(req);
+      const p = requirePrincipal(req);
+      res.json(
+        await cancelLine(
+          client,
+          uuidParam(req.params, 'orderId'),
+          uuidParam(req.params, 'lineItemId'),
+          p.actor,
+        ),
       );
     }),
   );
