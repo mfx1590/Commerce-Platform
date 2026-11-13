@@ -557,6 +557,18 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **PR #859 — #851 part 2, STACKED on #853 (code 85c8c1a9; head = this memory commit).** Branch
+  `admin/phase6-851-finance-2` cut from #853 head 22a0f3c3; PR base `admin/phase6-851-finance` → re-target to
+  `main` after #853 merges (then merge main in once, push once). Payouts tab (`listPayouts`, no currency param)
+  + `/finance/payouts/[payoutId]?entity=` (`getPayout`, verdicts in words, PSP − ledger difference); ops tab
+  (`getErpSyncStatus`, `listParkedEvents` → order links). Only the chosen tab's ops are called.
+  e2e/finance.spec.ts: Prism run = store-admin refusal (Prism /admin/me is the store-admin example); finance
+  journey needs E2E_API=core + E2E_ACCOUNTING_URL (Prism accounting :4013 is enough). playwright.config passes
+  ACCOUNTING_API_URL (next start = production → no mock fallback). Fable review. Hold pushes after reporting.
+  - Gotcha: full admin suite had 2–4 run-to-run timing failures (tax-rates-screens, onboarding-screens,
+    contract-form) while the demo servers run; they pass in isolation. Not a regression.
+  - Gotcha: Python heredoc strings turn `\`` into a literal backslash-backtick; and `sed -i` here rewrote
+    whole files (line endings). Use Write + node scripts for doc edits.
 - **PR #853 — #851 part 1: HQ › Finance on the Accounting API (code 6c08b09f; head = this memory commit).**
   Branch `admin/phase6-851-finance` from main de298c1b (main merged in after). Books (`listLegalEntityBooks`),
   trial balance per currency (balanced/unbalanced; empty period never "balanced"), journal (filters, paging,
