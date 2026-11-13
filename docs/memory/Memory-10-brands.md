@@ -410,6 +410,74 @@ branch), dropping versions from the manifest (`--check`'s drift report needs the
 `bump-starter-dep.mjs` as the primary path — **a script of mine cannot make a starter edit legal**;
 bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
+## In progress — #829, the generator writes a brand's three documents (2026-11-13)
+
+**PR #843**, branch `brands/phase6-829-generated-docs` from main `ec55cb3e`. Code commit
+`f2851827` plus the review fix on top. Around it: #841 MERGED (`2f530d59`), #834 closed, #838
+MERGED (`0fc7476c`); #840 still pending, and the A–D re-sync waits for it.
+
+### The review caught a claim I made without testing it
+
+I wrote that a generated README "carries the markers, and a test asserts it". Markers alone are
+**not enough**: `bundle-budget.mjs` in check mode compares the ROWS between them with the real
+build's table (`checkReadme` — route + budget per row, never the size), so an **empty** block fails
+with _"lists different routes or budgets"_ and the new brand's first perf leg is red anyway. I had
+half-fixed the thing I was fixing, and the PR body said otherwise.
+
+**The fix, and why copying is right rather than a shortcut:** the generator copies the TEMPLATE
+brand's block verbatim. A new brand's routes are the starter's, which it has just synced, and its
+budgets are `bundle-budget.json`, copied byte for byte — so the template's route+budget pairs
+already _are_ the new brand's. Only the sizes are stale, and the check never looks at those.
+Verified on a generated throwaway: 19 rows, route+budget pairs identical to the template's. The
+fallback is named rather than hidden — with no block to copy, the run says so and `manualSteps`
+carries the build + `--sync-readme` step.
+
+**Same shape, second lesson:** "prettier-clean" had been proved once, by hand, on a throwaway
+brand. That proves nothing about the next change to these templates, so all three documents are now
+formatted with the repo's own prettier config inside a test and compared.
+
+### A process note worth keeping
+
+Patching this file through heredoc Python cost three failed attempts to escaping — backticks and em
+dashes crossing bash → Python → JS template literals — and one blind fix-up replaced **41**
+pre-existing escape sequences across the file and broke the module outright. Nothing reached a
+commit: the module stopped parsing, I restored from HEAD and rebuilt by **splicing JS snippets
+written with the Write tool and using Edit on text read from the file**. For a file this size,
+Edit-on-read-text is the only sane route; a blind `replace` over escapes is not.
+## In progress — #834, brand D's JPY money test (2026-11-13)
+
+**PR #841** (code commit `49f67c63`; head = this memory commit), branch `brands/phase6-834-jpy-money`
+from main `ec55cb3e`. **MERGED as `2f530d59`.** Brand D only, nine tests, no production code.
+
+**Mutation-proved, not asserted** — the three regressions applied to the built formatter, suite
+re-run each time: digits hard-coded to **2** CAUGHT, `amount_minor / 100` CAUGHT,
+`amount_minor * 100` CAUGHT. `packages/ui/dist/components/price.js` is generated output and was
+restored **byte-for-byte**, the harness comparing and reporting it; nothing outside
+`apps/storefronts/brand-d` was ever dirty. **The technique is reusable: mutate `dist`, never another
+window's source, and make the harness prove the restore.**
+
+The assertion that does the real work is the cheap one: for JPY the rendering must have **no
+fractional part at all**. The `19.80` / `198,000` string checks catch the two obvious directions; a
+stray `toFixed(2)` leaves the magnitude right and only the no-fraction assertion sees it.
+
+It also carries the D8 order's own figures — 1980 + 990 + 198 = 3168, tax **added** not included,
+shipping untaxed — so breaking that arithmetic breaks a test that names order `848ec7e3`.
+
+### Brand D run — closed
+
+#821 merged as **`ec55cb3e`**; brand D is on main. #826, #827 and #828 closed on my generator
+fixes. The manager read order `848ec7e3` in the dev database himself: JPY 1980 / 990 / 198 / 3168,
+confirmed — and its **outbox events are unpublished with no accounting row**, so the ledger hop is
+**#835** and not mine. Filed from the run's tail: **#837** (REQUEST to window 3 — the PDP meta
+description falls past `null` but not past an empty subtitle, and never uses `product.description`;
+6 seo-head failures on brand D, hidden in A/B/C by seeded subtitles) and **#830**'s sixth
+precondition (product images).
+
+**Queued, in order:** #829 (the generator emits README with the bundle-budget block, CHANGELOG and
+CLAUDE.md) on its own branch from main, started now — **not** waiting for #841 to merge. Then the
+A–D re-sync, which waits for BOTH #838 (PDP meta description) and #840 (fail-fast specs) so it
+happens once; the manager says when.
+
 ## In progress — brand D, the D8 onboarding proving run (2026-11-12)
 
 **No PR of my own.** My branch `brands/phase6-brand-d` (code commit `036dd733`, from `origin/main`
