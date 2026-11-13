@@ -1,5 +1,23 @@
 # Changelog — @platform/storefront-brand-d
 
+## Unreleased — 2026-11-13 · re-synced for #838 and #840
+
+- **Re-synced from `apps/storefront-starter`** at main `79914780` (starter 0.16.1 → 0.16.4):
+  251 copied, 1 merged, 10 preserved, 4 excluded. `sync --check` reports the manifest current, no
+  preserved file drifted, and **no dependency moved** — `@types/node` stays on `^20.19.0`, because
+  the Node-types bump arrives with #806 and gets its own re-sync.
+- **#838 — the PDP, category and JSON-LD meta description now fall back properly.** This is the
+  defect brand D found against a real core: the chain stopped at an empty `subtitle`, because `??`
+  falls past `null` and `undefined` but not past `''`, and `product.description` was never
+  considered at all. Six `seo-head` cases failed on a product that had a description all along.
+  Brands A, B and C never saw it because every seeded product has a non-empty subtitle.
+- **#840 — a spec that needs something from the store now fails fast and says which thing.** The
+  new `e2e/support/preconditions.ts` and its tests arrive in all four brands. That is the second
+  half of #830: the brand D run spent **180 seconds** per test watching `locator.check` time out on
+  a radio that would never render, because the store had no payment method — a silent timeout that
+  reads like a frontend bug. It now names the precondition instead.
+- Unit suite: **758 → 780**, all from the synced tests.
+
 ## Unreleased — 2026-11-13 · the money test this brand needed most (#834)
 
 - **`test/brand-money.test.ts`** (9 tests): brand D sells in **JPY**, which has no minor unit, so
