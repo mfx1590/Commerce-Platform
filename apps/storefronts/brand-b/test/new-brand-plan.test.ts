@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { format, resolveConfig } from 'prettier';
 import { describe, expect, it } from 'vitest';
 import {
   BRAND_CODE,
@@ -10,8 +12,15 @@ import {
   e2eExclusions,
   LOCALE_DATA_FILES,
   SEEDED_BRANDS,
+  BUNDLE_BUDGET_END,
+  BUNDLE_BUDGET_START,
+  bundleBudgetBlock,
+  generatedChangelog,
+  generatedClaudeMd,
+  generatedReadme,
   localeAssignment,
   localeMismatch,
+  minorUnitDigitsFor,
   localePairs,
   localeProse,
   manualSteps,
@@ -715,5 +724,145 @@ describe('messageCatalogues', () => {
   it('does not add a catalogue step for a brand that needs none', () => {
     const brandB = { ...parseArgs(ARGS), locales: ['en-GB'] };
     expect(manualSteps(brandB).filter((entry) => entry.step.includes('catalogue'))).toEqual([]);
+  });
+});
+
+describe('the three documents the generator used to leave out (#829)', () => {
+  const template = { code: 'brand-b', name: 'Stonecrop', port: 3102, locales: ['en-GB'] };
+  const yen = {
+    code: 'brand-e',
+    name: 'Brand E',
+    port: 3105,
+    locales: ['ja-JP'],
+    currency: 'JPY',
+    jurisdiction: 'JP',
+  };
+  const dollars = { ...yen, currency: 'USD', jurisdiction: 'US', locales: ['en-US'] };
+
+  /** This app's own README, which the generator copies the budget block out of. */
+  const templateReadme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+
+  /** What `scripts/bundle-budget.mjs` compares in check mode: route and budget, never the size. */
+  const routesAndBudgets = (markdown: string) =>
+    markdown
+      .split('\n')
+      .filter((line) => line.startsWith('| `/'))
+      .map((line) => {
+        const cells = line.split('|').map((cell) => cell.trim());
+        return `${cells[1]} ${cells[3]}`;
+      })
+      .join('\n');
+
+  it("copies the template's budget rows, because an EMPTY block fails the check (#843 review)", () => {
+    // The claim this PR originally made without testing it, and the review was right to catch:
+    // markers alone are not enough. `bundle-budget.mjs` in check mode compares the rows between
+    // the markers with the real build's table and fails with "lists different routes or budgets",
+    // so a brand generated with an empty block still reds its first perf leg.
+    //
+    // Copying is CORRECT, not a shortcut: the new brand's routes are the starter's, which it has
+    // just synced, and its budgets are `bundle-budget.json`, copied byte for byte. Only the sizes
+    // are the template's, and the check does not look at those.
+    const block = bundleBudgetBlock(templateReadme);
+    expect(block, 'this app must have a block to copy').not.toBeNull();
+
+    const readme = generatedReadme(yen, template, false, block);
+    expect(routesAndBudgets(readme)).toBe(routesAndBudgets(templateReadme));
+    expect(routesAndBudgets(readme).length, 'the rows must not be empty').toBeGreaterThan(0);
+  });
+
+  it('still emits the markers when there is no block to copy, and says so in the manual steps', () => {
+    // The honest fallback: a template without a block cannot be helped, so the step is NAMED
+    // rather than left for the next person to find in a red CI run.
+    const readme = generatedReadme(yen, template, false, null);
+    expect(readme).toContain(BUNDLE_BUDGET_START);
+    expect(readme).toContain(BUNDLE_BUDGET_END);
+    expect(routesAndBudgets(readme)).toBe('');
+    expect(
+      manualSteps(yen).some((step) => /README bundle table/.test(step.step)),
+      'the manual list must name the build + --sync-readme step',
+    ).toBe(true);
+  });
+
+  it('returns null for a README with no block at all', () => {
+    expect(bundleBudgetBlock('# a readme with no markers\n')).toBeNull();
+  });
+
+  it('generates markdown prettier already agrees with, all three files', async () => {
+    // "prettier-clean" was proved once by hand on a throwaway brand. A throwaway run proves
+    // nothing about the next change to these templates, so it is asserted here instead: a brand
+    // that fails `pnpm format:check` on the first command its own README gives you is not finished.
+    const options = (await resolveConfig('README.md')) ?? {};
+    const block = bundleBudgetBlock(templateReadme);
+    const documents = {
+      'README.md': generatedReadme(yen, template, false, block),
+      'CHANGELOG.md': generatedChangelog(yen, template),
+      'CLAUDE.md': generatedClaudeMd(yen, template),
+    };
+    for (const [name, text] of Object.entries(documents)) {
+      const formatted = await format(text, { ...options, parser: 'markdown' });
+      expect(formatted, `${name} is not what prettier would write`).toBe(text);
+    }
+  });
+
+  it('puts the bundle-budget markers in the README, which are load-bearing', () => {
+    // Not decoration: `scripts/bundle-budget.mjs` writes its table between these two and FAILS
+    // without them. Brand D's hand-written README had no reason to contain a machine-managed
+    // block, so its perf leg went red while Lighthouse passed and every budget was inside its
+    // threshold. A generated README that omits them would reproduce that for the next brand.
+    const readme = generatedReadme(yen, template);
+    expect(readme).toContain('<!-- bundle-budget:start -->');
+    expect(readme).toContain('<!-- bundle-budget:end -->');
+    expect(readme).toMatch(/do not edit it by/i);
+  });
+
+  it('tells a reader the four env values a brand needs to serve a store (#828)', () => {
+    const readme = generatedReadme(yen, template);
+    for (const name of ['STORE_API_URL', 'STORE_PUBLISHABLE_KEY', 'SITE_URL', 'KEYCLOAK_URL']) {
+      expect(readme, `${name} must be in the README`).toContain(name);
+    }
+    // And the command that works: `node scripts/start.mjs` has no workspace bin path.
+    expect(readme).toContain('pnpm --filter @platform/storefront-brand-e start');
+  });
+
+  it('says where the publishable key comes from, differently for a seeded brand (#827)', () => {
+    expect(generatedReadme(yen, template, false)).toMatch(
+      /must\*\* come from the environment|never commit it/,
+    );
+    expect(generatedReadme({ ...yen, code: 'brand-c' }, template, true)).toMatch(/seeded dev key/);
+  });
+
+  it('warns about zero-decimal money only when the currency HAS no minor unit', () => {
+    // A warning that applies to everything is read by nobody. JPY gets it; USD does not.
+    expect(minorUnitDigitsFor('JPY')).toBe(0);
+    expect(minorUnitDigitsFor('USD')).toBe(2);
+    expect(generatedClaudeMd(yen, template)).toContain('ZERO-DECIMAL');
+    expect(generatedClaudeMd(dollars, template)).not.toContain('ZERO-DECIMAL');
+  });
+
+  it('warns about the single-locale runtime default only for a single-locale brand (#826)', () => {
+    expect(generatedClaudeMd(yen, template)).toMatch(/warm-up N: page failed/);
+    const twoLocales = { ...yen, locales: ['ja-JP', 'en-US'] };
+    expect(generatedClaudeMd(twoLocales, template)).not.toMatch(/warm-up N: page failed/);
+  });
+
+  it('records what the brand was generated from, with its own arguments', () => {
+    const changelog = generatedChangelog(yen, template);
+    expect(changelog).toContain('brand-b');
+    expect(changelog).toContain('Stonecrop');
+    expect(changelog).toContain('JPY');
+    expect(changelog).toContain('ja-JP');
+    expect(changelog).toContain('3105');
+  });
+
+  it('names the jurisdiction honestly when the generator has never seen it', () => {
+    // JP has no entry, so the legal row must not imply a document set exists to copy.
+    expect(generatedReadme(yen, template)).toMatch(/not a known jurisdiction/);
+    const german = { ...yen, jurisdiction: 'DE' };
+    expect(generatedReadme(german, template)).toMatch(/Germany/);
+  });
+
+  it('says a non-seeded brand is not in the seed, because things derive lists from it', () => {
+    expect(generatedClaudeMd(yen, template, false)).toMatch(/not in `packages\/db`/);
+    expect(generatedClaudeMd(yen, template, true)).not.toMatch(/not in `packages\/db`/);
   });
 });

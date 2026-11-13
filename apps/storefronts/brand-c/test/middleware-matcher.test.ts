@@ -13,18 +13,49 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('next-intl/middleware', () => ({ default: () => () => undefined }));
 const { config } = await import('@/middleware');
 
-const require = createRequire(import.meta.url);
-const { getMiddlewareMatchers } = require('next/dist/build/analysis/get-page-static-info') as {
-  getMiddlewareMatchers: (
-    matcher: string | string[],
-    nextConfig: Record<string, unknown>,
-  ) => { regexp: string; originalSource: string }[];
-};
+/**
+ * `getMiddlewareMatchers` is Next's own compiler, but it lives at a PRIVATE path (`next/dist/…`)
+ * that a Next upgrade can move or reshape (#793 review). It is loaded defensively: the guard test
+ * below fails with an instruction if it moved, and the matcher cases are skipped rather than
+ * crashing the file, so the one red test says exactly what to do.
+ */
+const NEXT_PRIVATE = 'next/dist/build/analysis/get-page-static-info';
+type Compile = (
+  matcher: string | string[],
+  nextConfig: Record<string, unknown>,
+) => { regexp: string; originalSource: string }[];
 
-const [compiled] = getMiddlewareMatchers(config.matcher, {});
-const matcher = new RegExp(compiled!.regexp);
+let compile: Compile | undefined;
+let loadError: unknown;
+try {
+  const loaded = createRequire(import.meta.url)(NEXT_PRIVATE) as {
+    getMiddlewareMatchers?: unknown;
+  };
+  if (typeof loaded.getMiddlewareMatchers !== 'function') {
+    throw new Error('the module no longer exports getMiddlewareMatchers');
+  }
+  compile = loaded.getMiddlewareMatchers as Compile;
+} catch (error) {
+  loadError = error;
+}
 
-describe('middleware matcher, as Next compiles it', () => {
+const compiled = compile?.(config.matcher, {})[0];
+
+describe('the Next internals this test relies on (guard)', () => {
+  it(`Next still compiles middleware matchers at ${NEXT_PRIVATE}`, () => {
+    expect(
+      loadError,
+      `Next moved or reshaped its middleware-matcher compiler (${String(loadError)}). Find the new home of getMiddlewareMatchers in node_modules/next/dist, update NEXT_PRIVATE, and re-check that the matcher cases below still mean what they say.`,
+    ).toBeUndefined();
+    expect(compiled?.regexp, 'the compiled matcher has a regexp string').toEqual(
+      expect.any(String),
+    );
+  });
+});
+
+const matcher = new RegExp(compiled?.regexp ?? '$^');
+
+describe.skipIf(compiled === undefined)('middleware matcher, as Next compiles it', () => {
   it('compiles our source', () => {
     expect(compiled!.originalSource).toBe(config.matcher[0]);
   });

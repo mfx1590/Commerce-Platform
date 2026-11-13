@@ -1,5 +1,46 @@
 # Changelog — @platform/storefront-brand-b
 
+## Unreleased — 2026-11-13 · re-synced for #838 and #840
+
+- **Re-synced from `apps/storefront-starter`** at main `79914780` (starter 0.16.1 → 0.16.4):
+  251 copied, 1 merged, 10 preserved, 4 excluded. `sync --check` reports the manifest current, no
+  preserved file drifted, and **no dependency moved** — `@types/node` stays on `^20.19.0`, because
+  the Node-types bump arrives with #806 and gets its own re-sync.
+- **#838 — the PDP, category and JSON-LD meta description now fall back properly.** This is the
+  defect brand D found against a real core: the chain stopped at an empty `subtitle`, because `??`
+  falls past `null` and `undefined` but not past `''`, and `product.description` was never
+  considered at all. Six `seo-head` cases failed on a product that had a description all along.
+  Brands A, B and C never saw it because every seeded product has a non-empty subtitle.
+- **#840 — a spec that needs something from the store now fails fast and says which thing.** The
+  new `e2e/support/preconditions.ts` and its tests arrive in all four brands. That is the second
+  half of #830: the brand D run spent **180 seconds** per test watching `locator.check` time out on
+  a radio that would never render, because the store had no payment method — a silent timeout that
+  reads like a frontend bug. It now names the precondition instead.
+- Unit suite: **854 → 883**, all from the synced tests.
+
+## Unreleased — 2026-11-13 · the generator writes a brand's README, CHANGELOG and CLAUDE.md (#829)
+
+- **`new-brand.mjs` now emits the three documents it never emitted.** Brands A, B and C have them
+  because each README grew by hand alongside the brand; brand D was the first generated and
+  reviewed in one sitting, and the gap showed at once.
+- **The README's `bundle-budget:start`/`end` markers are the load-bearing part.**
+  `scripts/bundle-budget.mjs` writes its table between them and FAILS without them — so brand D's
+  hand-written README turned its own perf leg red while Lighthouse passed and every budget was
+  inside its threshold. A generated README carries the markers, and a test asserts it.
+- The README also carries the **four environment values** a brand needs to serve a store from a
+  real core (#828) and the command that works — twelve minutes of the D8 run went on rediscovering
+  those one refusal at a time.
+- **The warnings are derived, not boilerplate.** `CLAUDE.md` gets the zero-decimal money warning
+  only when the currency genuinely has no minor unit (CLDR via `minorUnitDigitsFor`, so JPY yes,
+  USD no), the single-locale `SUPPORTED_LOCALES` warning only for a one-locale brand (#826), and
+  the "not in the seed" warning only for a brand outside `SEEDED_BRANDS` (#827). A warning that
+  applies to every brand is read by nobody.
+- **The generated markdown is prettier-clean by construction** (`mdTable` pads cells the way
+  prettier does), so a new brand passes `pnpm format:check` before anyone runs `--write` over it.
+  Verified by generating a throwaway brand and checking all three files, then deleting it.
+- The run log no longer prints a seeded dev key for a brand that is not in the seed; it says where
+  the key comes from instead.
+
 ## Unreleased — 2026-11-11 · re-synced for #793 (every response carries the policy)
 
 - **Re-synced from the starter** (#793): `src/lib/route-handlers.ts` and its tests, the

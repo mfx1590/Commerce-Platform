@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed — #820: no Review flash after the onboarding wizard's "Done"
+
+- "Done — continue to readiness" dropped the one-time key by clearing the result, so the wizard
+  re-rendered its Review step until the route changed (seen in the brand D run).
+- It now drops the key and shows "Opening the readiness panel…" with an "Open it now" link to
+  `/onboarding/{storeId}` until the readiness panel loads. The key still never survives "Done".
+- Test: `onboarding-screens` (the 201 case asserts no Review step and the status after Done; it fails
+  without the fix).
+
 ### Added — #825: Store › Settings › Payment ("Pay on invoice")
 
 - A wizard-onboarded store had no payment method (`GET /store` `payment.methods: []`) and no admin way to
