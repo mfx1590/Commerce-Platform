@@ -530,11 +530,15 @@ describe.runIf(skip === null)(
         .filter((e) => e.topic === topic)
         .map((e) => e.payload as Record<string, unknown>);
 
-    it('stock.moved v2: one row per movement, with the delta and the on-hand after it', async () => {
+    it('stock.moved v1 and v2: one row per movement, the delta and the on-hand after it; only v2 has a stock item', async () => {
       const moves = of('stock.moved');
+      const v2 = every.events.filter((e) => e.topic === 'stock.moved' && e.version === 2).length;
       const [r] = await q(
-        `SELECT count() n, uniqExact(stock_movement_id) u, sum(delta) d, sum(on_hand_after) oh FROM stg_stock_moved_v2`,
+        `SELECT count() n, uniqExact(stock_movement_id) u, sum(delta) d, sum(on_hand_after) oh FROM stg_stock_moved`,
       );
+      const [k] = await q('SELECT countIf(stock_item_id IS NOT NULL) n FROM stg_stock_moved');
+      expect(Number(k!.n)).toBe(v2);
+      expect(v2).toBeGreaterThan(0);
       expect(numeric([r!])[0]).toEqual({
         n: moves.length,
         u: moves.length,

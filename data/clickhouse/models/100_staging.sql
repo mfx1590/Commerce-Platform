@@ -221,7 +221,7 @@ SELECT
     organization_id,
     occurred_at,
     toUUID(JSONExtractString(payload, 'stock_movement_id'))                AS stock_movement_id,
-    toUUID(JSONExtractString(payload, 'stock_item_id'))                    AS stock_item_id,
+    toUUIDOrNull(JSONExtractString(payload, 'stock_item_id'))              AS stock_item_id,
     JSONExtractString(payload, 'sku')                                      AS sku,
     toUUIDOrNull(JSONExtractString(payload, 'variant_id'))                 AS variant_id,
     toUUIDOrNull(JSONExtractString(payload, 'store_id'))                   AS movement_store_id,
@@ -232,6 +232,32 @@ SELECT
     JSONExtractInt(payload, 'on_hand_after')                               AS on_hand_after,
     JSONExtractInt(payload, 'reserved_after')                              AS reserved_after
 FROM (SELECT * FROM raw_events FINAL WHERE topic = 'stock.moved' AND version = 2);
+
+-- stock.moved v1: the per-variant ledger before the shared stock pool (#456); no stock item, no store in the payload
+-- (the envelope's store is kept). Same columns as v2 so the history reads as one.
+CREATE OR REPLACE VIEW stg_stock_moved_v1 AS
+SELECT
+    event_id,
+    organization_id,
+    occurred_at,
+    toUUID(JSONExtractString(payload, 'stock_movement_id'))                AS stock_movement_id,
+    CAST(NULL AS Nullable(UUID))                                           AS stock_item_id,
+    JSONExtractString(payload, 'sku')                                      AS sku,
+    toUUIDOrNull(JSONExtractString(payload, 'variant_id'))                 AS variant_id,
+    store_id                                                               AS movement_store_id,
+    toUUID(JSONExtractString(payload, 'warehouse_id'))                     AS warehouse_id,
+    JSONExtractInt(payload, 'delta')                                       AS delta,
+    CAST(JSONExtractString(payload, 'reason') AS LowCardinality(String))   AS reason,
+    nullIf(JSONExtractString(payload, 'reference_type'), '')               AS reference_type,
+    JSONExtractInt(payload, 'on_hand_after')                               AS on_hand_after,
+    JSONExtractInt(payload, 'reserved_after')                              AS reserved_after
+FROM (SELECT * FROM raw_events FINAL WHERE topic = 'stock.moved' AND version = 1);
+
+-- Every stock movement, both versions (v1 rows have no stock item: they predate the pool).
+CREATE OR REPLACE VIEW stg_stock_moved AS
+SELECT * FROM stg_stock_moved_v2
+UNION ALL
+SELECT * FROM stg_stock_moved_v1;
 
 -- return.received v1, one row per returned line (items exploded); product and money come from the order line.
 CREATE OR REPLACE VIEW stg_return_received_v1 AS

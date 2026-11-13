@@ -72,7 +72,16 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   stg_stock_item_mapped_v1), dim_product, fct_order + sales_channel_id/country/customer_type (window fn,
   mart_customers_daily rule), fct_order_line + those + category_id. Model tests written (fixtures: half the
   products categorised; every-topic generator for stock/returns). SQL lint 48/48, typecheck/lint clean.
-  WAITING: the machine (asked thirteen) for the live model run; the 5 decisions on #871. NEXT after: marts
+  DECIDED (thirteen): 1 Postgres labels; 2 hybrid; 3 pooled item shown, shared:true, own rate, row SAYS other brands
+  draw on it (not which); 4 params 14/28/28/60 editable + per-STORE defaults as store settings
+  analytics.inventory.{velocity,lead_time,cover,dead}_days (REQUEST window 1 for the shape check when it lands);
+  per-item = Phase B #878 (purchase orders / incoming, filed); 5 billing_country staged only. VERSION: 0.4.30 /
+  contracts 0.4.37 (#839 holds 0.4.29/0.4.36 on integration/readiness-payment) — do NOT start the yaml edit until
+  the manager says #839 is on main. #871 updated: incoming_tracked + "0 ≠ nothing on order" on view + formula, row
+  parameters + parameters_source, a5 specialist controls per view. Manager + Fable review #871, lands contracts.
+  LIVE models 22/22 (OK'd: throwaway CH DBs of that size need no machine — run, then tell the manager). stock.moved
+  v1 staged too (pre-pool, no stock item) + union stg_stock_moved. Leftover analytics_test_nucddp (created 11-02,
+  not today's) reported, NOT dropped. NEXT: marts
   (mart_bookings_daily keys, mart_product_daily, mart_stock_daily, mart_sales_rate) once #871 is decided.
 - INT5 3c FOLLOW-UP (2026-11-05, manager eleven): #718 MERGED 1fad84d4; #633 MERGED as #719 268a81bf (richPayments
   opt-in). Branch data/phase5-int5-3c. Done: gate month richPayments + reconcileAll(createFixtureSource(month.payouts))
