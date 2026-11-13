@@ -25,7 +25,8 @@ function param(raw: Params, key: string): string {
  * variants that share a stock item show the same numbers — never summed. The "shared with N brands"
  * badge needs `listStockItems` (viewer on organization:hq), so only HQ principals see it; a store
  * admin sees the stock item id. Warehouse names need `listWarehouses` (also viewer on hq): a store
- * admin sees the row's `warehouse_code` instead. Stock is corrected in HQ · Warehouse (cycle counts), not here.
+ * admin sees the row's `warehouse_code` instead. Stock is corrected in HQ · Warehouse (cycle counts and
+ * stock movements, #870), not here: a principal who may work there gets a "Ledger" link per row.
  */
 export default async function InventoryPage({
   params,
@@ -45,6 +46,8 @@ export default async function InventoryPage({
 
   const principal = await loadPrincipal();
   const hq = principal.ok && warehouseAccess(principal.data).canReadStockItems;
+  // The warehouse section asks for `operations` on hq; anyone else would follow a link to a refusal.
+  const canOpenLedger = principal.ok && warehouseAccess(principal.data).canOperate;
 
   const [levels, warehouses, shared] = await Promise.all([
     listInventoryLevels({
@@ -165,6 +168,7 @@ export default async function InventoryPage({
               rows={levels.data.items}
               warehouseNames={warehouseNames}
               sharedBrands={sharedBrands}
+              ledgerLinks={canOpenLedger}
             />
           )}
           {pages > 1 && (
