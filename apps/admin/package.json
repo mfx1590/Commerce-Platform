@@ -29,7 +29,7 @@
   },
   "devDependencies": {
     "@platform/contracts": "workspace:*",
-    "@playwright/test": "^1.63.0",
+    "@playwright/test": "^1.65.0",
     "@stoplight/prism-cli": "^5.16.0",
     "@tailwindcss/postcss": "^4.3.5",
     "@testing-library/jest-dom": "^7.0.1",
@@ -41,7 +41,7 @@
     "@vitejs/plugin-react": "^5.2.0",
     "axe-core": "^4.14.0",
     "jsdom": "^26.1.0",
-    "postcss": "^8.5.28",
+    "postcss": "^8.5.32",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.8.0",
     "vitest": "^3.2.0"
