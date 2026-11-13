@@ -52,7 +52,8 @@ const PAGES: {
   {
     name: 'home',
     path: localePath(''),
-    marker: (page) => page.getByRole('heading', { level: 1 }).first(),
+    // Home's own section, not "any h1": the 404 page has an h1 too (#793 review).
+    marker: (page) => page.locator('section[aria-labelledby="store-facts"]'),
     elements: (page) => ({ h1: page.getByRole('heading', { level: 1 }).first() }),
   },
   {
