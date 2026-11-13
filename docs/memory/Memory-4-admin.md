@@ -557,6 +557,15 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **PR #862 — #860 roles defect (code 1e48a2ac; head = this memory commit).** Branch
+  `admin/phase6-860-roles-guard` from main f431249a. Owner saw "you need the owner relation" on HQ › Roles ›
+  Manage …0061 (crm-sync service account). Cause in the admin: HqSectionGuard showed that panel whenever
+  loadPrincipal() FAILED (401/503/no answer). Core hq-rbac per-user routes check owner on the principal only
+  (http.ts:105-119), so the target cannot 403 the owner. Not replayed live (owner TOTP; no request logs).
+  Fix: guards render ApiStatePanel on a failed principal read; service accounts (fixed ids …0061/…0062 in
+  src/lib/roles) get a badge + View + read-only card naming provision:service-accounts; assign/revoke actions
+  refuse them. CONTRACT CHANGE #861 asks for StaffUser.kind. Customer-group hint fixed (no picker; follow-up:
+  no listCustomerGroups wrapper yet).
 - **PR for #820 wizard flash (code commit 690621f4; head = this memory commit).** Branch
   `admin/phase6-820-wizard-flash` (renamed from the #830 branch; main 112758c1 merged in). "Done" now sets
   `leavingTo` and renders "Opening the readiness panel…" + an "Open it now" link instead of falling back to
