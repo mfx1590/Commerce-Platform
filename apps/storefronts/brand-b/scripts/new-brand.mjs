@@ -39,6 +39,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  bundleBudgetBlock,
   generatedReadme,
   generatedClaudeMd,
   generatedChangelog,
@@ -468,7 +469,24 @@ function main() {
   //    bundle-budget markers are load-bearing: `scripts/bundle-budget.mjs` fails without them, and
   //    the brand's own perf leg goes red — which is how this gap was found, on brand D.
   step('README, CHANGELOG and CLAUDE.md');
-  write('README.md', generatedReadme(target, template));
+  // The template's bundle-budget rows, copied. An EMPTY block fails `bundle-budget.mjs`'s check
+  // ("lists different routes or budgets") and reds the new brand's first perf leg — the routes are
+  // the starter's and the budgets are the copied bundle-budget.json, so the template's rows are
+  // already this brand's. Only the sizes are stale, until its own first --sync-readme (#829).
+  const templateReadmePath = path.join(templateDir, 'README.md');
+  const templateBlock = existsSync(templateReadmePath)
+    ? bundleBudgetBlock(readFileSync(templateReadmePath, 'utf8'))
+    : null;
+  if (templateBlock === null) {
+    log(
+      `  ! ${target.template}/README.md has no bundle-budget block, so this brand gets empty ` +
+        'markers: build it and run --sync-readme before its perf leg can pass (see MANUAL)',
+    );
+  }
+  write(
+    'README.md',
+    generatedReadme(target, template, SEEDED_BRANDS.includes(target.code), templateBlock),
+  );
   write('CHANGELOG.md', generatedChangelog(target, template));
   write('CLAUDE.md', generatedClaudeMd(target, template));
 

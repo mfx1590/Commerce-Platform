@@ -461,6 +461,33 @@ export function minorUnitDigitsFor(currency) {
   }
 }
 
+/** The markers `scripts/bundle-budget.mjs` writes its table between. */
+export const BUNDLE_BUDGET_START = '<!-- bundle-budget:start -->';
+export const BUNDLE_BUDGET_END = '<!-- bundle-budget:end -->';
+
+/**
+ * The bundle-budget block of a README, markers included, or `null` when there is none.
+ *
+ * A generated brand copies the TEMPLATE brand's block verbatim, and that is correct rather than a
+ * convenience: `scripts/bundle-budget.mjs` in check mode compares only the **route** and the
+ * **budget** of each row, never the size; a new brand's routes are the starter's, which it has just
+ * synced, and its budgets are `bundle-budget.json`, which the generator copies byte for byte. So
+ * the template's rows are the new brand's rows until its own first build writes real sizes in.
+ *
+ * The sizes it carries are the template brand's and will be a few hundred bytes out. That is
+ * visible, harmless, and fixed by the first `--sync-readme`. An EMPTY block is none of those: the
+ * check fails with "lists different routes or budgets" and the new brand's first perf leg is red
+ * before anything has been measured (#829, found on brand D and then found again in review).
+ *
+ * @param {string} readme
+ */
+export function bundleBudgetBlock(readme) {
+  const start = readme.indexOf(BUNDLE_BUDGET_START);
+  const end = readme.indexOf(BUNDLE_BUDGET_END);
+  if (start === -1 || end === -1 || end < start) return null;
+  return readme.slice(start, end + BUNDLE_BUDGET_END.length);
+}
+
 /**
  * A markdown table padded the way prettier writes one, so a generated file passes `format:check`
  * without anyone running `--write` over it first. A brand that fails the repo's own gate on the
@@ -531,8 +558,19 @@ function runningSection(target, seeded) {
  * by hand reds its own perf leg, which is exactly what happened to brand D (#829): Lighthouse
  * passed, every budget was inside its threshold, and the leg was red because a hand-written README
  * has no reason to contain a machine-managed block.
+ *
+ * @param {{ code: string, name: string, port: number, currency: string, jurisdiction: string, locales: readonly string[] }} target
+ * @param {{ code: string, name: string, port: number }} template
+ * @param {boolean} [seeded] whether this brand is in `packages/db`'s seed
+ * @param {string | null} [templateBlock] the template brand's bundle-budget block, markers
+ *   included. `null` emits empty markers, which the manual steps then tell the operator to fill.
  */
-export function generatedReadme(target, template, seeded = SEEDED_BRANDS.includes(target.code)) {
+export function generatedReadme(
+  target,
+  template,
+  seeded = SEEDED_BRANDS.includes(target.code),
+  templateBlock = null,
+) {
   const rows = mdTable(identityRows(target));
   return [
     `# @platform/storefront-${target.code}`,
@@ -555,8 +593,11 @@ export function generatedReadme(target, template, seeded = SEEDED_BRANDS.include
     'Written by `node scripts/bundle-budget.mjs --sync-readme` after a build — do not edit it by',
     'hand. **Do not delete the two markers**: the check fails without them, and the perf leg with it.',
     '',
-    '<!-- bundle-budget:start -->',
-    '<!-- bundle-budget:end -->',
+    'The rows below were copied from the template brand when this app was generated. Their',
+    '**routes and budgets** are already this brand’s — that is all the check compares — but the',
+    '**sizes** are the template’s until the first `--sync-readme` after a build of this app.',
+    '',
+    templateBlock ?? `${BUNDLE_BUDGET_START}\n${BUNDLE_BUDGET_END}`,
     '',
     '## What is NOT finished',
     '',
@@ -619,8 +660,8 @@ export function generatedClaudeMd(target, template, seeded = SEEDED_BRANDS.inclu
     '',
     `- \`pnpm --filter @platform/storefront-${target.code} dev\` — on **:${target.port}**`,
     '- Against a real core, four env values are required and each fails on its own (#828). See README.',
-    '- Gate before finishing: `pnpm lint && pnpm format:check && pnpm typecheck &&',
-    `pnpm test --filter @platform/storefront-${target.code}\``,
+    '- Gate before finishing:',
+    `  \`pnpm lint && pnpm format:check && pnpm typecheck && pnpm test --filter @platform/storefront-${target.code}\``,
     '',
     '## Constraints',
     '',
@@ -846,6 +887,17 @@ export function manualSteps(target) {
         'one-time key, and it must NOT be committed (CLAUDE.md, and the secret scan reads every ' +
         "branch's whole history). Pass it as STORE_PUBLISHABLE_KEY from the environment instead; " +
         'until then the core answers 401 and the app renders nothing (#827).',
+    },
+    {
+      step: 'the README bundle table, IF the generator could not copy one',
+      where: `apps/storefronts/${target.code}/README.md`,
+      why:
+        "the block between the bundle-budget markers must list this app's routes and budgets, or " +
+        '`scripts/bundle-budget.mjs` fails with "lists different routes or budgets" and the perf ' +
+        "leg is red before anything has been measured. The generator copies the template brand's " +
+        "rows, which are right because the routes are the starter's and the budgets are the " +
+        'copied `bundle-budget.json` — but if the template had no block, build this app and run ' +
+        '`node scripts/bundle-budget.mjs --sync-readme` (#829).',
     },
     {
       step: 'theme tokens',

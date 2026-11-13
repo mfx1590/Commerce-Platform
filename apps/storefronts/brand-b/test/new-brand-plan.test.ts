@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { format, resolveConfig } from 'prettier';
 import { describe, expect, it } from 'vitest';
 import {
   BRAND_CODE,
@@ -10,6 +12,9 @@ import {
   e2eExclusions,
   LOCALE_DATA_FILES,
   SEEDED_BRANDS,
+  BUNDLE_BUDGET_END,
+  BUNDLE_BUDGET_START,
+  bundleBudgetBlock,
   generatedChangelog,
   generatedClaudeMd,
   generatedReadme,
@@ -733,6 +738,71 @@ describe('the three documents the generator used to leave out (#829)', () => {
     jurisdiction: 'JP',
   };
   const dollars = { ...yen, currency: 'USD', jurisdiction: 'US', locales: ['en-US'] };
+
+  /** This app's own README, which the generator copies the budget block out of. */
+  const templateReadme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+
+  /** What `scripts/bundle-budget.mjs` compares in check mode: route and budget, never the size. */
+  const routesAndBudgets = (markdown: string) =>
+    markdown
+      .split('\n')
+      .filter((line) => line.startsWith('| `/'))
+      .map((line) => {
+        const cells = line.split('|').map((cell) => cell.trim());
+        return `${cells[1]} ${cells[3]}`;
+      })
+      .join('\n');
+
+  it("copies the template's budget rows, because an EMPTY block fails the check (#843 review)", () => {
+    // The claim this PR originally made without testing it, and the review was right to catch:
+    // markers alone are not enough. `bundle-budget.mjs` in check mode compares the rows between
+    // the markers with the real build's table and fails with "lists different routes or budgets",
+    // so a brand generated with an empty block still reds its first perf leg.
+    //
+    // Copying is CORRECT, not a shortcut: the new brand's routes are the starter's, which it has
+    // just synced, and its budgets are `bundle-budget.json`, copied byte for byte. Only the sizes
+    // are the template's, and the check does not look at those.
+    const block = bundleBudgetBlock(templateReadme);
+    expect(block, 'this app must have a block to copy').not.toBeNull();
+
+    const readme = generatedReadme(yen, template, false, block);
+    expect(routesAndBudgets(readme)).toBe(routesAndBudgets(templateReadme));
+    expect(routesAndBudgets(readme).length, 'the rows must not be empty').toBeGreaterThan(0);
+  });
+
+  it('still emits the markers when there is no block to copy, and says so in the manual steps', () => {
+    // The honest fallback: a template without a block cannot be helped, so the step is NAMED
+    // rather than left for the next person to find in a red CI run.
+    const readme = generatedReadme(yen, template, false, null);
+    expect(readme).toContain(BUNDLE_BUDGET_START);
+    expect(readme).toContain(BUNDLE_BUDGET_END);
+    expect(routesAndBudgets(readme)).toBe('');
+    expect(
+      manualSteps(yen).some((step) => /README bundle table/.test(step.step)),
+      'the manual list must name the build + --sync-readme step',
+    ).toBe(true);
+  });
+
+  it('returns null for a README with no block at all', () => {
+    expect(bundleBudgetBlock('# a readme with no markers\n')).toBeNull();
+  });
+
+  it('generates markdown prettier already agrees with, all three files', async () => {
+    // "prettier-clean" was proved once by hand on a throwaway brand. A throwaway run proves
+    // nothing about the next change to these templates, so it is asserted here instead: a brand
+    // that fails `pnpm format:check` on the first command its own README gives you is not finished.
+    const options = (await resolveConfig('README.md')) ?? {};
+    const block = bundleBudgetBlock(templateReadme);
+    const documents = {
+      'README.md': generatedReadme(yen, template, false, block),
+      'CHANGELOG.md': generatedChangelog(yen, template),
+      'CLAUDE.md': generatedClaudeMd(yen, template),
+    };
+    for (const [name, text] of Object.entries(documents)) {
+      const formatted = await format(text, { ...options, parser: 'markdown' });
+      expect(formatted, `${name} is not what prettier would write`).toBe(text);
+    }
+  });
 
   it('puts the bundle-budget markers in the README, which are load-bearing', () => {
     // Not decoration: `scripts/bundle-budget.mjs` writes its table between these two and FAILS
