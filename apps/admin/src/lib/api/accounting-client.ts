@@ -29,6 +29,12 @@ export type LegalEntityBooks = AccountingComponents['LegalEntityBooks'];
 export type TrialBalance = AccountingComponents['TrialBalance'];
 export type JournalLine = AccountingComponents['JournalLine'];
 export type JournalLinePage = AccountingComponents['JournalLinePage'];
+export type Payout = AccountingComponents['Payout'];
+export type PayoutPage = AccountingComponents['PayoutPage'];
+export type PayoutDetail = AccountingComponents['PayoutDetail'];
+export type PayoutLine = AccountingComponents['PayoutLine'];
+export type ParkedEventPage = AccountingComponents['ParkedEventPage'];
+export type ErpSyncStatus = AccountingComponents['ErpSyncStatus'];
 
 export async function accountingRequest<K extends AccountingOperation>(
   options: AdminRequestOptions,

@@ -11,10 +11,11 @@ import type { PermissionRule } from '../permissions/rules';
 /** Every accounting operation's `x-permission` (accounting.yaml): finance on organization:hq. */
 export const FINANCE_RULE: PermissionRule = { relation: 'finance', object: 'organization' };
 
-export const FINANCE_TABS = ['trial-balance', 'journal'] as const;
+export const FINANCE_TABS = ['trial-balance', 'journal', 'payouts', 'ops'] as const;
 export type FinanceTab = (typeof FINANCE_TABS)[number];
 
 type JournalQuery = AccountingQuery<'listJournalLines'>;
+type PayoutsQuery = AccountingQuery<'listPayouts'>;
 
 /** The contract's enums, pinned to the generated types (a contract change breaks the build here). */
 export const JOURNALS = [
@@ -33,6 +34,23 @@ export const REFERENCE_TYPES = [
   'shipment',
   'payout',
 ] as const satisfies readonly NonNullable<JournalQuery['reference_type']>[];
+export const PAYOUT_STATUSES = [
+  'imported',
+  'reconciled',
+  'discrepant',
+] as const satisfies readonly NonNullable<PayoutsQuery['status']>[];
+
+/** What each line verdict means, in words (PayoutLine.match_status). */
+export const MATCH_LABELS: Record<string, string> = {
+  pending: 'Not checked yet',
+  matched: 'Matched',
+  unmatched: 'No ledger entry',
+  amount_mismatch: 'Amount differs',
+  fee_mismatch: 'Fee differs',
+};
+
+const PROVIDER = /^[a-z0-9_-]{1,32}$/;
+
 export const ERP_STATES = ['posted', 'unposted'] as const satisfies readonly NonNullable<
   JournalQuery['erp']
 >[];
@@ -68,6 +86,9 @@ export interface FinanceView {
   period: { from?: string; to?: string };
   currency?: string;
   journal: JournalQuery;
+  payouts: PayoutsQuery;
+  /** `page` for the parked events (ops tab). */
+  parked: { page?: number };
   /** What was typed but ignored, said on the page rather than silently dropped. */
   ignored: string[];
 }
@@ -125,12 +146,26 @@ export function readFinanceView(params: Params): FinanceView {
   for (const [key, value] of Object.entries(filters)) {
     if (value !== undefined) (journal as Record<string, unknown>)[key] = value;
   }
+  const status = keep('status', oneOf(PAYOUT_STATUSES, one(params, 'status')));
+  const provider = keep(
+    'provider',
+    PROVIDER.test(one(params, 'provider') ?? '') ? one(params, 'provider') : undefined,
+  );
+  // Payouts declare no `currency`: it is never sent to listPayouts.
+  const payouts: PayoutsQuery = {
+    ...period,
+    ...(status ? { status } : {}),
+    ...(provider ? { provider } : {}),
+    ...(page ? { page } : {}),
+  };
   return {
     entity: entity ?? null,
     tab: oneOf(FINANCE_TABS, one(params, 'tab')) ?? 'trial-balance',
     period,
     ...(currency ? { currency } : {}),
     journal,
+    payouts,
+    parked: page ? { page } : {},
     ignored,
   };
 }

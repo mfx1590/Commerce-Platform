@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Added — #851 (part 2): HQ › Finance payouts, payout reconciliation, parked events and ERP sync, e2e
+
+- Payouts tab (`listPayouts`, status and provider filters, paging) and a payout page (`getPayout`): line verdicts in
+  words, amount, fee and net in the payout's currency, the PSP − ledger difference.
+- Parked events & ERP tab (`getErpSyncStatus`, `listParkedEvents`): mapping gaps as an alert; parked events link
+  to their order.
+- All seven accounting operations are behind the finance gate. Only the chosen tab's operations are called.
+- Merged with #853's review fixes: the payouts, ops and payout-page failures render `AccountingStatePanel` too.
+  `finance-page` covers the payouts tab (only `listPayouts` called, currency never sent), the ops tab and the payout
+  page (no request without a valid entity; not configured named).
+- `e2e/finance.spec.ts` (#859 review: it had skipped everywhere):
+  - Both runs use Prism's accounting mock. Core mode starts `prism mock openapi/accounting.yaml` on :4013 itself.
+  - The store-admin refusal runs in both runs; the finance journey runs in core mode, asserting the contract's
+    examples.
+  - A `FINANCE-E2E` line is printed on pass and on skip. The real-service waiver is on #851 (REQUEST #852).
+- A discrepant payout says its reason may be outside its lines (payout total ≠ Σ net, ledger lines not carried),
+  which the accounting API doesn't report yet (CONTRACT CHANGE #865).
+- Tests:
+  - `finance-payouts-screens` (JPY payout and lines, verdicts, ERP gaps, parked links; 7).
+  - `finance` grew to 22: every operation gated, the payouts query never carries a currency.
+
 ### Added — #851 (part 1): HQ › Finance on the Accounting API — books, trial balance, journal
 
 - The Finance placeholder ("window 15 in Phase 4") is replaced. It lists legal entities with books

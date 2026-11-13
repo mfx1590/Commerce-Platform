@@ -658,10 +658,32 @@ read-only: the ledger is derived from events and nothing here writes.
 - **Production URL.** In production only `ACCOUNTING_API_URL` counts; `MOCK_ACCOUNTING_API_URL` is ignored there.
 - **Trial balance checks.** A currency is _Balanced_ only when its difference is zero **and** debit = credit. Rows of
   a currency with no total are shown under "No total from the service — not checked", never dropped.
-- **Next PR (#851 part 2).**
-  - Payouts and reconciliation (`listPayouts`, `getPayout`).
-  - The ops panel (`listParkedEvents`, `getErpSyncStatus`).
-  - An e2e against Prism's accounting mock. The real service in the advisory e2e job is REQUEST #852.
+- **Payouts** (`listPayouts`, part 2): arrival, provider, the payout in its own currency, status, matched of all
+  lines, lines not matched. The filters are status and provider; no currency, which the operation doesn't declare.
+  - **One payout** (`/finance/payouts/{id}?entity=`, `getPayout`) shows its lines with amount, fee, net and the
+    verdict in words (_Matched_, _No ledger entry_, _Amount differs_, _Fee differs_, _Not checked yet_), plus the
+    difference (PSP − ledger) when not zero.
+- **Parked events & ERP** (part 2):
+  - `getErpSyncStatus`: Odoo company, accounts mapped (unmapped codes as an alert), posted vs waiting entries.
+  - `listParkedEvents`: each event links to its order, since a list that doesn't drain means that order's
+    `order.placed` is missing.
+- **Only the chosen tab's operations are called.**
+- **Payout-level reasons (#865).** Reconciliation also marks a payout _discrepant_ when the payout total differs
+  from the sum of its lines, or when a ledger payment or refund in its window isn't carried. The accounting API
+  doesn't report those yet, so a discrepant payout's page says the reason may be outside its lines, citing
+  CONTRACT CHANGE #865.
+- **e2e** (`e2e/finance.spec.ts`) runs against Prism's accounting mock (the contract's examples) in **both** runs:
+  - the default run serves it through `pnpm mock`;
+  - in core mode (the advisory CI job), `playwright.config.ts` starts Prism for `accounting.yaml` alone on :4013,
+    unless `E2E_ACCOUNTING_URL` names a running service.
+
+  What runs:
+  - **Store-admin refusal:** both runs.
+  - **Finance journey over all seven operations:** core mode (it needs a real finance principal).
+  - Every outcome prints a `FINANCE-E2E passed|skipped` line, so a CI log shows whether it ran.
+  - The real service is waived until REQUEST #852; the waiver is on #851.
+  - The app gets `ACCOUNTING_API_URL` explicitly: `next start` runs as production, where a missing URL is
+    "not configured".
 
 ## HQ roles (task 3.1 A, issue #428; Admin API 0.4.12)
 

@@ -14,10 +14,15 @@ const api = vi.hoisted(() => ({
   listLegalEntityBooks: vi.fn(),
   getTrialBalance: vi.fn(),
   listJournalLines: vi.fn(),
+  listPayouts: vi.fn(),
+  getPayout: vi.fn(),
+  listParkedEvents: vi.fn(),
+  getErpSyncStatus: vi.fn(),
 }));
 vi.mock('@/lib/api/accounting', () => api);
 
 const { default: FinancePage } = await import('@/app/(hq)/finance/page');
+const { default: PayoutPage } = await import('@/app/(hq)/finance/payouts/[payoutId]/page');
 
 const ENTITY = '00000000-0000-4000-8000-000000000011';
 const books = {
@@ -51,6 +56,7 @@ async function renderPage(params: Record<string, string> = {}) {
 }
 
 beforeEach(() => {
+  for (const fn of Object.values(api)) fn.mockReset();
   api.listLegalEntityBooks.mockReset();
   api.getTrialBalance.mockReset();
   api.listJournalLines.mockReset();
@@ -133,5 +139,55 @@ describe('FinancePage', () => {
     expect(document.body.textContent).toContain(
       'The trial balance cannot be shown. OpenFGA unreachable',
     );
+  });
+});
+
+describe('FinancePage, part 2 tabs', () => {
+  it('payouts: only listPayouts is called, and its failure names the accounting service', async () => {
+    api.listPayouts.mockResolvedValue(failure(0, 'network_error', 'fetch failed'));
+    await renderPage({ entity: ENTITY, tab: 'payouts', currency: 'EUR', status: 'discrepant' });
+    expect(api.listPayouts).toHaveBeenCalledWith(ENTITY, { status: 'discrepant' });
+    expect(api.getTrialBalance).not.toHaveBeenCalled();
+    expect(screen.getByText('Could not reach the accounting service')).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('Admin API');
+  });
+
+  it('ops: ERP status and parked events are both read; a 503 on one is named', async () => {
+    api.getErpSyncStatus.mockResolvedValue(failure(503, 'unavailable', 'OpenFGA unreachable'));
+    api.listParkedEvents.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { page: 1, limit: 20, total: 0, items: [] },
+    });
+    await renderPage({ entity: ENTITY, tab: 'ops' });
+    expect(api.getErpSyncStatus).toHaveBeenCalledWith(ENTITY);
+    expect(screen.getByText('The accounting service answered 503')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Parked events' })).toHaveTextContent(
+      'Nothing is parked',
+    );
+  });
+});
+
+describe('the payout page', () => {
+  const PAYOUT = '00000000-0000-4000-8000-00000000d001';
+  const renderPayout = async (search: Record<string, string>) =>
+    render(
+      await PayoutPage({
+        params: Promise.resolve({ payoutId: PAYOUT }),
+        searchParams: Promise.resolve(search),
+      }),
+    );
+
+  it('without a valid entity nothing is requested', async () => {
+    await renderPayout({ entity: 'nope' });
+    expect(api.getPayout).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('That is not a payout of a legal entity');
+  });
+
+  it('not configured is named on the payout page too', async () => {
+    api.getPayout.mockResolvedValue(failure(503, 'not_configured', 'not configured'));
+    await renderPayout({ entity: ENTITY });
+    expect(api.getPayout).toHaveBeenCalledWith(ENTITY, PAYOUT, {});
+    expect(screen.getByText('The accounting service is not configured')).toBeInTheDocument();
   });
 });
