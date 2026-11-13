@@ -137,12 +137,25 @@ SELECT
 FROM stg_payment_failed_v1;
 
 -- fct_refund: one row per succeeded refund (refund.issued).
+-- BI v2 (#871) appends the refunded order's country and sales_channel_id ('' / NULL until the order is in the facts):
+-- refunds take the same dimensions as the sales they reduce. One fct_order row per order, so no refund is repeated.
 CREATE OR REPLACE VIEW fct_refund AS
 SELECT
-    organization_id, store_id, refund_id, payment_id, order_id, legal_entity_id,
-    amount_minor, currency, reason, issued_at,
-    event_id AS source_event_id
-FROM stg_refund_issued_v1;
+    r.organization_id                                        AS organization_id,
+    r.store_id                                               AS store_id,
+    r.refund_id                                              AS refund_id,
+    r.payment_id                                             AS payment_id,
+    r.order_id                                               AS order_id,
+    r.legal_entity_id                                        AS legal_entity_id,
+    r.amount_minor                                           AS amount_minor,
+    r.currency                                               AS currency,
+    r.reason                                                 AS reason,
+    r.issued_at                                              AS issued_at,
+    r.event_id                                               AS source_event_id,
+    o.country                                                AS country,
+    o.sales_channel_id                                       AS sales_channel_id
+FROM stg_refund_issued_v1 AS r
+LEFT JOIN fct_order AS o ON o.order_id = r.order_id;
 
 -- fct_shipment_line: one row per (shipment, order line): what left the warehouse, for lineage and the lifetime
 -- invariant of #602. Shipment cost stays on the shipment, not on its lines. No posting rule is encoded here (D7).
