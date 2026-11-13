@@ -87,6 +87,15 @@ describe('the onboarding wizard', () => {
     expect(push).toHaveBeenCalledWith(`/onboarding/${STORE}`);
     expect(String(push.mock.calls[0]?.[0])).not.toContain('plain-words');
     expect(document.body.innerHTML).not.toContain('plain-words-one-time-value');
+    // Until the route changes, the wizard says where it is going; it never falls back to the
+    // Review step (#820: the brand D run saw Review flash after Done).
+    expect(screen.queryByRole('region', { name: 'Review' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Onboard the brand' })).toBeNull();
+    expect(screen.getByRole('status')).toHaveTextContent('Opening the readiness panel');
+    expect(screen.getByRole('link', { name: 'Open it now' })).toHaveAttribute(
+      'href',
+      `/onboarding/${STORE}`,
+    );
   });
 
   it('the 200 repeat says the store exists and shows no key', async () => {
