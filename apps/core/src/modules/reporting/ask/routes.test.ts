@@ -20,6 +20,7 @@ const ORG = SEED_IDS.organization;
 const A = SEED_IDS.stores.brandA;
 const B = SEED_IDS.stores.brandB;
 const C = SEED_IDS.stores.brandC;
+const D = SEED_IDS.stores.brandD; // seeded since #832: every HQ principal sees it
 const OPS: Record<string, { relation: string; object: string }> = {
   askMetrics: { relation: 'viewer', object: 'store:*' },
   askMetricsFeedback: { relation: 'viewer', object: 'store:*' },
@@ -207,7 +208,7 @@ describe('askMetrics', () => {
       const r = await ask({ question: 'bookings by store?' }, 'seed-analyst');
       expect(r.status).toBe(200);
       expect(r.body.excluded_store_ids).toEqual([C]);
-      for (const s of seen) expect((s.scope as string[]).sort()).toEqual([A, B].sort());
+      for (const s of seen) expect((s.scope as string[]).sort()).toEqual([A, B, D].sort());
       expect(gateways.runs[0]!.scope.storeId).toBeNull();
     } finally {
       await hq.query(`UPDATE store SET settings = settings - 'ai' WHERE id = $1`, [C]);
@@ -228,7 +229,7 @@ describe('askMetrics', () => {
       const r = await ask({ question: 'bookings by store?' }, 'seed-analyst');
       expect(r.status).toBe(200);
       expect(r.body.excluded_store_ids).toEqual([]);
-      for (const s of seen) expect((s.scope as string[]).sort()).toEqual([A, B, C].sort());
+      for (const s of seen) expect((s.scope as string[]).sort()).toEqual([A, B, C, D].sort());
     } finally {
       await hq.query(`UPDATE store SET settings = settings - 'ai' WHERE id = ANY($1::uuid[])`, [
         [B, C],

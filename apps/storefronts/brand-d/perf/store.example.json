@@ -1,5 +1,5 @@
 {
-  "id": "9f3c3c2a-42a5-4903-bb1d-fd47e4f6324e",
+  "id": "00000000-0000-4000-8000-000000000034",
   "code": "brand-d",
   "name": "Brand D",
   "default_currency": "JPY",
@@ -8,7 +8,7 @@
   "currencies": ["JPY"],
   "locales": ["ja-JP"],
   "sales_channel": {
-    "id": "a4b961db-8fe1-453a-849e-96986c909f68",
+    "id": "34000006-0000-4000-8000-000000000001",
     "code": "web",
     "type": "web"
   },

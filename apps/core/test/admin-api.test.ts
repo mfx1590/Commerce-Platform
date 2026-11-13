@@ -184,8 +184,8 @@ describe('registry routes', () => {
     expect(staff.body.items.map((s: { code: string }) => s.code)).toEqual(['brand-a']);
 
     const all = await owner.get('/admin/stores?limit=2&page=2');
-    expect(all.body).toMatchObject({ page: 2, limit: 2, total: 3 });
-    expect(all.body.items).toHaveLength(1);
+    expect(all.body).toMatchObject({ page: 2, limit: 2, total: 4 }); // brands A–D (#832)
+    expect(all.body.items).toHaveLength(2);
 
     // contracts 0.2.0: sort + order (order ignored without sort)
     const byCode = await owner.get('/admin/stores?sort=code&order=asc');
@@ -193,9 +193,11 @@ describe('registry routes', () => {
       'brand-a',
       'brand-b',
       'brand-c',
+      'brand-d',
     ]);
     const byCodeDesc = await owner.get('/admin/stores?sort=code');
     expect(byCodeDesc.body.items.map((s: { code: string }) => s.code)).toEqual([
+      'brand-d',
       'brand-c',
       'brand-b',
       'brand-a',
@@ -205,6 +207,7 @@ describe('registry routes', () => {
       'Brand A',
       'Brand B',
       'Brand C',
+      'Brand D',
     ]);
     const defaultOrder = await owner.get('/admin/stores');
     const orderOnly = await owner.get('/admin/stores?order=asc');

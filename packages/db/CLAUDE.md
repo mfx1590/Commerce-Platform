@@ -30,7 +30,7 @@ main window. Window 1 (core) may propose migrations via PR; main approves. Never
 - `createOrganizationClient(pool, { organizationId, actorId? })` → same shape, `scope: 'organization'` (HQ: all stores). Only after an organization-level permission check.
 - `migrate(pool, dirs?, { before? })` (refuses a migration that leaves RLS unforced; see README "Migrations on managed Postgres"), `listMigrations()`, `createPool(url)`, `connectionStringFromEnv('owner' | 'app')`.
 - `app.outbox_lag()` (SQL, not TS): per-store/topic unpublished counts for monitoring, across every organization. Callable by the `platform_metrics` role only, which has EXECUTE on that function and no table access at all. Since 0208 (0.3.23) it is owned by `platform_outbox_lag` (NOLOGIN, policy `outbox_lag_read` on unpublished rows, six columns), so it works on managed Postgres; see README.
-- `seed(pool)`, `SEED_IDS` — fixed uuids for brand-a/b/c, wh-eu/wh-us, one staff user per role, and the shared stock item (`sharedStock`, 0.3.5).
+- `seed(pool)`, `SEED_IDS` — fixed uuids for brand-a/b/c/d (brand D = JPY, zero-decimal, since 0.3.24 / #832; a store whose code already exists under another id is skipped whole, with one log line), wh-eu/wh-us, one staff user per role, and the shared stock item (`sharedStock`, 0.3.5).
 - `@platform/db/testing` → `createTestDatabase()` returns `{ owner, app, drop }` pools (app = `platform_app` role, RLS enforced).
 
 ## Rules every consumer must follow

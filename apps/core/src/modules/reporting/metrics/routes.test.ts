@@ -20,6 +20,7 @@ const ORG = SEED_IDS.organization;
 const A = SEED_IDS.stores.brandA;
 const B = SEED_IDS.stores.brandB;
 const C = SEED_IDS.stores.brandC;
+const D = SEED_IDS.stores.brandD; // seeded since #832: every HQ principal sees it
 /** A spec carrying only the given operations; an unknown operation throws like loadSpec. */
 const specWith = (ops: Record<string, { relation: string; object: string }>) => ({
   permission(op: string) {
@@ -112,7 +113,7 @@ describe('listMetrics', () => {
   it('finance sees every store and the finance metrics', async () => {
     const r = await get('seed-finance');
     expect(r.status).toBe(200);
-    expect(r.body.stores.map((s: { id: string }) => s.id).sort()).toEqual([A, B, C].sort());
+    expect(r.body.stores.map((s: { id: string }) => s.id).sort()).toEqual([A, B, C, D].sort());
     expect(r.body.metrics.map((m: { id: string }) => m.id)).toEqual(
       expect.arrayContaining(['captured_minor', 'fee_minor', 'recognised_minor']),
     );
@@ -149,7 +150,7 @@ describe('queryMetrics', () => {
   it('an analyst gets every store, and a store filter narrows the scope', async () => {
     seen.length = 0;
     expect((await post(q(), 'seed-analyst')).status).toBe(200);
-    expect((seen[0]!.scope as string[]).sort()).toEqual([A, B, C].sort());
+    expect((seen[0]!.scope as string[]).sort()).toEqual([A, B, C, D].sort());
     seen.length = 0;
     expect((await post(q({ filters: { store_ids: [C] } }), 'seed-analyst')).status).toBe(200);
     expect(seen[0]!.scope).toEqual([C]);

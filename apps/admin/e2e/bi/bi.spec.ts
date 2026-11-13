@@ -57,9 +57,9 @@ test.describe('bi', () => {
     await page.waitForURL(/\/bi/);
     await expect(page.getByRole('heading', { name: 'BI', exact: true })).toBeVisible();
 
-    // Brands A, B and C: the stock tabs list every store the owner reaches.
+    // Brands A–D (D seeded since #832): the stock tabs list every store the owner reaches.
     const stores = page.getByRole('navigation', { name: 'Store' });
-    await expect(stores.getByRole('link')).toHaveText(['brand-a', 'brand-b', 'brand-c']);
+    await expect(stores.getByRole('link')).toHaveText(['brand-a', 'brand-b', 'brand-c', 'brand-d']);
     await expect(page.getByRole('heading', { name: 'Stock', exact: true })).toBeVisible();
 
     // The owner holds finance: the card renders, fees labelled unreconciled when there is data.

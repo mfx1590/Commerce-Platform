@@ -85,19 +85,18 @@ if [ "$include_brands" = '1' ]; then
 fi
 mapfile -t configs < <(ls -1 "${globs[@]}" 2>/dev/null | sort)
 
-# Brand storefronts with NO store in the CI seed (packages/db's seed has brands A-C; brand D was onboarded through the
-# wizard in the wave 3 run). Against CI's freshly seeded core their journeys would run with a publishable key that
-# authenticates as nothing, so they are skipped BY NAME, each printed in the log with the issue that removes it from
-# this list. Never a silent filter. Locally, E2E_RUN_UNSEEDED_BRANDS=1 runs them (the shared stack has the store).
-UNSEEDED_BRANDS=(
-  'brand-d:#832' # seed brand-d (JPY) so the live job covers it
-)
+# Brand storefronts with NO store in the CI seed. Against CI's freshly seeded core their journeys would run with a
+# publishable key that authenticates as nothing, so they are skipped BY NAME, each printed in the log with the issue
+# that removes it from this list. Never a silent filter. Locally, E2E_RUN_UNSEEDED_BRANDS=1 runs them.
+# Empty since #832: packages/db's seed has brands A-D (brand D, JPY, seeded so its journeys run here). A brand
+# generated before it is seeded goes here as 'brand-x:#<issue>'.
+UNSEEDED_BRANDS=()
 skipped_by_name=()
 if [ "${E2E_RUN_UNSEEDED_BRANDS:-}" != '1' ]; then
   kept=()
   for cfg in "${configs[@]}"; do
     brand=''
-    for entry in "${UNSEEDED_BRANDS[@]}"; do
+    for entry in "${UNSEEDED_BRANDS[@]+"${UNSEEDED_BRANDS[@]}"}"; do
       [ "$cfg" = "apps/storefronts/${entry%%:*}/$(basename "$cfg")" ] && brand="$entry"
     done
     if [ -n "$brand" ]; then

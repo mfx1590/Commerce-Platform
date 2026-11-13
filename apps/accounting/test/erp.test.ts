@@ -753,6 +753,7 @@ describe('odoo:init against the mock (#591)', () => {
     expect(r.companies.map((c) => [c.code, c.currency, c.created])).toEqual([
       ['le-brand-a', 'EUR', false],
       ['le-brand-c', 'USD', true],
+      ['le-brand-d', 'JPY', true], // brand D (#832), JPY active in the mock
     ]);
     expect(r.companies_skipped).toEqual([
       {
@@ -769,8 +770,8 @@ describe('odoo:init against the mock (#591)', () => {
     expect(mock.state.writes).toEqual([
       { model: 'res.currency', ids: [903], values: { active: true } },
     ]);
-    expect(r).toMatchObject({ accounts_created: 24, journals_created: 14 });
-    expect(r.chart.map((c) => c.missing)).toEqual([[], []]);
+    expect(r).toMatchObject({ accounts_created: 36, journals_created: 21 }); // three companies, brand D's included
+    expect(r.chart.map((c) => c.missing)).toEqual([[], [], []]);
     const b = await t.hq.query<{ odoo_company_id: number | null }>(
       'SELECT odoo_company_id FROM legal_entity WHERE id = $1',
       [LE_B],
@@ -825,7 +826,30 @@ describe('odoo:init against the mock (#591)', () => {
       log,
     });
     expect(calls).toBeGreaterThan(0);
-    expect(ok.companies.map((c) => c.code)).toEqual(['le-brand-a', 'le-brand-b', 'le-brand-c']);
+    expect(ok.companies.map((c) => c.code)).toEqual([
+      'le-brand-a',
+      'le-brand-b',
+      'le-brand-c',
+      'le-brand-d',
+    ]);
+  });
+
+  it('a legal entity whose currency Odoo does not have refuses loudly (#832: the product behaviour, unchanged)', async () => {
+    // the default mock knows JPY since brand D was seeded; an Odoo without it must still stop the run, not skip
+    const mock = createMockOdoo({
+      currencies: [
+        { id: 901, name: 'EUR', active: true },
+        { id: 902, name: 'GBP', active: false },
+        { id: 903, name: 'USD', active: false },
+      ],
+    });
+    const odoo = new OdooJsonRpcClient(localCreds, { fetch: mock.fetch, sleep: noWait });
+    await expect(
+      odooInit({ client: t.hq, odoo, masterPassword: 'master-word', log }),
+    ).rejects.toMatchObject({
+      name: 'OdooCurrencyMissing',
+      message: 'currency JPY unknown to Odoo',
+    });
   });
 });
 

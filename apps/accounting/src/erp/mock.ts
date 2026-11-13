@@ -129,6 +129,8 @@ export function createMockOdoo(opts: MockOdooOptions = {}): MockOdoo {
       { id: 901, name: 'EUR', active: true },
       { id: 902, name: 'GBP', active: false },
       { id: 903, name: 'USD', active: false },
+      // brand D (Japan, #832): the seed's fourth legal entity books in JPY
+      { id: 904, name: 'JPY', active: true },
     ],
     writes: [],
     calls: [],

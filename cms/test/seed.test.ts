@@ -60,7 +60,7 @@ describe('seed helpers', () => {
   it('resolves --dataset to one brand, all brands, or an error', () => {
     expect(resolveDatasets(undefined)).toEqual(['brand-a']);
     expect(resolveDatasets('brand-c')).toEqual(['brand-c']);
-    expect(resolveDatasets('all')).toEqual(['brand-a', 'brand-b', 'brand-c']);
+    expect(resolveDatasets('all')).toEqual(['brand-a', 'brand-b', 'brand-c', 'brand-d']);
     expect(() => resolveDatasets('production')).toThrow(/Unknown dataset "production"/);
   });
 
