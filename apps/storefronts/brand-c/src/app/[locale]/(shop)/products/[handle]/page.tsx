@@ -18,9 +18,13 @@ import {
   alternatesFor,
   breadcrumbJsonLd,
   canonicalFor,
+  categoryName,
+  firstText,
+  imageAlt,
   localizedPath,
   productJsonLd,
   productMetaDescription,
+  productName,
 } from '@/lib/seo';
 import { fromProductMetadata } from '@/lib/reviews';
 import { EMPTY_RECOMMENDATIONS, loadRecommendations } from '@/lib/recommendations';
@@ -53,7 +57,8 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
   const product = await loadProduct(handle, undefined);
   // SEO description, then a non-empty subtitle, then the description, trimmed and sized (#837).
   const description = productMetaDescription(product);
-  const title = product.seo?.title ?? product.title;
+  // A blank SEO title (`seo: {}` or "" from the wizard) falls through to the product's name.
+  const title = firstText(product.seo?.title) ?? productName(product);
 
   // Every locale is an alternate; the canonical honours an API-pinned value but localises a
   // relative one (see `canonicalFor` — an un-prefixed path is a URL that does not exist).
@@ -104,6 +109,11 @@ export default async function ProductDetailPage({ params }: { params: Params }) 
   const hero = media[0];
 
   const productPath = `/products/${product.handle}`;
+  // Blank strings from the wizard render nothing, never an empty tag.
+  const name = productName(product);
+  const subtitle = firstText(product.subtitle);
+  const brandName = firstText(product.brand_name);
+  const hasDescription = firstText(product.description) !== undefined;
   // The breadcrumb JSON-LD mirrors the <nav> below exactly — same labels, same links. A trail a
   // crawler is told about but a visitor cannot see is what Google calls a structured-data mismatch.
   const crumbs = [
@@ -112,11 +122,11 @@ export default async function ProductDetailPage({ params }: { params: Params }) 
       ? []
       : [
           {
-            name: product.category.name,
+            name: categoryName(product.category),
             path: localizedPath(routeLocale, `/categories/${product.category.handle}`),
           },
         ]),
-    { name: product.title, path: localizedPath(routeLocale, productPath) },
+    { name, path: localizedPath(routeLocale, productPath) },
   ];
 
   return (
@@ -139,13 +149,13 @@ export default async function ProductDetailPage({ params }: { params: Params }) 
             <li className="flex items-center gap-2">
               <span aria-hidden="true">/</span>
               <Link href={`/categories/${product.category.handle}`} className="hover:underline">
-                {product.category.name}
+                {categoryName(product.category)}
               </Link>
             </li>
           )}
           <li className="flex items-center gap-2">
             <span aria-hidden="true">/</span>
-            <span aria-current="page">{product.title}</span>
+            <span aria-current="page">{name}</span>
           </li>
         </ol>
       </nav>
@@ -160,7 +170,7 @@ export default async function ProductDetailPage({ params }: { params: Params }) 
             ) : (
               <ProductImage
                 src={hero.url}
-                alt={hero.alt ?? product.title}
+                alt={imageAlt(hero.alt, name)}
                 fill
                 sizes={GALLERY_SIZES}
                 priority
@@ -177,7 +187,7 @@ export default async function ProductDetailPage({ params }: { params: Params }) 
                 >
                   <ProductImage
                     src={item.url}
-                    alt={item.alt ?? product.title}
+                    alt={imageAlt(item.alt, name)}
                     fill
                     sizes="25vw"
                     className="object-cover"
@@ -190,12 +200,12 @@ export default async function ProductDetailPage({ params }: { params: Params }) 
 
         <div className="flex flex-col gap-6">
           <header className="flex flex-col gap-2">
-            {product.brand_name === null ? null : (
-              <p className="text-sm text-muted-foreground">{product.brand_name}</p>
+            {brandName === undefined ? null : (
+              <p className="text-sm text-muted-foreground">{brandName}</p>
             )}
-            <h1 className="text-3xl font-bold leading-tight">{product.title}</h1>
-            {product.subtitle === null ? null : (
-              <p className="text-lg text-muted-foreground">{product.subtitle}</p>
+            <h1 className="text-3xl font-bold leading-tight">{name}</h1>
+            {subtitle === undefined ? null : (
+              <p className="text-lg text-muted-foreground">{subtitle}</p>
             )}
           </header>
 
@@ -217,7 +227,7 @@ export default async function ProductDetailPage({ params }: { params: Params }) 
           until the Store API has a review shape (CONTRACT CHANGE filed). */}
       <ProductReviews reviews={fromProductMetadata(product)} />
 
-      {product.description === null ? null : (
+      {!hasDescription ? null : (
         <section aria-labelledby="description" className="max-w-prose">
           <h2 id="description" className="mb-2 text-xl font-semibold">
             {t('description')}

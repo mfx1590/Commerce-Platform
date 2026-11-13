@@ -3,6 +3,7 @@ import { Link } from '@/i18n/navigation';
 import type { ReactNode } from 'react';
 import { getComponents } from '@/lib/slots';
 import { getStoreOrNull } from '@/lib/store';
+import { storeDisplayName } from '@/lib/text';
 
 /**
  * Checkout chrome is deliberately not the shop header: no navigation, no search, nothing that
@@ -16,7 +17,7 @@ export default async function CheckoutLayout({ children }: { children: ReactNode
     <div className="flex min-h-screen flex-col">
       <header className="border-b border-border">
         <div className="mx-auto flex h-16 max-w-3xl items-center justify-between px-4">
-          <Logo storeName={store?.name ?? 'Storefront'} />
+          <Logo storeName={storeDisplayName(store)} />
           <Link href="/products" className="text-sm text-muted-foreground hover:underline">
             {t('continueShopping')}
           </Link>

@@ -410,6 +410,53 @@ branch), dropping versions from the manifest (`--check`'s drift report needs the
 `bump-starter-dep.mjs` as the primary path — **a script of mine cannot make a starter edit legal**;
 bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
+## In progress — the batched A–D re-sync for #846 + #806 (2026-11-13)
+
+**PR #849**, branch `brands/phase6-resync-846-806` from main `78c69dd9` (code commit `aae544a0`;
+head = this memory commit). The batch the manager queued behind #847: window 3's **#846** (blank
+Store API strings, starter 0.16.5) and **#806** (`@types/node ^22`). #847 MERGED (`4676ea8e`),
+#806 MERGED (`9aaab6bc`), #846 MERGED (`18f7ff41`).
+
+- Four brands, identical counts: **254 copied, 1 merged, 10 preserved, 4 excluded**; starter 0.16.4
+  → 0.16.5; `sync --check` current ×4; **no preserved file drifted**.
+- Suites: A **1006**, B **906**, C **815**, D **803** — each **+23**, all from the two synced test
+  files (`display-text` 10, `blank-strings-render` 13).
+- **#806 was already in the brands' `package.json`**, so the merged `package.json` came out
+  byte-unchanged in all four and the only thing this re-sync moved for it is
+  `scripts/starter-manifest.json`, which still recorded `^20.19.0`. I checked that rather than
+  writing "took the bump".
+
+### I ran the manager's blob compare myself this time
+
+Last time the manager's verification (A/B/C 13 of 15 byte-identical, D 10 of 12) was a better check
+than anything I ran. So this PR states it from my side and says how it was measured: per brand
+**19 of 20 changed files are byte-identical to a starter file** — the 18 synced ones against their
+`apps/storefront-starter` counterparts, plus `scripts/starter-manifest.json` against the starter's
+own `package.json`, which is what the manifest is. The 20th is the brand's own `CHANGELOG.md`.
+`git hash-object` on both sides, not a diff read by eye. Same four numbers in every brand, which is
+itself the signal: a brand that drifted would not land on 19.
+
+### The brand D fixture the manager asked for already existed
+
+Asked: *if a brand D unit fixture can cheaply assert blank subtitle → no empty paragraph, add it.*
+It is already there and **synced**, not brand-owned: window 3 wrote
+`test/blank-strings-render.test.ts` **as the brand D sweep** — locale mocked to `ja-JP`, money in
+`JPY`, the product titled `リネンのタオル`, first assertion a wizard-shaped product rendering with no
+empty `<p>` and no `id="description"`. Adding a brand D copy would have duplicated it, so I added
+nothing and said so rather than producing a test to look busy.
+
+The one real gap, left for the manager: nothing binds brand D's own `perf/store.example.json`
+(`default_country: 'JP'`) to the new checkout pre-fill — the four `checkoutCountry` cases use
+literals. Cheap to add, but it guards a fixture rather than the app, so it is not mine to decide.
+
+### Process
+
+**The PR number cannot exist before the PR does.** The manager asked for Memory-10 with the number
+in the same push; what is actually possible is one *reported* head that already contains it — push
+the branch, open the PR, commit the memory, push, and only then report. The manager never sees a
+head without the memory in it, which is the point of the rule. I also did not guess the number:
+the last one was 847 and this PR came out **849**, not 848.
+
 ## In progress — the A–D re-sync for #838 + #840 (2026-11-13)
 
 **PR #847** (code commit `adae3ad0`; head = this memory commit), branch

@@ -8,6 +8,7 @@ import { useActionState } from 'react';
 import { updateLineItemAction, type ActionState } from '@/lib/actions';
 import type { LineItem } from '@/lib/store-api';
 import { orderLineHooks } from '@/lib/test-hooks';
+import { firstText } from '@/lib/text';
 
 const EMPTY: ActionState = {};
 
@@ -19,6 +20,8 @@ const EMPTY: ActionState = {};
 export function CartLine({ item, locale }: { item: LineItem; locale: string }) {
   const [state, formAction, pending] = useActionState(updateLineItemAction, EMPTY);
   const t = useTranslations('cart');
+  // A blank title (wizard data) falls back to the SKU: never an empty heading or alt.
+  const lineName = firstText(item.title, item.variant_title) ?? item.sku;
 
   return (
     <li className="flex gap-4 border-b border-border py-6" {...orderLineHooks(item)}>
@@ -26,7 +29,7 @@ export function CartLine({ item, locale }: { item: LineItem; locale: string }) {
         {item.thumbnail_url === null ? null : (
           <ProductImage
             src={item.thumbnail_url}
-            alt={item.title}
+            alt={lineName}
             fill
             sizes="96px"
             className="object-cover"
@@ -37,7 +40,7 @@ export function CartLine({ item, locale }: { item: LineItem; locale: string }) {
       <div className="flex flex-1 flex-col gap-2">
         <div className="flex justify-between gap-4">
           <div>
-            <h3 className="font-medium">{item.title}</h3>
+            <h3 className="font-medium">{lineName}</h3>
             <p className="text-sm text-muted-foreground">{item.variant_title}</p>
             <p className="text-sm text-muted-foreground">SKU {item.sku}</p>
           </div>
