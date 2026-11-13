@@ -3,17 +3,25 @@
 ## 0.16.5 — 2026-11-13 (window 3, brand D sweep: blank Store API strings, plus the #838 nits)
 
 - **No empty tag from a blank Store API string.** No Store API string has a `minLength`, and the onboarding wizard leaves several empty (`seo: {}`, `subtitle: ""`, blank alt and brand). A `??` fallback stops at `""`. Each rendered fallback now goes through `src/lib/text.ts`:
-  - product title → handle (PDP h1, breadcrumb, card, JSON-LD, share card);
+  - product title → handle (PDP h1, breadcrumb, card, JSON-LD, share card); a blank category name omits the optional JSON-LD `category`;
   - category name → handle (title, filter links);
   - store name → `Storefront` (logo, copyright, home h1);
   - image alt → product name (PDP gallery, card);
   - blank `seo.title` → product name (page title, share card);
   - blank subtitle, brand or description → no element at all (was an empty `<p>`, or a "Description" heading over nothing);
   - blank shipping name or carrier → `—` or the option code;
-  - blank `default_locale` or `default_country` → the built-in default.
+  - blank `default_locale` → the built-in default;
+  - **checkout country (#846 review):** the address form pre-fills the store's `default_country`, else the cart's own `country`, else nothing, so the customer must choose (`checkoutCountry`). It never pre-fills a hard-coded country for a store that answered. A blank `default_country` pre-filling `NL` would let a Japanese customer save an NL address unnoticed: wrong shipping options and tax. `NL` stays only for an unreachable store, as before.
 - **#838 nits.** `firstText` folds ASCII whitespace only, so an ideographic or no-break space in Japanese or French text is kept. The JSON-LD description keeps its paragraphs (`firstBlock`).
 - **Moved:** `firstText` moved to `src/lib/text.ts`, a module with no imports so client components (the cart line) can use it without pulling in the brand config. It is still re-exported from `src/lib/seo.ts`.
-- **Tests:** `test/display-text.test.ts`, on a wizard-shaped product fixture (10 tests).
+- **Tests:** `test/display-text.test.ts` covers the helpers on a wizard-shaped product (10 tests). `test/blank-strings-render.test.ts` checks rendered markup (13 tests):
+  - the PDP renders no empty `<p>`, no Description heading over nothing, no `alt=""`, and a handle h1;
+  - metadata with `seo: {}` and with `seo.title: ""`;
+  - the cart line falls back to the variant title, then the SKU;
+  - the shipping radio falls back to the option code;
+  - one test per branch of `checkoutCountry`.
+
+  The PDP and cart-line tests fail on main's code.
 
 ## 0.16.4 — 2026-11-13 (window 3, #830: specs fail fast on a missing store precondition)
 

@@ -35,6 +35,24 @@ export async function requireCheckoutStep(step: CheckoutStep): Promise<CheckoutC
     // Formatting follows the locale the customer is reading, which is the one in the URL.
     cart,
     locale: await getLocaleForFormatting(),
-    country: firstText(store?.default_country) ?? 'NL',
+    country: checkoutCountry(store, cart),
   };
+}
+
+/** The pre-filled country when the store cannot be read at all (unchanged behaviour). */
+export const UNREACHABLE_STORE_COUNTRY = 'NL';
+
+/**
+ * The country the address form starts on (#846 review). The store's `default_country`, else the
+ * cart's own `country` (required on `Cart`; the destination it was priced for), else nothing, so
+ * the customer must choose. Never a hard-coded country for a store that answered: a blank
+ * `default_country` pre-filling "NL" let a Japanese customer save an NL address unnoticed, which
+ * picks the wrong shipping options and tax. `UNREACHABLE_STORE_COUNTRY` only when `store` is null.
+ */
+export function checkoutCountry(
+  store: { default_country?: string | null } | null,
+  cart: { country?: string | null },
+): string {
+  if (store === null) return UNREACHABLE_STORE_COUNTRY;
+  return firstText(store.default_country, cart.country) ?? '';
 }

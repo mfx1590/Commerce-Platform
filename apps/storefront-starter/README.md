@@ -642,11 +642,13 @@ Metadata, structured data and a sitemap, all built from the Store API and the br
 **Blank names (brand D sweep).** No Store API string has a `minLength`, and the onboarding wizard leaves several empty. A `??` fallback stops at `""`, so every rendered name goes through `src/lib/text.ts` (no imports, safe in client components):
 
 - `productName`: a blank title falls back to the handle. Used by the PDP heading, breadcrumb, product card, JSON-LD and share card.
-- `categoryName`: a blank name falls back to the handle. Used by the category title, filter links, breadcrumb and JSON-LD.
+- `categoryName`: a blank name falls back to the handle. Used by the category title, filter links and breadcrumb.
 - `storeDisplayName`: falls back to `Storefront`. Used by the logo, copyright and home heading.
 - `imageAlt`: a blank alt falls back to the product's name.
 - A blank `seo.title` falls through to the product name (page title and share card). A blank subtitle, brand or description renders no element at all.
-- A blank shipping name or carrier shows `—` (review, order) or the option code (shipping radio). A blank `default_locale` or `default_country` uses the built-in default.
+- A blank shipping name or carrier shows `—` (review, order) or the option code (shipping radio). A blank `default_locale` uses the built-in default.
+- **Checkout country** (`checkoutCountry` in `src/lib/checkout-page.ts`): the store's `default_country`, else the cart's `country`, else empty, so the customer must choose. Never a hard-coded country for a store that answered: a wrong pre-filled country changes shipping options and tax. `NL` only when `GET /store` failed.
+- JSON-LD omits `category` when the category name is blank (a handle is not a category name).
 
 **Canonicals.** The API returns `seo.canonical` as a locale-less _path_ (`/products/classic-tee`),
 because it does not know which locale is rendering. Used verbatim that points at a URL which only

@@ -83,10 +83,10 @@ describe('productJsonLd on wizard-shaped data', () => {
     expect(data.name).toBe('linen-tea-towel');
   });
 
-  it('emits no brand, no description, and a category named by its handle', () => {
+  it('emits no brand, no description and no category (optional; a handle is not a name)', () => {
     expect('brand' in data).toBe(false);
     expect('description' in data).toBe(false);
-    expect(data.category).toBe('kitchen');
+    expect('category' in data).toBe(false);
   });
 });
 

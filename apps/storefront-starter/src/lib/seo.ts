@@ -2,7 +2,7 @@ import { minorUnitDigits } from '@platform/ui';
 import { brandConfig, siteUrl } from '@/brand/config';
 import { locales } from '@/i18n/routing';
 import type { Product, Variant } from './store-api';
-import { categoryName, firstBlock, firstText, productName } from './text';
+import { firstBlock, firstText, productName } from './text';
 
 // The text helpers moved to `./text` (no imports, so client components can use them); re-exported
 // here so existing callers keep working.
@@ -189,6 +189,7 @@ export function productJsonLd(
   // Structured data carries the full text: no truncation (#837).
   const description = productDescriptionText(product);
   const brandName = firstText(product.brand_name);
+  const categoryText = firstText(product.category?.name);
 
   return {
     '@context': 'https://schema.org',
@@ -200,7 +201,8 @@ export function productJsonLd(
     ...(images.length === 0 ? {} : { image: images }),
     ...(brandName === undefined ? {} : { brand: { '@type': 'Brand', name: brandName } }),
     ...(gtin === undefined ? {} : { gtin }),
-    ...(product.category === null ? {} : { category: categoryName(product.category) }),
+    // Optional in schema.org: a blank name omits it (a handle is not a category name, #846 review).
+    ...(categoryText === undefined ? {} : { category: categoryText }),
     ...(offers.length === 0 ? {} : { offers }),
   };
 }
