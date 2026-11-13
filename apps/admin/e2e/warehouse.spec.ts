@@ -6,8 +6,9 @@ import { BRAND_A, signIn } from './staff';
 /**
  * HQ · Warehouse and Store · Inventory (#468). No journey writes stock: the shared dev database is
  * pooled (brand A's and brand B's first variants share one stock item) and used read-only, so the
- * pool action is opened up to its confirmation and cancelled; record / reconcile / approve and
- * every error are covered by the unit, component and Prism contract suites.
+ * pool action is opened up to its confirmation and cancelled, and "Move stock" (#870) is opened up
+ * to its live refusal and closed; record / reconcile / approve, every movement and every error are
+ * covered by the unit, component and Prism contract suites.
  *
  * Against Prism, `/admin/me` is always the store-admin example: the HQ screen can only be refused
  * there, and the store inventory is read from the spec's examples. Against the core, the seeded
@@ -30,6 +31,8 @@ test.describe('warehouse', () => {
     await expect(table).toBeVisible();
     await expect(table.getByRole('row').nth(1)).toBeVisible();
     await expect(page.getByText(/Shared with \d+ brands/)).toHaveCount(0);
+    // The ledger lives in HQ · Warehouse, which refuses a store admin: no dead link per row (#870).
+    await expect(page.getByRole('link', { name: /^Ledger of / })).toHaveCount(0);
   });
 
   // ONE owner sign-in for the file (as hq-roles / hq-onboarding do): each sign-in spends a TOTP code
@@ -65,10 +68,22 @@ test.describe('warehouse', () => {
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     await expect(dialog).toHaveCount(0);
 
-    // The item's ledger and its reservations (#469 reads; viewer on hq, read-only).
     const sku = (await item
       .getByRole('table', { name: /^Pool levels of / })
       .getAttribute('aria-label'))!.replace(/^Pool levels of /, '');
+
+    // Move stock (#870): opened, the shelf's numbers shown, a change below zero refused live, closed.
+    // Never submitted: the pooled dev database is read-only for this suite.
+    await item.getByRole('button', { name: `Move stock of ${sku}` }).click();
+    const move = item.getByRole('form', { name: `Move stock of ${sku}` });
+    await expect(move.getByLabel('Stock before and after')).toContainText(/Now: on hand -?\d+/);
+    await move.getByLabel('Change (e.g. -3 or 5)').fill('-999999');
+    await expect(move.getByRole('alert')).toContainText(/below zero/);
+    await expect(move.getByRole('button', { name: 'Adjust' })).toBeDisabled();
+    await move.getByRole('button', { name: 'Close' }).click();
+    await expect(move).toHaveCount(0);
+
+    // The item's ledger and its reservations (#469 reads; viewer on hq, read-only).
     await item.getByRole('link', { name: `Movements of ${sku}` }).click();
     await page.waitForURL(/[?&]view=movements/);
     await expect(

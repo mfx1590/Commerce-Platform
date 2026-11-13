@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Added — #870 wave 1 item 1: stock movements in HQ › Warehouse (window 3)
+
+- **Move stock** on every stock item row: **Adjust** (± with a note, reason `adjustment`), **Receive** (quantity, `receipt`) and **Transfer** (from → to warehouse). This is `createStockMovement`, which the admin never called before. The form shows the shelf's on hand / reserved / available now and after the move. It refuses a result below zero or below what open orders reserved before sending anything. On success it opens the item's ledger on that warehouse, where the new row shows its actor and note.
+- `moveStockAction` (`src/app/actions/warehouse.ts`) checks, in this order, before any write:
+  1. `operations` on `organization:hq` (the yaml's `x-permission`, pinned by the existing table test); a non-permitted role is refused before any read or write.
+  2. The schema.
+  3. A **fresh** read of the item. The API is addressed by variant, so the action takes a variant that maps the item from this read, never from the browser.
+  4. The below-zero / below-reserved check.
+
+  The core refuses below zero itself (409, shown in its own words) but **not below reserved**. The admin's check is read-then-write without a lock, so the real guard is requested from the core (REQUEST #877).
+
+- **A transfer is two movements in two transactions**: there is no transfer operation and no idempotency key.
+  - `transfer_out` goes first at the source, so a half-done transfer can only understate stock.
+  - If the destination refuses, a compensating `transfer_in` puts the units back at the source with a note naming the refusal.
+  - If putting them back fails too, both errors and the stranded quantity are said.
+  - If the destination's outcome is unknown (network, 5xx), nothing is written on a guess, and the message says which ledger to check.
+- An item no variant maps shows why it cannot be moved, instead of the button.
+- **Store › Inventory**: each row links to its stock item's ledger in HQ › Warehouse. The link is shown only to principals who hold `operations` on hq; anyone else would land on a refusal.
+- Tests:
+  - `test/stock-movements.test.ts` (38): permission for 5 roles, validation, below reserved and below zero, the API's 409 / 404 / 403, the fresh read, a transfer's two calls in order, and each failure case.
+  - `test/stock-movement-form.test.tsx` (9): now/after numbers, live refusal, payloads, the ledger opened with the list's filters kept, and the Ledger link shown and hidden.
+  - Mutation-checked: dropping the below-reserved rule or the compensation fails the suite.
+  - The advisory e2e owner journey opens Move stock up to its live refusal and closes it (never submitted on the shared database). The store-admin journey asserts no Ledger link.
+
 ### Added — #851 (part 1): HQ › Finance on the Accounting API — books, trial balance, journal
 
 - The Finance placeholder ("window 15 in Phase 4") is replaced. It lists legal entities with books
