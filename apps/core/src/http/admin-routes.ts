@@ -28,6 +28,7 @@ import {
   createApiKey,
   createSalesChannel,
   createStore,
+  createShippingOption,
   createTaxRate,
   deleteTaxRate,
   getStore,
@@ -36,12 +37,14 @@ import {
   listLegalEntities,
   listSalesChannels,
   listStores,
+  listStoreShippingOptions,
   listTaxRates,
   listWarehouses,
   onboardStore,
   revokeApiKey,
   updateDomain,
   updateStore,
+  updateShippingOption,
   updateTaxRate,
   type StoreRegistrar,
   STORE_SORT_FIELDS,
@@ -148,6 +151,11 @@ export interface AdminRouterOptions {
    * unless a test hands in the in-memory one from the registry module.
    */
   storeRegistrar?: StoreRegistrar;
+  /**
+   * Called after `onboardStore` wrote a store and its OpenFGA object: the staff scopes cached by the verifier no
+   * longer list every visible store (src/server.ts passes the Keycloak verifier's `invalidateAll`; default none).
+   */
+  onStoreScopeChange?: () => void;
 }
 
 export function adminRouter(opts: AdminRouterOptions = {}): Router {
@@ -612,6 +620,8 @@ export function adminRouter(opts: AdminRouterOptions = {}): Router {
         requireRegistrar(registrar),
         p.actor,
       );
+      // The new store is visible to every org-level user at once, not after the 30 s scope cache (#809 follow-up).
+      opts.onStoreScopeChange?.();
       res.status(created ? 201 : 200).json(result);
     }),
   );
@@ -697,6 +707,34 @@ export function adminRouter(opts: AdminRouterOptions = {}): Router {
       const { p, client, storeId } = storeClient(req);
       await deleteTaxRate(client, storeId, uuidParam(req.params, 'taxRateId'), p.actor);
       res.status(204).end();
+    }),
+  );
+  // ---- shipping options (#809, CONTRACT CHANGE #811): what checkout offers; activation needs one per market country
+  r.get(
+    '/admin/stores/:storeId/shipping-options',
+    permission('listShippingOptions'),
+    handle(async (req, res) => {
+      const { client, storeId } = storeClient(req);
+      res.json({ items: await listStoreShippingOptions(client, storeId) });
+    }),
+  );
+  r.post(
+    '/admin/stores/:storeId/shipping-options',
+    permission('createShippingOption'),
+    body('createShippingOption'),
+    handle(async (req, res) => {
+      const { p, client, storeId } = storeClient(req);
+      res.status(201).json(await createShippingOption(client, storeId, req.body, p.actor));
+    }),
+  );
+  r.patch(
+    '/admin/stores/:storeId/shipping-options/:optionId',
+    permission('updateShippingOption'),
+    body('updateShippingOption'),
+    handle(async (req, res) => {
+      const { p, client, storeId } = storeClient(req);
+      const optionId = uuidParam(req.params, 'optionId');
+      res.json(await updateShippingOption(client, storeId, optionId, req.body, p.actor));
     }),
   );
   r.get(

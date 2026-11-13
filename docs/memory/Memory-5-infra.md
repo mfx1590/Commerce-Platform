@@ -153,6 +153,37 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 - **#801 nits for my NEXT load PR:**
   - pass `inputs.metrics_months` through env, not shell interpolation;
   - a failure before pass 1 posts no weekly tracking comment.
+- **BRAND D (b), after #821's delta BLOCK:** CI 43239694924 on 01c008e0: images green (brand-d built + smoked),
+  brand-d perf red (window 10's missing perf/store.example.json, fixed in b90ab865), and the live job red ONLY on
+  brand-d's journeys (25 failed / 24 passed against CI's seed, which has no brand-d; A-C/admin/starter green), as
+  predicted. Fix: a named exclusion in run-e2e.sh (UNSEEDED_BRANDS 'brand-d:#832'), printed, with an override.
+  Issue #832 (seed brand-d). Merged window 10's b90ab865 (no infra files). Manager does the 3 reruns (rule F).
+- **BRAND D (b) continued:** the live client was created at 14:02:44Z, after the OWNER typed the command in this
+  session (blocked ~13:49→14:02:44). PR #821 is a draft. Window 10's tree came at 14:35:10Z (036dd733); I merged it
+  locally and added the Dockerfile + the COPY line in 11 Dockerfiles + compose/bake/terraform/smoke/dependabot.
+  Gotcha: generating brand D's Dockerfile by renaming brand C's also renamed C's own manifest COPY line; the
+  manifest guard caught it.
+- **BRAND D run (2026-11-12), step (b) on integration/brand-d (manager's approval).** Store `brand-d`
+  was created as a draft at 13:46:41Z and went active at 13:48:04Z.
+  - `add-brand-client.mjs brand-d --port 3104 --json-only`: realm JSON +83/-0, the profile, production/ re-derived,
+    and the production-realms.test.ts one-liner. auth-sdk realm tests 77/77; brand-client tests moved their
+    new-brand example to brand-zz:3199.
+  - The LIVE step (POST into the shared Keycloak) was DENIED by the session's permission classifier
+    ("Modify Shared Resources"). It needs the OWNER's permission or the owner runs it; a peer's approval is not enough.
+    Command: `node infra/keycloak/add-brand-client.mjs brand-d --port 3104 --live-only`.
+- **Brand D prep: add-brand-client (2026-11-11), branch integration/brand-d-keycloak (manager approved option a; window 2 named as owner) from main 61ed4d4f.**
+  Ownership question to the manager: infra/keycloak/** is window 2's row (my infra/** also matches); I recommended
+  an integration/ branch. ONBOARDING-GAPS §6 is window 10's; corrected text sent to the manager to route.
+  The template regenerates A/B/C byte-exactly. Files written via 2-space stringify + prettier (byte-stable).
+  derive-production needs a profile entry for every client, so the script adds one.
+  CI: unit tests plus a live create/idempotent/drift step at the END of the e2e job (its own Keycloak, brand-zz:3199).
+  NOT run against the shared stack: that is part of the timed brand D run.
+- **Load PR: run.exit (2026-11-11), branch infra/phase6-load-run-exit from main 3f1481fe (#813 merged).**
+  run.sh's EXIT trap writes run.exit; readPass treats a non-zero or missing run.exit as broken (k6 checks first).
+  32 load tests; both halves are mutation-checked. Proof: a fixture-level render in the PR body, plus both dispatch
+  proofs, because run.sh changed and a run.exit bug would make every week broken.
+- **#806 merged with main after #813: head f4bcfc88, 3 runs in progress (CI 43017872147).** The merge is held
+  for the laptop's Node 22.
 - **#801 nits PR (2026-11-11), branch infra/phase6-801-load-nits from main ecce0702 (#801 merged ~10:00, #785
   closed):** METRICS_MONTHS goes through env. The gate step runs `if: ${{ !cancelled() }}`, so a failed setup
   step renders broken ("this pass never ran") and the schedule comments. 31 load tests; both fixes are

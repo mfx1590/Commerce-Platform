@@ -455,9 +455,13 @@ worth running:
 2. **A legal entity** and its VAT registration.
 3. **A publishable key**, created with the store. The seeded `pk_<brand>_dev_…` keys exist only for
    local databases, and `infra/helm/check-values.sh` rejects a `_dev_` key in staging values.
-4. **A Keycloak client** in the customers realm, with the `store_code` claim and the brand's redirect
-   URIs. `infra/keycloak/customers-realm.json` is window 5's; realms import on first start only, so
-   it needs `node infra/keycloak/reimport.mjs customers`.
+4. **A Keycloak client** in the customers realm (`storefront-<code>`, the `store_code` claim, the
+   brand's redirect URIs). `node infra/keycloak/add-brand-client.mjs <code>` creates it in the live
+   realm through the admin API, additively and idempotently: nothing else is touched, and drift is
+   reported, not overwritten. It also records it in `infra/keycloak/customers-realm.json` and the
+   production profile (window 2's files), so a future import keeps it. `reimport.mjs customers`
+   deletes the realm before importing (every user and session in it): owner-approved last resort
+   only.
 5. **A Sanity dataset** declared in `cms/src/datasets.ts` — window 6's file, and
    `test/datasets.test.ts` fails if it drifts from the seed's store list.
 6. **Products.** The seed generates 200 per store procedurally; a real brand has a catalogue.

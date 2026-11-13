@@ -71,6 +71,23 @@ Window 1 owns the order lifecycle and the core side of the chain. Current task: 
 - [x] **1.1 Medusa 2 boots in apps/core (issue #1)** — 2026-09-04, commit `e36b80e`, PR #49 **merged** (merge commit `a0c02c9`). Delivered: Medusa 2.20.1 project, `medusa-config.ts` (schema `medusa`, `databaseDriverOptions` search_path pin, Redis cache/event bus, admin off), `src/server.ts` custom entry with `/health` + `X-Publishable-Key` alias ahead of Medusa, `src/lib/db.ts` (initDb/tenantClient/organizationClient), `scripts/db-medusa-migrate.ts` (role `medusa_owner`), README/CLAUDE/CHANGELOG, 3 unit tests. Verified locally: `GET /health` 200; public schema untouched (42 tables), 145 Medusa tables in `medusa`. Side issue filed: #40 REQUEST default export condition.
 
 ## In progress
+- **#809 follow-up: scope-cache invalidation after onboarding (Manager session twelve), 2026-11-11, branch core/phase6-scope-invalidate from origin/main 97218bd2 (#815 merged).**
+  - `KeycloakStaffTokenVerifier.invalidateAll()` = ScopeCache.clear(); onStoreScopeChange in StaffAuth / mountCoreMiddleware / adminRouter; called after onboardStore.
+  - It clears ALL entries, not just the creator's: an org-level grant reaches every HQ user (it changes WHEN scopes refresh, not WHAT they grant → Opus review).
+  - The symptom was `/admin/me` `stores` (from the cached scope.storeIds); storeClientFor / listStores for org users never used the cache.
+  - Test: test/scope-invalidate.test.ts (the real verifier with the default ScopeCache, a fake JWT and OpenFGA, plus a control).
+  - BLOCKED 13:30 UTC: Postgres 127.0.0.1:5433 does not accept connections (8 s timeout); every DB test hook times out (store-key-cache too). Reported to the manager; no docker action.
+- **#809 shipping options + activation guard (Manager session twelve), BUILT 2026-11-11 on core/phase6-809 from origin/main b517a76d.** #786 (Medusa 2.21.2) merged; the dev DB was migrated by the manager.
+  - CONTRACT CHANGE #811 filed: the prerequisite `shipping_options` + `missing_shipping_countries` (still the 409 ActivationBlocked, NOT a 422 — told the manager), createShippingOption 400/404, the NEW updateShippingOption + ShippingOptionPatch.
+  - Local admin-api.yaml is patched with scratchpad apply-cc811.py and NEVER committed.
+  - Code: `src/modules/registry/shipping-options.ts` (list / create / update; NOT src/modules/shipping, which is window 8's).
+  - readiness.ts: `unshippableMarketCountries`, the prerequisite after tax_rates.
+  - Update guard: refuse only countries NEWLY uncovered.
+  - Tests: test/shipping-options.test.ts (7, incl. JPY e2e on brand-c with a JPY price list + ¥1,980 option). seed-store-admin = brand-a AND brand-b, so the 403 case uses brand-c. 3 mutants caught.
+  - Existing expectations updated: registry.test, onboarding.test, admin-api.test, auth-live.test.
+  - **PR #815** (Closes #809, #811) = integration/phase6-809. Code commit `742af9bc` on #811's landing `1af49c02`; the manager's admin-test fix is `e142df21`.
+  - #815 review (Fable + the manager), CHANGE: CREATE on an ACTIVE store was unguarded (an active option in a secondary currency adds an uncovered market country). Now `keepActiveStoreSellable` wraps both create and update under the store lock. Tests: the create guard (EUR→CA on active brand-c = 409 [CA]; inactive or store-currency = 201; a draft store = allowed). Mutant caught. One commit on e142df21.
+  - CI note: unit was red from apps/admin/test/settings.test.tsx (a fixed 1200-character window); the manager fixed it.
 - **Medusa 2.20.1 → 2.21.2 (Dependabot #774), from Manager session TWELVE (local_d36f20d9…), 2026-11-10.** Branch `core/phase6-medusa-221` from origin/main AFTER #771 merges (wait for the manager's message). CODE + CI ONLY, NO machine.
   - migrate(): `executeAllSearch: false, executeSafeSearch: true`. From 2.21.2's migrate-search.ts: create/alter always run; the only destructive step is dropping indexes no definition declares. Safe = never drop, never prompt.
   - 2.21 brings 2 Medusa migrations (search module, schema medusa): Migration20260903085616 (new search_index_version; search_index drops provider/status/definition_hash and adds active_version; search_index_sync renames search_index_id → search_index_version_id) and Migration20260911115931 (search_index_sync.resumable). The dev DB needs db:medusa:migrate after the merge (the manager backs up and migrates).

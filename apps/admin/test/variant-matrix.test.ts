@@ -110,6 +110,24 @@ describe('missingCombinations', () => {
   it('ignores variants whose options belong to a different product shape', () => {
     expect(missingCombinations(options, [{ options: { Material: 'Cotton' } }])).toHaveLength(6);
   });
+
+  // #820 (the brand D run): a product with no options could never get its one variant.
+  it('a product with no options is missing its single default variant', () => {
+    expect(missingCombinations([], [])).toEqual([{}]);
+    expect(missingCombinations([{ name: ' ', values: [] }], [])).toEqual([{}]);
+  });
+
+  it('…and nothing once that variant exists', () => {
+    expect(missingCombinations([], [{ options: {} }])).toEqual([]);
+  });
+
+  it('a named option without values still offers nothing (not the default variant)', () => {
+    expect(missingCombinations([{ name: 'Size', values: [] }], [])).toEqual([]);
+  });
+
+  it('the default variant is titled Default (the core requires a title)', () => {
+    expect(variantTitle({}, [])).toBe('Default');
+  });
 });
 
 describe('sameCombination', () => {

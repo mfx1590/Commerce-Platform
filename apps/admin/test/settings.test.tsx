@@ -60,6 +60,7 @@ const api = vi.hoisted(() => ({
   listApiKeys: vi.fn(),
   listTaxRates: vi.fn(),
   listCategories: vi.fn(),
+  listShippingOptions: vi.fn(),
 }));
 vi.mock('@/lib/api/admin', () => api);
 
@@ -119,6 +120,7 @@ beforeEach(() => {
   );
   api.listSalesChannels.mockResolvedValue(ok({ items: channels }));
   api.listTaxRates.mockResolvedValue(ok({ items: [] }));
+  api.listShippingOptions.mockResolvedValue(ok({ items: [] }));
   api.listCategories.mockResolvedValue(ok({ items: [] }));
   api.listApiKeys.mockResolvedValue(ok({ items: [existingKey, secondKey] }));
 });
@@ -146,6 +148,12 @@ describe('settings permissions follow each operation’s x-permission', () => {
     });
   });
 
+  /** Where the operation that starts at `at` ends: the next operationId, or the end of the file. */
+  const nextOperation = (spec: string, at: number) => {
+    const next = spec.indexOf('operationId: ', at + 1);
+    return next === -1 ? spec.length : next;
+  };
+
   it('every row of REGISTRY_PERMISSIONS is the x-permission admin-api.yaml carries', () => {
     const spec = readFileSync(
       // Vitest runs from apps/admin (its config's root).
@@ -156,7 +164,9 @@ describe('settings permissions follow each operation’s x-permission', () => {
       const at = spec.indexOf(`operationId: ${operation}\n`);
       expect(at, operation).toBeGreaterThan(-1);
       const permission = /x-permission: \{ relation: (\w+), object: '([^']+)' \}/.exec(
-        spec.slice(at, at + 1200),
+        // The operation's own block: up to the next operation, not a fixed window (a longer description
+        // once pushed x-permission past 1200 characters, #815).
+        spec.slice(at, nextOperation(spec, at)),
       );
       expect(permission?.[1], operation).toBe(relation);
       expect(permission?.[2], operation).toBe(
@@ -180,6 +190,11 @@ describe('the settings page, per role', () => {
     expect(screen.getByText(/Changing these needs/)).toHaveTextContent(
       `store_admin on store:${STORE_ID}`,
     );
+    // #825: Payment is read, not changed.
+    expect(screen.queryByRole('form', { name: 'Payment settings' })).toBeNull();
+    expect(screen.getByText(/Changing payment settings needs/)).toHaveTextContent(
+      `store_admin on store:${STORE_ID}`,
+    );
     expect(screen.getByText(/Adding a domain or moving the primary needs/)).toHaveTextContent(
       'owner on organization:hq',
     );
@@ -201,6 +216,9 @@ describe('the settings page, per role', () => {
     expect(screen.getByRole('form', { name: 'General settings' })).toBeInTheDocument();
     expect(screen.getByRole('form', { name: 'New sales channel' })).toBeInTheDocument();
     expect(screen.getByRole('form', { name: 'New API key' })).toBeInTheDocument();
+    // #825: Payment, unticked for a store whose settings have no payment key.
+    const payment = screen.getByRole('form', { name: 'Payment settings' });
+    expect(within(payment).getByRole('checkbox', { name: /Pay on invoice/ })).not.toBeChecked();
     expect(screen.queryByRole('form', { name: 'Add domain' })).toBeNull();
     expect(screen.getByText(/Adding a domain or moving the primary needs/)).toHaveTextContent(
       'owner on organization:hq',

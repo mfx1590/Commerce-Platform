@@ -20,6 +20,7 @@ function runDir(
     crossed = false,
     metricsLeg = false,
     metricsRoutes = metricsLeg,
+    runExit = 0, // run.sh's own exit code (its EXIT trap); null = run.sh was killed before the trap ran
   } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'slo-gate-'));
@@ -47,8 +48,46 @@ function runDir(
   writeFileSync(join(dir, 'meta.json'), JSON.stringify({ metrics: metricsLeg }));
   writeFileSync(join(dir, 'load.exit'), `${code}\n`);
   writeFileSync(join(dir, 'load-summary.json'), JSON.stringify({ metrics }));
+  if (runExit !== null) writeFileSync(join(dir, 'run.exit'), `${runExit}\n`);
   return dir;
 }
+
+test('k6 wrote a passing summary but run.sh failed after it: broken with its reason, never "within the SLOs"', () => {
+  // e.g. report.mjs threw: k6 exited 0, run.sh exited 1, the pass-1 step is red
+  const failedAfter = readPass(runDir(0, { runExit: 1 }));
+  assert.equal(failedAfter.state, 'broken');
+  assert.equal(
+    failedAfter.reason,
+    'run.sh exited 1 after k6 finished (k6 exited 0): a later phase or the report failed, see the run log',
+  );
+  assert.equal(failedAfter.routes.list.p95, 120, 'the measured numbers are still shown');
+  const r = render({
+    runUrl: 'https://example.invalid/run/11',
+    date: '2026-11-16',
+    p1: failedAfter,
+  });
+  assert.equal(r.verdict, 'broken');
+  assert.doesNotMatch(r.tracking, /within the SLOs/);
+  assert.match(r.tracking, /infrastructure, not a regression/);
+  assert.match(r.tracking, /pass 1 could not be judged: run\.sh exited 1 after k6 finished/);
+  assert.match(r.tracking, /\| 120 ms \|/);
+
+  // a breach is not upgraded to a verdict either when run.sh failed after it
+  assert.equal(readPass(runDir(99, { crossed: true, runExit: 2 })).state, 'broken');
+  // run.sh killed before its trap ran (a step timeout): no run.exit
+  const killed = readPass(runDir(0, { runExit: null }));
+  assert.equal(killed.state, 'broken');
+  assert.match(killed.reason, /run\.sh did not finish \(killed or timed out after k6 exited 0\)/);
+  // the CLI: exit 2 (broken), so load.yml's pass-2 step does not retry it
+  assert.equal(spawnSync(process.execPath, [GATE, 'verdict', runDir(0, { runExit: 1 })]).status, 2);
+
+  // run.sh writes run.exit from its EXIT trap, as the last thing it does
+  const sh = readFileSync(new URL('./run.sh', import.meta.url), 'utf8');
+  assert.match(
+    sh,
+    /cleanup\(\) \{\n\s+local rc=\$\?\n[\s\S]*?echo "\$rc" > "\$OUT\/run\.exit"\n\}\ntrap cleanup EXIT/,
+  );
+});
 
 test('verdict: k6 exit 0 = pass, 99 = breach, anything else (or no files) = broken; the CLI exits 0/1/2', () => {
   assert.equal(readPass(runDir(0)).state, 'pass');

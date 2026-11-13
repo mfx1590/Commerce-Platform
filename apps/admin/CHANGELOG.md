@@ -2,6 +2,89 @@
 
 ## Unreleased
 
+### Added — #825: Store › Settings › Payment ("Pay on invoice")
+
+- A wizard-onboarded store had no payment method (`GET /store` `payment.methods: []`) and no admin way to
+  get one. The admin had no payment control, and `updateStoreAction`'s schema drops `settings`. Brand D's
+  run could not take an order.
+- The new Payment section (`#payment`, store_admin; read-only with the relation needed below it) turns
+  `settings.payment.invoice_allowed` on or off through `updatePaymentSettingsAction`.
+- `updateStore` REPLACES `settings`, so the action re-reads the store and changes only
+  `payment.invoice_allowed`, keeping every other key (tax, fraud, shipping, fulfillment, content, refund limit,
+  unknown keys).
+- The derived `payment.methods` is never written.
+- A page whose `updated_at` is older than the store's is refused ("reload").
+- The core's 422 `details.settings` is said in words.
+- Only `invoice_allowed` and `updated_at` reach the browser.
+- Tests: `store-payment` (merge and actions, 15), `store-payment-form` (2), `settings` (+ Payment per role).
+
+### Fixed — #820: a product with no options gets its single default variant
+
+- The new-product page promised a single default variant for a product without options, but the product
+  page's Variants panel offered nothing to create: `missingCombinations` went through `variantMatrix([])`,
+  which is empty.
+- Now a product with no named option is missing exactly one combination, the empty one, until a variant
+  with no options exists. It is created as SKU = the handle's slug, title "Default" (`DEFAULT_VARIANT_TITLE`;
+  the core requires a title), `options: {}`.
+- Options that are named but have no values still offer nothing.
+- Found in the brand D run (worked around there with "Size: One size").
+
+### Fixed — #823: the count form can reach any stock item
+
+- HQ › Warehouse › Cycle counts' "Stock item" list was the first 100 items by SKU, so an item past them could
+  never be counted, and counting is the only admin path that puts stock on hand. Brand D's first product was
+  one of them.
+- Now a "Find the item by SKU" search (`?count_sku=`) asks the API for matching items (`listStockItems({ sku })`).
+- Each stock-item row has "Record a count", which opens the form with that item preselected (`?count_item=`).
+- The form says when the list is capped (from the API's `total`, never inferred from 100), and a failed item read
+  shows the error instead of "no match".
+
+### Tests — the onboarding e2e no longer waits out the scope cache (#819)
+
+- `e2e/hq-onboarding.spec.ts` reads the new store's Settings straight after activation. The 45 s reload loop
+  is gone: since #819 the core drops its cached staff scopes on onboarding, so the store is in the owner's
+  scope on the next request.
+
+### Changed — #815 review follow-ups (Refs #809)
+
+- `updateShippingOptionAction(storeId, optionId, values)` re-reads the option from the core
+  (`listShippingOptions`) instead of trusting the page's copy. The stored currency decides how the price's
+  digits are read, and the patch is diffed against the stored row. An option the store does not list is
+  refused before any write.
+- The readiness panel's quick create is now `createCountryShippingOptionAction`. Options are never deleted,
+  so a plain create of `standard-<cc>` would 409 once an earlier one was deactivated. Instead:
+  - an INACTIVE `standard-<cc>` in the same currency is reactivated with the typed name and price (and the
+    country added back);
+  - otherwise the next free code (`standard-<cc>-2`, …) is created.
+  - The panel says which: "NL: shipping option created (standard-nl)." / "NL: the inactive option
+    standard-nl was reactivated."
+- A zero-decimal amount typed with thousands separators ("1,980" or "1.980.000" for JPY) now says
+  "Type 1980 without separators: JPY amounts are whole units". This uses `moneyErrorMessage`'s new optional
+  `typed` argument; the money field and the shipping forms pass it.
+
+### Added — #809: shipping options (Admin API 0.4.28), in #815
+
+- Store · Settings › **Shipping options** (`#shipping-options`):
+  - **list:** code, name, price in its own currency, countries, active/inactive.
+  - **add:** code, name, a currency from the store's, price, countries.
+  - **edit:** name, price, countries; only changed fields are sent.
+  - **deactivate / reactivate:** rows are never deleted.
+  - Viewer reads, store_admin writes.
+  - Prices are typed in the currency's own units and parsed with its digits (#810): `1980` for JPY is 1980
+    (¥1,980), `4.95` for EUR is 495.
+  - A live store's 409 `missing_shipping_countries` is said in words ("would leave JP without an active
+    shipping option …").
+- Readiness panel:
+  - `shipping_options` in the missing list ("a shipping option for NL");
+  - one inline "Create a shipping option for XX" per country (store default currency, flat `manual` price);
+  - a link to Settings.
+  - Both inline creates (tax rates too) are now offered only with store_admin on the store; otherwise the
+    relation needed is named.
+- New code: `src/lib/shipping-options` (SHIPPING_PERMISSIONS guard rows, schemas, patch, words),
+  `src/app/actions/shipping-options.ts`, `src/components/shipping-options`.
+- Tests: actions 24, screens 9. hq-onboarding.spec now walks tax → refused for shipping → quick-create EUR
+  4.95 → active → read back on Settings.
+
 ### Fixed — #810: no currency fallback on the promotion and price-list pages
 
 - New promotion, promotion detail and price lists took `'EUR'` when the store read failed, and money is

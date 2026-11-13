@@ -534,6 +534,21 @@ batch test in `test/pricing.test.ts`, which is the standard for any money-adjace
 
 ## Store settings (task 2.5 + 2.5b, issue #117; Admin API 0.4.8)
 
+**Payment (#825).** "Pay on invoice" is `settings.payment.invoice_allowed`. Without it, and without the store's
+Stripe key, `GET /store` offers no payment method and no order can be placed.
+
+`updateStore` replaces the whole `settings` object, and other modules keep keys there, so
+`updatePaymentSettingsAction` (store_admin, checked server-side first) works like this:
+
+- it re-reads the store;
+- it refuses if the page's `updated_at` is older than the store's;
+- it sends back every key with only `payment.invoice_allowed` changed (`withInvoiceAllowed` in
+  `src/lib/settings/payment.ts`);
+- it never writes the derived `payment.methods`.
+
+The contract has no If-Match, so a write landing between the re-read and the PATCH is still possible (one
+request wide). The core's 422 `details.settings` is said in words.
+
 **Store · Settings** (`settings`, `/{storeId}/settings`) is open to **store_staff and up**, and
 read-only below store_admin. One page, four cards, each form offered only to the relation its
 operation needs and otherwise replaced by a line naming that relation (`src/lib/settings`):
@@ -678,6 +693,11 @@ asks first, naming both brands — it changes which shelf that brand sells from.
 variant's current item still holds stock or open reservations) is said with `details.on_hand` /
 `details.open_reservations`: move the stock first. 404 = unknown item or variant.
 
+**Finding the item to count (#823).** The count form's item list is the first 100 items by SKU unless
+searched: "Find the item by SKU" (`?count_sku=`) loads the matching items from the API. Each stock-item row's
+"Record a count" opens the form with that item preselected (`?count_item=`). Without this, an item past the
+first 100 (any brand onboarded later) could not be stocked from the admin.
+
 **Cycle counts** (`listCycleCounts`, operations on hq): newest first, filters warehouse / stock
 item / status; `counted_by` null shows as WMS. **Record a count** (`createCycleCount`) changes no
 stock. **Reconcile** (`recorded` counts, no body) answers applied (one movement of the delta, none
@@ -759,6 +779,40 @@ Every refusal is said in words and the editor keeps working (`describeDraftError
 - `ai_unavailable` / `ai_invalid_draft`: try again.
 - `unavailable`: nothing was sent.
 - 404 and 400 in their own words.
+
+## Shipping options (#809 / #815; Admin API 0.4.28)
+
+**Store · Settings › Shipping options** (`#shipping-options`).
+
+**The rules.** A cart can only check out to the countries of the store's ACTIVE options in the cart's
+currency. `activateStore` needs an active option in the store's `default_currency` for every market
+country (409 `details.missing_shipping_countries`).
+
+**What the section does:**
+
+- Lists every option.
+- Adds one: store currencies only; countries as ISO-2 codes ("JP, KR").
+- Edits name, price and countries. It sends a patch of what changed; `code` and `currency` are immutable.
+- Deactivates or reactivates. Rows are never deleted.
+
+**Money.** The price is text in the currency's own units, parsed server-side with the currency's digits
+(`parseMoney`, #810) — never a fixed two decimals.
+
+**Permissions.** `listShippingOptions` is viewer; `createShippingOption` / `updateShippingOption` are
+store_admin (`SHIPPING_PERMISSIONS`, pinned against the spec). The actions refuse server-side first.
+
+**Live stores.** The core refuses a change that would leave a market country uncovered (409); the section
+says which countries.
+
+**Edits re-read the option.** The update action reads the option from the core first: its stored currency
+decides the price's digits, and the patch is diffed against the stored row, never against the page's copy.
+
+**Readiness panel.** It turns `shipping_options` into "a shipping option for XX", with one inline create per
+country (default currency, `manual` carrier, flat price). Like the tax-rate creates, these are offered only
+with store_admin on the store (decided server-side by the page); otherwise the relation needed is named.
+The quick create (`createCountryShippingOptionAction`) uses the code `standard-<cc>`. An inactive one in the
+same currency is reactivated rather than refused; otherwise it takes the next free code (`-2`, `-3`, …).
+The panel says which.
 
 ## Tax rates (#520, CONTRACT CHANGE #522; Admin API 0.4.23)
 

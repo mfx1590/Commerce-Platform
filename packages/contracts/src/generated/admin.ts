@@ -70,7 +70,7 @@ export interface paths {
         put?: never;
         /**
          * Move a draft or paused store to active once every prerequisite is present
-         * @description Prerequisites: a legal entity, at least one locale and one currency, a primary domain, a live publishable key, the store's OpenFGA object, and at least one tax rate for each of the store's market countries (`tax_rates`) — the market countries are `default_country` plus every country of the store's active shipping options; a country is covered by any row for it (any region, any category). Missing ones are listed in the 409's `details.missing`; with `tax_rates`, `details.missing_tax_countries` lists the uncovered countries, sorted. An active store answers 200 unchanged; an archived store answers 409 with `details.status: archived`. Writes an audit row and a `store.updated` event on the status change.
+         * @description Prerequisites: a legal entity, at least one locale and one currency, a primary domain, a live publishable key, the store's OpenFGA object, and at least one tax rate for each of the store's market countries (`tax_rates`) — the market countries are `default_country` plus every country of the store's active shipping options; a country is covered by any row for it (any region, any category) — and an active shipping option in the store's `default_currency` for each market country (`shipping_options`; without one a cart to that country cannot check out). Missing ones are listed in the 409's `details.missing`; with `tax_rates`, `details.missing_tax_countries` lists the uncovered countries, and with `shipping_options`, `details.missing_shipping_countries` lists the countries without a sellable option, both sorted. An active store answers 200 unchanged; an archived store answers 409 with `details.status: archived`. Writes an audit row and a `store.updated` event on the status change.
          */
         post: operations["activateStore"];
         delete?: never;
@@ -919,11 +919,35 @@ export interface paths {
         };
         get: operations["listShippingOptions"];
         put?: never;
+        /** @description Creates a shipping option of the store: the only destinations a cart can check out to are the countries of its active options in the cart's currency. `price_minor` is an integer in the currency's minor unit — its exponent, not always 2: 1980 for ¥1,980 (JPY, 0 decimals), 1990 for €19.90. `currency` must be one of the store's currencies; `countries` are ISO 3166-1 alpha-2 codes (upper-cased, distinct, at least one); `sales_channel_id`, when set, a sales channel of this store. 409 when the store already has an option with this `code`. Writes an audit row and `store.updated` (`changed_fields: [shipping_options]`). */
         post: operations["createShippingOption"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/admin/stores/{storeId}/shipping-options/{optionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                optionId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change or deactivate a shipping option
+         * @description Every field is optional; `code` and `currency` are immutable (a different currency is a new option). `is_active: false` deactivates it (rows are never deleted: carts and orders reference them). On an ACTIVE store a change that would leave a market country without an active option in the store's `default_currency` is refused with 409 `conflict` and `details.missing_shipping_countries` — the same rule activation enforces. Writes an audit row (before / after) and `store.updated` (`changed_fields: [shipping_options]`).
+         */
+        patch: operations["updateShippingOption"];
         trace?: never;
     };
     "/admin/stores/{storeId}/merchandising/rules": {
@@ -2932,6 +2956,19 @@ export interface components {
             };
             is_active: boolean;
         };
+        ShippingOptionPatch: {
+            name?: string;
+            carrier?: string;
+            service?: string | null;
+            price_minor?: number;
+            countries?: string[];
+            /** Format: uuid */
+            sales_channel_id?: string | null;
+            rules?: {
+                [key: string]: unknown;
+            };
+            is_active?: boolean;
+        };
         Customer: {
             /** Format: uuid */
             id: string;
@@ -3876,11 +3913,15 @@ export interface components {
                  *         "missing": [
                  *           "primary_domain",
                  *           "publishable_key",
-                 *           "tax_rates"
+                 *           "tax_rates",
+                 *           "shipping_options"
                  *         ],
                  *         "missing_tax_countries": [
                  *           "BE",
                  *           "DE"
+                 *         ],
+                 *         "missing_shipping_countries": [
+                 *           "JP"
                  *         ]
                  *       }
                  *     }
@@ -6857,8 +6898,42 @@ export interface operations {
                     "application/json": components["schemas"]["ShippingOption"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateShippingOption: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                storeId: components["parameters"]["StoreId"];
+                optionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShippingOptionPatch"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShippingOption"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
         };
     };

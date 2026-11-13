@@ -85,6 +85,31 @@ if [ "$include_brands" = '1' ]; then
 fi
 mapfile -t configs < <(ls -1 "${globs[@]}" 2>/dev/null | sort)
 
+# Brand storefronts with NO store in the CI seed (packages/db's seed has brands A-C; brand D was onboarded through the
+# wizard in the wave 3 run). Against CI's freshly seeded core their journeys would run with a publishable key that
+# authenticates as nothing, so they are skipped BY NAME, each printed in the log with the issue that removes it from
+# this list. Never a silent filter. Locally, E2E_RUN_UNSEEDED_BRANDS=1 runs them (the shared stack has the store).
+UNSEEDED_BRANDS=(
+  'brand-d:#832' # seed brand-d (JPY) so the live job covers it
+)
+skipped_by_name=()
+if [ "${E2E_RUN_UNSEEDED_BRANDS:-}" != '1' ]; then
+  kept=()
+  for cfg in "${configs[@]}"; do
+    brand=''
+    for entry in "${UNSEEDED_BRANDS[@]}"; do
+      [ "$cfg" = "apps/storefronts/${entry%%:*}/$(basename "$cfg")" ] && brand="$entry"
+    done
+    if [ -n "$brand" ]; then
+      echo "== SKIPPED: ${brand%%:*} storefront journeys — not in the CI seed (${brand##*:}); E2E_RUN_UNSEEDED_BRANDS=1 runs them"
+      skipped_by_name+=("${brand%%:*}")
+    else
+      kept+=("$cfg")
+    fi
+  done
+  configs=("${kept[@]+"${kept[@]}"}")
+fi
+
 skipped_brands="$(ls -1 apps/storefronts/*/playwright.config.* 2>/dev/null || true)"
 if [ "$include_brands" != '1' ] && [ -n "$skipped_brands" ]; then
   echo '== brand storefront journeys NOT run (E2E_INCLUDE_BRAND_STOREFRONTS=0 was set):'
@@ -161,4 +186,4 @@ if [ "$fail" -ne 0 ]; then
   echo '== end-to-end journeys FAILED'
   exit 1
 fi
-echo "== ${#configs[@]} end-to-end journey(s) passed"
+echo "== ${#configs[@]} end-to-end journey(s) passed${skipped_by_name[0]+ (skipped by name, not in the CI seed: ${skipped_by_name[*]})}"

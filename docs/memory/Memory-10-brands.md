@@ -410,6 +410,79 @@ branch), dropping versions from the manifest (`--check`'s drift report needs the
 `bump-starter-dep.mjs` as the primary path — **a script of mine cannot make a starter edit legal**;
 bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
+## In progress — #834, brand D's JPY money test (2026-11-13)
+
+**PR #841** (code commit `49f67c63`; head = this memory commit), branch `brands/phase6-834-jpy-money`
+from main `ec55cb3e`. Verdict **MERGE on green CI**. Brand D only, nine tests, no production code.
+
+**Mutation-proved, not asserted** — the three regressions applied to the built formatter, suite
+re-run each time: digits hard-coded to **2** CAUGHT, `amount_minor / 100` CAUGHT,
+`amount_minor * 100` CAUGHT. `packages/ui/dist/components/price.js` is generated output and was
+restored **byte-for-byte**, the harness comparing and reporting it; nothing outside
+`apps/storefronts/brand-d` was ever dirty. **The technique is reusable: mutate `dist`, never another
+window's source, and make the harness prove the restore.**
+
+The assertion that does the real work is the cheap one: for JPY the rendering must have **no
+fractional part at all**. The `19.80` / `198,000` string checks catch the two obvious directions; a
+stray `toFixed(2)` leaves the magnitude right and only the no-fraction assertion sees it.
+
+It also carries the D8 order's own figures — 1980 + 990 + 198 = 3168, tax **added** not included,
+shipping untaxed — so breaking that arithmetic breaks a test that names order `848ec7e3`.
+
+### Brand D run — closed
+
+#821 merged as **`ec55cb3e`**; brand D is on main. #826, #827 and #828 closed on my generator
+fixes. The manager read order `848ec7e3` in the dev database himself: JPY 1980 / 990 / 198 / 3168,
+confirmed — and its **outbox events are unpublished with no accounting row**, so the ledger hop is
+**#835** and not mine. Filed from the run's tail: **#837** (REQUEST to window 3 — the PDP meta
+description falls past `null` but not past an empty subtitle, and never uses `product.description`;
+6 seo-head failures on brand D, hidden in A/B/C by seeded subtitles) and **#830**'s sixth
+precondition (product images).
+
+**Queued, in order:** #829 (the generator emits README with the bundle-budget block, CHANGELOG and
+CLAUDE.md) on its own branch from main, started now — **not** waiting for #841 to merge. Then the
+A–D re-sync, which waits for BOTH #838 (PDP meta description) and #840 (fail-fast specs) so it
+happens once; the manager says when.
+
+## In progress — brand D, the D8 onboarding proving run (2026-11-12)
+
+**No PR of my own.** My branch `brands/phase6-brand-d` (code commit `036dd733`, from `origin/main`
+46439328) **lands in PR #821 via `integration/brand-d`** — the manager merges it there himself and
+window 5 adds the Docker/bake/helm entries. The timing table goes in #821's body and on #731.
+
+Clock: **13:45:39Z**, when window 4 opened the wizard. I lead and hold it.
+
+- 13:51:03 — `new-brand.mjs`: **1 s**, 260 files. Typecheck clean; **749 passed / 3 skipped first
+  try, no edits**.
+- 14:05:53 — **the storefront serves brand D's store: `￥1,980` for `{amount_minor: 1980,
+  currency: "JPY"}`**, no decimal yen anywhere. Nothing in the storefront needed changing for a
+  zero-decimal currency: `minorUnitDigits` asks CLDR.
+- Issues filed with their cost: **#826** (the generator keeps the template's locale AND rewrites the
+  comment to claim otherwise — 12 min, the largest single item), **#827** (the seeded publishable
+  key cannot work for a wizard-created brand), **#828** (four undocumented env values, each failing
+  separately). **I wrote "all three fixed in the generator" and that was wrong for #827** — at that
+  point it was only documented, and the generator still wrote the dead key. #821's delta review
+  caught it. The real fix is in now: `runtimeDefaults` emits the seeded key **only for a brand in
+  `SEEDED_BRANDS`**, proved by a test that A/B/C keep theirs and a fourth brand gets none, and brand
+  D's own two files no longer carry it. #826 and #828 were fixed as claimed.
+- `localeMismatch` no longer claims a new brand's e2e "does not run against this brand": #783/#793/
+  #797 fixed it and brand D proved it the day it was generated (10 passed against a real core). Two
+  tests that pinned the stale claim now pin the current one.
+- Brand D's README/CHANGELOG/CLAUDE.md are **hand-written — the generator makes none of them**; the
+  manager asked for that as its own issue.
+
+### The thing this run is really for
+
+**Four store-shaped preconditions, each visible only after the previous was satisfied**: purchasable
+stock (#823), a payment method (#825, still open — `payment: {"methods": []}`), at least two listed
+products, at least one product in a category. None is written down and nothing checks them. A store
+can be ACTIVE and pass the admin's readiness panel while a brand's e2e suite cannot run against it.
+Same shape as #809. One issue for the list is proposed; it spans window 4's panel and window 3's
+specs, so not filed unilaterally.
+
+**The key never touched git.** Brand D's real publishable key lived only in my scratchpad; I grepped
+the staged diff for it before committing.
+
 ## In progress — brand C's catalogue currency (2026-11-11, machine used)
 
 Branch `brands/phase6-brand-c-currency` from `origin/main` `ecce0702`. Brand C's

@@ -18,18 +18,26 @@ import {
   listDomains,
   listSalesChannels,
   listTaxRates,
+  listShippingOptions,
 } from '@/lib/api/admin';
 import type { AdminComponents } from '@/lib/api/admin-client';
 import { loadPrincipal } from '@/lib/principal';
 import {
   forChannelOptions,
   forStoreSettings,
+  paymentSettingsFrom,
   settingsPermissions,
   type SettingsPermissions,
 } from '@/lib/settings';
 import { mayManageTaxRates } from '@/lib/tax-rates';
+import { mayManageShippingOptions } from '@/lib/shipping-options';
+import {
+  CreateShippingOptionForm,
+  ShippingOptionsTable,
+} from '@/components/shipping-options/shipping-option-forms';
 import { CreateTaxRateForm, TaxRatesTable } from '@/components/tax-rates/tax-rate-forms';
 import { GeneralSettingsForm } from './general-form';
+import { PaymentSettingsForm } from './payment-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -98,15 +106,19 @@ export default async function SettingsPage({ params }: { params: Promise<{ store
   const storeObject = `store:${storeId}`;
 
   const canManageTax = principal.ok && mayManageTaxRates(principal.data, storeId);
-  const [store, domains, channels, keys, taxRates, categories] = await Promise.all([
-    getStore(storeId),
-    listDomains(storeId),
-    listSalesChannels(storeId),
-    // Below store_admin the list is a certain 403; do not ask.
-    can.canManageKeys ? listApiKeys(storeId) : Promise.resolve(null),
-    listTaxRates(storeId),
-    listCategories(storeId),
-  ]);
+  const canManageShipping = principal.ok && mayManageShippingOptions(principal.data, storeId);
+  const [store, domains, channels, keys, taxRates, categories, shippingOptions] = await Promise.all(
+    [
+      getStore(storeId),
+      listDomains(storeId),
+      listSalesChannels(storeId),
+      // Below store_admin the list is a certain 403; do not ask.
+      can.canManageKeys ? listApiKeys(storeId) : Promise.resolve(null),
+      listTaxRates(storeId),
+      listCategories(storeId),
+      listShippingOptions(storeId),
+    ],
+  );
   const categoryOptions = categories.ok
     ? categories.data.items.map((c) => ({ id: c.id, name: c.name }))
     : [];
@@ -145,6 +157,34 @@ export default async function SettingsPage({ params }: { params: Promise<{ store
           </CardBody>
         </Card>
 
+        <Card id="payment">
+          <CardHeader
+            title="Payment"
+            description="How customers can pay. Card payments need the store's Stripe key, which an operator sets outside the admin; without card or invoice, no order can be placed."
+          />
+          <CardBody>
+            {!store.ok ? (
+              <RequestErrorPanel status={store.status} error={store.error} />
+            ) : can.canEditStore ? (
+              <PaymentSettingsForm
+                storeId={storeId}
+                invoiceAllowed={paymentSettingsFrom(store.data.settings).invoice_allowed}
+                updatedAt={store.data.updated_at}
+              />
+            ) : (
+              <div className="space-y-3">
+                <p className="text-sm">
+                  Pay on invoice:{' '}
+                  <span className="font-medium">
+                    {paymentSettingsFrom(store.data.settings).invoice_allowed ? 'on' : 'off'}
+                  </span>
+                </p>
+                <Needs relation="store_admin" object={storeObject} to="Changing payment settings" />
+              </div>
+            )}
+          </CardBody>
+        </Card>
+
         <Card>
           <CardHeader
             title="Tax rates"
@@ -169,6 +209,38 @@ export default async function SettingsPage({ params }: { params: Promise<{ store
               />
             ) : (
               <Needs relation="store_admin" object={storeObject} to="Changing tax rates" />
+            )}
+          </CardBody>
+        </Card>
+
+        <Card id="shipping-options">
+          <CardHeader
+            title="Shipping options"
+            description="Where carts can check out to, and at what price. Every country the store sells to needs an active option in the store's default currency before it can be active; options are deactivated, never deleted."
+          />
+          <CardBody className="space-y-4">
+            {shippingOptions.ok ? (
+              <ShippingOptionsTable
+                storeId={storeId}
+                options={shippingOptions.data.items}
+                canManage={canManageShipping}
+                locale={store.ok ? store.data.default_locale : 'en-GB'}
+              />
+            ) : (
+              <RequestErrorPanel status={shippingOptions.status} error={shippingOptions.error} />
+            )}
+            {!canManageShipping ? (
+              <Needs relation="store_admin" object={storeObject} to="Changing shipping options" />
+            ) : store.ok ? (
+              <CreateShippingOptionForm
+                storeId={storeId}
+                currencies={store.data.currencies}
+                defaultCurrency={store.data.default_currency}
+                defaultCountry={store.data.default_country}
+              />
+            ) : (
+              // No currency fallback (#810): without the store there is no price input.
+              <RequestErrorPanel status={store.status} error={store.error} />
             )}
           </CardBody>
         </Card>

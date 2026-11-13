@@ -25,6 +25,40 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
   axe 4.14 + jest-dom 7, Sanity 6). The OTLP exporters stay until Medusa takes the SDK 3 line. `apps/engagement`
   joins the docker directories, and the `node` base-image major ignore stays.
 
+### Added (wave 3, brand D: its image, #439 pattern)
+
+- `apps/storefronts/brand-d/Dockerfile`: brand C's, for `@platform/storefront-brand-d` on PORT 3104.
+- Brand D's manifest is copied in every app Dockerfile's deps stage (19 workspace manifests); the image is in the
+  build compose, the bake targets, terraform `var.apps` (its ECR repository), the image smoke (port 3104, so the
+  `/_next/image` sharp check covers it), and Dependabot's docker directories. `check-image-lists.sh` and
+  `check-image-manifests.sh` agree. Helm values are not added: they list what is deployed (#342), not what is built.
+- `infra/ci/run-e2e.sh`: brand D's journeys are skipped BY NAME in the live job: it has no store in CI's seed.
+  CI run 43239694924 ran them against the seeded core: 25 failed, 24 passed, A-C all green. The skip prints
+  `== SKIPPED: brand-d storefront journeys — not in the CI seed (#832)` and the final line names it. It is never a
+  silent filter; `E2E_RUN_UNSEEDED_BRANDS=1` runs it. #832 seeds brand-d and removes the entry.
+- Keycloak: `storefront-brand-d` in the shared customers realm (created live at 14:02:44Z), in the realm file and
+  the production profile.
+
+### Added (wave 3, brand D: a brand's Keycloak client without a reimport)
+
+- `infra/keycloak/add-brand-client.mjs <code>`: creates `storefront-<code>` in the live customers realm through the
+  admin API, additive and idempotent. It POSTs only when the client is missing and links missing scopes on that
+  client only. It never PUTs or DELETEs; an existing client's drift is reported (exit 3) and left alone. It also
+  adds the client to `customers-realm.json` and the production profile, so an import keeps it. `--dry-run`
+  prints every request; `--live-only` / `--json-only`; a non-local Keycloak needs `--allow-remote`.
+- `infra/keycloak/brand-client.mjs`: ONE template for every brand client; brand-a/b/c in the realm file are its
+  exact output (`brand-client.test.mjs`, 10 tests: template, security shape, drift, additive file plan,
+  admin-API calls against a fake, dry run). CI's live auth job runs the tests, then the script against its own
+  throw-away Keycloak: create, an idempotent re-run, and a drift re-run that must exit 3.
+
+### Fixed (the k6 gate never says "within the SLOs" on a red job)
+
+- `infra/load/run.sh` writes its own exit code to `run.exit` from its EXIT trap, as the last thing it does.
+  `slo-gate.mjs` judges a pass as `broken` when `run.exit` is non-zero. That covers k6 writing a passing summary
+  and run.sh failing after it (a later phase, the report): the reason is "run.sh exited N after k6 finished".
+  It is also `broken` when `run.exit` is missing (run.sh killed before its trap, e.g. a step timeout). The
+  measured numbers are still shown. Before this, such a pass rendered "within the SLOs" next to a red job.
+
 ### Fixed (#801 review: the k6 SLO regression)
 
 - `.github/workflows/load.yml`: `inputs.metrics_months` reaches the seed step through env (`METRICS_MONTHS`), never

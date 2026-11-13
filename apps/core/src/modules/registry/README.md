@@ -33,6 +33,7 @@ the `audit_log` row and the outbox rows commit or roll back together.
 | `createApiKey(client, storeId, { name, type, sales_channel_id })` → `ApiKey & { key }`     | any visible  | `store_api_key.create`                                | —                                                                         |
 | `revokeApiKey(client, storeId, keyId)` → `ApiKey` (idempotent; 409 `last_live_key`)        | any visible  | `store_api_key.revoke`                                | `store.updated` (`changed_fields: ['api_keys']`)                          |
 | `listTaxRates(client, storeId, { country? })` → `TaxRate[]` (#520)                         | any visible  | —                                                     | —                                                                         |
+| `createShippingOption` / `updateShippingOption` (#809, `shipping-options.ts`)              | any visible  | `shipping_option.create` / `.update`                  | `store.updated` (`changed_fields: ['shipping_options']`)                  |
 | `createTaxRate` / `updateTaxRate` (name, rate_bp) / `deleteTaxRate` (#520, `tax-rates.ts`) | any visible  | `tax_rate.create` / `.update` / `.delete`             | `store.updated` (`changed_fields: ['tax_rates']`)                         |
 
 Return types are the contract schemas (`AdminComponents['schemas']['Store' | 'Domain' | 'SalesChannel' | 'ApiKey']`).
@@ -92,7 +93,7 @@ that differ (`details.differs`). A failure anywhere inside the transaction leave
 is present, with an audit row (`store.activate`) and `store.updated` (`changed_fields: ['status']`); an active
 store is a no-op 200; `archived` is a 409 with `details.status`. The prerequisites, reported in this order in
 `details.missing` (409 `conflict`): `legal_entity`, `locale`, `currency`, `primary_domain`, `publishable_key`
-(a live one), `fga_object`, `tax_rates` (#520). `updateStore` with `status: 'active'` runs the SAME gate (`refuseUnlessReady`) —
+(a live one), `fga_object`, `tax_rates` (#520), `shipping_options` (#809). `updateStore` with `status: 'active'` runs the SAME gate (`refuseUnlessReady`) —
 pass `{ registrar }` to it; without one the OpenFGA object counts as missing, never as present.
 
 **`tax_rates` (#520, CONTRACT CHANGE #522).** A store must have at least one `tax_rate` row for each of its
@@ -106,6 +107,20 @@ the database's unique index `tax_rate_identity_key` (0201, NULLS NOT DISTINCT), 
 `updateTaxRate` changes `name` / `rate_bp` only; every write locks the store row first (`lockStore`), and an
 ACTIVE store cannot delete the last rate of a market country (409 `{ country, reason:
 'last_rate_of_market_country' }`) — decided under that lock, so two deletes cannot both pass.
+
+**`shipping_options` (#809, CONTRACT CHANGE #811).** Every market country needs an ACTIVE shipping option in the
+store's `default_currency` (`unshippableMarketCountries`): checkout offers only active options in the cart's
+currency that list the destination, so without one the store is active and cannot sell there. An option in
+another currency does not count; a store with no option is missing its `default_country`. The 409 then carries
+`details.missing_shipping_countries` (sorted). No "sells no physical goods" flag exists (every brand ships).
+The options (`shipping-options.ts`): `listShippingOptions` (exported as `listStoreShippingOptions`, viewer),
+`createShippingOption` and `updateShippingOption` (store_admin). `price_minor` is in the currency's minor unit,
+whatever its exponent (1980 = ¥1,980; nothing converts or rounds). `currency` must be one of the store's
+currencies; `countries` are upper-cased, distinct and sorted; a `sales_channel_id` must be the store's (400);
+`code` is unique per store (409 `{ shipping_option_id }`). `code` and `currency` are immutable, rows are never
+deleted (`is_active: false` retires one), and on an ACTIVE store a create or update that leaves a market country NEWLY
+without an active option in the store currency is 409 `{ missing_shipping_countries }` (a country that was
+already uncovered does not block an unrelated edit). Every write locks the store row first.
 
 **`StoreRegistrar`** (`{ ensureStoreObject(storeId), hasStoreObject(storeId) }`): the registry never talks to
 OpenFGA itself. The HTTP layer hands in `src/http/store-registrar.ts`, which writes through window 2's

@@ -2,6 +2,31 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-11-11 · a just-onboarded store is in scope at once (#809 follow-up)
+
+- `KeycloakStaffTokenVerifier.invalidateAll()` drops every cached staff scope (hq-rbac's `ScopeCache.clear()`, read
+  only — window 2's code is unchanged). `buildStaffAuth()` exposes it as `onStoreScopeChange`; `mountCoreMiddleware`
+  hands it to `adminRouter`, whose `POST /admin/onboarding/stores` calls it after `onboardStore` succeeds. A new
+  store's OpenFGA object reaches every organization-level user, so every cached scope goes, not only the creator's;
+  it changes when scopes refresh, never what they grant. Before: up to 30 s without the store in `/admin/me`.
+- `test/scope-invalidate.test.ts`: the real verifier with the default 30 s cache — the onboarded store is in the
+  owner's `/admin/me` immediately; the control without the callback still lacks it; a refused onboarding clears nothing.
+
+### 2026-11-11 · shipping options and the activation guard (#809, CONTRACT CHANGE #811)
+
+- Admin API `GET` / `POST /admin/stores/{storeId}/shipping-options` and `PATCH …/{optionId}` (`listShippingOptions`
+  viewer, `createShippingOption` / `updateShippingOption` store_admin; `src/modules/registry/shipping-options.ts`):
+  tenant client, audit row and `store.updated` (`changed_fields: ['shipping_options']`) in the same transaction.
+  `price_minor` in the currency's minor unit (1980 = ¥1,980); the currency must be the store's; `code` and
+  `currency` immutable; `is_active: false` retires an option; on an ACTIVE store neither a create nor an update may
+  leave a market country newly without a sellable option (409 `missing_shipping_countries`; #815 review: a create of
+  an active option in a secondary currency adds a country it does not cover).
+- Activation (`activateStore`, `updateStore` → active): the new prerequisite `shipping_options` — an active option in
+  the store's `default_currency` for every market country; the 409 lists `missing_shipping_countries`.
+- Tests: `test/shipping-options.test.ts` (tenancy, validation, the update guard, JPY readiness, and ¥1,980 = 1980
+  minor units through the option, the cart total and the order); the readiness expectations of the registry,
+  admin-api and live tests gain `shipping_options`.
+
 ### 2026-11-10 · Medusa 2.20.1 → 2.21.2 (supersedes Dependabot #774)
 
 - `@medusajs/cli`, `draft-order`, `framework`, `medusa` 2.21.2 (Node `^20.19.0 || >=22.12.0`, so Node 20 stays).

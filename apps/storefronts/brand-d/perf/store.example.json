@@ -1,0 +1,21 @@
+{
+  "id": "9f3c3c2a-42a5-4903-bb1d-fd47e4f6324e",
+  "code": "brand-d",
+  "name": "Brand D",
+  "default_currency": "JPY",
+  "default_locale": "ja-JP",
+  "default_country": "JP",
+  "currencies": ["JPY"],
+  "locales": ["ja-JP"],
+  "sales_channel": {
+    "id": "a4b961db-8fe1-453a-849e-96986c909f68",
+    "code": "web",
+    "type": "web"
+  },
+  "content_space_id": "brand-d",
+  "search_index": "brand-d_products",
+  "payment": {
+    "methods": ["card", "invoice"]
+  },
+  "theme": {}
+}
