@@ -35,7 +35,7 @@ regexes = [
   '''platform_metrics''',
   '''medusa_owner''',
   '''dev-only-[a-z-]+''',
-  '''pk_brand-[a-d]_dev_0+''', # the seeded dev keys of brands A–D (packages/db SEED_IDS.publishableKeys)
+  '''pk_brand-[a-c]_dev_0+''',
   '''build-time-placeholder''',
   '''REPLACED_BY_DEPLOY''',
   # The all-zero placeholder image tag the charts render in CI.
