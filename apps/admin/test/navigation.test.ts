@@ -18,7 +18,10 @@ const ids = (sections: readonly { id: string }[]) => sections.map((section) => s
 
 describe('HQ navigation per role fixture', () => {
   const cases: Array<[PrincipalKey, string[]]> = [
-    ['owner', ['stores', 'warehouse', 'finance', 'bi', 'marketing', 'roles', 'onboarding']],
+    [
+      'owner',
+      ['stores', 'warehouse', 'finance', 'bi', 'marketing', 'roles', 'audit', 'onboarding'],
+    ],
     ['finance', ['stores', 'finance']],
     ['operations', ['stores', 'warehouse']],
     ['support', ['stores']],

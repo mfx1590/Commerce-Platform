@@ -895,6 +895,53 @@ Every mutation is refused server-side before the API below `store_admin` on the 
 walks list, create, update and delete through the actions plus every documented refusal (the
 201/200 examples were added to the spec for it, 9d39673).
 
+## History: who changed what (#870 wave 1 item 3)
+
+`listAuditLog` is the only history the platform has, and it was used in exactly one place (HQ ›
+Roles, per person). It now backs two screens.
+
+**The panel.** `loadActivity({ storeId, entityType, entityId, page })` reads the entries and
+`<ActivityPanel>` renders them; the page awaits the load so the panel stays synchronous (a page
+with an async child cannot be rendered by the screen tests, and the data belongs to the page). It
+is mounted on the product, customer and promotion detail pages.
+
+**What a row may show.** `src/lib/audit/redaction.ts` decides, and it fails closed:
+
+1. a value is printed only for an `(entity_type, field)` pair in `SAFE_VALUE_FIELDS`;
+2. a field name matching `NEVER_SHOW` is withheld even if the pair is allow-listed;
+3. a value that is not a string, number, boolean or null is withheld — a nested object is exactly
+   where an unreviewed body would hide;
+4. an entity type with no entry shows field names only.
+
+The core is disciplined about what it writes today (`customers/admin.ts`: "field names and
+non-personal values only — never a name, a phone or an email"; `payments/capture.ts`: "ids and
+amounts only"; `registry/service.ts`: "never the plain key or its hash"). This app does not depend
+on that: `before`/`after` are typed `additionalProperties: true`, and one new `writeAudit` call in
+the core would change what these screens render without touching the admin. A redacted field is
+still NAMED, so the history keeps its point.
+
+`AuditRow` (`src/lib/audit/projection.ts`) is what crosses to a client component and to the CSV. It
+has no `before`/`after` by construction.
+
+**The order page is different.** Nothing in the core writes an `entity_type: 'order'` audit row, so
+the order shows its payments' rows under the heading "Payment activity". `listAuditLog` takes one
+`entity_id`, so the payments are fetched in parallel and merged newest-first, bounded at five, one
+page — paging a merge of N queries would misstate the ordering. The missing order rows are
+REQUEST #887; a list `entity_id`, which would let the product panel include its variants, is
+CONTRACT CHANGE #889.
+
+**Actor names are owner-gated.** `listUsers` is `owner on organization:hq`. A store admin reading a
+product is refused there, so the lookup is allowed to fail and the row reads "Unknown staff
+(ab12cd34)". A `viewer`-level lookup (or `actor_display_name` on the entry) is REQUEST #891.
+
+**HQ › Audit** (`/audit`, owner-only) is the same renderer over the org-wide call: no `store_id`
+means the core answers from the caller's own scope — organization scope sees every row, a
+store-scoped caller only their stores — so the store filter narrows a decision the server already
+made and can never widen it. The date inputs are UTC calendar days and become the whole day
+(`from` → `00:00:00.000Z`, `to` → `23:59:59.999Z`): sending the bare date for `to` would silently
+drop everything that happened on the day the reader asked for. `/audit/export` parses the same
+query with the same helpers, so "export what I am looking at" is true rather than nearly true.
+
 ## Security headers (Phase 6 D4, #731)
 
 - **CSP, per request** — `src/middleware.ts` builds it with `src/lib/security/csp.ts`: a new

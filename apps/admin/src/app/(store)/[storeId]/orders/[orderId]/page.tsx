@@ -17,6 +17,8 @@ import { OrderActions } from './order-actions';
 import { PaymentsPanel } from './payments-panel';
 import { FulfilmentPanel } from './shipments-panel';
 import { Timeline } from './timeline';
+import { OrderActivityPanel } from '@/components/audit/order-activity-panel';
+import { loadOrderPaymentActivity } from '@/lib/audit/load';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,6 +60,9 @@ export default async function OrderDetailPage({
   }
 
   const current = order.data;
+  // An order has no audit rows of its own; its payments do. See OrderActivityPanel.
+  const paymentIds = current.payments.map((payment) => payment.id);
+  const paymentActivity = await loadOrderPaymentActivity(storeId, paymentIds);
   const locale = store.ok ? store.data.default_locale : 'en-GB';
   const refundLimit = store.ok ? supportRefundLimitMinor(store.data.settings) : null;
   const permissions = principal.ok ? orderPermissions(principal.data, storeId) : NO_PERMISSIONS;
@@ -224,6 +229,8 @@ export default async function OrderDetailPage({
             <Timeline order={current} locale={locale} />
           </CardBody>
         </Card>
+
+        <OrderActivityPanel activity={paymentActivity} hasPayments={paymentIds.length > 0} />
       </div>
     </StoreSectionGuard>
   );
