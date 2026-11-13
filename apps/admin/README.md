@@ -207,7 +207,8 @@ number of stores adds up to it.
 **Three gates, not one.** Hiding a nav entry is the weakest of them:
 
 1. the nav does not render the link;
-2. the page's `HqSectionGuard` / `StoreSectionGuard` renders a 403 panel if you type the URL anyway,
+2. the page's `HqSectionGuard` / `StoreSectionGuard` renders a 403 panel if you type the URL anyway (only when
+   `/admin/me` answered: a failed principal read is shown as its own failure, never as a missing relation, #860),
    and the store layout re-validates the store id against `stores[]` on _every_ request;
 3. the Admin API re-checks the operation's `x-permission`. This is the only one that is security.
 
@@ -632,6 +633,15 @@ creates the person (`inviteUser`: email + display name — the contract takes no
 the optional initial relation with `assignRole`; a refused grant is said ("Invited, but the initial
 relation was not granted") and retried from the person's row. Until the invitation email exists
 (SMTP, Integration 2b) the first sign-in is set up by an admin in Keycloak — the screen says so.
+
+**Service accounts** (#860): crm-sync and analytics-sync are staff rows too, but their roles come from
+`pnpm --filter @platform/auth-sdk provision:service-accounts`.
+
+- Their rows carry a _service account_ badge and offer **View**, not **Manage**.
+- The view is read-only: relations without Revoke, no Assign, and a note naming the provisioning script.
+- `assignRoleAction` / `revokeRoleAction` refuse them before the API.
+- They are recognised by their fixed ids (`SERVICE_ACCOUNT_IDS` in `src/lib/roles`, the ids provisioning uses)
+  until `StaffUser.kind` exists (CONTRACT CHANGE #861).
 
 Every mutation is refused server-side before the API unless the principal is owner on hq
 (`ROLES_PERMISSIONS` in the shared guard, pinned against the yaml); a taken email (409) lands

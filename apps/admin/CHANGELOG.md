@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Fixed — #860: a section guard no longer reports a failed /admin/me as "you need the owner relation"; service accounts are read-only on Roles
+
+- `HqSectionGuard` / `StoreSectionGuard` rendered "You do not have access to this — you need the owner relation"
+  whenever `loadPrincipal()` failed (401, a 503 from a fail-closed OpenFGA, no answer). The owner saw it on HQ ›
+  Roles. A failed principal read now renders `ApiStatePanel` (its status and error). "You need X" appears only
+  when `/admin/me` answered without the relation.
+- HQ › Roles: service-account rows (crm-sync, analytics-sync) are badged and offer **View**. The view is read-only
+  and names `provision:service-accounts`. The assign and revoke actions refuse them server-side. Ids are fixed
+  until `StaffUser.kind` (CONTRACT CHANGE #861).
+- Customer form: the customer-group hint no longer promises a picker "with the customer-groups operation". That
+  operation is served now; the picker is a follow-up.
+- Tests: `roles-screens` (guard on 401, 503 and no answer, HQ and store; service-account view; a person still
+  managed; +7), `roles-actions` (service accounts refused before the API; +2).
+
 ### Fixed — #820: no Review flash after the onboarding wizard's "Done"
 
 - "Done — continue to readiness" dropped the one-time key by clearing the result, so the wizard
