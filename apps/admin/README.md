@@ -653,7 +653,8 @@ a 400's field keys, a 409's `details.differs` (a different definition for the sa
 
 **The key is shown once.** The 201 carries the store's first publishable key; it lives in the
 wizard's state only — never the URL, storage or a log — and "Done" drops it on the way to the
-readiness panel. A 200 is the identical repeat: "already exists", no key. `/stores/new` (the old
+readiness panel; until the route changes the wizard says "Opening the readiness panel…" with a link,
+never the Review step again (#820). A 200 is the identical repeat: "already exists", no key. `/stores/new` (the old
 step 1) redirects here.
 
 **Readiness** (`/onboarding/{storeId}`): the store's status and **Activate** (`activateStore`). What
