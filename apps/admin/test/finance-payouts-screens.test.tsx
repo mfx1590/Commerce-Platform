@@ -146,6 +146,34 @@ describe('PayoutDetailPanel', () => {
   });
 });
 
+describe('payout-level reasons (#865)', () => {
+  const allMatched: PayoutDetail = {
+    ...payout,
+    status: 'discrepant',
+    line_count: 1,
+    matched_count: 1,
+    discrepancy_count: 0,
+    lines: { page: 1, limit: 20, total: 0, items: [] },
+  };
+
+  it('discrepant with every line matched: says the reason is outside the lines, not in this API', () => {
+    render(<PayoutDetailPanel payout={allMatched} entity={BRAND_D} />);
+    const note = screen.getByRole('note', { name: 'Payout-level reasons' });
+    expect(note).toHaveTextContent('Every line above matched, yet the payout is discrepant');
+    expect(note).toHaveTextContent('not reported by the accounting API yet (#865)');
+  });
+
+  it('a reconciled payout has no such note', () => {
+    render(
+      <PayoutDetailPanel
+        payout={{ ...allMatched, status: 'reconciled', reconciled_at: '2026-11-15T10:00:00Z' }}
+        entity={BRAND_D}
+      />,
+    );
+    expect(screen.queryByRole('note', { name: 'Payout-level reasons' })).toBeNull();
+  });
+});
+
 describe('the ops view', () => {
   it('ERP: unmapped account codes are an alert; posting progress in counts', () => {
     render(

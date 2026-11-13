@@ -668,14 +668,22 @@ read-only: the ledger is derived from events and nothing here writes.
   - `listParkedEvents`: each event links to its order, since a list that doesn't drain means that order's
     `order.placed` is missing.
 - **Only the chosen tab's operations are called.**
-- **e2e** (`e2e/finance.spec.ts`):
-  - **Default (Prism) run:** a store admin is refused with no books shown. Prism's `/admin/me` is the store-admin
-    example, so the refusal is what the mock can prove.
-  - **`E2E_API=core` plus `E2E_ACCOUNTING_URL`** (Prism's accounting mock on :4013 is enough): the finance journey
-    through all seven operations.
-  - `playwright.config.ts` passes the accounting URL explicitly, because `next start` runs as production, where a
-    missing URL is "not configured".
-  - The real service in the advisory job is REQUEST #852.
+- **Payout-level reasons (#865).** Reconciliation also marks a payout _discrepant_ when the payout total differs
+  from the sum of its lines, or when a ledger payment or refund in its window isn't carried. The accounting API
+  doesn't report those yet, so a discrepant payout's page says the reason may be outside its lines, citing
+  CONTRACT CHANGE #865.
+- **e2e** (`e2e/finance.spec.ts`) runs against Prism's accounting mock (the contract's examples) in **both** runs:
+  - the default run serves it through `pnpm mock`;
+  - in core mode (the advisory CI job), `playwright.config.ts` starts Prism for `accounting.yaml` alone on :4013,
+    unless `E2E_ACCOUNTING_URL` names a running service.
+
+  What runs:
+  - **Store-admin refusal:** both runs.
+  - **Finance journey over all seven operations:** core mode (it needs a real finance principal).
+  - Every outcome prints a `FINANCE-E2E passed|skipped` line, so a CI log shows whether it ran.
+  - The real service is waived until REQUEST #852; the waiver is on #851.
+  - The app gets `ACCOUNTING_API_URL` explicitly: `next start` runs as production, where a missing URL is
+    "not configured".
 
 ## HQ roles (task 3.1 A, issue #428; Admin API 0.4.12)
 

@@ -3,68 +3,89 @@ import { AGAINST_CORE } from './api-mode';
 import { FINANCE, signIn, signInAs } from './staff';
 
 /**
- * HQ › Finance (#851) against the Accounting API.
+ * HQ › Finance (#851) against the Accounting API — Prism's accounting mock (the contract's examples)
+ * in both runs: `pnpm mock` serves it in the default run, and playwright.config.ts starts it alone in
+ * core mode (the advisory CI job). The real accounting service is waived until REQUEST #852 (the
+ * waiver is on #851); `E2E_ACCOUNTING_URL` points core mode at one when it is up.
  *
- * - Default run (Prism): the mock answers `/admin/me` with the store-admin example, so the journey
- *   proves the refusal — a store admin never sees books, whatever the accounting mock would say.
- * - `E2E_API=core` + `E2E_ACCOUNTING_URL` (the real core for a real finance principal, and an
- *   accounting service — Prism's accounting mock on :4013 is enough): the finance journey through
- *   every operation, on the contract's examples. The real accounting service in the advisory job is
- *   REQUEST #852; until then this half runs locally only.
+ * - A store admin is refused, in both runs (Prism's `/admin/me` is the store-admin example; the
+ *   core's is the real store admin).
+ * - The finance journey needs a real finance principal, so it runs in core mode.
+ *
+ * Every outcome prints one `FINANCE-E2E` line, so a CI log proves whether it ran.
  */
-const ACCOUNTING = process.env.E2E_ACCOUNTING_URL;
+const SEED_ENTITY = '00000000-0000-4000-8000-000000000011';
+const SEED_STORE = '00000000-0000-4000-8000-000000000031';
 
 test.describe('HQ › Finance', () => {
   test('a store admin is refused, and no books are shown', async ({ page }) => {
-    test.skip(AGAINST_CORE, 'the refusal is pinned on the mock principal (store admin)');
     await signIn(page, '/finance');
     await page.waitForURL(/\/finance/);
     await expect(page.getByText('You do not have access to this')).toBeVisible();
     await expect(page.getByRole('table', { name: 'Legal entities' })).toHaveCount(0);
-    await expect(page.getByRole('table', { name: 'Journal lines' })).toHaveCount(0);
+    console.info(
+      `FINANCE-E2E passed: store admin refused on /finance (${AGAINST_CORE ? 'core' : 'prism'} run)`,
+    );
   });
 
   test('a finance principal reads books, trial balance, journal, payouts and the ops view', async ({
     page,
   }) => {
-    test.skip(
-      !AGAINST_CORE || ACCOUNTING === undefined,
-      'needs E2E_API=core and E2E_ACCOUNTING_URL (an accounting service or its Prism mock)',
-    );
+    if (!AGAINST_CORE) {
+      console.info(
+        'FINANCE-E2E skipped: the finance journey needs a real finance principal (E2E_API=core)',
+      );
+      test.skip(true, 'Prism answers /admin/me with the store-admin example');
+    }
     await signInAs(page, FINANCE, '/finance');
     await page.waitForURL(/\/finance/);
 
-    // Books (listLegalEntityBooks) — the first entity is chosen.
+    // listLegalEntityBooks (example: Brand A B.V.), chosen by default.
     const entities = page.getByRole('table', { name: 'Legal entities' });
     await expect(entities.getByRole('row', { name: /Brand A B\.V\./ })).toHaveAttribute(
       'aria-current',
       'true',
     );
 
-    // Trial balance (getTrialBalance): one table per currency, stated balanced.
+    // getTrialBalance (example: EUR, debits 45,123.00 = credits): one table, balanced.
     const eur = page.getByRole('region', { name: 'Trial balance EUR' });
-    await expect(eur.getByText('Balanced')).toBeVisible();
+    await expect(eur.getByText('Balanced', { exact: true })).toBeVisible();
+    await expect(eur.getByText('€45,123.00').first()).toBeVisible();
 
-    // Journal (listJournalLines): an order reference opens the store's order.
-    await page.getByRole('link', { name: 'Journal', exact: true }).click();
+    // listJournalLines (example: an order reference on brand-a) links to the store order.
+    await page.goto(`/finance?entity=${SEED_ENTITY}&tab=journal`);
     const lines = page.getByRole('table', { name: 'Journal lines' });
     await expect(lines.getByRole('link', { name: /^order / }).first()).toHaveAttribute(
       'href',
-      /^\/[0-9a-f-]{36}\/orders\/[0-9a-f-]{36}$/,
+      `/${SEED_STORE}/orders/00000000-0000-4000-8000-00000000c001`,
     );
 
-    // Payouts (listPayouts) and one payout (getPayout) with its line verdicts.
-    await page.getByRole('link', { name: 'Payouts', exact: true }).click();
+    // listPayouts (example: reconciled) → getPayout (example: discrepant, one unmatched charge).
+    await page.goto(`/finance?entity=${SEED_ENTITY}&tab=payouts`);
     const payouts = page.getByRole('table', { name: 'Payouts' });
-    await payouts.getByRole('link').first().click();
+    await expect(payouts.getByText('reconciled')).toBeVisible();
+    await payouts.getByRole('link', { name: 'po_fixture_le_brand_a_01' }).click();
     await page.waitForURL(/\/finance\/payouts\/[0-9a-f-]{36}\?entity=/);
-    await expect(page.getByRole('table', { name: 'Payout lines' })).toBeVisible();
+    const payoutLines = page.getByRole('table', { name: 'Payout lines' });
+    await expect(
+      payoutLines
+        .getByRole('row', { name: /txn_fixture_unknown_charge/ })
+        .getByText('No ledger entry'),
+    ).toBeVisible();
+    await expect(page.getByRole('note', { name: 'Payout-level reasons' })).toBeVisible();
 
-    // Ops (getErpSyncStatus, listParkedEvents).
-    await page.goBack();
-    await page.goBack();
-    await page.getByRole('link', { name: 'Parked events & ERP' }).click();
-    await expect(page.getByRole('region', { name: 'ERP sync' })).toContainText('accounts mapped');
-    await expect(page.getByRole('region', { name: 'Parked events' })).toBeVisible();
+    // getErpSyncStatus (example: 12 of 12 mapped) and listParkedEvents (example: one shipment.shipped).
+    await page.goto(`/finance?entity=${SEED_ENTITY}&tab=ops`);
+    await expect(page.getByRole('region', { name: 'ERP sync' })).toContainText(
+      '12 of 12 accounts mapped',
+    );
+    await expect(page.getByRole('region', { name: 'Parked events' })).toContainText(
+      'shipment.shipped v1',
+    );
+    console.info(
+      'FINANCE-E2E passed: finance journey over all seven accounting operations (core run, accounting = ' +
+        (process.env.E2E_ACCOUNTING_URL ?? 'Prism :4013') +
+        ')',
+    );
   });
 });

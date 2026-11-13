@@ -245,6 +245,19 @@ export function PayoutDetailPanel({ payout, entity }: { payout: PayoutDetail; en
           </tbody>
         </table>
       )}
+      {payout.status === 'discrepant' && (
+        <p
+          role="note"
+          aria-label="Payout-level reasons"
+          className="border-warning/30 bg-warning/5 rounded-md border px-3 py-2 text-sm"
+        >
+          {payout.discrepancy_count === 0
+            ? 'Every line above matched, yet the payout is discrepant: the reason is outside these lines.'
+            : 'The reason may also be outside these lines.'}{' '}
+          A payout total that differs from the sum of its lines, or a ledger payment or refund this
+          payout does not carry, is not reported by the accounting API yet (#865).
+        </p>
+      )}
       <Pager
         label="Payout line pages"
         page={lines.page}

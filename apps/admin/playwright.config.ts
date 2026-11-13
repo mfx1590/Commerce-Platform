@@ -51,11 +51,14 @@ const API_URL = AGAINST_CORE ? CORE_URL : MOCK_URL;
  * which `pnpm --filter @platform/contracts mock` starts next to the Admin API mock (:4013). The app
  * runs under `next start` (NODE_ENV=production), where a missing URL is "not configured", so it is
  * passed explicitly. `ACCOUNTING_API_URL` pins it the same way `ADMIN_API_URL` pins the admin mock.
- * In core mode the real accounting service is not booted (REQUEST #852): `E2E_ACCOUNTING_URL`
- * names one when it is up, else e2e/finance.spec.ts skips itself.
+ * In core mode (the advisory CI job) the real accounting service is not booted (REQUEST #852, the
+ * waiver on #851): the run starts Prism for `accounting.yaml` alone on :4013 (the webServer entry
+ * below) unless `E2E_ACCOUNTING_URL` names a running service, so e2e/finance.spec.ts always runs.
  */
 const MOCK_ACCOUNTING_URL = process.env.MOCK_ACCOUNTING_API_URL ?? 'http://localhost:4013';
-const ACCOUNTING_URL = AGAINST_CORE ? process.env.E2E_ACCOUNTING_URL : MOCK_ACCOUNTING_URL;
+const EXTERNAL_ACCOUNTING = AGAINST_CORE ? process.env.E2E_ACCOUNTING_URL : undefined;
+const ACCOUNTING_URL = EXTERNAL_ACCOUNTING ?? MOCK_ACCOUNTING_URL;
+const ACCOUNTING_PORT = new URL(MOCK_ACCOUNTING_URL).port || '4013';
 
 /**
  * What the app calls itself, which is what it builds `redirect_uri` from. It must be an origin the
@@ -101,6 +104,19 @@ export default defineConfig({
           reuseExistingServer: !process.env.CI,
           timeout: 60_000,
         },
+    // Core mode: Prism for the Accounting API only (the default run's `pnpm mock` already serves it).
+    ...(AGAINST_CORE && EXTERNAL_ACCOUNTING === undefined
+      ? [
+          {
+            command: `pnpm --filter @platform/contracts exec prism mock openapi/accounting.yaml --host 127.0.0.1 --port ${ACCOUNTING_PORT} --errors`,
+            // Prism answers 401 without a bearer: any of 2xx–403 means it is up.
+            url: `${MOCK_ACCOUNTING_URL}/accounting/v1/legal-entities`,
+            cwd: '../..',
+            reuseExistingServer: !process.env.CI,
+            timeout: 60_000,
+          },
+        ]
+      : []),
     {
       command: 'pnpm run build && pnpm run start',
       // `/health` is unauthenticated on purpose, so it is the one URL that answers 200 before a
@@ -115,7 +131,7 @@ export default defineConfig({
         // is what actually pins the run to Prism when the developer's .env points at the core.
         ADMIN_API_URL: API_URL,
         MOCK_ADMIN_API_URL: MOCK_URL,
-        ...(ACCOUNTING_URL ? { ACCOUNTING_API_URL: ACCOUNTING_URL } : {}),
+        ACCOUNTING_API_URL: ACCOUNTING_URL,
         ADMIN_APP_URL: APP_ORIGIN,
         // Required in every environment; a throwaway value is right for a test run.
         ADMIN_SESSION_SECRET:
