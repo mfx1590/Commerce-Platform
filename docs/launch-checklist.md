@@ -18,8 +18,11 @@ issue; tick it only with a link to the evidence.
       Residual (#671 review): redaction masks e-mail, phone, card, IBAN, address and carrier tracking numbers, but NOT
       personal names. A customer's name typed into a support question reaches the model. Name it in that check.
 - [ ] Brand names; brands B/C invoice OK.
-- [ ] Anthropic API key with a monthly spend cap (in place for dev since 2026-10-27; the gift credit expires
-      2026-11-10).
+- [ ] Anthropic API key with a monthly spend cap (in place for dev since 2026-10-27). Console billing as the
+      owner showed it on 2026-11-13: a 100 USD promotional credit granted 2026-11-09, **expires 2026-12-10 00:00
+      UTC** (API, Agent SDK, Batch, Playground), plus a small purchased balance; auto-reload OFF and no payment
+      method, so requests stop when the balance runs out. Dev has `AI_ENABLED` unset: BI "Ask" answers
+      `ai_disabled` until the owner says to switch it on.
 
 ## Data protection
 
