@@ -347,7 +347,9 @@ contract's.
 - **Operations** — `listLegalEntityBooks`, `getTrialBalance` (per-currency totals whose `difference_minor` is the
   #552 number), `listJournalLines` (paginated; filters `from`, `to`, `currency`, `journal`, `account_code`,
   `reference_type`, `reference_id`, `source_event_id`, `erp=posted|unposted`), `listParkedEvents` (ids and times,
-  never the envelope), `listPayouts`, `getPayout` (lines with verdicts), `getErpSyncStatus`. Lists page with `page` / `limit` (default 20, max 100), `getPayout`'s lines too. Unknown or malformed query
+  never the envelope), `listPayouts`, `getPayout` (lines with verdicts), `getErpSyncStatus`. Lists page with `page` / `limit` (default 20, max 100), `getPayout`'s lines too, always over a TOTAL order
+  (#854): journal lines by entry date, created_at, source event, account, then the line id; payouts by arrival date,
+  payout id, provider, then the row id; so a page boundary never skips or repeats a row. Unknown or malformed query
   parameters are a 400 `validation_error` naming them (the contract's shared `BadRequest`); a legal entity or payout outside the organization is a 404.
   Money is integer minor with its currency; nothing is summed across currencies. Logs carry operation id, status and
   duration — never a body.
@@ -463,7 +465,7 @@ missing from the ledger without any alert. The ledger itself needs no code chang
 
 ## Tests
 
-`pnpm --filter @platform/accounting test` — 122 tests in fifteen files:
+`pnpm --filter @platform/accounting test` — 127 tests in seventeen files:
 
 - `src/posting/posting.test.ts` — pure: the arithmetic, the worked example of every topic above, partial shipments,
   proportional refunds and cancellations, every defect class, the netted life of one order, the late shipment, event
@@ -501,6 +503,8 @@ missing from the ledger without any alert. The ledger itself needs no code chang
   v1, that steps aside once `@platform/events` publishes @2) posts exactly like v1 with a hash and with `email_hash` and
   `customer_id` null; a replayed v2 with the same event id is a no-op; parked shipments and refunds are released by a
   v2 order; the deploy-order case (today's build refuses v2).
+- `test/paging.test.ts` — #854: 16 journal lines on one date and one timestamp paged five at a time come back each
+  exactly once and in order; two providers' payouts with the same id on the same day page deterministically.
 - `test/group-guard.test.ts` — the boot guard: an empty ledger takes any group, other services' groups do not count,
   a mistyped group on a filled ledger is refused, the opt-in allows it, the default is never refused — on an empty
   ledger (a fresh deploy, no flag) as on a filled one (#658).
