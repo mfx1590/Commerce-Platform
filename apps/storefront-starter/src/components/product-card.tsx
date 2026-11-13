@@ -1,6 +1,7 @@
 import { Badge, Price } from '@platform/ui';
 import { useTranslations } from 'next-intl';
 import { ProductImage } from '@/components/product-image';
+import { productName } from '@/lib/text';
 import { Link } from '@/i18n/navigation';
 import type { ProductSummary } from '@/lib/store-api';
 import { productCardHooks } from '@/lib/test-hooks';
@@ -34,7 +35,7 @@ export function ProductCard({ product, locale, priority = false }: ProductCardPr
         ) : (
           <ProductImage
             src={product.thumbnail_url}
-            alt={product.title}
+            alt={productName(product)}
             fill
             sizes={CARD_SIZES}
             priority={priority}
@@ -51,7 +52,7 @@ export function ProductCard({ product, locale, priority = false }: ProductCardPr
       <div className="flex flex-col gap-1">
         <h3 className="text-base font-medium leading-tight">
           <Link href={`/products/${product.handle}`} className="hover:underline">
-            {product.title}
+            {productName(product)}
           </Link>
         </h3>
         <Price

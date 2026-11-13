@@ -15,6 +15,7 @@ import {
   type CapturedOrder,
 } from './support/journey';
 import { LOCALES, localePath, localeUrl } from './support/locale';
+import { storePrecondition } from './support/preconditions';
 import { reviewAddressLine1 } from './support/ship-address';
 
 /**
@@ -240,13 +241,22 @@ test('sorting reorders the listing and a category narrows it', async ({ page }) 
   test.setTimeout(LISTING_TIMEOUT);
 
   await page.goto(localePath('/products'));
+  // The listing rendered before its cards are counted: an error page has no cards either, and that
+  // is an app failure, not a thin store (#840 review).
+  await expect(page.getByRole('heading', { level: 1, name: 'All products' })).toBeVisible();
   const all = await readCards(page);
   // Against the core this is a failure, not a skip: with fewer than two products nothing here can
   // be observed, and a store seeded that thin should not report a green listing test.
-  expect(
-    all.length,
-    'observing an order needs at least two listed products — seed the store',
-  ).toBeGreaterThanOrEqual(2);
+  // Store preconditions (#830), all asserted before the first click and named as the store's.
+  storePrecondition(
+    all.length >= 2,
+    `observing an order needs at least two listed products; /products lists ${all.length}`,
+  );
+  const target = all.find((card) => card.category !== '');
+  storePrecondition(
+    target !== undefined,
+    'observing a category filter needs a listed product that has a category; none of the listed products has one',
+  );
 
   await test.step('price ascending, then descending', async () => {
     await clickWhenReady(page, page.getByRole('link', { name: 'Price: low to high' }));
@@ -261,22 +271,22 @@ test('sorting reorders the listing and a category narrows it', async ({ page }) 
 
     // Two sorted lists prove nothing if every price is the same: the two orders must also differ
     // from each other, which they do as soon as the catalogue has two prices.
+    // Checked here, on the two sorted lists, rather than up front on the default order: a paged
+    // listing's first page can hold one price where the sorted pages hold two, and this check must
+    // not start failing a store it passed before (#830). Both clicks are bounded, so it is still fast.
     const distinctPrices = new Set([...ascending, ...descending]).size;
-    expect(
-      distinctPrices,
-      'observing a price order needs at least two different prices — seed the store',
-    ).toBeGreaterThanOrEqual(2);
+    storePrecondition(
+      distinctPrices >= 2,
+      'observing a price order needs at least two different prices among the listed products',
+    );
     expect(ascending[0]).toBeLessThan(descending[0]!);
   });
 
   await test.step('a category shows that category and nothing else', async () => {
     await page.goto(localePath('/products'));
-    const target = all.find((card) => card.category !== '');
-    expect(target, 'at least one listed product has a category').toBeDefined();
-
     const filter = page.getByRole('navigation', { name: 'Categories' });
-    const link = filter.locator(`a[data-category="${target!.category}"]`);
-    await expect(link, `the filter offers "${target!.category}"`).toHaveCount(1);
+    const link = filter.locator(`a[data-category="${target.category}"]`);
+    await expect(link, `the filter offers "${target.category}"`).toHaveCount(1);
 
     // The category and whatever is nested under it in the filter: a parent category lists its
     // children's products too, and those are not strangers.
@@ -285,34 +295,36 @@ test('sorting reorders the listing and a category narrows it', async ({ page }) 
       .locator('a[data-category]')
       .evaluateAll((elements) => elements.map((element) => element.getAttribute('data-category')));
 
+    // There has to *be* something outside the category: if every listed product sits inside it,
+    // "everything shown is a member" holds for a filter that does nothing at all. A store
+    // precondition, so it is asserted before the click (#830), from the unfiltered listing.
+    const strangers = all.filter((card) => !family.includes(card.category));
+    storePrecondition(
+      strangers.length > 0,
+      `observing a filter needs a listed product outside "${target.category}"; every listed product is in it`,
+    );
+
     await clickWhenReady(page, link);
-    await expect(page).toHaveURL(localeUrl(`/categories/${target!.category}$`), {
+    await expect(page).toHaveURL(localeUrl(`/categories/${target.category}$`), {
       timeout: NAVIGATION_TIMEOUT,
     });
     await expect(
       page
         .getByRole('navigation', { name: 'Categories' })
-        .locator(`a[data-category="${target!.category}"]`),
+        .locator(`a[data-category="${target.category}"]`),
     ).toHaveAttribute('aria-current', 'page');
 
     const filtered = await readCards(page);
     expect(
       filtered.map((card) => card.handle),
       'the product the category was taken from is in it',
-    ).toContain(target!.handle);
+    ).toContain(target.handle);
     expect(
       filtered.filter((card) => !family.includes(card.category)).map((card) => card.handle),
-      `everything listed under "${target!.category}" belongs to it`,
+      `everything listed under "${target.category}" belongs to it`,
     ).toEqual([]);
 
-    // And the filter removed what does not belong. There has to *be* something that does not
-    // belong: if every listed product sits inside the chosen category, "everything shown is a
-    // member" holds for a filter that does nothing at all.
-    const strangers = all.filter((card) => !family.includes(card.category));
-    expect(
-      strangers.length,
-      `observing a filter needs a listed product outside "${target!.category}" — seed the store`,
-    ).toBeGreaterThan(0);
+    // And the filter removed what does not belong.
     for (const stranger of strangers) {
       expect(filtered.map((card) => card.handle)).not.toContain(stranger.handle);
     }

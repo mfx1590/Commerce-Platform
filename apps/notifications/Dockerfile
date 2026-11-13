@@ -13,7 +13,7 @@
 # infra/docker/health-server.mjs instead. Adding a `start` script is the only change needed
 # to switch this image over to the notification worker — the Dockerfile stays as is.
 
-ARG NODE_VERSION=20.19-alpine
+ARG NODE_VERSION=22.23-alpine
 ARG PNPM_VERSION=10.34.5
 
 # ---------- deps: the workspace install, cached on the manifests alone ----------

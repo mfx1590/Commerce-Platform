@@ -410,6 +410,142 @@ branch), dropping versions from the manifest (`--check`'s drift report needs the
 `bump-starter-dep.mjs` as the primary path — **a script of mine cannot make a starter edit legal**;
 bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
+## In progress — the batched A–D re-sync for #846 + #806 (2026-11-13)
+
+**PR #849**, branch `brands/phase6-resync-846-806` from main `78c69dd9` (code commit `aae544a0`;
+head = this memory commit). The batch the manager queued behind #847: window 3's **#846** (blank
+Store API strings, starter 0.16.5) and **#806** (`@types/node ^22`). #847 MERGED (`4676ea8e`),
+#806 MERGED (`9aaab6bc`), #846 MERGED (`18f7ff41`).
+
+- Four brands, identical counts: **254 copied, 1 merged, 10 preserved, 4 excluded**; starter 0.16.4
+  → 0.16.5; `sync --check` current ×4; **no preserved file drifted**.
+- Suites: A **1006**, B **906**, C **815**, D **803** — each **+23**, all from the two synced test
+  files (`display-text` 10, `blank-strings-render` 13).
+- **#806 was already in the brands' `package.json`**, so the merged `package.json` came out
+  byte-unchanged in all four and the only thing this re-sync moved for it is
+  `scripts/starter-manifest.json`, which still recorded `^20.19.0`. I checked that rather than
+  writing "took the bump".
+
+### I ran the manager's blob compare myself this time
+
+Last time the manager's verification (A/B/C 13 of 15 byte-identical, D 10 of 12) was a better check
+than anything I ran. So this PR states it from my side and says how it was measured: per brand
+**19 of 20 changed files are byte-identical to a starter file** — the 18 synced ones against their
+`apps/storefront-starter` counterparts, plus `scripts/starter-manifest.json` against the starter's
+own `package.json`, which is what the manifest is. The 20th is the brand's own `CHANGELOG.md`.
+`git hash-object` on both sides, not a diff read by eye. Same four numbers in every brand, which is
+itself the signal: a brand that drifted would not land on 19.
+
+### The brand D fixture the manager asked for already existed
+
+Asked: *if a brand D unit fixture can cheaply assert blank subtitle → no empty paragraph, add it.*
+It is already there and **synced**, not brand-owned: window 3 wrote
+`test/blank-strings-render.test.ts` **as the brand D sweep** — locale mocked to `ja-JP`, money in
+`JPY`, the product titled `リネンのタオル`, first assertion a wizard-shaped product rendering with no
+empty `<p>` and no `id="description"`. Adding a brand D copy would have duplicated it, so I added
+nothing and said so rather than producing a test to look busy.
+
+The one real gap, left for the manager: nothing binds brand D's own `perf/store.example.json`
+(`default_country: 'JP'`) to the new checkout pre-fill — the four `checkoutCountry` cases use
+literals. Cheap to add, but it guards a fixture rather than the app, so it is not mine to decide.
+
+### Process
+
+**The PR number cannot exist before the PR does.** The manager asked for Memory-10 with the number
+in the same push; what is actually possible is one *reported* head that already contains it — push
+the branch, open the PR, commit the memory, push, and only then report. The manager never sees a
+head without the memory in it, which is the point of the rule. I also did not guess the number:
+the last one was 847 and this PR came out **849**, not 848.
+
+## In progress — the A–D re-sync for #838 + #840 (2026-11-13)
+
+**PR #847** (code commit `adae3ad0`; head = this memory commit), branch
+`brands/phase6-resync-838-840` from main `79914780`. Verified by the manager with a blob compare against the starter: A/B/C 13 of 15 changed files byte-identical, D 10 of 12, the rest being each brand's CHANGELOG and `starter-manifest.json`. **Node 22 (v22.23.5) is on the laptop
+now**; `pnpm install --frozen-lockfile` was clean, no native rebuild drama. #843 MERGED
+(`112758c1`, #829 closed), #840 MERGED (`79914780`), #838 before it.
+
+- Four brands, identical counts: **251 copied, 1 merged, 10 preserved, 4 excluded**; starter 0.16.1
+  → 0.16.4; `sync --check` current ×4; **no preserved file drifted** and **no dependency moved**.
+- **`@types/node` deliberately NOT taken** — still `^20.19.0`. The Node-types move is #806's and
+  gets its own small re-sync; the starter has not moved it yet either, so there was nothing to hold
+  back, which I checked rather than assumed.
+- Suites: A **983**, B **883**, C **792**, D **780** (each ~+30, all from the synced tests).
+**Next re-syncs, to be batched by the manager:** window 3's **#846** (blank Store API
+strings, in review) and **#806** (`@types/node ^22`). No action until he says.
+
+- The two changes are both brand D's findings coming home: **#838** is the meta-description chain
+  that stopped at an empty `subtitle` (`??` falls past `null`, not past `''`, and
+  `product.description` was never read) — my REQUEST #837; **#840** is the fail-fast precondition
+  half of **#830**, which is what turns a 180-second `locator.check` timeout into a named cause.
+
+## In progress — #829, the generator writes a brand's three documents (2026-11-13)
+
+**PR #843**, branch `brands/phase6-829-generated-docs` from main `ec55cb3e`. Code commit
+`f2851827` plus the review fix on top. Around it: #841 MERGED (`2f530d59`), #834 closed, #838
+MERGED (`0fc7476c`); #840 still pending, and the A–D re-sync waits for it.
+
+### The review caught a claim I made without testing it
+
+I wrote that a generated README "carries the markers, and a test asserts it". Markers alone are
+**not enough**: `bundle-budget.mjs` in check mode compares the ROWS between them with the real
+build's table (`checkReadme` — route + budget per row, never the size), so an **empty** block fails
+with _"lists different routes or budgets"_ and the new brand's first perf leg is red anyway. I had
+half-fixed the thing I was fixing, and the PR body said otherwise.
+
+**The fix, and why copying is right rather than a shortcut:** the generator copies the TEMPLATE
+brand's block verbatim. A new brand's routes are the starter's, which it has just synced, and its
+budgets are `bundle-budget.json`, copied byte for byte — so the template's route+budget pairs
+already _are_ the new brand's. Only the sizes are stale, and the check never looks at those.
+Verified on a generated throwaway: 19 rows, route+budget pairs identical to the template's. The
+fallback is named rather than hidden — with no block to copy, the run says so and `manualSteps`
+carries the build + `--sync-readme` step.
+
+**Same shape, second lesson:** "prettier-clean" had been proved once, by hand, on a throwaway
+brand. That proves nothing about the next change to these templates, so all three documents are now
+formatted with the repo's own prettier config inside a test and compared.
+
+### A process note worth keeping
+
+Patching this file through heredoc Python cost three failed attempts to escaping — backticks and em
+dashes crossing bash → Python → JS template literals — and one blind fix-up replaced **41**
+pre-existing escape sequences across the file and broke the module outright. Nothing reached a
+commit: the module stopped parsing, I restored from HEAD and rebuilt by **splicing JS snippets
+written with the Write tool and using Edit on text read from the file**. For a file this size,
+Edit-on-read-text is the only sane route; a blind `replace` over escapes is not.
+## In progress — #834, brand D's JPY money test (2026-11-13)
+
+**PR #841** (code commit `49f67c63`; head = this memory commit), branch `brands/phase6-834-jpy-money`
+from main `ec55cb3e`. **MERGED as `2f530d59`.** Brand D only, nine tests, no production code.
+
+**Mutation-proved, not asserted** — the three regressions applied to the built formatter, suite
+re-run each time: digits hard-coded to **2** CAUGHT, `amount_minor / 100` CAUGHT,
+`amount_minor * 100` CAUGHT. `packages/ui/dist/components/price.js` is generated output and was
+restored **byte-for-byte**, the harness comparing and reporting it; nothing outside
+`apps/storefronts/brand-d` was ever dirty. **The technique is reusable: mutate `dist`, never another
+window's source, and make the harness prove the restore.**
+
+The assertion that does the real work is the cheap one: for JPY the rendering must have **no
+fractional part at all**. The `19.80` / `198,000` string checks catch the two obvious directions; a
+stray `toFixed(2)` leaves the magnitude right and only the no-fraction assertion sees it.
+
+It also carries the D8 order's own figures — 1980 + 990 + 198 = 3168, tax **added** not included,
+shipping untaxed — so breaking that arithmetic breaks a test that names order `848ec7e3`.
+
+### Brand D run — closed
+
+#821 merged as **`ec55cb3e`**; brand D is on main. #826, #827 and #828 closed on my generator
+fixes. The manager read order `848ec7e3` in the dev database himself: JPY 1980 / 990 / 198 / 3168,
+confirmed — and its **outbox events are unpublished with no accounting row**, so the ledger hop is
+**#835** and not mine. Filed from the run's tail: **#837** (REQUEST to window 3 — the PDP meta
+description falls past `null` but not past an empty subtitle, and never uses `product.description`;
+6 seo-head failures on brand D, hidden in A/B/C by seeded subtitles) and **#830**'s sixth
+precondition (product images).
+
+**Queued, in order:** #829 (the generator emits README with the bundle-budget block, CHANGELOG and
+CLAUDE.md) on its own branch from main, started now — **not** waiting for #841 to merge. Then the
+A–D re-sync, which waits for BOTH #838 (PDP meta description) and #840 (fail-fast specs) so it
+happens once; the manager says when.
+
 ## In progress — brand D, the D8 onboarding proving run (2026-11-12)
 
 **No PR of my own.** My branch `brands/phase6-brand-d` (code commit `036dd733`, from `origin/main`

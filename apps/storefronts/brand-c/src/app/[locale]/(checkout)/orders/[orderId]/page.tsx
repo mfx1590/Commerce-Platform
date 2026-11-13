@@ -9,6 +9,7 @@ import { OrderConfirmationHeader } from '@/components/order-confirmation-header'
 import { AddressCard, TotalsTable } from '@/components/order-summary';
 import { isSignedIn } from '@/lib/auth/session';
 import { isNotFound, storeApi } from '@/lib/store-api';
+import { firstText } from '@/lib/text';
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getTranslations('checkout.confirmation'))('title') };
@@ -88,7 +89,8 @@ export default async function OrderConfirmationPage({
         <div className="flex flex-col gap-1 text-sm">
           <h3 className="font-medium">{t('delivery')}</h3>
           <p className="text-muted-foreground">
-            {order.shipping_method.name} · {order.shipping_method.carrier}
+            {firstText(order.shipping_method.name) ?? '—'} ·{' '}
+            {firstText(order.shipping_method.carrier) ?? '—'}
           </p>
         </div>
       </div>

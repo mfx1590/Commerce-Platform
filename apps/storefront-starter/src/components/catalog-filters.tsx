@@ -8,6 +8,7 @@ import {
   type ListParams,
   type Sort,
 } from '@/lib/catalog';
+import { categoryName } from '@/lib/text';
 
 /**
  * Filters are links and a GET form — no client component, no JavaScript needed, and every filtered
@@ -118,7 +119,7 @@ function CategoryLink({
       data-category={category.handle}
       className={cn('hover:underline', active && 'font-medium underline')}
     >
-      {category.name}
+      {categoryName(category)}
     </Link>
   );
 }

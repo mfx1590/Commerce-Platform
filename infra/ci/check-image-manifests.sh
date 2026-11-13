@@ -98,13 +98,36 @@ for dockerfile in apps/*/Dockerfile apps/storefronts/*/Dockerfile; do
   fi
 done
 
+# One Node base everywhere (#806 review): infra/docker/docker-compose.build.yml passes NODE_VERSION as a build
+# arg, which OVERRIDES each Dockerfile's `ARG NODE_VERSION=` default for every CI and staging build. A Dependabot
+# base-image bump edits the Dockerfiles only, so without this check the images would silently keep the old base.
+compose_node="$(sed -nE 's/^[[:space:]]+NODE_VERSION:[[:space:]]*([^[:space:]#]+).*/\1/p' infra/docker/docker-compose.build.yml | head -1)"
+node_fail=0
+for dockerfile in apps/*/Dockerfile apps/storefronts/*/Dockerfile; do
+  file_node="$(sed -nE 's/^ARG NODE_VERSION=([^[:space:]]+).*/\1/p' "$dockerfile" | head -1)"
+  if [ -z "$compose_node" ] || [ "$file_node" != "$compose_node" ]; then
+    fail=1
+    node_fail=1
+    echo "FAIL $dockerfile"
+    echo "  NODE_VERSION: Dockerfile default '${file_node:-none}', docker-compose.build.yml arg '${compose_node:-none}'"
+  fi
+done
+
 if [ "$fail" -ne 0 ]; then
   cat >&2 <<'EOF'
 
-== image manifest lists are out of date, or an image does not set TZ=UTC.
-Add or remove the COPY lines in the `deps` stage of the Dockerfiles named above, so that every
+== image manifest lists are out of date, an image does not set TZ=UTC, or the Node base disagrees.
+Manifests: add or remove the COPY lines in the `deps` stage of the Dockerfiles named above, so that every
 workspace package.json is copied before `pnpm install`. Keep them sorted.
 EOF
+  if [ "$node_fail" -ne 0 ]; then
+    cat >&2 <<'EOF'
+Node base: every Dockerfile's `ARG NODE_VERSION=` and the `NODE_VERSION` build arg in
+infra/docker/docker-compose.build.yml must name the same tag; the compose arg wins in every CI and staging
+build. A Dependabot base-image PR (the `docker` group) edits the Dockerfiles only: edit the compose arg by
+hand in that same PR, to the tag the Dockerfiles now name.
+EOF
+  fi
   exit 1
 fi
 echo "== every app Dockerfile copies all ${#expected[@]} workspace manifests"

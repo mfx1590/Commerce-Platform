@@ -2,6 +2,7 @@ import { ImageResponse } from 'next/og';
 import { brandConfig } from '@/brand/config';
 import { getProduct } from '@/lib/catalog';
 import { isNotFound } from '@/lib/store-api';
+import { firstText, productName } from '@/lib/text';
 
 /**
  * The share card for a product.
@@ -52,7 +53,7 @@ export default async function OpengraphImage({
 async function productTitle(handle: string): Promise<string> {
   try {
     const product = await getProduct(handle);
-    return product.seo?.title ?? product.title;
+    return firstText(product.seo?.title) ?? productName(product);
   } catch (error) {
     if (!isNotFound(error)) {
       console.warn('[storefront] og image: product could not be read:', error);

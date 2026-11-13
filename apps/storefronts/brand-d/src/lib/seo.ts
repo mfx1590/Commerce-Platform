@@ -2,6 +2,19 @@ import { minorUnitDigits } from '@platform/ui';
 import { brandConfig, siteUrl } from '@/brand/config';
 import { locales } from '@/i18n/routing';
 import type { Product, Variant } from './store-api';
+import { firstBlock, firstText, productName } from './text';
+
+// The text helpers moved to `./text` (no imports, so client components can use them); re-exported
+// here so existing callers keep working.
+export {
+  categoryName,
+  firstBlock,
+  firstText,
+  imageAlt,
+  productName,
+  STORE_NAME_FALLBACK,
+  storeDisplayName,
+} from './text';
 
 /**
  * SEO as pure functions.
@@ -102,6 +115,46 @@ export interface ProductJsonLd {
   [key: string]: unknown;
 }
 
+/** The usual SEO guidance for a meta description: search results show ~155–160 characters. */
+export const META_DESCRIPTION_MAX = 160;
+
+/**
+ * `firstText`, cut to `META_DESCRIPTION_MAX` for a `<meta name="description">`: at a word boundary
+ * when there is one in the last stretch, with an ellipsis. `undefined` means "emit no description",
+ * which is right for something that genuinely has none, never an empty one.
+ *
+ * Lengths are UTF-16 code units. Text without spaces (Japanese, Chinese) is always hard-cut, so
+ * the cut backs off one unit rather than end on a high surrogate: splitting a pair (an emoji, a
+ * non-BMP kanji such as 𠮷) would put a lone surrogate into the tag (#838 review).
+ */
+export function metaDescription(...candidates: (string | null | undefined)[]): string | undefined {
+  const text = firstText(...candidates);
+  if (text === undefined || text.length <= META_DESCRIPTION_MAX) return text;
+  let end = META_DESCRIPTION_MAX - 1;
+  const last = text.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+  const cut = text.slice(0, end);
+  const space = cut.lastIndexOf(' ');
+  return `${(space > META_DESCRIPTION_MAX * 0.6 ? cut.slice(0, space) : cut).trimEnd()}…`;
+}
+
+type DescribedProduct = Pick<Product, 'subtitle' | 'description'> & {
+  seo?: { description?: string | null } | null;
+};
+
+/**
+ * A product's description, in order: SEO description, subtitle, description (#837). Full text with
+ * its paragraphs, for JSON-LD; the meta tag uses `productMetaDescription`.
+ */
+export function productDescriptionText(product: DescribedProduct): string | undefined {
+  return firstBlock(product.seo?.description, product.subtitle, product.description);
+}
+
+/** The same choice, sized for the PDP's meta description and Open Graph description. */
+export function productMetaDescription(product: DescribedProduct): string | undefined {
+  return metaDescription(product.seo?.description, product.subtitle, product.description);
+}
+
 /**
  * `Product` JSON-LD with one `Offer` per variant.
  *
@@ -133,21 +186,23 @@ export function productJsonLd(
   }));
 
   const gtin = stringAttribute(product.attributes, 'gtin');
-  const description = product.seo?.description ?? product.subtitle ?? product.description;
+  // Structured data carries the full text: no truncation (#837).
+  const description = productDescriptionText(product);
+  const brandName = firstText(product.brand_name);
+  const categoryText = firstText(product.category?.name);
 
   return {
     '@context': 'https://schema.org',
     '@type': 'Product',
-    name: product.title,
+    name: productName(product),
     url,
     inLanguage: locale,
-    ...(description === null || description === undefined ? {} : { description }),
+    ...(description === undefined ? {} : { description }),
     ...(images.length === 0 ? {} : { image: images }),
-    ...(product.brand_name === null
-      ? {}
-      : { brand: { '@type': 'Brand', name: product.brand_name } }),
+    ...(brandName === undefined ? {} : { brand: { '@type': 'Brand', name: brandName } }),
     ...(gtin === undefined ? {} : { gtin }),
-    ...(product.category === null ? {} : { category: product.category.name }),
+    // Optional in schema.org: a blank name omits it (a handle is not a category name, #846 review).
+    ...(categoryText === undefined ? {} : { category: categoryText }),
     ...(offers.length === 0 ? {} : { offers }),
   };
 }

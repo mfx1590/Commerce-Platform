@@ -4,6 +4,27 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 6
 
+### Changed (the Node 22 move, step 0: the runtime only)
+
+- Node 22 everywhere, with no dependency bumps: root engines `>=22.12 <23`, `.nvmrc` 22, `NODE_VERSION: 22` in
+  ci.yml, load.yml and (new, with a setup-node step) deploy-staging.yml. All 11 Dockerfiles and the build compose's
+  `NODE_VERSION` arg are on `22.23-alpine`, and `@types/node` is `^22.20.5` in all 20 source package.json files
+  (`apps/core/.medusa/server` is build output). The lockfile's resolved set changes by that one package.
+- `infra/docker/smoke-images.sh`: every image must run `.nvmrc`'s Node major. Each storefront is booted with a
+  repo JPEG under `public/__smoke/` and must answer one `/_next/image` as `image/webp`: Next loads sharp lazily,
+  so a sharp that cannot load on the base image only shows at the first optimised image. The storefront gets a
+  loopback `KEYCLOAK_URL` placeholder, since production refuses to boot without one (#806 review).
+- `infra/ci/check-image-manifests.sh`: every Dockerfile's `ARG NODE_VERSION=` default must equal the build
+  compose's `NODE_VERSION` arg, which overrides it in every CI and staging build. A Dependabot base-image bump
+  edits only the Dockerfiles, so without this check the images would silently keep the old base.
+- Turbo never replays a result from another runtime: `.nvmrc` joins turbo.json's `globalDependencies`, and CI's turbo
+  cache keys carry `node${NODE_VERSION}`. The guard's failure footer names the Node-base mismatch and the hand edit a
+  Dependabot base-image PR needs; infra/README says the same.
+- `.github/dependabot.yml`: `@types/node` is ignored from 23 (`versions: ['>=23']`), not by major. The rest of
+  the old "UNTIL THE NODE 22 MOVE" block is now the follow-ups, lifted by their owning windows (Medusa 2.22,
+  axe 4.14 + jest-dom 7, Sanity 6). The OTLP exporters stay until Medusa takes the SDK 3 line. `apps/engagement`
+  joins the docker directories, and the `node` base-image major ignore stays.
+
 ### Added (wave 3, brand D: its image, #439 pattern)
 
 - `apps/storefronts/brand-d/Dockerfile`: brand C's, for `@platform/storefront-brand-d` on PORT 3104.

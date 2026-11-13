@@ -1,5 +1,47 @@
 # Changelog — @platform/storefront-brand-c
 
+## Unreleased — 2026-11-13 · re-synced for #846 and #806
+
+- **Re-synced from `apps/storefront-starter`** at main `78c69dd9` (starter 0.16.4 → 0.16.5):
+  254 copied, 1 merged, 10 preserved, 4 excluded. `sync --check` reports the manifest current and
+  no preserved file drifted.
+- **#846 — a blank Store API string no longer renders an empty tag.** No Store API string has a
+  `minLength` and the onboarding wizard leaves several empty, so a `??` fallback stopped at `""`.
+  The new `src/lib/text.ts` is the one place that decides: product title → handle, category name →
+  handle, store name → `Storefront`, image alt → product name, blank `seo.title` → product name,
+  and a blank subtitle, brand or description renders **no element at all** rather than an empty
+  `<p>` or a "Description" heading over nothing. `firstText` folds ASCII whitespace only, so an
+  ideographic space (U+3000) in Japanese text survives; `firstBlock` keeps JSON-LD paragraphs.
+- **#846 — the checkout country is pre-filled from the store, never hard-coded.** `checkoutCountry`
+  takes the store's `default_country`, else the cart's own `country`, else nothing, so the customer
+  chooses. `NL` remains only for a store that could not be read. This is the one of these fixes
+  that costs money rather than looks wrong: a blank `default_country` used to pre-fill `NL`, and a
+  Japanese customer saving an NL address silently gets the wrong shipping options and the wrong tax.
+- **#806 — `@types/node` is on `^22.20.5`** and the repo requires Node `>=22.12 <23`. This re-sync
+  did not move it: #806 had already updated each brand's `package.json`, so the merged
+  `package.json` came out unchanged and what this commit refreshes is
+  `scripts/starter-manifest.json`, which still recorded `^20.19.0`.
+- Unit suite: **792 → 815**, all from the synced tests: `test/display-text.test.ts` (10)
+  and `test/blank-strings-render.test.ts` (13).
+
+## Unreleased — 2026-11-13 · re-synced for #838 and #840
+
+- **Re-synced from `apps/storefront-starter`** at main `79914780` (starter 0.16.1 → 0.16.4):
+  251 copied, 1 merged, 10 preserved, 4 excluded. `sync --check` reports the manifest current, no
+  preserved file drifted, and **no dependency moved** — `@types/node` stays on `^20.19.0`, because
+  the Node-types bump arrives with #806 and gets its own re-sync.
+- **#838 — the PDP, category and JSON-LD meta description now fall back properly.** This is the
+  defect brand D found against a real core: the chain stopped at an empty `subtitle`, because `??`
+  falls past `null` and `undefined` but not past `''`, and `product.description` was never
+  considered at all. Six `seo-head` cases failed on a product that had a description all along.
+  Brands A, B and C never saw it because every seeded product has a non-empty subtitle.
+- **#840 — a spec that needs something from the store now fails fast and says which thing.** The
+  new `e2e/support/preconditions.ts` and its tests arrive in all four brands. That is the second
+  half of #830: the brand D run spent **180 seconds** per test watching `locator.check` time out on
+  a radio that would never render, because the store had no payment method — a silent timeout that
+  reads like a frontend bug. It now names the precondition instead.
+- Unit suite: **763 → 792**, all from the synced tests.
+
 ## Unreleased — 2026-11-11 · the mocked world agrees with itself, and the money is guarded by a test
 
 - **`scripts/e2e-store-mock.mjs` now prices the catalogue in this brand's own currency.** Every

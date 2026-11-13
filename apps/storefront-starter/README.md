@@ -85,6 +85,28 @@ first twelve can be bought it fails with **`Seed stock exhausted — reseed`** a
 it tried, rather than with a timeout on a disabled button. The remedy is the one the message
 names: reseed the store. On the shared development stack that is the manager's call, not a window's.
 
+**Store preconditions fail fast, by name (#830).** A spec that needs something from the store
+asserts it **before it interacts**, through `e2e/support/preconditions.ts`, and fails at once with
+`Store precondition not met: <what is missing>. This is the store's data or settings, not an app
+failure`. Search a run's log for `Store precondition not met` to tell a thin or misconfigured store
+from a frontend bug. The ones checked:
+
+- **a payment method:** the payment step's radios are read before one is chosen, instead of a 180 s
+  timeout on a radio that never renders. When the wanted one is missing, the test reads `GET /store`
+  itself (same backend and key rule as the app). Only a `payment.methods` without the method (or,
+  for card, no Stripe test key in the run) is a precondition. When the store lists the method, or
+  `GET /store` cannot be read, the failure is an **app failure**. The page alone cannot tell them
+  apart: the app shows "no invoice" when its own `GET /store` fails, too;
+- **purchasable stock:** the `Seed stock exhausted — reseed` failure above;
+- **listing and filters:** at least two listed products, one with a category, and one outside that
+  category (asserted before the first click, after the "All products" heading has rendered, so an
+  error page is not mistaken for an empty store), and two different prices (asserted on the sorted
+  lists, so a paged default order cannot change what passes);
+- **a product image:** the local-images spec, after the product page answered 200 and rendered.
+
+A message never blames the store for something the store did not say. Nothing a seeded brand passed
+changes: the conditions are the ones the specs already depended on.
+
 **What each backend proves.** The mock is stateless and answers with the contract's examples, so
 against it the suite proves the pages render what the API returned, consistently — not that
 anything was really placed, sorted or filtered:
@@ -609,13 +631,24 @@ Metadata, structured data and a sitemap, all built from the Store API and the br
 | `/sitemap.xml` (index) + `/sitemap/<n>.xml`           | `src/app/sitemap.xml/route.ts`, `src/app/sitemap.ts`  | Paged at 5 000 **URLs**                                     |
 | `/robots.txt`                                         | `src/app/robots.ts`                                   | Per request; `Disallow: /` unless `ROBOTS_ALLOW_INDEXING=1` |
 
-**Descriptions (#837).** Every description is chosen by `firstText` / `metaDescription` in `src/lib/seo.ts`: the first candidate with real text, each step **skipped when missing or empty after trimming**, whitespace collapsed.
+**Descriptions (#837).** Every description is chosen by `firstText` (`src/lib/text.ts`) / `metaDescription` (`src/lib/seo.ts`): the first candidate with real text, each step **skipped when missing or empty after trimming**, ASCII whitespace collapsed. Ideographic (U+3000) and no-break spaces are kept: Japanese text and French typography use them on purpose.
 
 - **PDP:** `seo.description`, then the subtitle, then `product.description` (`productMetaDescription`).
-- **Sizing:** the meta and Open Graph descriptions are cut to 160 characters at a word boundary, with an ellipsis. The product JSON-LD carries the same choice in full.
+- **Sizing:** the meta and Open Graph descriptions are cut to 160 characters at a word boundary, with an ellipsis. The product JSON-LD carries the same choice in full, paragraphs kept (`firstBlock`).
 - **Category and root layout:** the category name and the brand's configured description go through the same helper.
 - **When nothing has text, no description key is emitted, never an empty one.**
 - **Why:** a `??` chain falls past `null` only, so a product from the onboarding wizard (`subtitle: ""`, `seo: {}`) rendered an empty description and ignored its real one. The seeded brands never showed it, because the seed gives every product a subtitle.
+
+**Blank names (brand D sweep).** No Store API string has a `minLength`, and the onboarding wizard leaves several empty. A `??` fallback stops at `""`, so every rendered name goes through `src/lib/text.ts` (no imports, safe in client components):
+
+- `productName`: a blank title falls back to the handle. Used by the PDP heading, breadcrumb, product card, JSON-LD and share card.
+- `categoryName`: a blank name falls back to the handle. Used by the category title, filter links and breadcrumb.
+- `storeDisplayName`: falls back to `Storefront`. Used by the logo, copyright and home heading.
+- `imageAlt`: a blank alt falls back to the product's name.
+- A blank `seo.title` falls through to the product name (page title and share card). A blank subtitle, brand or description renders no element at all.
+- A blank shipping name or carrier shows `—` (review, order) or the option code (shipping radio). A blank `default_locale` uses the built-in default.
+- **Checkout country** (`checkoutCountry` in `src/lib/checkout-page.ts`): the store's `default_country`, else the cart's `country`, else empty, so the customer must choose. Never a hard-coded country for a store that answered: a wrong pre-filled country changes shipping options and tax. `NL` only when `GET /store` failed.
+- JSON-LD omits `category` when the category name is blank (a handle is not a category name).
 
 **Canonicals.** The API returns `seo.canonical` as a locale-less _path_ (`/products/classic-tee`),
 because it does not know which locale is rendering. Used verbatim that points at a URL which only

@@ -1,5 +1,17 @@
 import { expect, type Locator, type Page } from '@playwright/test';
+import { stripePublishableKey } from '../../src/lib/payment-options';
+import { storeApiConfigFromEnv } from '../../src/lib/store-api/config';
 import { localePath } from './locale';
+import {
+  classifyPayment,
+  offersMethod,
+  PAYMENT_LABEL,
+  type PaymentChoice,
+  paymentError,
+  preconditionError,
+  type StoreRead,
+  storePrecondition,
+} from './preconditions';
 import { shippingAddressFromEnv } from './ship-address';
 
 /** Read once: a value that cannot be used fails the run at the start, naming why. */
@@ -16,6 +28,44 @@ const SHIP_ADDRESS = shippingAddressFromEnv();
 
 export const AGAINST_CORE = process.env.E2E_STORE_API_URL !== undefined;
 export const BACKEND = AGAINST_CORE ? 'the core' : 'the Prism mock';
+
+/**
+ * `GET /store` as the app under test reads it: the same backend (the core for a core run, else the
+ * mock, as `playwright.config.ts` and `scripts/e2e-env.mjs` decide) and the same publishable key
+ * rule (`storeApiConfigFromEnv`). Read by the test only when the payment step lacks a method, to
+ * tell a store precondition from an app failure (#840 review). A key the test cannot see (set only
+ * in a brand's webServer env) reads as a failure, which is reported as one, never as the store's.
+ */
+async function readStoreForPayment(page: Page): Promise<StoreRead> {
+  const core = process.env.E2E_STORE_API_URL;
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    STORE_API_URL: core === undefined || core === '' ? undefined : core,
+    MOCK_API_URL: process.env.MOCK_API_URL ?? 'http://localhost:4010',
+  };
+  const { baseUrl, publishableKey } = storeApiConfigFromEnv(env);
+  try {
+    const response = await page.request.get(`${baseUrl.replace(/\/$/, '')}/store`, {
+      headers: { 'X-Publishable-Key': publishableKey },
+      timeout: 10_000,
+    });
+    if (!response.ok()) return { ok: false, detail: `HTTP ${response.status()} from ${baseUrl}` };
+    const store = (await response.json()) as {
+      code?: string;
+      payment?: { methods?: string[] };
+    };
+    return {
+      ok: true,
+      methods: store.payment?.methods ?? null,
+      stripeKeyForRun: stripePublishableKey(store.code ?? null) !== null,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      detail: `${baseUrl}: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
 
 export const CHECKOUT_STEP = /\/checkout\/(address|shipping|payment|review)$/;
 
@@ -76,7 +126,7 @@ export async function completeAddressStep(page: Page, email: string): Promise<vo
 export async function advanceToReview(
   page: Page,
   email: string,
-  method: 'invoice' | 'card' = 'invoice',
+  method: PaymentChoice = 'invoice',
 ): Promise<string[]> {
   const visited: string[] = [];
 
@@ -94,14 +144,31 @@ export async function advanceToReview(
         // The first option is preselected, so submitting is a real choice, not a no-op.
         await page.getByRole('button', { name: 'Continue to payment' }).click();
         break;
-      case 'payment':
+      case 'payment': {
+        // Checked before touching the step (#830). The radios are server-rendered, so once
+        // `settleOn` is through, the set on screen is the whole set: a store with
+        // `payment.methods: []` otherwise cost a silent 180 s on `check()`. Only when the method is
+        // missing does the test read GET /store itself, to say whether that is the store's doing or
+        // the app's: the page shows "no invoice" for a failed GET /store too (#840 review).
+        const offered = await page
+          .locator('input[type="radio"][name="provider"]')
+          .evaluateAll((inputs) =>
+            inputs.map(
+              (input) =>
+                input.closest('label')?.querySelector('.font-medium')?.textContent?.trim() ??
+                (input as HTMLInputElement).value,
+            ),
+          );
+        if (!offersMethod(method, offered)) {
+          const verdict = classifyPayment(method, offered, await readStoreForPayment(page));
+          if (verdict.kind !== 'offered') throw paymentError(verdict);
+        }
         // Explicitly, not the preselected first method: with a Stripe key the first is Card, and the
         // card journey is its own spec (#358).
-        await page
-          .getByRole('radio', { name: method === 'card' ? /^Card/ : /Pay on invoice/ })
-          .check();
+        await page.getByRole('radio', { name: PAYMENT_LABEL[method] }).check();
         await page.getByRole('button', { name: 'Continue to review' }).click();
         break;
+      }
       default:
         throw new Error(`Unexpected checkout step: ${page.url()}`);
     }
@@ -258,7 +325,10 @@ export async function openPurchasableProduct(page: Page): Promise<{ handle: stri
     0,
     PURCHASABLE_SEARCH_LIMIT,
   );
-  expect(handles.length, `the listing on ${BACKEND} shows at least one product`).toBeGreaterThan(0);
+  storePrecondition(
+    handles.length > 0,
+    `buying needs at least one listed product; the listing on ${BACKEND} shows none`,
+  );
 
   const rejected: string[] = [];
   for (const handle of handles) {
@@ -274,10 +344,10 @@ export async function openPurchasableProduct(page: Page): Promise<{ handle: stri
     rejected.push(`${handle} (${(await form.getAttribute('data-availability')) ?? 'unknown'})`);
   }
 
-  throw new Error(
+  throw preconditionError(
     `Seed stock exhausted — reseed. None of the first ${handles.length} listed product(s) on ` +
       `${BACKEND} can be bought: ${rejected.join(', ')}. A run against the core places one real ` +
       'order and nothing cancels it, so the seed stock is a finite budget ' +
-      '(README, "Running against the core").',
+      '(README, "Running against the core")',
   );
 }
