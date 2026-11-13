@@ -122,6 +122,37 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
+- **#806 status:**
+  - Commits: 9e4883f9 (the runtime), then a15d0887 (Opus BLOCK fix: storefront smoke KEYCLOAK_URL placeholder + the
+    Node-base guard). a15d0887 had 3 green CI runs plus both k6 proofs; the manager's Opus verdict was MERGE.
+  - Then the manager's pre-merge items, which reset the three runs: turbo `globalDependencies` += `.nvmrc`; the turbo
+    cache keys carry `node${NODE_VERSION}`; the guard's footer names the Node base and the Dependabot hand edit; the
+    infra README paragraph.
+  - The merge is held until the owner has Node 22 on the laptop.
+  - Lesson: turbo's cache did not key on the runtime. Any runtime move must also move the cache keys.
+- **Node 22 move, step 0 (2026-11-11, plan APPROVED by manager twelve): branch `integration/node22` (it may write
+  anywhere: the @types/node lines in 20 package.json files are done here; NEVER `apps/core/.medusa/server/package.json`,
+  which is build output).** It covers the runtime only:
+  - engines `>=22.12 <23`, .nvmrc 22;
+  - NODE_VERSION 22 in ci, load and deploy-staging (deploy-staging gains setup-node);
+  - the 11 Dockerfiles AND `infra/docker/docker-compose.build.yml`'s NODE_VERSION arg (it overrides the Dockerfile
+    default!) on 22.23-alpine;
+  - @types/node ^22.20.5; the lockfile's package set changes by that one package only.
+
+  smoke-images.sh now checks `node -v` = .nvmrc's major in every image, plus one `/_next/image` per storefront that
+  must return image/webp (sharp loads lazily). dependabot: @types/node `>=23`, engagement added to the docker dirs.
+  The grep found 0 `assert {type}`, 0 deprecated APIs, and navigator only as admin `navigator.clipboard`.
+
+  The laptop is on Node 20.19.1: NOTHING that needs 22 runs locally. Proof is on GitHub only:
+  - CI ×3 on one head;
+  - the image smoke;
+  - the live job;
+  - both k6 dispatch proofs.
+
+  Opus review. The manager holds the merge until the owner installs Node 22. Steps 1–4 belong to the other windows.
+- **#801 nits for my NEXT load PR:**
+  - pass `inputs.metrics_months` through env, not shell interpolation;
+  - a failure before pass 1 posts no weekly tracking comment.
 - **BRAND D (b), after #821's delta BLOCK:** CI 43239694924 on 01c008e0: images green (brand-d built + smoked),
   brand-d perf red (window 10's missing perf/store.example.json, fixed in b90ab865), and the live job red ONLY on
   brand-d's journeys (25 failed / 24 passed against CI's seed, which has no brand-d; A-C/admin/starter green), as

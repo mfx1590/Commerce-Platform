@@ -29,14 +29,17 @@ updates:
         update-types: [minor, patch]
         exclude-patterns: ['@medusajs/*']
     ignore:
-      # ==== UNTIL THE NODE 22 MOVE ====
-      # We run Node 20 everywhere: engines ">=20.11", the Dockerfiles' NODE_VERSION 20.19-alpine, CI's NODE_VERSION 20.
-      # Every entry in this block needs Node 22. It is that move's checklist: lift them in the PR that moves the
-      # runtime (engines, Dockerfiles, CI and @types/node together).
-      #
-      # @types/node: the types must describe the Node we run; 22's would type APIs Node 20 does not have.
+      # @types/node: the types must describe the Node we run (22: engines ">=22.12 <23", .nvmrc, the Dockerfiles'
+      # NODE_VERSION 22.23-alpine, CI's NODE_VERSION 22). 23+ would type APIs our runtime does not have; it moves with
+      # the next runtime move, once, everywhere.
       - dependency-name: '@types/node'
-        update-types: ['version-update:semver-major']
+        versions: ['>=23']
+      #
+      # ==== THE NODE 22 MOVE'S FOLLOW-UPS ====
+      # The runtime is on 22 since the step 0 PR (integration/node22). Each entry below is lifted by its owning window
+      # in its own PR, proven alone: core = Medusa 2.22, storefront/brands = axe 4.14 + jest-dom 7, cms = Sanity 6.
+      # The OTLP exporters stay until Medusa takes the OpenTelemetry SDK 3 line (see their comment).
+      #
       # Medusa 2.22+ (#755, 2026-11-09): @medusajs/cli 2.22.3 depends on execa 10.2.1, which declares `node >=22`.
       # `medusa build` failed with "TEXT_ENCODINGS.union is not a function" (Set.prototype.union is Node 22), and
       # `medusa db:migrate` with 'No "exports" main' in unicorn-magic (execa's npm-run-path 6). The TS2345 in
@@ -63,7 +66,7 @@ updates:
         update-types: ['version-update:semver-major']
       - dependency-name: '@sanity/vision'
         update-types: ['version-update:semver-major']
-      # ==== end of the Node 22 checklist ====
+      # ==== end of the Node 22 follow-ups ====
       #
       # Majors that no PR can take on its own. Minor and patch bumps of these still arrive in the weekly groups.
       # Medusa majors are platform migrations (apps/core), chosen and planned, not a weekly bump.
@@ -100,6 +103,7 @@ updates:
       - /apps/admin
       - /apps/analytics-ingest
       - /apps/core
+      - /apps/engagement
       - /apps/feeds
       - /apps/notifications
       - /apps/storefront-starter
