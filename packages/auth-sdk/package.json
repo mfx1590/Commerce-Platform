@@ -34,7 +34,7 @@
     "@openfga/sdk": "0.9.7",
     "@platform/contracts": "workspace:*",
     "@platform/db": "workspace:*",
-    "jose": "^6.2.15"
+    "jose": "^6.2.17"
   },
   "devDependencies": {
     "@openfga/syntax-transformer": "0.2.2",
@@ -43,6 +43,6 @@
     "tsx": "^4.23.15",
     "typescript": "^5.8.0",
     "vitest": "^3.2.0",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.1"
   }
 }
