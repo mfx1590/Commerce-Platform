@@ -68,6 +68,34 @@ describe('TrialBalancePanel', () => {
     expect(document.body.textContent).not.toMatch(/2,475|24\.75/);
   });
 
+  it('rows whose currency has no total are shown and said, never dropped (#853 review)', () => {
+    render(
+      <TrialBalancePanel
+        trialBalance={{
+          ...jpyAndEur,
+          totals: jpyAndEur.totals.filter((t) => t.currency === 'EUR'),
+        }}
+      />,
+    );
+    const jpy = screen.getByRole('region', { name: 'Trial balance JPY' });
+    expect(within(jpy).getByText('No total from the service — not checked')).toBeInTheDocument();
+    expect(within(jpy).getAllByRole('row')).toHaveLength(3); // header + the two JPY accounts
+    expect(within(jpy).queryByText('Balanced')).toBeNull();
+  });
+
+  it('a zero difference with debits ≠ credits is not balanced', () => {
+    render(
+      <TrialBalancePanel
+        trialBalance={{
+          ...jpyAndEur,
+          totals: [{ currency: 'JPY', debit_minor: 1980, credit_minor: 1000, difference_minor: 0 }],
+          rows: jpyAndEur.rows.filter((r) => r.currency === 'JPY'),
+        }}
+      />,
+    );
+    expect(screen.getByText('Unbalanced: debits and credits differ')).toBeInTheDocument();
+  });
+
   it('a period with no lines says so and never claims balanced books', () => {
     render(
       <TrialBalancePanel

@@ -1,9 +1,9 @@
 import Link from 'next/link';
 import { HqSectionGuard } from '@/components/shell/section-guard';
-import { ApiStatePanel } from '@/components/states/state-panel';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { getTrialBalance, listJournalLines, listLegalEntityBooks } from '@/lib/api/accounting';
 import { FINANCE_TABS, financeHref, readFinanceView } from '@/lib/finance';
+import { AccountingStatePanel } from './accounting-state';
 import {
   EntityList,
   JournalFilters,
@@ -15,10 +15,6 @@ import {
 export const dynamic = 'force-dynamic';
 
 const TAB_TITLES = { 'trial-balance': 'Trial balance', journal: 'Journal' } as const;
-
-/** What the accounting service's failures mean here; a 403 or an ended session use the panel's own words. */
-const HINT =
-  'HQ › Finance reads the accounting service (apps/accounting). When it is down or not configured, nothing here is shown — an empty table would read as empty books.';
 
 /**
  * HQ › Finance (#851): the Accounting API's reads, `finance` on organization:hq. Legal entities with
@@ -59,7 +55,7 @@ export default async function FinancePage({
         />
         <CardBody className="space-y-5">
           {!books.ok ? (
-            <ApiStatePanel status={books.status} error={books.error} what="The books" hint={HINT} />
+            <AccountingStatePanel status={books.status} error={books.error} what="The books" />
           ) : (
             <>
               <EntityList
@@ -105,22 +101,20 @@ export default async function FinancePage({
                     (trialBalance.ok ? (
                       <TrialBalancePanel trialBalance={trialBalance.data} />
                     ) : (
-                      <ApiStatePanel
+                      <AccountingStatePanel
                         status={trialBalance.status}
                         error={trialBalance.error}
                         what="The trial balance"
-                        hint={HINT}
                       />
                     ))}
                   {journal !== null &&
                     (journal.ok ? (
                       <JournalPanel page={journal.data} view={scoped} />
                     ) : (
-                      <ApiStatePanel
+                      <AccountingStatePanel
                         status={journal.status}
                         error={journal.error}
                         what="The journal"
-                        hint={HINT}
                       />
                     ))}
                 </section>

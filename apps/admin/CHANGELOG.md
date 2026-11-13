@@ -13,8 +13,14 @@
 - `finance` on organization:hq is checked before any request (the contract's 403). `ACCOUNTING_API_URL` is new;
   production never falls back to a mock, and its absence is "not configured".
 - Money: per currency, never summed across. A JPY fixture (Brand D K.K.) renders whole yen.
-- Tests: `finance` (the gate per role, the URL, the search params, the helpers; 19) and `finance-screens`
-  (JPY/EUR trial balance, empty period, journal links and paging, entities; 7).
+- Tests: `finance` (the gate per role, the URL, the search params, the helpers; 23), `finance-screens`
+  (JPY/EUR trial balance, empty period, rows without a total, journal links and paging, entities; 9) and
+  `finance-page` (the page: placeholder gone; accounting down, not configured, 401, 403 and 5xx each named; 6).
+- #853 review (Fable):
+  - Accounting failures render `AccountingStatePanel`. `ApiStatePanel` had named the Admin API and dropped the hint.
+  - Production ignores `MOCK_ACCOUNTING_API_URL`.
+  - Rows of a currency without totals are shown and said.
+  - _Balanced_ requires debit = credit as well as a zero difference.
 
 ### Fixed — #820: no Review flash after the onboarding wizard's "Done"
 
