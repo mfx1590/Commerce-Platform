@@ -41,15 +41,19 @@ export function variantMatrix(options: readonly ProductOptionDraft[]): VariantCo
   );
 }
 
+/** A no-options product's single variant (#820): the core requires a title, and there is no value. */
+export const DEFAULT_VARIANT_TITLE = 'Default';
+
 /** "M / Red" — the conventional variant title, in the order the options were declared. */
 export function variantTitle(
   combination: VariantCombination,
   options: readonly ProductOptionDraft[],
 ): string {
-  return options
+  const title = options
     .map((option) => combination[option.name])
     .filter((value): value is string => value !== undefined)
     .join(' / ');
+  return title === '' ? DEFAULT_VARIANT_TITLE : title;
 }
 
 /**
@@ -97,7 +101,12 @@ export function missingCombinations(
   options: readonly ProductOptionDraft[],
   existing: readonly ExistingVariant[],
 ): VariantCombination[] {
-  return variantMatrix(options).filter(
+  // A product with no options has exactly one variant, the empty combination (#820). It is
+  // different from options that are named but still have no values, where the matrix is empty on
+  // purpose until every option has at least one.
+  const named = options.filter((option) => option.name.trim() !== '');
+  const matrix = named.length === 0 ? [{}] : variantMatrix(options);
+  return matrix.filter(
     (combination) => !existing.some((variant) => sameCombination(variant.options, combination)),
   );
 }

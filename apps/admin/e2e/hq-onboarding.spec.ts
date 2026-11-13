@@ -91,13 +91,11 @@ test.describe('HQ onboarding', () => {
     await expect(page.getByRole('status').filter({ hasText: /Active/ })).toBeVisible();
 
     // Read back where a store admin manages them: one active option, €4.95 (495 minor units), NL.
-    // The core caches a staff member's store scope for up to 30 s (hq-rbac scope.ts), so the store
-    // created a minute ago may not be in the owner's scope yet: reload until it is.
+    // No waiting: onboarding drops the core's cached staff scopes (#819), so the store created a
+    // minute ago is already in the owner's scope.
+    await page.goto(`/${storeId}/settings`);
     const option = page.getByRole('row', { name: 'Shipping option Standard (standard-nl)' });
-    await expect(async () => {
-      await page.goto(`/${storeId}/settings`);
-      await expect(option).toBeVisible({ timeout: 2_000 });
-    }).toPass({ timeout: 45_000, intervals: [5_000] });
+    await expect(option).toBeVisible();
     await expect(option).toContainText('€4.95');
     await expect(option).toContainText('NL');
     await expect(option).toContainText('active');

@@ -80,6 +80,8 @@ export interface CoreMiddlewareOptions {
   storeRegistrar?: StoreRegistrar;
   /** Scope-cache invalidation on role changes (`KeycloakStaffTokenVerifier.invalidate`). */
   onRoleChange?: (staffUserId: string) => void;
+  /** Scope-cache invalidation after onboarding a store (`KeycloakStaffTokenVerifier.invalidateAll`). */
+  onStoreScopeChange?: () => void;
   /** Non-production only: base URL every unhandled `/store/*` request is proxied to (Integration 1). */
   storeApiFallbackUrl?: string;
   /**
@@ -130,6 +132,8 @@ export interface StaffAuth {
   verifier: StaffTokenVerifier;
   fga: OpenFgaClient;
   onRoleChange: (staffUserId: string) => void;
+  /** A store became visible to staff (onboarding): every cached scope is dropped. */
+  onStoreScopeChange: () => void;
 }
 
 /**
@@ -158,6 +162,7 @@ export function buildStaffAuth(): StaffAuth {
     verifier: composeStaffTokenVerifier(keycloak, new DevTokenVerifier()),
     fga: keycloak.fga,
     onRoleChange: keycloak.invalidate,
+    onStoreScopeChange: keycloak.invalidateAll,
   };
 }
 
@@ -260,7 +265,12 @@ export function mountCoreMiddleware(
   );
   // Admin API routes window 1 owns (registry + catalog, admin-api.yaml): x-permission from the spec (OpenFGA
   // for real tokens), then the module services. Every other /admin path ends in createServer()'s terminal 404.
-  app.use(adminRouter({ storeRegistrar }));
+  app.use(
+    adminRouter({
+      storeRegistrar,
+      ...(opts.onStoreScopeChange ? { onStoreScopeChange: opts.onStoreScopeChange } : {}),
+    }),
+  );
   // Admin routers other modules export (src/http/module-routers.ts — the named mount point, #162 part 3).
   for (const router of opts.moduleRouters ?? []) app.use(router);
   // Renders AppError as the contract's { code, message, details } for everything above.
@@ -323,6 +333,7 @@ export async function createServer(opts: CreateServerOptions = {}): Promise<Core
     mountCoreMiddleware(app, auth.verifier, {
       fga: auth.fga,
       onRoleChange: auth.onRoleChange,
+      onStoreScopeChange: auth.onStoreScopeChange,
       moduleRouters: moduleAdminRouters(),
       storeRouters: moduleStoreRouters(),
       webhookRouters: moduleWebhookRouters(),

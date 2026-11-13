@@ -557,6 +557,80 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **PR #833 (code commit 59b68aad; head = this memory commit).** First code commit faf2b4d8. The Fable review
+  follow-up 59b68aad syncs the form to a newer `updated_at` prop (a General save no longer makes the next
+  Payment save stale) and adds the invoice-off action test. main ec10b3c1 merged in. No more pushes to
+  admin/phase6-825-payment-settings.
+  - Nits left (#825 stays open): card state read-only from payment.methods; a confirm when turning invoice
+    off with no card; credit-risk wording.
+  - After it merges, the manager says when to rebuild the run's admin :3000 and enable invoice for brand-d IN
+    THE UI (timed), unless the owner's non-UI step came first. Do NOT rebuild before that.
+- **#831 MERGED** ec10b3c1; **#824 MERGED** 558eb3b4 (#823 closed); **#822 MERGED** 1eb16721.
+- **#825 fix (2026-11-12, Manager session thirteen; Fable review, payments).**
+  - Branch `admin/phase6-825-payment-settings` from main e1c993b5.
+  - Store › Settings › Payment: `updatePaymentSettingsAction` does refuse (updateStore) → re-read → stale
+    `updated_at` refused → `withInvoiceAllowed` (every key kept, `payment.methods` dropped) → PATCH
+    `{settings}` only.
+  - The core's 422 is said in words. Only `invoice_allowed` + `updated_at` reach the browser.
+  - No contract change: StoreInput has no required keys and already has `settings`.
+  - The form tracks the last saved value. The first version compared against the prop and stayed disabled
+    after a save until the refresh landed; the test caught it.
+  - Mutation-checked (merge from {}, stale guard off). Unit 1093/1093.
+  - Not built locally (the run's admin :3000).
+- **Lesson (tests):** `vi.clearAllMocks()` does NOT clear a `mockResolvedValueOnce` queue; a leftover once-value
+  leaked into the next test. Use `mockReset()` for hoisted action mocks, and `waitFor` after a click that
+  starts a transition.
+- **PR #831 (code commit 307ccfcb; head = this memory commit).** Manager-read: MERGE on green CI. No more
+  pushes to admin/phase6-820-default-variant. #820 stays open for the wizard flash.
+- **#820 fix (2026-11-12).** Branch `admin/phase6-820-default-variant` from main e1c993b5.
+  - `missingCombinations` offers `{}` when no option is named; `variantTitle({})` = "Default".
+  - Core check: `validateVariantInput` needs a non-empty sku + title, and `assertOptionsMatch({})` passes.
+  - Tests +5, mutation-checked; unit 1080/1080.
+  - The cosmetic wizard flash noted in #820 (the Review step re-renders after "Done") is NOT in this PR.
+- **Brand D run, category step (admin UI only):** "Kitchen linen" (kitchen-linen) with both products,
+  14:39:05Z → 14:39:48Z (43 s); the Store API lists it. Payment #825: the manager's recorded non-UI
+  updateStore, which the owner runs; nothing for me.
+- **PR #824 (code commit 733788d5; head = this memory commit).** First code commit c973fc14. The review
+  follow-up 733788d5 shows the hint only when capped (from the API `total`), and a failed item read is an
+  error. main e1c993b5 merged in. After this push: do NOT push to admin/phase6-823-count-sku again; the
+  manager queues it on green.
+- **Brand D run, later steps (2026-11-12):**
+  - Payment: `brand-d` payment.methods [], with no admin path. **#825**, options with the manager (I can't
+    mint an owner API token).
+  - Second product, the manager's decision: cotton-napkin-set ¥2,480 (COTTONNA-ONESIZE). Created in the UI
+    14:23:14Z → 14:24:19Z; stocked by the #823 workaround 14:24:35Z → 14:25:25Z. Both products in stock.
+- **#823 fix (2026-11-12, Manager session thirteen; not on the brand D clock).**
+  - Branch `admin/phase6-823-count-sku` from main 314e65bd.
+  - The count form's SKU search (`count_sku` → `listStockItems({ limit: 100, sku })`), a per-row "Record a
+    count" link (`count_item` preselect), and a hint about the 100 cap. Tests +6, mutation-checked; unit
+    1081/1081.
+  - NOT built locally: the brand D run's admin :3000 serves this worktree's `.next`, so no `next build` until
+    the run is over.
+- **Brand D stock (manager's option (b), NON-UI, recorded on #823):** 14:10:09Z → 14:11:49Z.
+  - The capped select was given Brand D's item from the console. React state was VERIFIED before submitting:
+    the first attempt left it on BRANDA-0001-L-OLI, and that attempt was NOT submitted.
+  - Then Record count → Reconcile (flagged +50) → Approve.
+  - Rotterdam 50 on hand; the Store API says in_stock true.
+  - Lesson: a DOM change before hydration does not reach React. Always read the element's `__reactProps` value
+    before submitting.
+- **Brand D (Japan) timed run, step (a) DONE (2026-11-12, Manager session thirteen).**
+  - Clock: 13:45:39Z (wizard opened) → onboarded 13:46:39Z → ACTIVE 13:47:58Z (2 min 19 s) → verified
+    13:50:11Z (4 min 32 s).
+  - The owner signed in in my browser pane BEFORE the clock: I do not enter credentials, so the owner did it
+    once.
+  - Store: brand-d (id 9f3c3c2a-42a5-4903-bb1d-fd47e4f6324e), Brand D K.K. (brand-d-kk), JPY / [ja-JP] / JP /
+    Asia/Tokyo, domain brand-d.localhost.
+  - Set up in the UI: tax JP 1000 bp; shipping standard-jp ¥990; price list "Default JPY" (default-jpy);
+    product linen-tea-towel, variant LINENTEA-ONESIZE ¥1,980, published.
+  - The Store API with the key answers amount_minor 1980 JPY.
+  - The key went to window 10 by message only. It is never in git.
+  - Issue **#820** (3 min 27 s on the clock): a no-options product can never get its default variant
+    (variant-matrix returns [] for zero options). Workaround "Size: One size". Mine to fix.
+  - Core :9000 + admin :3000 (production build) run for the whole run, from main c51e02ba. Stop them only when
+    the manager says the run is over.
+- **#819 follow-up:** branch `admin/phase6-drop-scope-reload` from main 314e65bd. hq-onboarding.spec drops the
+  45 s toPass reload loop: goto Settings, expect the row. NOT run locally (the machine and :3000 belong to the
+  run); CI's core leg is the proof.
 - **#815 review follow-ups (2026-11-11, Manager session twelve).**
   - Branch `admin/phase6-shipping-followups` from main 97218bd2. **Code sha aac7555b.**
   - `updateShippingOptionAction(storeId, optionId, values)` re-reads the option from the core (stored currency,

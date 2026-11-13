@@ -534,6 +534,21 @@ batch test in `test/pricing.test.ts`, which is the standard for any money-adjace
 
 ## Store settings (task 2.5 + 2.5b, issue #117; Admin API 0.4.8)
 
+**Payment (#825).** "Pay on invoice" is `settings.payment.invoice_allowed`. Without it, and without the store's
+Stripe key, `GET /store` offers no payment method and no order can be placed.
+
+`updateStore` replaces the whole `settings` object, and other modules keep keys there, so
+`updatePaymentSettingsAction` (store_admin, checked server-side first) works like this:
+
+- it re-reads the store;
+- it refuses if the page's `updated_at` is older than the store's;
+- it sends back every key with only `payment.invoice_allowed` changed (`withInvoiceAllowed` in
+  `src/lib/settings/payment.ts`);
+- it never writes the derived `payment.methods`.
+
+The contract has no If-Match, so a write landing between the re-read and the PATCH is still possible (one
+request wide). The core's 422 `details.settings` is said in words.
+
 **Store · Settings** (`settings`, `/{storeId}/settings`) is open to **store_staff and up**, and
 read-only below store_admin. One page, four cards, each form offered only to the relation its
 operation needs and otherwise replaced by a line naming that relation (`src/lib/settings`):
@@ -677,6 +692,11 @@ hq, `mapVariantToStockItem`) picks a variant of another item on the page or take
 asks first, naming both brands — it changes which shelf that brand sells from. The 409 (the
 variant's current item still holds stock or open reservations) is said with `details.on_hand` /
 `details.open_reservations`: move the stock first. 404 = unknown item or variant.
+
+**Finding the item to count (#823).** The count form's item list is the first 100 items by SKU unless
+searched: "Find the item by SKU" (`?count_sku=`) loads the matching items from the API. Each stock-item row's
+"Record a count" opens the form with that item preselected (`?count_item=`). Without this, an item past the
+first 100 (any brand onboarded later) could not be stocked from the admin.
 
 **Cycle counts** (`listCycleCounts`, operations on hq): newest first, filters warehouse / stock
 item / status; `counted_by` null shows as WMS. **Record a count** (`createCycleCount`) changes no

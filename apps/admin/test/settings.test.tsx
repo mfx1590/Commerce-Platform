@@ -190,6 +190,11 @@ describe('the settings page, per role', () => {
     expect(screen.getByText(/Changing these needs/)).toHaveTextContent(
       `store_admin on store:${STORE_ID}`,
     );
+    // #825: Payment is read, not changed.
+    expect(screen.queryByRole('form', { name: 'Payment settings' })).toBeNull();
+    expect(screen.getByText(/Changing payment settings needs/)).toHaveTextContent(
+      `store_admin on store:${STORE_ID}`,
+    );
     expect(screen.getByText(/Adding a domain or moving the primary needs/)).toHaveTextContent(
       'owner on organization:hq',
     );
@@ -211,6 +216,9 @@ describe('the settings page, per role', () => {
     expect(screen.getByRole('form', { name: 'General settings' })).toBeInTheDocument();
     expect(screen.getByRole('form', { name: 'New sales channel' })).toBeInTheDocument();
     expect(screen.getByRole('form', { name: 'New API key' })).toBeInTheDocument();
+    // #825: Payment, unticked for a store whose settings have no payment key.
+    const payment = screen.getByRole('form', { name: 'Payment settings' });
+    expect(within(payment).getByRole('checkbox', { name: /Pay on invoice/ })).not.toBeChecked();
     expect(screen.queryByRole('form', { name: 'Add domain' })).toBeNull();
     expect(screen.getByText(/Adding a domain or moving the primary needs/)).toHaveTextContent(
       'owner on organization:hq',
