@@ -10,8 +10,12 @@ import {
   e2eExclusions,
   LOCALE_DATA_FILES,
   SEEDED_BRANDS,
+  generatedChangelog,
+  generatedClaudeMd,
+  generatedReadme,
   localeAssignment,
   localeMismatch,
+  minorUnitDigitsFor,
   localePairs,
   localeProse,
   manualSteps,
@@ -715,5 +719,80 @@ describe('messageCatalogues', () => {
   it('does not add a catalogue step for a brand that needs none', () => {
     const brandB = { ...parseArgs(ARGS), locales: ['en-GB'] };
     expect(manualSteps(brandB).filter((entry) => entry.step.includes('catalogue'))).toEqual([]);
+  });
+});
+
+describe('the three documents the generator used to leave out (#829)', () => {
+  const template = { code: 'brand-b', name: 'Stonecrop', port: 3102, locales: ['en-GB'] };
+  const yen = {
+    code: 'brand-e',
+    name: 'Brand E',
+    port: 3105,
+    locales: ['ja-JP'],
+    currency: 'JPY',
+    jurisdiction: 'JP',
+  };
+  const dollars = { ...yen, currency: 'USD', jurisdiction: 'US', locales: ['en-US'] };
+
+  it('puts the bundle-budget markers in the README, which are load-bearing', () => {
+    // Not decoration: `scripts/bundle-budget.mjs` writes its table between these two and FAILS
+    // without them. Brand D's hand-written README had no reason to contain a machine-managed
+    // block, so its perf leg went red while Lighthouse passed and every budget was inside its
+    // threshold. A generated README that omits them would reproduce that for the next brand.
+    const readme = generatedReadme(yen, template);
+    expect(readme).toContain('<!-- bundle-budget:start -->');
+    expect(readme).toContain('<!-- bundle-budget:end -->');
+    expect(readme).toMatch(/do not edit it by/i);
+  });
+
+  it('tells a reader the four env values a brand needs to serve a store (#828)', () => {
+    const readme = generatedReadme(yen, template);
+    for (const name of ['STORE_API_URL', 'STORE_PUBLISHABLE_KEY', 'SITE_URL', 'KEYCLOAK_URL']) {
+      expect(readme, `${name} must be in the README`).toContain(name);
+    }
+    // And the command that works: `node scripts/start.mjs` has no workspace bin path.
+    expect(readme).toContain('pnpm --filter @platform/storefront-brand-e start');
+  });
+
+  it('says where the publishable key comes from, differently for a seeded brand (#827)', () => {
+    expect(generatedReadme(yen, template, false)).toMatch(
+      /must\*\* come from the environment|never commit it/,
+    );
+    expect(generatedReadme({ ...yen, code: 'brand-c' }, template, true)).toMatch(/seeded dev key/);
+  });
+
+  it('warns about zero-decimal money only when the currency HAS no minor unit', () => {
+    // A warning that applies to everything is read by nobody. JPY gets it; USD does not.
+    expect(minorUnitDigitsFor('JPY')).toBe(0);
+    expect(minorUnitDigitsFor('USD')).toBe(2);
+    expect(generatedClaudeMd(yen, template)).toContain('ZERO-DECIMAL');
+    expect(generatedClaudeMd(dollars, template)).not.toContain('ZERO-DECIMAL');
+  });
+
+  it('warns about the single-locale runtime default only for a single-locale brand (#826)', () => {
+    expect(generatedClaudeMd(yen, template)).toMatch(/warm-up N: page failed/);
+    const twoLocales = { ...yen, locales: ['ja-JP', 'en-US'] };
+    expect(generatedClaudeMd(twoLocales, template)).not.toMatch(/warm-up N: page failed/);
+  });
+
+  it('records what the brand was generated from, with its own arguments', () => {
+    const changelog = generatedChangelog(yen, template);
+    expect(changelog).toContain('brand-b');
+    expect(changelog).toContain('Stonecrop');
+    expect(changelog).toContain('JPY');
+    expect(changelog).toContain('ja-JP');
+    expect(changelog).toContain('3105');
+  });
+
+  it('names the jurisdiction honestly when the generator has never seen it', () => {
+    // JP has no entry, so the legal row must not imply a document set exists to copy.
+    expect(generatedReadme(yen, template)).toMatch(/not a known jurisdiction/);
+    const german = { ...yen, jurisdiction: 'DE' };
+    expect(generatedReadme(german, template)).toMatch(/Germany/);
+  });
+
+  it('says a non-seeded brand is not in the seed, because things derive lists from it', () => {
+    expect(generatedClaudeMd(yen, template, false)).toMatch(/not in `packages\/db`/);
+    expect(generatedClaudeMd(yen, template, true)).not.toMatch(/not in `packages\/db`/);
   });
 });

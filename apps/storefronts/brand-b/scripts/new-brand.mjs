@@ -39,6 +39,10 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  generatedReadme,
+  generatedClaudeMd,
+  generatedChangelog,
+  SEEDED_BRANDS,
   NewBrandError,
   TEMPLATE_FILES,
   devPublishableKey,
@@ -134,7 +138,12 @@ function main() {
   log(`  locales      ${target.locales.join(', ')}`);
   log(`  port         ${target.port}`);
   log(`  jurisdiction ${target.jurisdiction}`);
-  log(`  key          ${devPublishableKey(target.code)} (seed dev key, local databases only)`);
+  log(
+    SEEDED_BRANDS.includes(target.code)
+      ? `  key          ${devPublishableKey(target.code)} (seed dev key, local databases only)`
+      : '  key          none written: this brand is not in the seed, so STORE_PUBLISHABLE_KEY ' +
+          'comes from the environment (#827)',
+  );
   if (target.dryRun) log('\n  --dry-run: nothing will be written');
 
   const write = (file, text) => {
@@ -455,7 +464,15 @@ function main() {
     );
   }
 
-  // 6. What this script could not do.
+  // 6. The three documents every brand needs and none used to get (#829). The README's
+  //    bundle-budget markers are load-bearing: `scripts/bundle-budget.mjs` fails without them, and
+  //    the brand's own perf leg goes red — which is how this gap was found, on brand D.
+  step('README, CHANGELOG and CLAUDE.md');
+  write('README.md', generatedReadme(target, template));
+  write('CHANGELOG.md', generatedChangelog(target, template));
+  write('CLAUDE.md', generatedClaudeMd(target, template));
+
+  // 7. What this script could not do.
   step('MANUAL — what this script cannot do');
   for (const { step: name, where, why } of manualSteps(target)) {
     log(`  • ${name}`);

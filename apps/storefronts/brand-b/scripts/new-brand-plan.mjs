@@ -441,6 +441,225 @@ export function runtimeDefaults(target) {
 }
 
 /**
+ * How many minor units make one major unit of this currency, from CLDR rather than an assumption.
+ *
+ * It decides one line of the generated `CLAUDE.md`: a brand in a **zero-decimal** currency gets the
+ * warning that `¥1,980` is `1980` and never 198000, and a two-decimal brand does not, because a
+ * warning that applies to everything is read by nobody. Brand D was the first zero-decimal brand on
+ * this platform and nothing in its generated files said so (#834).
+ *
+ * @param {string} currency
+ */
+export function minorUnitDigitsFor(currency) {
+  try {
+    return (
+      new Intl.NumberFormat('en', { style: 'currency', currency }).resolvedOptions()
+        .minimumFractionDigits ?? 2
+    );
+  } catch {
+    return 2;
+  }
+}
+
+/**
+ * A markdown table padded the way prettier writes one, so a generated file passes `format:check`
+ * without anyone running `--write` over it first. A brand that fails the repo's own gate on the
+ * first command its README tells you to run is not finished (#829).
+ *
+ * @param {readonly (readonly [string, string])[]} rows
+ */
+export function mdTable(rows) {
+  const widths = [0, 1].map((i) => Math.max(3, ...rows.map((row) => row[i].length)));
+  const line = (cells) => `| ${cells.map((cell, i) => cell.padEnd(widths[i])).join(' | ')} |`;
+  return [
+    line(['', '']),
+    `| ${widths.map((width) => '-'.repeat(width)).join(' | ')} |`,
+    ...rows.map((row) => line([row[0], row[1]])),
+  ].join('\n');
+}
+
+/** The identity rows every generated document opens with — one source for all three. */
+function identityRows(target) {
+  return [
+    ['Port', `**${target.port}**`],
+    ['Market', `**${target.jurisdiction}**`],
+    ['Currency', `**${target.currency}**`],
+    ['Locale(s)', target.locales.map((l) => `\`${l}\``).join(', ')],
+    ['Store code', `\`${target.code}\``],
+    ['Keycloak client', `\`storefront-${target.code}\``],
+  ];
+}
+
+/**
+ * The four environment values a brand needs to serve a store from a real core (#828), and the one
+ * command that works. Written into the README because a generated brand that nobody can start is
+ * not finished, and this list cost twelve minutes of the D8 run to rediscover one refusal at a time.
+ */
+function runningSection(target, seeded) {
+  const key = seeded
+    ? "`STORE_PUBLISHABLE_KEY` is defaulted in `next.config.mjs` to this brand's seeded dev key, " +
+      'which works against a local database.'
+    : '`STORE_PUBLISHABLE_KEY` **must** come from the environment: this brand is not in the seed, ' +
+      'so there is no dev key for it. The onboarding wizard shows the real key once — never commit it.';
+  return [
+    '## Running it against a core',
+    '',
+    'Four values, each of which fails on its own and only once the previous one is satisfied:',
+    '',
+    '```bash',
+    'STORE_API_URL=http://localhost:9000 \\',
+    `STORE_PUBLISHABLE_KEY=<${seeded ? 'the seeded dev key' : 'from the onboarding wizard'}> \\`,
+    `SITE_URL=http://localhost:${target.port} \\`,
+    'KEYCLOAK_URL=http://localhost:8180 \\',
+    `PORT=${target.port} pnpm --filter @platform/storefront-${target.code} start`,
+    '```',
+    '',
+    `- ${key}`,
+    '- `SITE_URL` must be a loopback origin locally: a build made by `scripts/e2e-server.mjs` has',
+    '  `E2E_LOCAL_IMAGES` **inlined**, and the app refuses to start with it outside loopback.',
+    '- `KEYCLOAK_URL` is required in production (#783) — the CSP `form-action` needs its origin.',
+    `- \`pnpm --filter … start\`, never \`node scripts/start.mjs\`: the latter has no workspace bin path.`,
+    '',
+  ].join('\n');
+}
+
+/**
+ * The brand's `README.md`.
+ *
+ * **The bundle-budget block is not decoration.** `scripts/bundle-budget.mjs` writes its table
+ * between those two markers and FAILS when they are absent — so a brand whose README was written
+ * by hand reds its own perf leg, which is exactly what happened to brand D (#829): Lighthouse
+ * passed, every budget was inside its threshold, and the leg was red because a hand-written README
+ * has no reason to contain a machine-managed block.
+ */
+export function generatedReadme(target, template, seeded = SEEDED_BRANDS.includes(target.code)) {
+  const rows = mdTable(identityRows(target));
+  return [
+    `# @platform/storefront-${target.code}`,
+    '',
+    `${target.name}'s storefront, generated from \`apps/storefront-starter\` through`,
+    `\`apps/storefronts/${template.code}/scripts/new-brand.mjs\` (ADR 0004).`,
+    '',
+    `> **"${target.name}" is a placeholder name** — it came off the generator's command line, not`,
+    "> from the business. LAUNCH row 0.1 is the owner's, and every sentence of content and all four",
+    '> legal documents are still to be written.',
+    '',
+    '## Identity',
+    '',
+    rows,
+    '',
+    runningSection(target, seeded),
+    '## Bundle budget',
+    '',
+    'First-load JavaScript per route, gzipped, against the thresholds in `bundle-budget.json`.',
+    'Written by `node scripts/bundle-budget.mjs --sync-readme` after a build — do not edit it by',
+    'hand. **Do not delete the two markers**: the check fails without them, and the perf leg with it.',
+    '',
+    '<!-- bundle-budget:start -->',
+    '<!-- bundle-budget:end -->',
+    '',
+    '## What is NOT finished',
+    '',
+    mdTable([
+      ['the brand name', 'a placeholder (LAUNCH 0.1)'],
+      ['theme tokens', 'the design-kit default, not a brand'],
+      ['all content prose', `generated placeholders in \`cms/${target.code}/content\``],
+      [
+        'the four legal documents',
+        KNOWN_JURISDICTIONS[target.jurisdiction]
+          ? `${KNOWN_JURISDICTIONS[target.jurisdiction].label}: structure generated, instruments cited, still a lawyer's`
+          : `**${target.jurisdiction} is not a known jurisdiction** to the generator: structure only, written by a lawyer from scratch`,
+      ],
+      [
+        `\`messages/${target.locales[0]}.json\``,
+        "**untranslated** — a copy of the template's, so the app renders",
+      ],
+      ['the media manifest', "no `bytes`/`sha256`: the brand's stills do not exist"],
+      ['LAUNCH.md', 'not written yet'],
+    ]),
+    '',
+  ].join('\n');
+}
+
+/** The brand's `CHANGELOG.md`: one entry, the facts of its own creation. */
+export function generatedChangelog(target, template) {
+  return [
+    `# Changelog — @platform/storefront-${target.code}`,
+    '',
+    `## Unreleased — ${new Date().toISOString().slice(0, 10)} · ${target.name} created`,
+    '',
+    `- **Generated** by \`apps/storefronts/${template.code}/scripts/new-brand.mjs\` from`,
+    `  \`${template.code}\` (${template.name}, :${template.port}): ${target.jurisdiction},`,
+    `  **${target.currency}**, ${target.locales.join(', ')}, port ${target.port}.`,
+    '- Everything in the README\'s "What is NOT finished" table is exactly that. The generator does',
+    '  the mechanical half; `ONBOARDING-GAPS.md` is the list of what it cannot.',
+    '',
+  ].join('\n');
+}
+
+/** The brand's `CLAUDE.md`: who owns it, what it may write, and the traps the generator knows. */
+export function generatedClaudeMd(target, template, seeded = SEEDED_BRANDS.includes(target.code)) {
+  const zeroDecimal = minorUnitDigitsFor(target.currency) === 0;
+  const lines = [
+    `# @platform/storefront-${target.code}`,
+    '',
+    '## Purpose',
+    '',
+    `${target.name}'s storefront — **${target.jurisdiction}, ${target.currency},`,
+    `${target.locales.join(' + ')}**, port **${target.port}**. "${target.name}" is a WORKING name;`,
+    'the owner names the brand (LAUNCH row 0.1). Generated from `apps/storefront-starter` per ADR',
+    `0004 by \`apps/storefronts/${template.code}/scripts/new-brand.mjs\`.`,
+    '',
+    '## Owner',
+    '',
+    'window 10 (brands). The starter is window 3 — never edit it from here; file a REQUEST. The',
+    "Dockerfile, bake target and helm values are window 5's (`**/Dockerfile`, `infra/**`).",
+    '',
+    '## Run / test',
+    '',
+    `- \`pnpm --filter @platform/storefront-${target.code} dev\` — on **:${target.port}**`,
+    '- Against a real core, four env values are required and each fails on its own (#828). See README.',
+    '- Gate before finishing: `pnpm lint && pnpm format:check && pnpm typecheck &&',
+    `pnpm test --filter @platform/storefront-${target.code}\``,
+    '',
+    '## Constraints',
+    '',
+    "Everything in the starter's CLAUDE.md applies. Brand work is `src/brand/**`, whole route files",
+    `and \`cms/${target.code}/**\`; \`src/lib/**\` edits belong in the starter.`,
+    '',
+  ];
+  const traps = [];
+  if (zeroDecimal) {
+    traps.push(
+      `- **${target.currency} is ZERO-DECIMAL.** An amount of 1980 minor units is ${target.currency} 1,980, not`,
+      "  19.80 and not 198000. Never divide or multiply by 100 anywhere: `packages/ui`'s",
+      '  `minorUnitDigits` asks CLDR. A `toFixed(2)` or a `/ 100` added here would be wrong in a way',
+      '  that looks right in every two-decimal brand (#834).',
+    );
+  }
+  if (target.locales.length === 1) {
+    traps.push(
+      `- **One locale, \`${target.locales[0]}\`.** \`SUPPORTED_LOCALES\` is a runtime default in`,
+      "  `next.config.mjs` because `src/i18n/routing.ts` is synced and defaults to the starter's two.",
+      '  `playwright.config.ts` sets the same value for the e2e process — if a run ever dies with',
+      '  repeated `warm-up N: page failed`, check that line first (#826).',
+    );
+  }
+  traps.push(
+    `- **\`messages/${target.locales[0]}.json\` is untranslated.** It exists so the app renders at all;`,
+    '  `src/i18n/request.ts` imports it unguarded. Do not mistake it for a translation.',
+  );
+  if (!seeded) {
+    traps.push(
+      "- **This brand is not in `packages/db`'s seed.** Its store came from the onboarding wizard, so",
+      '  there is no dev publishable key for it and nothing that derives a brand list from the seed',
+      '  will list it. `STORE_PUBLISHABLE_KEY` comes from the environment and is never committed (#827).',
+    );
+  }
+  return [...lines, '**Specific to this brand:**', '', ...traps, ''].join('\n');
+}
+
+/**
  * The e2e exclusions every brand needs while #441 is open, emitted by the script so there is **one**
  * place to delete them from when it lands — rather than three brands to chase.
  *
