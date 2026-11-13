@@ -214,7 +214,9 @@ per tick is the core's (`apps/core/src/jobs/customer-erasure.ts`, REQUEST #513).
 
 - `seedOpenFga(opts)` / `pnpm --filter @platform/auth-sdk fga:seed` — creates or reuses the store, writes
   `infra/openfga/model.fga` and the missing seed tuples, records `OPENFGA_STORE_ID`/`OPENFGA_MODEL_ID` in the
-  root `.env`. Idempotent; run after an OpenFGA restart (memory datastore).
+  root `.env`. Idempotent; run after an OpenFGA restart (memory datastore). Since #832 the script skips a
+  `store:` tuple whose id has no store row in the database (`withoutAbsentStores`, one line each) — but only when
+  that database has at least one store; unreachable, not migrated or not seeded yet → every tuple, said in one line.
 - `loadAuthorizationModel`, `loadSeedTuples`, `modelFromDsl`, `createOpenFgaClient`.
 
 ### Store objects (#415)

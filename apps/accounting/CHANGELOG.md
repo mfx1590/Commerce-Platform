@@ -1,5 +1,11 @@
 # Changelog — @platform/accounting
 
+## Unreleased — #832 (integration/seed-brand-d)
+
+- Test only: the seed has brand D's legal entity (JPY), so `createMockOdoo`'s default currencies gain JPY (active), and
+  `odoo:init`'s tests expect `le-brand-d`. New: a legal entity whose currency Odoo does not have still stops the run with
+  `OdooCurrencyMissing` (the product behaviour is unchanged).
+
 ## Unreleased (#633, main window on integration/phase5-633-month)
 
 - Test only: `test/month-payouts.test.ts` (+2) — the richer generated month (`@platform/test-utils` 0.2.0,

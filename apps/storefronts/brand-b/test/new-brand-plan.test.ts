@@ -229,11 +229,12 @@ describe('runtimeDefaults — the two levers brand A never needed', () => {
       const names = runtimeDefaults({ code, locales: ['en-GB'] }).map((d) => d.name);
       expect(names, `${code} is seeded and keeps its key`).toContain('STORE_PUBLISHABLE_KEY');
     }
-    const fourth = runtimeDefaults({ code: 'brand-d', locales: ['ja-JP'] });
-    expect(fourth.map((d) => d.name)).not.toContain('STORE_PUBLISHABLE_KEY');
+    // brand D is seeded since #832; a brand the seed does not have is the case here
+    const unseeded = runtimeDefaults({ code: 'brand-e', locales: ['ja-JP'] });
+    expect(unseeded.map((d) => d.name)).not.toContain('STORE_PUBLISHABLE_KEY');
     // The other two levers are unconditional: a brand that stays quiet about them serves a URL
     // space with no content and signs its customers in through brand A's client.
-    expect(fourth.map((d) => d.name)).toEqual(['SUPPORTED_LOCALES', 'KEYCLOAK_CLIENT_ID']);
+    expect(unseeded.map((d) => d.name)).toEqual(['SUPPORTED_LOCALES', 'KEYCLOAK_CLIENT_ID']);
   });
 
   it('emits the publishable key, the locale list and the brand OWN Keycloak client', () => {
@@ -302,10 +303,10 @@ describe('manualSteps — what the script could not do', () => {
   });
 
   it('points the store step at the onboarding wizard, never at itself', () => {
-    // For a brand with no seeded store. brand-a/b/c already have one, and this step says so
+    // For a brand with no seeded store. brand-a/b/c/d already have one, and this step says so
     // instead — see "the seeded brands" below. The invariant either way: the script never
     // creates a store itself.
-    const store = manualSteps({ ...target, code: 'brand-d' }).find((s) =>
+    const store = manualSteps({ ...target, code: 'brand-e' }).find((s) =>
       s.step.includes('store, legal entity'),
     );
     expect(store?.where).toMatch(/onboarding wizard/);
@@ -648,7 +649,7 @@ describe('a locale literal in prose is not the brand’s', () => {
 
 describe('the seeded brands', () => {
   it('lists exactly the brands packages/db SEED_IDS creates a store for', () => {
-    expect(SEEDED_BRANDS).toEqual(['brand-a', 'brand-b', 'brand-c']);
+    expect(SEEDED_BRANDS).toEqual(['brand-a', 'brand-b', 'brand-c', 'brand-d']);
   });
 
   it('tells a seeded brand to CHECK the seeded store, not to run the wizard', () => {
@@ -663,20 +664,20 @@ describe('the seeded brands', () => {
   });
 
   it('sends a brand that is NOT seeded to the onboarding wizard', () => {
-    const fourth = parseArgs([
-      'brand-d',
+    const fifth = parseArgs([
+      'brand-e',
       '--name',
-      'Brand D',
+      'Brand E',
       '--currency',
       'eur',
       '--locale',
       'fr-FR',
       '--port',
-      '3104',
+      '3105',
       '--jurisdiction',
       'de',
     ]);
-    const step = manualSteps(fourth).find((entry) => entry.step.startsWith('the store'));
+    const step = manualSteps(fifth).find((entry) => entry.step.startsWith('the store'));
     expect(step?.where).toContain('onboarding wizard');
     expect(step?.why).toMatch(/section 6/);
   });
