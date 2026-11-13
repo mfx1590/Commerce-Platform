@@ -1,5 +1,12 @@
 # Changelog — @platform/storefront-starter
 
+## 0.16.4 — 2026-11-13 (window 3, #830: specs fail fast on a missing store precondition)
+
+- **The payment step no longer waits 180 s for a method the store does not offer.** `advanceToReview` reads the step's radios first and, when the wanted one (invoice, or card) is missing, fails at once. Brand D's proving run (`payment.methods: []`) spent 180 s per payment spec on `locator.check`. Which failure it is comes from the store, not the page (#840 review): the test reads `GET /store` itself (`classifyPayment`). It reports a store precondition only when `payment.methods` lacks the method (or, for card, the run has no Stripe test key). A store that lists the method, or a `GET /store` that cannot be read, is a plain app failure, because the app also shows "no invoice" when its own read fails.
+- **One wording for every store precondition:** `Store precondition not met: <what>. This is the store's data or settings, not an app failure…`, from `e2e/support/preconditions.ts` (`storePrecondition`, `preconditionError`, `classifyPayment`, `paymentError`). Used by the stock search in `openPurchasableProduct`, the listing spec (two products, a category, a product outside it, two prices) and the local-images spec (a product image).
+- **Asserted before the first click:** the listing spec checks its category preconditions there, not after the filter navigation, and only after the "All products" heading has rendered (an error page has no cards either). The two-prices check stays on the sorted lists, so nothing that passed before fails now. The local-images spec asserts that the product page answered 200 and rendered before counting images.
+- **Tests:** `test/e2e-preconditions.test.ts` pins the messages and the classification: methods lacks it, absent, lists it, read failed, and card without a key (11 tests). (0.16.3 is #838.)
+
 ## 0.16.3 — 2026-11-13 (window 3, REQUEST #837: descriptions past an empty field)
 
 - **The PDP meta description falls past an empty subtitle to `product.description`.** The order is `seo.description` → subtitle → description, each step skipped when missing **or empty after trimming**, then sized to 160 characters at a word boundary with an ellipsis (`productMetaDescription` in `src/lib/seo.ts`). Before, `seo?.description ?? subtitle ?? undefined` stopped at an empty subtitle (the onboarding wizard's default), so brand D's products rendered an empty description, and `product.description` was never considered.
