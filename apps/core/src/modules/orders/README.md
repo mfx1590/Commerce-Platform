@@ -121,8 +121,9 @@ transaction on another connection would deadlock behind it (tested in `orders.te
 `decreaseLineQuantity(client, orderId, lineItemId, quantity, actor)` and `cancelLine(client, orderId, lineItemId, actor)`
 (the last line cannot be cancelled — cancel the order). Allowed while `status ∈ {pending, confirmed}`,
 `fulfillment_status = unfulfilled` and no shipment that is not `cancelled` exists for the order (a planned shipment
-keeps the order `confirmed` and unfulfilled, but its lines are allocated to a parcel; #855) — else 409. Payment status
-does not matter: the difference is recorded for the refund flow. Line `tax_minor` / `total_minor` and the order totals are recomputed with the
+keeps the order `confirmed` and unfulfilled, but its lines are allocated to a parcel; #855) — else 409. Also 409
+(`details.field: payment_status`) once the payment is `captured`, `partially_refunded` or `refunded`: an edit would
+leave the customer overpaid, and nothing refunds, captures less or books the difference yet (#868). Line `tax_minor` / `total_minor` and the order totals are recomputed with the
 **same `TaxCalculator`** the cart used (cart module seam — window 7's Stripe Tax included); shipping is unchanged.
 Money is untouched: the difference is appended to `order.metadata.edits[]` as
 `{ at, line_item_id, sku, from_quantity, to_quantity, delta_minor }` (positive = owed to the customer; window 7

@@ -35,8 +35,11 @@ export interface OrderEdit {
 /**
  * Editable while nothing has left: status pending | confirmed, fulfilment `unfulfilled`, and no shipment planned for
  * the order (a `pending` shipment keeps the order `confirmed` and unfulfilled, but its lines are allocated to a
- * parcel — #855). Payment status does not matter: the difference is recorded for the refund flow.
+ * parcel — #855). And no money taken (#855 review): once the payment is captured (or partly / fully refunded), an
+ * edit would leave the customer overpaid, and nothing refunds `metadata.edits` automatically — 409.
  */
+const MONEY_TAKEN: ReadonlySet<string> = new Set(['captured', 'partially_refunded', 'refunded']);
+
 async function assertEditable(tx: Queryable, o: OrderRow): Promise<void> {
   if (
     o.fulfillment_status !== 'unfulfilled' ||
@@ -46,6 +49,13 @@ async function assertEditable(tx: Queryable, o: OrderRow): Promise<void> {
       field: o.fulfillment_status !== 'unfulfilled' ? 'fulfillment_status' : 'status',
       from: o.fulfillment_status !== 'unfulfilled' ? o.fulfillment_status : o.status,
       to: o.fulfillment_status !== 'unfulfilled' ? 'unfulfilled' : 'pending | confirmed',
+    });
+  }
+  if (MONEY_TAKEN.has(o.payment_status)) {
+    throw conflict('order can no longer be edited: its payment is captured', {
+      field: 'payment_status',
+      from: o.payment_status,
+      to: 'awaiting | authorized',
     });
   }
   const shipments = await tx.query<{ n: number }>(

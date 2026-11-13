@@ -12,7 +12,10 @@
 - The edits now release the removed units' stock reservations in their transaction (new inventory
   `releaseForOrderLine`: least-preferred warehouse first; a partly covered reservation keeps its id with a lower
   quantity). Before, a lowered or cancelled line kept its units reserved until the order was cancelled.
-- An order with a shipment that is not `cancelled` can no longer be edited (409, `details.field: shipments`).
+- An order with a shipment that is not `cancelled` can no longer be edited (409, `details.field: shipments`), nor one
+  whose payment is `captured`, `partially_refunded` or `refunded` (409, `details.field: payment_status`): nothing
+  refunds `metadata.edits[].delta_minor`, capture defaults to the original authorisation and accounting does not
+  consume `order.updated` — filed as #868.
 - `test/order-line-edits.test.ts` (4 tests, through HTTP): EUR and JPY (brand D, ¥1,980 × 3 → 1: line ¥2,178, the
   order −¥4,356) totals exact in minor units and recomputed independently; reservations and the pool's `reserved`;
   exactly one `order.updated` per edit; a tax-provider failure after the line update rolls back the line, the

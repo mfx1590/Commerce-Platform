@@ -363,7 +363,7 @@ describe('updateOrderLineItem / cancelOrderLineItem (#855)', () => {
     });
   });
 
-  it('400 / 403 / 404 / 409 per the contract', async () => {
+  it('400 / 403 / 404 / 409 per the contract (incl. a captured payment)', async () => {
     const [v1, v2] = await variants(A, 'EUR', 2);
     const placed = await place(
       A,
@@ -426,6 +426,20 @@ describe('updateOrderLineItem / cancelOrderLineItem (#855)', () => {
     expect(fulfilled.status).toBe(409);
     expect(fulfilled.body.details).toMatchObject({ field: 'fulfillment_status' });
     await db.owner.query(`UPDATE "order" SET fulfillment_status = 'unfulfilled' WHERE id = $1`, [
+      placed.orderId,
+    ]);
+    // 409: the payment is captured (an edit would leave the customer overpaid; nothing refunds the delta)
+    for (const st of ['captured', 'partially_refunded', 'refunded']) {
+      await db.owner.query(`UPDATE "order" SET payment_status = $2 WHERE id = $1`, [
+        placed.orderId,
+        st,
+      ]);
+      const taken = await storeAdmin.patch(path, { quantity: 1 });
+      expect(taken.status).toBe(409);
+      expect(taken.body.details).toMatchObject({ field: 'payment_status', from: st });
+      expect((await storeAdmin.delete(path)).status).toBe(409);
+    }
+    await db.owner.query(`UPDATE "order" SET payment_status = 'authorized' WHERE id = $1`, [
       placed.orderId,
     ]);
     // a cancelled shipment does not block: the edit goes through
