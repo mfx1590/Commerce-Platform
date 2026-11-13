@@ -91,16 +91,21 @@ asserts it **before it interacts**, through `e2e/support/preconditions.ts`, and 
 failure`. Search a run's log for `Store precondition not met` to tell a thin or misconfigured store
 from a frontend bug. The ones checked:
 
-- **a payment method:** the payment step's radios are read before one is chosen; a store whose
-  `GET /store` has `payment.methods: []` (or no Stripe test key, for the card journey) fails
-  naming what was offered, instead of a 180 s timeout on a radio that never renders;
+- **a payment method:** the payment step's radios are read before one is chosen, instead of a 180 s
+  timeout on a radio that never renders. When the wanted one is missing, the test reads `GET /store`
+  itself (same backend and key rule as the app). Only a `payment.methods` without the method (or,
+  for card, no Stripe test key in the run) is a precondition. When the store lists the method, or
+  `GET /store` cannot be read, the failure is an **app failure**. The page alone cannot tell them
+  apart: the app shows "no invoice" when its own `GET /store` fails, too;
 - **purchasable stock:** the `Seed stock exhausted — reseed` failure above;
 - **listing and filters:** at least two listed products, one with a category, and one outside that
-  category (both asserted before the first click), and two different prices (asserted on the sorted
+  category (asserted before the first click, after the "All products" heading has rendered, so an
+  error page is not mistaken for an empty store), and two different prices (asserted on the sorted
   lists, so a paged default order cannot change what passes);
-- **a product image:** the local-images spec.
+- **a product image:** the local-images spec, after the product page answered 200 and rendered.
 
-Nothing a seeded brand passed changes: the conditions are the ones the specs already depended on.
+A message never blames the store for something the store did not say. Nothing a seeded brand passed
+changes: the conditions are the ones the specs already depended on.
 
 **What each backend proves.** The mock is stateless and answers with the contract's examples, so
 against it the suite proves the pages render what the API returned, consistently — not that

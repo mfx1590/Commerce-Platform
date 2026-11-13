@@ -48,7 +48,11 @@ test('no image request leaves the machine — listing and product page', async (
 
   const [first] = await readCards(page);
   expect(first, 'the listing has a product to open').toBeDefined();
-  await page.goto(localePath(`/products/${first!.handle}`));
+  const response = await page.goto(localePath(`/products/${first!.handle}`));
+  // The PDP rendered before its images are counted: an error page has none either, and that is an
+  // app failure, not a store without images (#840 review).
+  expect(response?.status(), `${first!.handle}: the product page answers 200`).toBe(200);
+  await expect(page.getByTestId('add-to-cart'), 'the product page rendered').toHaveCount(1);
   await hydrated(page);
   await expectOnlyPlaceholders(page, 'the product page');
 

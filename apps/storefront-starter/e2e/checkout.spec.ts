@@ -241,6 +241,9 @@ test('sorting reorders the listing and a category narrows it', async ({ page }) 
   test.setTimeout(LISTING_TIMEOUT);
 
   await page.goto(localePath('/products'));
+  // The listing rendered before its cards are counted: an error page has no cards either, and that
+  // is an app failure, not a thin store (#840 review).
+  await expect(page.getByRole('heading', { level: 1, name: 'All products' })).toBeVisible();
   const all = await readCards(page);
   // Against the core this is a failure, not a skip: with fewer than two products nothing here can
   // be observed, and a store seeded that thin should not report a green listing test.
