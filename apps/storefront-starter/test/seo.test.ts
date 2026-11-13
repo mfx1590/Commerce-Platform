@@ -13,6 +13,11 @@ import {
   productJsonLd,
   sitemapPageCount,
   SITEMAP_PAGE_SIZE,
+  firstText,
+  META_DESCRIPTION_MAX,
+  metaDescription,
+  productDescriptionText,
+  productMetaDescription,
 } from '@/lib/seo';
 import type { Product, Variant } from '@/lib/store-api';
 
@@ -322,5 +327,77 @@ describe('sitemap paging', () => {
     // A wrong `total` from the API cannot turn one crawler request into thousands of upstream calls.
     expect(catalogPageCount(1_000_000)).toBe(100);
     expect(catalogPageCount(1_000_000, 5)).toBe(5);
+  });
+});
+
+describe('descriptions skip missing AND empty steps (#837)', () => {
+  // Brand D's products, from the onboarding wizard: no SEO description, an EMPTY subtitle, and a
+  // real description. The old `??` chain stopped at the "" subtitle.
+  const wizardProduct = {
+    seo: {},
+    subtitle: '',
+    description: 'A second placeholder product for the brand D proving run.',
+  };
+
+  it('the PDP meta description falls past an empty subtitle to the description', () => {
+    expect(productMetaDescription(wizardProduct)).toBe(
+      'A second placeholder product for the brand D proving run.',
+    );
+    // What the old chain produced, so this test fails on it.
+    const old =
+      (wizardProduct.seo as { description?: string }).description ?? wizardProduct.subtitle;
+    expect(old).toBe('');
+  });
+
+  it('JSON-LD carries the same choice, so no empty description is emitted there either', () => {
+    const data = productJsonLd(product({ subtitle: '', seo: {} }), {
+      url: 'https://brand-a.example/en-GB/products/alpine-backpack',
+      locale: 'en-GB',
+    }) as { description?: string };
+    expect(data.description).toBe('A roomy pack.');
+  });
+
+  it.each([
+    ['whitespace-only subtitle', { seo: {}, subtitle: '   \n ', description: 'Kept.' }, 'Kept.'],
+    [
+      'empty SEO description',
+      { seo: { description: '' }, subtitle: 'Sub', description: 'D' },
+      'Sub',
+    ],
+    [
+      'SEO description first',
+      { seo: { description: 'SEO' }, subtitle: 'Sub', description: 'D' },
+      'SEO',
+    ],
+    ['null subtitle', { seo: null, subtitle: null, description: 'D' }, 'D'],
+  ] as const)('%s', (_, item, expected) => {
+    expect(productDescriptionText(item)).toBe(expected);
+    expect(productMetaDescription(item)).toBe(expected);
+  });
+
+  it('nothing anywhere: no description at all, never an empty one', () => {
+    expect(productMetaDescription({ seo: {}, subtitle: '', description: null })).toBeUndefined();
+    expect(
+      productDescriptionText({ seo: { description: ' ' }, subtitle: ' ', description: '' }),
+    ).toBeUndefined();
+    const data = productJsonLd(product({ subtitle: '', description: null, seo: {} }), {
+      url: 'https://brand-a.example/en-GB/products/alpine-backpack',
+      locale: 'en-GB',
+    });
+    expect('description' in data).toBe(false);
+  });
+
+  it('collapses whitespace, and sizes a long description at a word boundary with an ellipsis', () => {
+    expect(firstText(undefined, '  Two\n\nlines   here ')).toBe('Two lines here');
+    const long = 'Linen tea towel woven in Portugal. '.repeat(10);
+    const meta = metaDescription(long)!;
+    expect(meta.length).toBeLessThanOrEqual(META_DESCRIPTION_MAX);
+    expect(meta.endsWith('…')).toBe(true);
+    expect(meta.slice(0, -1)).toBe(meta.slice(0, -1).trimEnd());
+    expect(long.startsWith(meta.slice(0, -1))).toBe(true);
+    // JSON-LD keeps the full text.
+    expect(productDescriptionText({ seo: {}, subtitle: '', description: long })).toBe(long.trim());
+    // A short text is not touched.
+    expect(metaDescription('Short.')).toBe('Short.');
   });
 });

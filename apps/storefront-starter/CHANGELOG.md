@@ -1,5 +1,12 @@
 # Changelog — @platform/storefront-starter
 
+## 0.16.3 — 2026-11-13 (window 3, REQUEST #837: descriptions past an empty field)
+
+- **The PDP meta description falls past an empty subtitle to `product.description`.** The order is `seo.description` → subtitle → description, each step skipped when missing **or empty after trimming**, then sized to 160 characters at a word boundary with an ellipsis (`productMetaDescription` in `src/lib/seo.ts`). Before, `seo?.description ?? subtitle ?? undefined` stopped at an empty subtitle (the onboarding wizard's default), so brand D's products rendered an empty description, and `product.description` was never considered.
+- **The product JSON-LD** takes the same choice in full (`productDescriptionText`), and no longer emits `"description": ""`.
+- **Category metadata and the root layout's default description** go through the same helper: an empty value emits no description rather than an empty one.
+- **Tests:** `test/seo.test.ts` covers the wizard product, a whitespace-only subtitle, an empty SEO description, all-empty and sizing. Mutation-checked: five fail on the old chain.
+
 ## 0.16.2 — 2026-11-11 (window 3, #793 review nits; refs #731)
 
 - **`test/route-handlers.test.ts` finds every route handler Next would serve:** `route.(ts|tsx|js|jsx|mjs)`, not only `route.ts`. A handler folder becomes a request path with route groups dropped and catch-all (`[...x]`) and optional catch-all (`[[...x]]`) segments sampled. `samplePath` has its own cases.
