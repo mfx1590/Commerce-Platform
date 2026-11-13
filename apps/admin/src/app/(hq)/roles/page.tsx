@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { HqSectionGuard } from '@/components/shell/section-guard';
+import { isServiceAccount } from '@/lib/roles';
 import { RequestErrorPanel } from '@/components/states/state-panel';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
@@ -59,6 +60,8 @@ export default async function RolesPage({
     selected !== null && users.ok
       ? users.data.items.find((user) => user.id === selected)
       : undefined;
+  // #860: a service account is shown read-only — its roles come from provision:service-accounts.
+  const service = person !== undefined && isServiceAccount(person.id);
   const roles = person !== undefined ? await listUserRoles(person.id) : null;
   const assignedStores =
     roles !== null && roles.ok
@@ -107,7 +110,14 @@ export default async function RolesPage({
                 <tbody className="divide-line divide-y">
                   {users.data.items.map((user) => (
                     <tr key={user.id} aria-current={user.id === selected ? 'true' : undefined}>
-                      <td className="py-2 font-medium">{user.display_name}</td>
+                      <td className="py-2 font-medium">
+                        {user.display_name}
+                        {isServiceAccount(user.id) && (
+                          <Badge className="ml-2" tone="neutral">
+                            service account
+                          </Badge>
+                        )}
+                      </td>
                       <td className="font-mono text-xs">{user.email}</td>
                       <td>
                         <Badge tone={user.status === 'active' ? 'success' : 'warning'}>
@@ -119,9 +129,13 @@ export default async function RolesPage({
                         <Link
                           href={`/roles?user=${user.id}`}
                           className="text-accent text-sm hover:underline"
-                          aria-label={`Manage ${user.display_name}`}
+                          aria-label={
+                            isServiceAccount(user.id)
+                              ? `View ${user.display_name}`
+                              : `Manage ${user.display_name}`
+                          }
                         >
-                          Manage
+                          {isServiceAccount(user.id) ? 'View' : 'Manage'}
                         </Link>
                       </td>
                     </tr>
@@ -136,13 +150,28 @@ export default async function RolesPage({
           <Card>
             <CardHeader
               title={person.display_name}
-              description={`${person.email} — relations, and what this person changed.`}
+              description={
+                service
+                  ? `${person.email} — a service account: its relations and what it changed, read-only.`
+                  : `${person.email} — relations, and what this person changed.`
+              }
             />
             <CardBody className="space-y-5">
+              {service && (
+                <p role="note" className="border-line rounded-md border px-3 py-2 text-sm">
+                  Service account: its roles are provisioned by{' '}
+                  <span className="font-mono">
+                    pnpm --filter @platform/auth-sdk provision:service-accounts
+                  </span>
+                  , not here. Nothing on this card can change them.
+                </p>
+              )}
               {roles !== null && !roles.ok ? (
                 <RequestErrorPanel status={roles.status} error={roles.error} />
               ) : roles !== null && roles.data.items.length === 0 ? (
-                <p className="text-muted text-sm">No relations yet — assign one below.</p>
+                <p className="text-muted text-sm">
+                  {service ? 'No relations provisioned.' : 'No relations yet — assign one below.'}
+                </p>
               ) : (
                 <ul className="divide-line divide-y text-sm" aria-label="Relations">
                   {roles?.ok &&
@@ -155,23 +184,27 @@ export default async function RolesPage({
                           <span className="text-muted text-xs">
                             since {formatTime(assignment.created_at)}
                           </span>
-                          <span className="ml-auto">
-                            <RevokeAssignmentButton
-                              userId={person.id}
-                              assignmentId={assignment.id}
-                              label={label}
-                            />
-                          </span>
+                          {!service && (
+                            <span className="ml-auto">
+                              <RevokeAssignmentButton
+                                userId={person.id}
+                                assignmentId={assignment.id}
+                                label={label}
+                              />
+                            </span>
+                          )}
                         </li>
                       );
                     })}
                 </ul>
               )}
-              <AssignRoleForm
-                userId={person.id}
-                organizationId={organizationId}
-                stores={storeOptions}
-              />
+              {!service && (
+                <AssignRoleForm
+                  userId={person.id}
+                  organizationId={organizationId}
+                  stores={storeOptions}
+                />
+              )}
 
               <section className="space-y-2" aria-label="Audit entries">
                 <h3 className="text-sm font-semibold">What this person changed</h3>

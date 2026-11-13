@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Fixed — #860: a section guard no longer reports a failed /admin/me as "you need the owner relation"; service accounts are read-only on Roles
+
+- `HqSectionGuard` / `StoreSectionGuard` rendered "You do not have access to this — you need the owner relation"
+  whenever `loadPrincipal()` failed (401, a 503 from a fail-closed OpenFGA, no answer). The owner saw it on HQ ›
+  Roles. A failed principal read now renders `ApiStatePanel` (its status and error). "You need X" appears only
+  when `/admin/me` answered without the relation. It was reachable only on a **soft navigation**: _Manage_ is a
+  client-side link, so Next re-renders the page segment alone, and the Shell, which handles a failed principal on
+  a full load, is not run again (Fable review of #862).
+- HQ › Roles: service-account rows (crm-sync, analytics-sync) are badged and offer **View**. The view is read-only
+  and names `provision:service-accounts`. The assign and revoke actions refuse them server-side. Ids are fixed
+  until `StaffUser.kind` (CONTRACT CHANGE #861).
+- Customer form: the customer-group hint no longer promises a picker "with the customer-groups operation". That
+  operation is served now; the picker is a follow-up.
+- Tests: `roles-screens` (guard on 401, 503 and no answer, HQ and store; service-account view; a person still
+  managed; +7), `roles-actions` (service accounts refused before the API; +2).
+
 ### Added — #851 (part 1): HQ › Finance on the Accounting API — books, trial balance, journal
 
 - The Finance placeholder ("window 15 in Phase 4") is replaced. It lists legal entities with books
