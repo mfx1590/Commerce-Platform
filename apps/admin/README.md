@@ -621,6 +621,49 @@ forms at all, every card read-only with the relation named, keys card the store_
 No core defects found. Screenshots in [`docs/settings/`](./docs/settings/) — the revealed key is
 redacted in the DOM before capture; no key value is committed.
 
+## HQ › Finance (issue #851; Accounting API 0.1.0)
+
+`/finance` reads the accounting service (apps/accounting, `packages/contracts/openapi/accounting.yaml`). It is
+read-only: the ledger is derived from events and nothing here writes.
+
+- **Client.** `src/lib/api/accounting-client.ts` is typed by the generated `@platform/contracts/accounting`
+  (`AccountingResponse<K>`, `AccountingQuery<K>`), over the Admin API's transport (`jsonRequest`), so there are no
+  hand-typed shapes. The URL comes from `ACCOUNTING_API_URL`, then `MOCK_ACCOUNTING_API_URL`, then (not in
+  production) `pnpm mock`'s :4013. In production a missing URL reads as _not configured_.
+- **Gate.** Every operation is `finance` on `organization:hq` (owner implies it). `src/lib/api/accounting.ts` checks
+  the principal and refuses with the contract's 403 **before** any request; the service checks again with OpenFGA.
+  The bearer is the session's staff-realm token: the service verifies it with auth-sdk's default audience
+  `core-api`, the same token the core gets.
+- **Panels.**
+  - Legal entities with books (`listLegalEntityBooks`).
+  - For the chosen entity, the **trial balance** (`getTrialBalance`). It shows one table per currency with that
+    currency's own total and _Balanced_ / _Unbalanced by …_ state. A period with no lines says so and never
+    claims balanced.
+  - Or the **journal** (`listJournalLines`): period, currency, journal, account, reference and ERP filters, and
+    paging that keeps them. An order reference opens `/{storeId}/orders/{orderId}`.
+- **URL state.** The view lives in the URL (`entity`, `tab`, `from`, `to`, `currency` and the journal filters),
+  read by `readFinanceView`. Only declared parameters are sent. Anything malformed is dropped and named on the
+  page, never a 400 panel.
+- **Money.** Integer minor units per currency through `formatMoney`, so JPY is whole yen (JP¥1,980). Nothing is
+  ever summed across currencies.
+- **Errors.** `AccountingStatePanel` (`src/app/(hq)/finance/accounting-state.tsx`), never `ApiStatePanel`, which speaks
+  for the Admin API and drops `hint` outside 403 (#853 review). Each case names the accounting service and its
+  next step:
+  - down (status 0): check apps/accounting and `ACCOUNTING_API_URL`;
+  - `not_configured`: set `ACCOUNTING_API_URL`;
+  - 401: sign in again, or the realm differs;
+  - 5xx: usually temporary.
+
+  403 and 404 keep the shared panels. A failure is never an empty table.
+
+- **Production URL.** In production only `ACCOUNTING_API_URL` counts; `MOCK_ACCOUNTING_API_URL` is ignored there.
+- **Trial balance checks.** A currency is _Balanced_ only when its difference is zero **and** debit = credit. Rows of
+  a currency with no total are shown under "No total from the service — not checked", never dropped.
+- **Next PR (#851 part 2).**
+  - Payouts and reconciliation (`listPayouts`, `getPayout`).
+  - The ops panel (`listParkedEvents`, `getErpSyncStatus`).
+  - An e2e against Prism's accounting mock. The real service in the advisory e2e job is REQUEST #852.
+
 ## HQ roles (task 3.1 A, issue #428; Admin API 0.4.12)
 
 **HQ · Roles** (`/roles`, owner on `organization:hq`): every staff user with status and last

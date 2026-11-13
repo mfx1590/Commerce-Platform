@@ -7,7 +7,9 @@
 - `HqSectionGuard` / `StoreSectionGuard` rendered "You do not have access to this — you need the owner relation"
   whenever `loadPrincipal()` failed (401, a 503 from a fail-closed OpenFGA, no answer). The owner saw it on HQ ›
   Roles. A failed principal read now renders `ApiStatePanel` (its status and error). "You need X" appears only
-  when `/admin/me` answered without the relation.
+  when `/admin/me` answered without the relation. It was reachable only on a **soft navigation**: _Manage_ is a
+  client-side link, so Next re-renders the page segment alone, and the Shell, which handles a failed principal on
+  a full load, is not run again (Fable review of #862).
 - HQ › Roles: service-account rows (crm-sync, analytics-sync) are badged and offer **View**. The view is read-only
   and names `provision:service-accounts`. The assign and revoke actions refuse them server-side. Ids are fixed
   until `StaffUser.kind` (CONTRACT CHANGE #861).
@@ -15,6 +17,26 @@
   operation is served now; the picker is a follow-up.
 - Tests: `roles-screens` (guard on 401, 503 and no answer, HQ and store; service-account view; a person still
   managed; +7), `roles-actions` (service accounts refused before the API; +2).
+
+### Added — #851 (part 1): HQ › Finance on the Accounting API — books, trial balance, journal
+
+- The Finance placeholder ("window 15 in Phase 4") is replaced. It lists legal entities with books
+  (`listLegalEntityBooks`), then for the chosen one either the trial balance (`getTrialBalance`: per currency,
+  balanced or unbalanced stated, an empty period never called balanced) or the journal (`listJournalLines`:
+  filters, paging, order references linking to the store order).
+- Typed by the generated `@platform/contracts/accounting`. `adminRequest`'s transport is extracted as
+  `jsonRequest<T>` and shared, unchanged.
+- `finance` on organization:hq is checked before any request (the contract's 403). `ACCOUNTING_API_URL` is new;
+  production never falls back to a mock, and its absence is "not configured".
+- Money: per currency, never summed across. A JPY fixture (Brand D K.K.) renders whole yen.
+- Tests: `finance` (the gate per role, the URL, the search params, the helpers; 23), `finance-screens`
+  (JPY/EUR trial balance, empty period, rows without a total, journal links and paging, entities; 9) and
+  `finance-page` (the page: placeholder gone; accounting down, not configured, 401, 403 and 5xx each named; 6).
+- #853 review (Fable):
+  - Accounting failures render `AccountingStatePanel`. `ApiStatePanel` had named the Admin API and dropped the hint.
+  - Production ignores `MOCK_ACCOUNTING_API_URL`.
+  - Rows of a currency without totals are shown and said.
+  - _Balanced_ requires debit = credit as well as a zero difference.
 
 ### Fixed — #820: no Review flash after the onboarding wizard's "Done"
 

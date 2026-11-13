@@ -566,6 +566,42 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   src/lib/roles) get a badge + View + read-only card naming provision:service-accounts; assign/revoke actions
   refuse them. CONTRACT CHANGE #861 asks for StaffUser.kind. Customer-group hint fixed (no picker; follow-up:
   no listCustomerGroups wrapper yet).
+- **#853 Fable review = BLOCK → fixed in one push (2026-11-13; code commit in the log after 22a0f3c3).**
+  `AccountingStatePanel` (finance/accounting-state.tsx) replaces ApiStatePanel on Finance: ApiStatePanel
+  speaks for the Admin API and passes `hint` only to ForbiddenPanel (state-panel.tsx ~270), so accounting
+  down read "Could not reach the Admin API". Production ignores MOCK_ACCOUNTING_API_URL; trial-balance rows of
+  a currency without totals are shown ("No total from the service — not checked"); balanced = difference 0
+  AND debit = credit. New test/finance-page.test.tsx renders FinancePage (placeholder gone; down,
+  not_configured, 401, 403, 5xx). Nits deferred: Math.abs badge, "no lines" past the last page, no transport
+  timeout. Not ours: accounting journal ORDER BY tiebreak (window 15).
+  - Then #859 (part 2) is rebased/merged onto the new #853 head and pushed once.
+- **#839 next (after Finance part 2):** contracts 0.4.36 on `integration/readiness-payment` f4b538cf
+  (getStoreReadiness + StoreReadiness as filed). May rebase cfe11b71 onto it to swap the fixture for generated
+  types; the admin commit is CUT from window 1's core sha (manager sends it after #855).
+- **Small extra for the next admin PR:** customers/[customerId]/customer-form.tsx:62 says "A picker arrives
+  with the customer-groups operation", but listCustomerGroups is served (core admin-routes.ts:585): build the
+  picker or fix the text, and say which.
+- **PR #853 — #851 part 1: HQ › Finance on the Accounting API (code 6c08b09f; head = this memory commit).**
+  Branch `admin/phase6-851-finance` from main de298c1b (main merged in after). Books (`listLegalEntityBooks`),
+  trial balance per currency (balanced/unbalanced; empty period never "balanced"), journal (filters, paging,
+  order ref → store order). `accounting-client.ts` typed by `@platform/contracts/accounting`; `jsonRequest<T>`
+  extracted from `adminRequest`. Gate: finance on hq checked BEFORE any request (`src/lib/api/accounting.ts`).
+  `ACCOUNTING_API_URL` → `MOCK_ACCOUNTING_API_URL` → :4013 outside production only (production = not configured).
+  Needs a Fable review (accounting). Hold pushes after reporting.
+  - Part 2 (next PR): payouts (`listPayouts`, `getPayout`), ops (`listParkedEvents`, `getErpSyncStatus`), e2e on
+    Prism accounting mock (admin playwright config starts :4013). REQUEST #852 (window 5): ACCOUNTING_API_URL in
+    deploy values + booting accounting in the advisory admin e2e job (the real-service waiver).
+- **#845 MERGED** (#820 wizard flash). **#839 admin half: LOCAL** branch `admin/phase6-839-readiness-local`
+  cfe11b71 (from main 79914780), not pushed; waits for the manager's integration sha (after #844, #806 and the
+  contracts commit). Its memory note lives here, not on that branch.
+- **Demo servers for the owner (manager 13):** core :9000 (restarted with CLICKHOUSE_* + AI key copied into the
+  worktree .env; logs scratchpad core-demo2.log) + admin :3000 (built from main code, 4c66554b). Keep them up
+  until the manager says the owner is done; no `next build`/`next dev` in this worktree meanwhile.
+  BI check (finance user): metrics 200, brand-a Sep 4 orders / Oct 164; sales report 200 (analyst); ask 503
+  `ai_disabled` (AI_ENABLED unset everywhere; not turned on: money). REQUEST #850 (window 1): boot line for
+  analytics/AI off by missing config.
+- **Owner rule 11-13:** every question/report goes to the manager, never the owner; paused messaging →
+  "FOR THE MANAGER:" in the final reply and keep working.
 - **PR for #820 wizard flash (code commit 690621f4; head = this memory commit).** Branch
   `admin/phase6-820-wizard-flash` (renamed from the #830 branch; main 112758c1 merged in). "Done" now sets
   `leavingTo` and renders "Opening the readiness panel…" + an "Open it now" link instead of falling back to

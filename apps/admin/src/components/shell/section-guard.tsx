@@ -14,7 +14,9 @@ import { loadPrincipal } from '@/lib/principal';
  *
  * Only when `GET /admin/me` ANSWERED and the relation is missing. A failed principal read (401,
  * 503 from a fail-closed OpenFGA, no answer) is shown as what it is — telling the owner "you need
- * the owner relation" because `/admin/me` failed once was a lying panel (#860).
+ * the owner relation" because `/admin/me` failed once was a lying panel (#860). The Shell handles a failed
+ * principal on a full load; on a soft navigation (a `<Link>` within the section) only the page segment
+ * re-renders, so this guard is the one that sees the failure.
  */
 export async function HqSectionGuard({ id, children }: { id: string; children: ReactNode }) {
   const result = await loadPrincipal();
