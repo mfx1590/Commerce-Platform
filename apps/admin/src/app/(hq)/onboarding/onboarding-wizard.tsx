@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
@@ -90,6 +91,9 @@ export function OnboardingWizard({
   } | null>(null);
   const [created, setCreated] = useState<Created | null>(null);
   const [copied, setCopied] = useState(false);
+  // Set by "Done": the store whose readiness panel is loading. Without it, dropping `created`
+  // re-rendered the Review step until the route changed (#820, seen in the brand D run).
+  const [leavingTo, setLeavingTo] = useState<string | null>(null);
 
   const set = <K extends keyof OnboardingValues>(key: K, value: OnboardingValues[K]) =>
     setValues((current) => ({ ...current, [key]: value }));
@@ -165,6 +169,18 @@ export function OnboardingWizard({
     });
   };
 
+  if (leavingTo !== null) {
+    // The key is already gone from state; only the store id (which is in the URL anyway) remains.
+    return (
+      <p role="status" className="text-sm">
+        Opening the readiness panel…{' '}
+        <Link className="text-accent underline" href={`/onboarding/${leavingTo}`}>
+          Open it now
+        </Link>
+      </p>
+    );
+  }
+
   if (created !== null) {
     return (
       <div className="space-y-4" aria-label="Onboarding result">
@@ -209,6 +225,7 @@ export function OnboardingWizard({
           onClick={() => {
             const storeId = created.storeId;
             setCreated(null);
+            setLeavingTo(storeId);
             router.push(`/onboarding/${storeId}`);
           }}
         >

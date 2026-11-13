@@ -229,7 +229,7 @@ window 1 (core); sub-folders under src/modules/\* belong to windows 2, 7, 8, 9, 
 
 ## Gotchas
 
-- Node `>= 20.19` required: this app is CommonJS (Medusa) and `require()`s the ESM `@platform/*` packages. That
+- Node 22 (root engines `>=22.12 <23`; `require()` of ESM needs `>= 20.19`): this app is CommonJS (Medusa) and `require()`s the ESM `@platform/*` packages. That
   needs a `default` (or `require`) condition in each package's export map (`@platform/db` / `@platform/events`
   have it since #40); a package with only `import` fails at runtime with `ERR_PACKAGE_PATH_NOT_EXPORTED` under
   tsx/`pnpm dev` even though `tsc` and Vitest are happy.

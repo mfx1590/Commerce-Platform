@@ -17,7 +17,7 @@
 # actually listens on. REQUEST #68 asks window 4 to drop `--port` — `next start` honours $PORT —
 # after which this image goes back to the 900x allocation.
 
-ARG NODE_VERSION=20.19-alpine
+ARG NODE_VERSION=22.23-alpine
 ARG PNPM_VERSION=10.34.5
 
 # ---------- deps: the workspace install, cached on the manifests alone ----------

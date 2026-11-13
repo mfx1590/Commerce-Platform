@@ -370,12 +370,18 @@ fails closed.
 `.github/dependabot.yml` opens the updates that shrink it: every Monday, one grouped PR per group for minor and patch
 bumps (npm production, npm development, GitHub Actions, the apps' Dockerfile base images); a major bump comes as its
 own PR for the owning window to review. A few majors are ignored, each with its reason in the file:
-`@types/node` and the `node` base image (they move with the Node 20 runtime, once, everywhere), and `@medusajs/*`,
+`@types/node` 23+ and the `node` base image major (they move with the Node 22 runtime, once, everywhere), and `@medusajs/*`,
 `@opentelemetry/*`, `express` and `@types/express` (they run inside Medusa's process and move with Medusa).
-`@medusajs/*` is its own `medusa` group (its packages must move together), and Medusa 2.22+ is ignored until the
-Node 22 move. The storefront starter's packages are no longer ignored (#758, after #789): the brands' sync-merge
+`@medusajs/*` is its own `medusa` group (its packages must move together), and Medusa 2.22+ stays ignored until core
+lifts it in its own PR, after the Node 22 runtime move. The storefront starter's packages are no longer ignored (#758, after #789): the brands' sync-merge
 tests accept a plain-semver version bump on a shared key, so Dependabot's grouped PRs can bump the starter and the
 brands together. The file names the failure behind each remaining ignore.
+
+**The grouped base-image PR needs one hand edit.** Dependabot's `docker` group bumps each Dockerfile's
+`ARG NODE_VERSION=` (e.g. `22.23-alpine` → `22.24-alpine`), but every CI and staging build takes the tag from the
+`NODE_VERSION` build arg in `infra/docker/docker-compose.build.yml`, which Dependabot does not edit. So that PR is red
+by design: `infra/ci/check-image-manifests.sh` fails on the mismatch and says so. Edit the compose arg to the same
+tag in that PR, and the images really move.
 
 ## Helm
 

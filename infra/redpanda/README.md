@@ -160,7 +160,7 @@ broker config stays at its default. `AlterConfigs` is the non-incremental form (
 `IncrementalAlterConfigs`): it sets the whole non-default config of the topic, which is exactly the
 managed set, so it is not lossy for us.
 
-**Client library: kafkajs 2.2.4.** Pure JavaScript, works on Node 20 (this laptop and CI's `NODE_VERSION`);
+**Client library: kafkajs 2.2.4.** Pure JavaScript, works on Node 20 and 22 (CI's `NODE_VERSION` is 22 since the Node 22 move);
 `@platformatic/kafka` needs Node ≥ 22.22, `@confluentinc/kafka-javascript` is native librdkafka (a build
 risk on Windows). kafkajs is in maintenance mode, so it stays behind the `@platform/events` public API
 (`createKafka`, `ensureTopics`, the relay and consumer SDK): a swap touches one package.

@@ -25,7 +25,7 @@ permissions:
   contents: read
 
 env:
-  NODE_VERSION: 20
+  NODE_VERSION: 22
   DATABASE_URL: postgres://platform:platform@localhost:5432/platform
   DATABASE_URL_APP: postgres://platform_app:platform_app@localhost:5432/platform
 
@@ -121,14 +121,15 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       # setup-node already caches the pnpm store. This caches turbo's task output, so an unchanged
-      # package skips its build/typecheck entirely instead of redoing it.
+      # package skips its build/typecheck entirely instead of redoing it. The key carries the Node major, and
+      # turbo.json's globalDependencies include .nvmrc: a result from another runtime is never replayed (#806).
       - uses: actions/cache@v6
         if: needs.changes.outputs.code == 'true'
         with:
           path: .turbo
-          key: turbo-lint-${{ runner.os }}-${{ github.sha }}
+          key: turbo-lint-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ github.sha }}
           restore-keys: |
-            turbo-lint-${{ runner.os }}-
+            turbo-lint-${{ runner.os }}-node${{ env.NODE_VERSION }}-
       - run: pnpm install --frozen-lockfile
         if: needs.changes.outputs.code == 'true'
       - run: pnpm lint
@@ -179,9 +180,9 @@ jobs:
         if: needs.changes.outputs.code == 'true'
         with:
           path: .turbo
-          key: turbo-unit-${{ runner.os }}-${{ github.sha }}
+          key: turbo-unit-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ github.sha }}
           restore-keys: |
-            turbo-unit-${{ runner.os }}-
+            turbo-unit-${{ runner.os }}-node${{ env.NODE_VERSION }}-
       - run: pnpm install --frozen-lockfile
         if: needs.changes.outputs.code == 'true'
       - run: pnpm test
@@ -224,9 +225,9 @@ jobs:
         if: needs.changes.outputs.code == 'true'
         with:
           path: .turbo
-          key: turbo-contract-${{ runner.os }}-${{ github.sha }}
+          key: turbo-contract-${{ runner.os }}-node${{ env.NODE_VERSION }}-${{ github.sha }}
           restore-keys: |
-            turbo-contract-${{ runner.os }}-
+            turbo-contract-${{ runner.os }}-node${{ env.NODE_VERSION }}-
       - run: pnpm install --frozen-lockfile
         if: needs.changes.outputs.code == 'true'
       - run: pnpm test:contract
@@ -393,7 +394,7 @@ jobs:
       - name: the image manifest lists are complete
         if: needs.changes.outputs.images == 'true'
         run: bash infra/ci/check-image-manifests.sh
-      - name: smoke — non-root, build output present, scaffolds healthy
+      - name: smoke — non-root, .nvmrc's Node, build output present, scaffolds healthy, storefront sharp
         if: needs.changes.outputs.images == 'true'
         env:
           IMAGE_TAG: ${{ github.sha }}

@@ -410,6 +410,27 @@ branch), dropping versions from the manifest (`--check`'s drift report needs the
 `bump-starter-dep.mjs` as the primary path — **a script of mine cannot make a starter edit legal**;
 bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
+## In progress — the A–D re-sync for #838 + #840 (2026-11-13)
+
+**PR #847** (code commit `adae3ad0`; head = this memory commit), branch
+`brands/phase6-resync-838-840` from main `79914780`. Verified by the manager with a blob compare against the starter: A/B/C 13 of 15 changed files byte-identical, D 10 of 12, the rest being each brand's CHANGELOG and `starter-manifest.json`. **Node 22 (v22.23.5) is on the laptop
+now**; `pnpm install --frozen-lockfile` was clean, no native rebuild drama. #843 MERGED
+(`112758c1`, #829 closed), #840 MERGED (`79914780`), #838 before it.
+
+- Four brands, identical counts: **251 copied, 1 merged, 10 preserved, 4 excluded**; starter 0.16.1
+  → 0.16.4; `sync --check` current ×4; **no preserved file drifted** and **no dependency moved**.
+- **`@types/node` deliberately NOT taken** — still `^20.19.0`. The Node-types move is #806's and
+  gets its own small re-sync; the starter has not moved it yet either, so there was nothing to hold
+  back, which I checked rather than assumed.
+- Suites: A **983**, B **883**, C **792**, D **780** (each ~+30, all from the synced tests).
+**Next re-syncs, to be batched by the manager:** window 3's **#846** (blank Store API
+strings, in review) and **#806** (`@types/node ^22`). No action until he says.
+
+- The two changes are both brand D's findings coming home: **#838** is the meta-description chain
+  that stopped at an empty `subtitle` (`??` falls past `null`, not past `''`, and
+  `product.description` was never read) — my REQUEST #837; **#840** is the fail-fast precondition
+  half of **#830**, which is what turns a 180-second `locator.check` timeout into a named cause.
+
 ## In progress — #829, the generator writes a brand's three documents (2026-11-13)
 
 **PR #843**, branch `brands/phase6-829-generated-docs` from main `ec55cb3e`. Code commit
