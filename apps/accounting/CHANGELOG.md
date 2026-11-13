@@ -12,6 +12,27 @@
   `richPayments`) consumed by the ledger; each legal entity's month-end payout reconciles with 0 differences and posts
   the bank entry, and `listPayouts` = the 1000 debits from psp.payout (identity 3c's two sides). No code change.
 
+## 0.6.12 — 2026-11-13 (#888 part 1)
+
+- Fix: the ledger is idempotent by source event across consumer GROUPS. `handleLedgerEvent` answers `duplicate`
+  (`duplicate_of: ledger | parked | processed`) for an event the ledger already holds — rows with its source event id,
+  still parked, or (asked only when posting would fail) processed by another `…accounting.ledger…` group — and marks
+  it processed for the current group; nothing is written, retried or dead-lettered. Before, a group re-reading topics
+  another group had posted dead-lettered the shipments (`ShipmentExceedsOrder`) and would have dead-lettered payments
+  and refunds (UNIQUE), on every re-read (seen on the dev stack 2026-11-13). A redelivered `order.placed` without the
+  mark is now `duplicate` (was `noop`).
+- Tests: 131 (+4, `test/cross-group.test.ts`); the second-guard test now proves both the handler check and UNIQUE.
+
+## 0.6.11 — 2026-11-13 (#854)
+
+- Finance read API paging is over a total order. `listJournalLines` now ends its ORDER BY in the line id (it was
+  already total through UNIQUE (source_event_id, account_code); now it does not depend on that constraint).
+  `listPayouts` had a real tie — its unique key is (legal entity, provider, payout id), its order was (arrival date,
+  payout id) — and now orders by provider, then the row id. `test/paging.test.ts` (+2).
+- Test wording (#715 review nit): order-placed-v2 test (c) no longer claims to be the erasure-aware replay's case;
+  today the replay skips an erased customer's order.placed (#700).
+- Tests: 127 (+2).
+
 ## 0.6.10 — 2026-11-05 (the #696 gate, accounting side; #701)
 
 - `order.placed@2` (#696: v1 with `email_hash` nullable, an erased customer): checked at runtime — the ledger never

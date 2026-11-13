@@ -47,7 +47,7 @@ landed by the manager in `packages/db`.
 - `createLedgerConsumer({ client, kafka?, topicPrefix?, groupId?, log?, retries?, fromBeginning?, sleep?, onBatch? })`
   → the SDK's `EventConsumer` (`start` / `stop` / `stats` / `dlqTopic`); `LEDGER_GROUP`, `LEDGER_TOPICS`,
   `LEDGER_RETRIES` (5), `PROCESSED_TABLE` (`consumer_processed`).
-- `handleLedgerEvent(client, decodedMessage, { markProcessed? })` (one transaction, `pg_advisory_xact_lock(hashtext(order_id))` first) → `{ action: posted | parked | noop | ignored, entries,
+- `handleLedgerEvent(client, decodedMessage, { markProcessed? })` (one transaction, `pg_advisory_xact_lock(hashtext(order_id))` first) → `{ action: posted | parked | noop | ignored | duplicate, entries,
 lines, applied_parked, legal_entity_id, outbox_id, topic }` (`parked` = the order has not arrived; the envelope waits
   in `accounting_parked_event`); throws a named defect (`ShipmentExceedsOrder`, `UnknownOrderLine`,
   `ShipmentOfCancelledOrder`, `DuplicateOrderPlaced`, `InvalidEvent`, `ForeignOrganization`, `UnbalancedEntry`,
@@ -103,6 +103,8 @@ keycloakUrl?, keycloakRealm?, verifier?, permission? })`; `loadApiSpec(path?)` /
 - `syncLegalEntity` takes a per-legal-entity advisory lock for the whole run (#639): it holds one pool connection while
   it works, so give its client a pool of at least 2; an overlapping run is `ErpSyncInProgress`.
 - A parked event that is a posting defect stays parked when its order arrives (#639): `parked_defects` on the result.
+- Idempotency is by SOURCE EVENT, across groups (#888): an event the ledger already holds is `duplicate` for any group
+  (rows with its id, still parked, or another ledger group's mark when posting would fail). Never re-post to "repair".
 - `@platform/test-utils` is a devDependency (#658): only tests and the tsx-run fixture generator may import it; the
   build excludes `src/posting/fixtures.ts`, `src/reconcile/fixtures/**` and `src/testing/**` (`src/packaging.test.ts`).
 - `order.placed@2` (#696) posts like v1; the ledger must be deployed with the @2-aware `@platform/events` no later than

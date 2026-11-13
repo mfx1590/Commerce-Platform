@@ -81,6 +81,20 @@ never coexist with a stuck shipment. Before, its throw failed the order's transa
 `order.placed` itself dead-lettered with the whole order unposted. Any other error (the database) still fails the
 transaction and retries. The month replay gate (#552) therefore needs no topic order.
 
+**Idempotent by source event across consumer groups (#888).** `consumer_processed` dedupes per GROUP. A group that
+re-reads topics another group already posted (committed offsets expired after a week idle, a new group on an existing
+ledger, a rebuild) used to re-apply those events: a shipment "exceeded the order" (the shared projection already
+counted it) and a payment or refund hit `UNIQUE (source_event_id, account_code)`. Both dead-lettered after the
+retries, and came back on every re-read (seen on the dev stack on 2026-11-13). Now the handler asks the ledger
+first, inside its transaction and after the per-order lock: an event whose id already has ledger rows, or that is
+still parked, is a `duplicate` (`duplicate_of: ledger | parked`). Nothing is written, nothing retried, and it is
+marked processed for the current group. An event that posted NO rows under another group (the cancel of a fully
+shipped order) is recognised by that group's processed mark (`duplicate_of: processed`), asked only when posting would
+fail: `consumer_processed` is not indexed by outbox id, and a healthy event never pays for that look-up. The UNIQUE
+constraint stays as the last guard. `test/cross-group.test.ts` replays a whole EUR + GBP month plus Brand D orders in
+JPY under a second group in both arrival orders, and interleaves two groups at random: always the reference ledger,
+zero throws, every event processed for both groups.
+
 Logs are JSON lines with ids, counts, amounts and error classes only — never a payload field (tested over every line
 the live test produces).
 
@@ -347,7 +361,9 @@ contract's.
 - **Operations** — `listLegalEntityBooks`, `getTrialBalance` (per-currency totals whose `difference_minor` is the
   #552 number), `listJournalLines` (paginated; filters `from`, `to`, `currency`, `journal`, `account_code`,
   `reference_type`, `reference_id`, `source_event_id`, `erp=posted|unposted`), `listParkedEvents` (ids and times,
-  never the envelope), `listPayouts`, `getPayout` (lines with verdicts), `getErpSyncStatus`. Lists page with `page` / `limit` (default 20, max 100), `getPayout`'s lines too. Unknown or malformed query
+  never the envelope), `listPayouts`, `getPayout` (lines with verdicts), `getErpSyncStatus`. Lists page with `page` / `limit` (default 20, max 100), `getPayout`'s lines too, always over a TOTAL order
+  (#854): journal lines by entry date, created_at, source event, account, then the line id; payouts by arrival date,
+  payout id, provider, then the row id; so a page boundary never skips or repeats a row. Unknown or malformed query
   parameters are a 400 `validation_error` naming them (the contract's shared `BadRequest`); a legal entity or payout outside the organization is a 404.
   Money is integer minor with its currency; nothing is summed across currencies. Logs carry operation id, status and
   duration — never a body.
@@ -449,7 +465,7 @@ pnpm --filter @platform/core outbox:replay --topic shipment.shipped
 Orders first. A shipment, a cancellation, or a refund whose reason is not `cancellation`, that arrives before its order
 is parked (`accounting_parked_event`) and posted once the order arrives; a payment (and a cancellation refund) posts
 on its own. So the order of the last three does not matter. Replaying into the EXISTING ledger changes nothing: it is
-idempotent by `source_event_id`. An erased customer's `order.placed` is not skipped: since #629 both replays (the
+idempotent by `source_event_id`, under the same group or another one (#888). An erased customer's `order.placed` is not skipped: since #629 both replays (the
 core's `outbox:replay` and the consumer SDK's `replayFromDlq`) send it as `order.placed@2` with `customer_id` and
 `email_hash` null and the same `event_id`, and the ledger posts a v2 exactly like a v1 (tested,
 `test/order-placed-v2.test.ts`). So a ledger rebuilt from scratch gets those orders' revenue lines, and their parked
@@ -463,7 +479,7 @@ missing from the ledger without any alert. The ledger itself needs no code chang
 
 ## Tests
 
-`pnpm --filter @platform/accounting test` — 122 tests in fifteen files:
+`pnpm --filter @platform/accounting test` — 131 tests in eighteen files:
 
 - `src/posting/posting.test.ts` — pure: the arithmetic, the worked example of every topic above, partial shipments,
   proportional refunds and cancellations, every defect class, the netted life of one order, the late shipment, event
@@ -501,6 +517,11 @@ missing from the ledger without any alert. The ledger itself needs no code chang
   v1, that steps aside once `@platform/events` publishes @2) posts exactly like v1 with a hash and with `email_hash` and
   `customer_id` null; a replayed v2 with the same event id is a no-op; parked shipments and refunds are released by a
   v2 order; the deploy-order case (today's build refuses v2).
+- `test/cross-group.test.ts` — #888: a month (EUR, GBP, JPY) posted by one group and re-read by a second in both
+  arrival orders, and two groups interleaved at random: the reference ledger, zero throws, every event processed for
+  both.
+- `test/paging.test.ts` — #854: 16 journal lines on one date and one timestamp paged five at a time come back each
+  exactly once and in order; two providers' payouts with the same id on the same day page deterministically.
 - `test/group-guard.test.ts` — the boot guard: an empty ledger takes any group, other services' groups do not count,
   a mistyped group on a filled ledger is refused, the opt-in allows it, the default is never refused — on an empty
   ledger (a fresh deploy, no flag) as on a filled one (#658).

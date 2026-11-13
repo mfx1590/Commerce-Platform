@@ -156,22 +156,23 @@ describe('order.placed@2 (#696): the ledger posts v2 exactly like v1', () => {
     expect(order.rows).toEqual([{ status: 'placed' }]);
   });
 
-  it('(c) a replayed v2 with the same event_id changes nothing — after the original v1 (the erasure-aware replay) and after itself', async () => {
+  it('(c) a v2 carrying the same event_id as an already-posted order changes nothing — after the original v1 and after itself', async () => {
     const v1 = placed();
     expect(await handle(v1)).toMatchObject({ action: 'posted' });
     const rows = await count('ledger_entry WHERE source_event_id = $1', [v1.event_id]);
     const total = await count('ledger_entry');
-    // the replay republishes the same fact, scrubbed: same event_id, version 2, no ids
+    // the same fact again as v2 without the ids (what a scrub-to-@2 replay would send; today the replay SKIPS an erased
+    // customer's order.placed, #700): same event_id, version 2, no ids
     const replayed = toOrderPlacedV2(v1, { emailHash: null, customerId: null });
-    expect(await handle(replayed)).toMatchObject({ action: 'noop', entries: 0 });
-    expect(await handle(replayed)).toMatchObject({ action: 'noop', entries: 0 });
+    expect(await handle(replayed)).toMatchObject({ action: 'duplicate', entries: 0 });
+    expect(await handle(replayed)).toMatchObject({ action: 'duplicate', entries: 0 });
     expect(await count('ledger_entry WHERE source_event_id = $1', [v1.event_id])).toBe(rows);
     expect(await count('ledger_entry')).toBe(total);
     // and a v2 that was the original: its replay is a no-op too
     const v2 = toOrderPlacedV2(placed(), { emailHash: null, customerId: null });
     expect(await handle(v2)).toMatchObject({ action: 'posted' });
     const after = await count('ledger_entry');
-    expect(await handle(v2)).toMatchObject({ action: 'noop', entries: 0 });
+    expect(await handle(v2)).toMatchObject({ action: 'duplicate', entries: 0 });
     expect(await count('ledger_entry')).toBe(after);
   });
 
