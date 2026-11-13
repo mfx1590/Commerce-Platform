@@ -646,10 +646,24 @@ read-only: the ledger is derived from events and nothing here writes.
 - **Money.** Integer minor units per currency through `formatMoney`, so JPY is whole yen (JP¥1,980). Nothing is
   ever summed across currencies.
 - **Errors.** Service down, not configured, 401 or 403 is `ApiStatePanel` with a hint, never an empty table.
-- **Next PR (#851 part 2).**
-  - Payouts and reconciliation (`listPayouts`, `getPayout`).
-  - The ops panel (`listParkedEvents`, `getErpSyncStatus`).
-  - An e2e against Prism's accounting mock. The real service in the advisory e2e job is REQUEST #852.
+- **Payouts** (`listPayouts`, part 2): arrival, provider, the payout in its own currency, status, matched of all
+  lines, lines not matched. The filters are status and provider; no currency, which the operation doesn't declare.
+  - **One payout** (`/finance/payouts/{id}?entity=`, `getPayout`) shows its lines with amount, fee, net and the
+    verdict in words (_Matched_, _No ledger entry_, _Amount differs_, _Fee differs_, _Not checked yet_), plus the
+    difference (PSP − ledger) when not zero.
+- **Parked events & ERP** (part 2):
+  - `getErpSyncStatus`: Odoo company, accounts mapped (unmapped codes as an alert), posted vs waiting entries.
+  - `listParkedEvents`: each event links to its order, since a list that doesn't drain means that order's
+    `order.placed` is missing.
+- **Only the chosen tab's operations are called.**
+- **e2e** (`e2e/finance.spec.ts`):
+  - **Default (Prism) run:** a store admin is refused with no books shown. Prism's `/admin/me` is the store-admin
+    example, so the refusal is what the mock can prove.
+  - **`E2E_API=core` plus `E2E_ACCOUNTING_URL`** (Prism's accounting mock on :4013 is enough): the finance journey
+    through all seven operations.
+  - `playwright.config.ts` passes the accounting URL explicitly, because `next start` runs as production, where a
+    missing URL is "not configured".
+  - The real service in the advisory job is REQUEST #852.
 
 ## HQ roles (task 3.1 A, issue #428; Admin API 0.4.12)
 

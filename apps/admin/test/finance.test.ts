@@ -56,12 +56,30 @@ describe('the finance gate (before any API call)', () => {
         () => accounting.listLegalEntityBooks(),
         () => accounting.getTrialBalance(ENTITY, {}),
         () => accounting.listJournalLines(ENTITY, {}),
+        () => accounting.listPayouts(ENTITY, {}),
+        () => accounting.getPayout(ENTITY, ENTITY, {}),
+        () => accounting.listParkedEvents(ENTITY, {}),
+        () => accounting.getErpSyncStatus(ENTITY),
       ]) {
         expect(await call()).toEqual(accounting.FINANCE_REFUSAL);
       }
       expect(client.accountingRequest).not.toHaveBeenCalled();
     },
   );
+
+  it('getPayout and the ops reads use their declared paths', async () => {
+    const payout = '00000000-0000-4000-8000-00000000d001';
+    await accounting.getPayout(ENTITY, payout, { page: 2 });
+    await accounting.getErpSyncStatus(ENTITY);
+    await accounting.listParkedEvents(ENTITY, { page: 1 });
+    expect(
+      client.accountingRequest.mock.calls.map(([options]) => [options.path, options.query]),
+    ).toEqual([
+      [`/accounting/v1/legal-entities/${ENTITY}/payouts/${payout}`, { page: 2 }],
+      [`/accounting/v1/legal-entities/${ENTITY}/erp-status`, undefined],
+      [`/accounting/v1/legal-entities/${ENTITY}/parked-events`, { page: 1 }],
+    ]);
+  });
 
   it.each(['finance', 'owner'] as const)(
     '%s reaches the service with the session token',
@@ -150,6 +168,35 @@ describe('readFinanceView', () => {
     expect(view.ignored.sort()).toEqual(
       ['currency', 'entity', 'from', 'journal', 'page', 'reference_id'].sort(),
     );
+  });
+
+  it('payouts get only their declared parameters: no currency, status and provider checked', () => {
+    const view = readFinanceView({
+      tab: 'payouts',
+      from: '2026-10-01',
+      currency: 'JPY',
+      status: 'discrepant',
+      provider: 'stripe',
+      page: '3',
+    });
+    expect(view.tab).toBe('payouts');
+    expect(view.payouts).toEqual({
+      from: '2026-10-01',
+      status: 'discrepant',
+      provider: 'stripe',
+      page: 3,
+    });
+    expect(readFinanceView({ status: 'paid', provider: 'Stripe Inc' }).ignored.sort()).toEqual([
+      'provider',
+      'status',
+    ]);
+  });
+
+  it('the ops tab pages the parked events only', () => {
+    expect(readFinanceView({ tab: 'ops', page: '2' })).toMatchObject({
+      tab: 'ops',
+      parked: { page: 2 },
+    });
   });
 
   it('a "to" before "from" is ignored', () => {

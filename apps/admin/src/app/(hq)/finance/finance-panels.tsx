@@ -81,10 +81,13 @@ export function EntityList({
 export function PeriodForm({
   view,
   currencies,
+  withCurrency = true,
   children,
 }: {
   view: FinanceView;
   currencies: readonly string[];
+  /** listPayouts declares no `currency`: its form offers none. */
+  withCurrency?: boolean;
   children?: React.ReactNode;
 }) {
   return (
@@ -114,21 +117,23 @@ export function PeriodForm({
           className="border-line rounded border px-2 py-1"
         />
       </label>
-      <label className="flex flex-col">
-        <span className="text-muted text-xs">Currency</span>
-        <select
-          name="currency"
-          defaultValue={view.currency ?? ''}
-          className="border-line rounded border px-2 py-1"
-        >
-          <option value="">Each currency</option>
-          {currencies.map((currency) => (
-            <option key={currency} value={currency}>
-              {currency}
-            </option>
-          ))}
-        </select>
-      </label>
+      {withCurrency && (
+        <label className="flex flex-col">
+          <span className="text-muted text-xs">Currency</span>
+          <select
+            name="currency"
+            defaultValue={view.currency ?? ''}
+            className="border-line rounded border px-2 py-1"
+          >
+            <option value="">Each currency</option>
+            {currencies.map((currency) => (
+              <option key={currency} value={currency}>
+                {currency}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {children}
       <button type="submit" className="border-line rounded border px-3 py-1">
         Show

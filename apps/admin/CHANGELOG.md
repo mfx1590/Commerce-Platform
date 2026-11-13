@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Added — #851 (part 2): HQ › Finance payouts, payout reconciliation, parked events and ERP sync, e2e
+
+- Payouts tab (`listPayouts`, status and provider filters, paging) and a payout page (`getPayout`): line verdicts in
+  words, amount, fee and net in the payout's currency, the PSP − ledger difference.
+- Parked events & ERP tab (`getErpSyncStatus`, `listParkedEvents`): mapping gaps as an alert; parked events link
+  to their order.
+- All seven accounting operations are behind the finance gate. Only the chosen tab's operations are called.
+- `e2e/finance.spec.ts`:
+  - The default run proves the store-admin refusal.
+  - With `E2E_API=core` and `E2E_ACCOUNTING_URL`, the finance journey.
+  - `playwright.config.ts` passes `ACCOUNTING_API_URL` explicitly, since `next start` is production.
+- Tests:
+  - `finance-payouts-screens` (JPY payout and lines, verdicts, ERP gaps, parked links; 7).
+  - `finance` grew to 22: every operation gated, the payouts query never carries a currency.
+
 ### Added — #851 (part 1): HQ › Finance on the Accounting API — books, trial balance, journal
 
 - The Finance placeholder ("window 15 in Phase 4") is replaced. It lists legal entities with books
