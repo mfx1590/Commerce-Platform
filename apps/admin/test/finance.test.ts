@@ -35,8 +35,14 @@ vi.mock('@/lib/api/accounting-client', () => client);
 
 const accounting = await import('@/lib/api/accounting');
 const { resolveAccountingApiUrl } = await import('@/lib/env');
-const { readFinanceView, financeHref, balanceByCurrency, referenceHref, isoDate } =
-  await import('@/lib/finance');
+const {
+  readFinanceView,
+  financeHref,
+  balanceByCurrency,
+  currenciesWithoutTotals,
+  referenceHref,
+  isoDate,
+} = await import('@/lib/finance');
 
 const ENTITY = '00000000-0000-4000-8000-000000000011';
 
@@ -114,6 +120,21 @@ describe('ACCOUNTING_API_URL', () => {
   it('development falls back to `pnpm mock` (:4013); production never does', () => {
     expect(resolveAccountingApiUrl({})).toBe('http://localhost:4013');
     expect(resolveAccountingApiUrl({ NODE_ENV: 'production' })).toBeNull();
+  });
+  it('production never honours MOCK_ACCOUNTING_API_URL (#853 review)', () => {
+    expect(
+      resolveAccountingApiUrl({
+        NODE_ENV: 'production',
+        MOCK_ACCOUNTING_API_URL: 'http://127.0.0.1:4013',
+      }),
+    ).toBeNull();
+    expect(
+      resolveAccountingApiUrl({
+        NODE_ENV: 'production',
+        ACCOUNTING_API_URL: 'http://accounting:9003',
+        MOCK_ACCOUNTING_API_URL: 'http://127.0.0.1:4013',
+      }),
+    ).toBe('http://accounting:9003');
   });
   it('a malformed URL fails loudly with the variable named', () => {
     expect(() => resolveAccountingApiUrl({ ACCOUNTING_API_URL: 'accounting:9003' })).toThrow(
@@ -241,6 +262,38 @@ describe('per-currency helpers', () => {
         balanced: false,
       },
     ]);
+  });
+
+  it('balanced needs debit = credit, not a zero difference alone (#853 review)', () => {
+    const [eur] = balanceByCurrency({
+      legal_entity_id: ENTITY,
+      from: null,
+      to: null,
+      rows: [],
+      totals: [{ currency: 'EUR', debit_minor: 500, credit_minor: 400, difference_minor: 0 }],
+    });
+    expect(eur?.balanced).toBe(false);
+  });
+
+  it('currencies with rows but no total are named, in row order', () => {
+    const row = (currency: string, account_code: string) => ({
+      currency,
+      account_code,
+      account_name: 'x',
+      account_type: 'asset' as const,
+      debit_minor: 1,
+      credit_minor: 0,
+      balance_minor: 1,
+    });
+    expect(
+      currenciesWithoutTotals({
+        legal_entity_id: ENTITY,
+        from: null,
+        to: null,
+        rows: [row('JPY', '1200'), row('EUR', '1200'), row('USD', '1200'), row('JPY', '4000')],
+        totals: [{ currency: 'EUR', debit_minor: 1, credit_minor: 1, difference_minor: 0 }],
+      }),
+    ).toEqual(['JPY', 'USD']);
   });
 
   it('an order reference opens the store order; others have no page', () => {

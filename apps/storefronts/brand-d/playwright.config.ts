@@ -34,15 +34,16 @@ const SITE_URL = process.env.SITE_URL;
  * a 403 that reads like a permissions bug and is really a missing variable. `journey.spec.ts`
  * never hit it because it carries the same fallback itself.
  *
- * **Brand D has no dev key to default to (#827).** Brands A, B and C use their seeded one here,
- * the same value as their `next.config.mjs`. This store came from the onboarding wizard, so the
- * only key that works is the real one, it is not in this repo, and it must never be: pass
- * `STORE_PUBLISHABLE_KEY` in the environment for any run that talks to a core. A mock run needs no
- * key at all, which is why the suite still works without one.
+ * Brand D's seeded dev key since #832, the same value as its `next.config.mjs` (as for A, B and C):
+ * CI's live job runs these specs against a freshly seeded core where it resolves `brand-d`. On the
+ * SHARED dev database brand D is the wizard's store with its own real key and the seed skips it, so
+ * a local run there passes that key in `STORE_PUBLISHABLE_KEY` (never committed); the environment
+ * wins over this default.
  *
  * Window 3 is hardening the spec separately (#382: assert `ok()` with status and body on
  * `GET /store` and every admin call) so the next missing variable fails where it happens.
  */
+process.env.STORE_PUBLISHABLE_KEY ??= 'pk_brand-d_dev_00000000000000000000';
 /**
  * **Brand D's locale and market, for the Playwright process** (#441 parts 4 and 3).
  *

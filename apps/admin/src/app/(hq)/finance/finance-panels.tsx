@@ -7,6 +7,7 @@ import {
   JOURNALS,
   REFERENCE_TYPES,
   balanceByCurrency,
+  currenciesWithoutTotals,
   financeHref,
   referenceHref,
   type FinanceView,
@@ -148,8 +149,9 @@ export function PeriodForm({
  */
 export function TrialBalancePanel({ trialBalance }: { trialBalance: TrialBalance }) {
   const balances = balanceByCurrency(trialBalance);
+  const orphans = currenciesWithoutTotals(trialBalance);
   const period = `${trialBalance.from ?? 'the first entry'} – ${trialBalance.to ?? 'the last entry'}`;
-  if (balances.length === 0) {
+  if (balances.length === 0 && orphans.length === 0) {
     return (
       <p role="status" className="text-muted text-sm">
         No ledger lines in {period}: there is nothing to balance. That is not a balanced book —
@@ -170,35 +172,14 @@ export function TrialBalancePanel({ trialBalance }: { trialBalance: TrialBalance
             <Badge tone={balance.balanced ? 'success' : 'danger'}>
               {balance.balanced
                 ? 'Balanced'
-                : `Unbalanced by ${formatMoney(Math.abs(balance.difference_minor), balance.currency)}`}
+                : balance.difference_minor !== 0
+                  ? `Unbalanced by ${formatMoney(Math.abs(balance.difference_minor), balance.currency)}`
+                  : 'Unbalanced: debits and credits differ'}
             </Badge>
             <span className="text-muted text-xs">{period}</span>
           </div>
           <table className="text-sm" aria-label={`Accounts ${balance.currency}`}>
-            <thead className="text-muted text-left text-xs">
-              <tr>
-                <th className={th}>Account</th>
-                <th className={th}>Type</th>
-                <th className={`${th} text-right`}>Debit</th>
-                <th className={`${th} text-right`}>Credit</th>
-                <th className={`${th} text-right`}>Balance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {trialBalance.rows
-                .filter((row) => row.currency === balance.currency)
-                .map((row) => (
-                  <tr key={row.account_code}>
-                    <td className={td}>
-                      <span className="font-mono">{row.account_code}</span> {row.account_name}
-                    </td>
-                    <td className={td}>{row.account_type}</td>
-                    <td className={num}>{formatMoney(row.debit_minor, row.currency)}</td>
-                    <td className={num}>{formatMoney(row.credit_minor, row.currency)}</td>
-                    <td className={num}>{formatMoney(row.balance_minor, row.currency)}</td>
-                  </tr>
-                ))}
-            </tbody>
+            <AccountRows trialBalance={trialBalance} currency={balance.currency} />
             <tfoot className="font-medium">
               <tr>
                 <td className={td} colSpan={2}>
@@ -212,7 +193,51 @@ export function TrialBalancePanel({ trialBalance }: { trialBalance: TrialBalance
           </table>
         </section>
       ))}
+      {orphans.map((currency) => (
+        <section key={currency} aria-label={`Trial balance ${currency}`} className="space-y-2">
+          <div className="flex items-center gap-3">
+            <h3 className="font-semibold">{currency}</h3>
+            <Badge tone="danger">No total from the service — not checked</Badge>
+            <span className="text-muted text-xs">{period}</span>
+          </div>
+          <table className="text-sm" aria-label={`Accounts ${currency}`}>
+            <AccountRows trialBalance={trialBalance} currency={currency} />
+          </table>
+        </section>
+      ))}
     </div>
+  );
+}
+
+/** Header and rows of one currency's accounts (never mixed with another currency). */
+function AccountRows({ trialBalance, currency }: { trialBalance: TrialBalance; currency: string }) {
+  return (
+    <>
+      <thead className="text-muted text-left text-xs">
+        <tr>
+          <th className={th}>Account</th>
+          <th className={th}>Type</th>
+          <th className={`${th} text-right`}>Debit</th>
+          <th className={`${th} text-right`}>Credit</th>
+          <th className={`${th} text-right`}>Balance</th>
+        </tr>
+      </thead>
+      <tbody>
+        {trialBalance.rows
+          .filter((row) => row.currency === currency)
+          .map((row) => (
+            <tr key={row.account_code}>
+              <td className={td}>
+                <span className="font-mono">{row.account_code}</span> {row.account_name}
+              </td>
+              <td className={td}>{row.account_type}</td>
+              <td className={num}>{formatMoney(row.debit_minor, row.currency)}</td>
+              <td className={num}>{formatMoney(row.credit_minor, row.currency)}</td>
+              <td className={num}>{formatMoney(row.balance_minor, row.currency)}</td>
+            </tr>
+          ))}
+      </tbody>
+    </>
   );
 }
 

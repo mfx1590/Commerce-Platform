@@ -645,7 +645,19 @@ read-only: the ledger is derived from events and nothing here writes.
   page, never a 400 panel.
 - **Money.** Integer minor units per currency through `formatMoney`, so JPY is whole yen (JP¥1,980). Nothing is
   ever summed across currencies.
-- **Errors.** Service down, not configured, 401 or 403 is `ApiStatePanel` with a hint, never an empty table.
+- **Errors.** `AccountingStatePanel` (`src/app/(hq)/finance/accounting-state.tsx`), never `ApiStatePanel`, which speaks
+  for the Admin API and drops `hint` outside 403 (#853 review). Each case names the accounting service and its
+  next step:
+  - down (status 0): check apps/accounting and `ACCOUNTING_API_URL`;
+  - `not_configured`: set `ACCOUNTING_API_URL`;
+  - 401: sign in again, or the realm differs;
+  - 5xx: usually temporary.
+
+  403 and 404 keep the shared panels. A failure is never an empty table.
+
+- **Production URL.** In production only `ACCOUNTING_API_URL` counts; `MOCK_ACCOUNTING_API_URL` is ignored there.
+- **Trial balance checks.** A currency is _Balanced_ only when its difference is zero **and** debit = credit. Rows of
+  a currency with no total are shown under "No total from the service — not checked", never dropped.
 - **Payouts** (`listPayouts`, part 2): arrival, provider, the payout in its own currency, status, matched of all
   lines, lines not matched. The filters are status and provider; no currency, which the operation doesn't declare.
   - **One payout** (`/finance/payouts/{id}?entity=`, `getPayout`) shows its lines with amount, fee, net and the

@@ -59,6 +59,7 @@ describe('tuples.seed.json (static)', () => {
       { user: ORG, relation: 'organization', object: store(S.brandA) },
       { user: ORG, relation: 'organization', object: store(S.brandB) },
       { user: ORG, relation: 'organization', object: store(S.brandC) },
+      { user: ORG, relation: 'organization', object: store(S.brandD) }, // #832: brand D seeded
       { user: user(U.owner), relation: 'owner', object: ORG },
       { user: user(U.finance), relation: 'finance', object: ORG },
       { user: user(U.operations), relation: 'operations', object: ORG },
@@ -144,7 +145,7 @@ describe.runIf(live)('model checks (live OpenFGA, throw-away store)', () => {
       type: 'store',
     });
     expect(stores.objects.sort()).toEqual(
-      [store(S.brandA), store(S.brandB), store(S.brandC)].sort(),
+      [store(S.brandA), store(S.brandB), store(S.brandC), store(S.brandD)].sort(),
     );
     expect(await check(user(U.owner), 'store_admin', store(S.brandC))).toBe(true);
   });
@@ -156,7 +157,7 @@ describe.runIf(live)('model checks (live OpenFGA, throw-away store)', () => {
         relation: 'viewer',
         type: 'store',
       });
-      expect(stores.objects).toHaveLength(3);
+      expect(stores.objects).toHaveLength(4); // brands A–D (#832)
       expect(await check(user(id), 'store_admin', store(S.brandA))).toBe(false);
     }
     expect(await check(user(U.operations), 'finance', ORG)).toBe(false);

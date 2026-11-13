@@ -124,7 +124,7 @@ describe('datasets', () => {
   });
 
   it('only publish in xx-YY locales', () => {
-    expect(ALL_LOCALES).toEqual(['en-GB', 'de-DE', 'en-US']);
+    expect(ALL_LOCALES).toEqual(['en-GB', 'de-DE', 'en-US', 'ja-JP']); // ja-JP: brand D (#832)
     for (const locale of ALL_LOCALES) expect(locale).toMatch(LOCALE_PATTERN);
     expect('en').not.toMatch(LOCALE_PATTERN);
   });

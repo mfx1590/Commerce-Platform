@@ -151,6 +151,9 @@ export async function verifyBootstrap(): Promise<VerifyResult> {
       [SEED_IDS.publishableKeys.brandA, SEED_IDS.stores.brandA, 'EUR'],
       [SEED_IDS.publishableKeys.brandB, SEED_IDS.stores.brandB, 'GBP'],
       [SEED_IDS.publishableKeys.brandC, SEED_IDS.stores.brandC, 'USD'],
+      // Not brand D (#832): on the shared dev database brand-d is the onboarding wizard's store with its own key and
+      // the seed skips D there, so its seeded key is ABSENT by design — checking it would mark every local boot
+      // not-ready. CI's fresh database has it; the seed test pins that it resolves.
     ];
     for (const [key, storeId, currency] of expected) {
       try {

@@ -5,7 +5,7 @@ import { createOrganizationClient, type Queryable } from '../client.js';
 /**
  * Fixed ids used by `pnpm db:seed` and by every window's tests/mocks. Frozen with contracts-v0.1.
  * Pattern: 00000000-0000-4000-8000-0000000000NN for fixed entities; 3S00000K-0000-4000-8000-NNNNNNNNNNNN for
- * generated store data (S = store index 1..3, K = kind).
+ * generated store data (S = store index 1..4, K = kind).
  */
 export const SEED_IDS = {
   organization: '00000000-0000-4000-8000-000000000001',
@@ -13,6 +13,7 @@ export const SEED_IDS = {
     brandA: '00000000-0000-4000-8000-000000000011',
     brandB: '00000000-0000-4000-8000-000000000012',
     brandC: '00000000-0000-4000-8000-000000000013',
+    brandD: '00000000-0000-4000-8000-000000000014',
   },
   warehouses: {
     eu: '00000000-0000-4000-8000-000000000021',
@@ -22,6 +23,7 @@ export const SEED_IDS = {
     brandA: '00000000-0000-4000-8000-000000000031',
     brandB: '00000000-0000-4000-8000-000000000032',
     brandC: '00000000-0000-4000-8000-000000000033',
+    brandD: '00000000-0000-4000-8000-000000000034',
   },
   users: {
     owner: '00000000-0000-4000-8000-000000000041',
@@ -42,6 +44,7 @@ export const SEED_IDS = {
     brandA: 'pk_brand-a_dev_00000000000000000000',
     brandB: 'pk_brand-b_dev_00000000000000000000',
     brandC: 'pk_brand-c_dev_00000000000000000000',
+    brandD: 'pk_brand-d_dev_00000000000000000000',
   },
   /**
    * The shared stock pool (db 0191): ONE stock item two brands sell from — brand A's first variant and brand B's
@@ -60,8 +63,8 @@ export interface SeedOptions {
 }
 
 interface StoreDef {
-  key: 'brandA' | 'brandB' | 'brandC';
-  index: 1 | 2 | 3;
+  key: 'brandA' | 'brandB' | 'brandC' | 'brandD';
+  index: 1 | 2 | 3 | 4;
   code: string;
   name: string;
   legalEntity: { id: string; code: string; name: string; country: string; vat: string };
@@ -72,6 +75,15 @@ interface StoreDef {
   /** One row per market country (the home country first: its row keeps id n = 1). */
   taxRates: Array<{ country: string; name: string; rateBp: number; region: string | null }>;
   shippingCountries: string[];
+  /** Theme primary colour; none = `theme: {}` (brand D, as the wizard's store has it: its look is its own tokens). */
+  primary?: string;
+  /**
+   * Shipping option prices in the currency's MINOR unit: [standard, express]. Default [499, 999]. A zero-decimal
+   * currency needs its own (JPY: the minor unit is the yen, so 499 would be ¥499, not ¥4.99).
+   */
+  shippingMinor?: [number, number];
+  /** Product 1's price in minor units, pinned (brand D: ¥1,980, the amount the JPY tests name). */
+  firstProductPriceMinor?: number;
 }
 
 const STORES: StoreDef[] = [
@@ -98,6 +110,7 @@ const STORES: StoreDef[] = [
       { country: 'FR', name: 'VAT 20%', rateBp: 2000, region: null },
     ],
     shippingCountries: ['NL', 'DE', 'BE', 'FR'],
+    primary: '#1E40AF',
   },
   {
     key: 'brandB',
@@ -117,6 +130,7 @@ const STORES: StoreDef[] = [
     timezone: 'Europe/London',
     taxRates: [{ country: 'GB', name: 'VAT 20%', rateBp: 2000, region: null }],
     shippingCountries: ['GB'],
+    primary: '#047857',
   },
   {
     key: 'brandC',
@@ -136,6 +150,31 @@ const STORES: StoreDef[] = [
     timezone: 'America/New_York',
     taxRates: [{ country: 'US', name: 'NY sales tax 8.875%', rateBp: 888, region: 'NY' }],
     shippingCountries: ['US'],
+    primary: '#B91C1C',
+  },
+  {
+    // Brand D (#832): Japan — JPY is a ZERO-decimal currency, so every amount here is whole yen (minor = yen).
+    // Onboarded first through the wizard (wave 3, #821); seeded so CI's fresh core can host its journeys. On a
+    // database where the wizard's `brand-d` already exists under other ids, the seed skips D entirely (see seed()).
+    key: 'brandD',
+    index: 4,
+    code: 'brand-d',
+    name: 'Brand D',
+    legalEntity: {
+      id: SEED_IDS.legalEntities.brandD,
+      code: 'le-brand-d',
+      name: 'Brand D K.K.',
+      country: 'JP',
+      vat: 'T0000000000000',
+    },
+    currency: 'JPY',
+    locales: ['ja-JP'],
+    country: 'JP',
+    timezone: 'Asia/Tokyo',
+    taxRates: [{ country: 'JP', name: 'JCT 10%', rateBp: 1000, region: null }],
+    shippingCountries: ['JP'],
+    shippingMinor: [990, 1980],
+    firstProductPriceMinor: 1980,
   },
 ];
 
@@ -390,6 +429,25 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
   const org = SEED_IDS.organization;
   const hq = createOrganizationClient(pool, { organizationId: org });
 
+  // A store whose CODE already exists under ANOTHER id (brand-d onboarded through the wizard on a shared dev
+  // database, #832) is skipped entirely — its legal entity, store, key, domain, tax, shipping, catalogue and stock.
+  // `bulk` would otherwise drop the store row silently on UNIQUE (organization_id, code) and the first row that
+  // references the seeded id (store_domain_store_id_fkey) would fail the whole seed for every window. The existing
+  // store is never updated or deleted.
+  const twins = await hq.query<{ code: string; id: string }>(
+    `SELECT code, id FROM store WHERE organization_id = $1 AND code = ANY($2)`,
+    [org, STORES.map((s) => s.code)],
+  );
+  const stores = STORES.filter((s) => {
+    const twin = twins.rows.find((t) => t.code === s.code && t.id !== SEED_IDS.stores[s.key]);
+    if (twin) {
+      log(
+        `skipped ${s.code}: a store with this code already exists under another id (${twin.id}); left untouched`,
+      );
+    }
+    return !twin;
+  });
+
   await hq.transaction(async (tx) => {
     await bulk(
       tx,
@@ -401,7 +459,7 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
       tx,
       'legal_entity',
       ['id', 'organization_id', 'code', 'name', 'country', 'currency', 'vat_number'],
-      STORES.map((s) => [
+      stores.map((s) => [
         s.legalEntity.id,
         org,
         s.legalEntity.code,
@@ -495,7 +553,7 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
         'theme',
         'settings',
       ],
-      STORES.map((s) => [
+      stores.map((s) => [
         SEED_IDS.stores[s.key],
         org,
         s.legalEntity.id,
@@ -508,12 +566,9 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
         s.timezone,
         s.code,
         `${s.code}_products`,
-        JSON.stringify({
-          color: {
-            primary: ['#1E40AF', '#047857', '#B91C1C'][s.index - 1],
-            primaryForeground: '#ffffff',
-          },
-        }),
+        JSON.stringify(
+          s.primary ? { color: { primary: s.primary, primaryForeground: '#ffffff' } } : {},
+        ),
         // `payment.invoice_allowed`: the seeded stores may take `invoice` (the manual provider) at checkout —
         // `Store.payment.methods` on GET /store (Store API 0.5.4, #350 / #358). Absent = false in production.
         JSON.stringify({ support_refund_limit_minor: 5000, payment: { invoice_allowed: true } }),
@@ -540,7 +595,7 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
   });
   log('organization, legal entities, warehouses, stores, 7 staff users, 2 service accounts');
 
-  for (const s of STORES) {
+  for (const s of stores) {
     const storeId = SEED_IDS.stores[s.key];
     const rnd = mulberry32(1000 + s.index);
     const pick = <T>(arr: readonly T[]): T => arr[Math.floor(rnd() * arr.length)]!;
@@ -653,7 +708,7 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
             'standard',
             'Standard (2–4 days)',
             'manual',
-            499,
+            s.shippingMinor?.[0] ?? 499,
             s.currency,
             s.shippingCountries,
           ],
@@ -664,7 +719,7 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
             'express',
             'Express (next day)',
             'manual',
-            999,
+            s.shippingMinor?.[1] ?? 999,
             s.currency,
             s.shippingCountries,
           ],
@@ -740,7 +795,9 @@ export async function seed(pool: Pool, opts: SeedOptions = {}): Promise<void> {
         handles.add(handle);
         const productId = id(KIND.product, p);
         const material = pick(MATERIALS);
-        const basePrice = 900 + Math.floor(rnd() * 120) * 50; // 9.00 … 68.50 in minor units
+        const drawn = 900 + Math.floor(rnd() * 120) * 50; // 9.00 … 68.50 in minor units (¥900 … ¥6,850 for JPY)
+        // drawn first either way, so pinning D's first price never shifts the generator for anything after it
+        const basePrice = p === 1 && s.firstProductPriceMinor ? s.firstProductPriceMinor : drawn;
         const onSale = rnd() < 0.25;
         products.push([
           productId,

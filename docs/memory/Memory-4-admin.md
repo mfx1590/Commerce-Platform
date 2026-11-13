@@ -569,6 +569,22 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     contract-form) while the demo servers run; they pass in isolation. Not a regression.
   - Gotcha: Python heredoc strings turn `\`` into a literal backslash-backtick; and `sed -i` here rewrote
     whole files (line endings). Use Write + node scripts for doc edits.
+- **#853 Fable review = BLOCK → fixed in one push (2026-11-13; code commit in the log after 22a0f3c3).**
+  `AccountingStatePanel` (finance/accounting-state.tsx) replaces ApiStatePanel on Finance: ApiStatePanel
+  speaks for the Admin API and passes `hint` only to ForbiddenPanel (state-panel.tsx ~270), so accounting
+  down read "Could not reach the Admin API". Production ignores MOCK_ACCOUNTING_API_URL; trial-balance rows of
+  a currency without totals are shown ("No total from the service — not checked"); balanced = difference 0
+  AND debit = credit. New test/finance-page.test.tsx renders FinancePage (placeholder gone; down,
+  not_configured, 401, 403, 5xx). Nits deferred: Math.abs badge, "no lines" past the last page, no transport
+  timeout. Not ours: accounting journal ORDER BY tiebreak (window 15).
+  - #853 pushed once (head 78de647c, main merged in). #859 then MERGED the new #853 head (no rebase, no
+    force-push); its payouts/ops/payout-page panels moved to AccountingStatePanel; finance-page tests for both.
+- **#839 next (after Finance part 2):** contracts 0.4.36 on `integration/readiness-payment` f4b538cf
+  (getStoreReadiness + StoreReadiness as filed). May rebase cfe11b71 onto it to swap the fixture for generated
+  types; the admin commit is CUT from window 1's core sha (manager sends it after #855).
+- **Small extra for the next admin PR:** customers/[customerId]/customer-form.tsx:62 says "A picker arrives
+  with the customer-groups operation", but listCustomerGroups is served (core admin-routes.ts:585): build the
+  picker or fix the text, and say which.
 - **PR #853 — #851 part 1: HQ › Finance on the Accounting API (code 6c08b09f; head = this memory commit).**
   Branch `admin/phase6-851-finance` from main de298c1b (main merged in after). Books (`listLegalEntityBooks`),
   trial balance per currency (balanced/unbalanced; empty period never "balanced"), journal (filters, paging,

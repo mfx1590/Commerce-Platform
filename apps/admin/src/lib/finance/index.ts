@@ -202,8 +202,21 @@ export function balanceByCurrency(trialBalance: TrialBalance): CurrencyBalance[]
     debit_minor: total.debit_minor,
     credit_minor: total.credit_minor,
     difference_minor: total.difference_minor,
-    balanced: total.difference_minor === 0,
+    // Both, not the difference alone: a service whose difference disagreed with its own sums is
+    // not "balanced" here (#853 review).
+    balanced: total.difference_minor === 0 && total.debit_minor === total.credit_minor,
   }));
+}
+
+/**
+ * Currencies that have rows but no entry in `totals` (the service always sends both; if it ever
+ * does not, those rows are shown and said, never dropped). Order as the rows first name them.
+ */
+export function currenciesWithoutTotals(trialBalance: TrialBalance): string[] {
+  const totalled = new Set(trialBalance.totals.map((total) => total.currency));
+  return [...new Set(trialBalance.rows.map((row) => row.currency))].filter(
+    (currency) => !totalled.has(currency),
+  );
 }
 
 /** Where a journal line's reference opens in the admin, when it has a page there. */

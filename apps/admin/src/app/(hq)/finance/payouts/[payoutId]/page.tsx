@@ -1,9 +1,9 @@
 import Link from 'next/link';
 import { HqSectionGuard } from '@/components/shell/section-guard';
-import { ApiStatePanel } from '@/components/states/state-panel';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { getPayout } from '@/lib/api/accounting';
 import { financeHref } from '@/lib/finance';
+import { AccountingStatePanel } from '../../accounting-state';
 import { PayoutDetailPanel } from '../../payout-panels';
 
 export const dynamic = 'force-dynamic';
@@ -55,7 +55,7 @@ export default async function PayoutPage({
           ) : payout.ok ? (
             <PayoutDetailPanel payout={payout.data} entity={entity} />
           ) : (
-            <ApiStatePanel
+            <AccountingStatePanel
               status={payout.status}
               error={payout.error}
               what="This payout"
