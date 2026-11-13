@@ -11,6 +11,21 @@
 - Test: `onboarding-screens` (the 201 case asserts no Review step and the status after Done; it fails
   without the fix).
 
+### Added — #830 / #839: readiness before Activate, a payment step and "can this store sell?" (Admin API 0.4.29)
+
+- `getStoreReadiness` and the generated `StoreReadiness` (contracts 0.4.36). The zod parse is pinned to the type with
+  `satisfies`, and a warning the contract doesn't declare reads as a malformed answer.
+- The readiness page reads `getStoreReadiness`: a draft store's panel lists what is missing before Activate
+  is pressed, with the tax/shipping countries pre-filled.
+- `payment_method` gets a label, a link to Settings › Payment and an inline "Turn on pay on invoice"
+  (store_admin; the relation is named below it).
+- `CanSellBox`: payment methods, purchasable products and warnings (`no_purchasable_product` → the catalogue).
+- The body is parsed with zod: another shape is a 502 failure, never a wrong "ready".
+- `e2e/hq-onboarding.spec.ts`: the third Activate is refused for the payment method; pay on invoice is
+  turned on from the panel and the fourth Activate goes through; can-sell shows the no-product warning.
+  Runs only once the core half of #839 is in.
+- Tests: `readiness` (parse, can-sell, wrapper, 11), `onboarding-screens` (+9).
+
 ### Added — #825: Store › Settings › Payment ("Pay on invoice")
 
 - A wizard-onboarded store had no payment method (`GET /store` `payment.methods: []`) and no admin way to

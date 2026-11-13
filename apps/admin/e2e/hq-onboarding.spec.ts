@@ -60,15 +60,24 @@ test.describe('HQ onboarding', () => {
     expect(await page.content()).not.toContain(value);
     const storeId = /\/onboarding\/([0-9a-f-]{36})$/.exec(page.url())![1]!;
 
-    // The readiness panel. A fresh onboarding has every prerequisite but a tax rate (#520) and a
-    // shipping option (#809) for its market country (its default country, NL): the first Activate
-    // is refused for both. A rate alone is not enough — the second Activate is refused for the
-    // shipping option only; the panel's "Create a shipping option for NL" makes one in the store
-    // currency (EUR 4.95 typed → 495 minor units), and the third Activate goes through.
+    // The readiness panel. A fresh onboarding has every prerequisite but a tax rate (#520), a
+    // shipping option (#809) for its market country (its default country, NL) and a payment method
+    // (#839: the wizard sets no settings, so no invoice and no card). The readiness read lists all
+    // three before Activate is pressed, and can-sell says no. The first Activate is refused for
+    // the three. A rate alone is not enough — the second Activate is refused for the shipping
+    // option and the payment method; the panel's "Create a shipping option for NL" makes one in the
+    // store currency (EUR 4.95 typed → 495 minor units). The third Activate is refused for the
+    // payment method only; the panel's "Turn on pay on invoice" turns it on, and the fourth goes
+    // through.
     const missing = page.getByRole('list', { name: 'Missing prerequisites' });
+    await expect(missing).toHaveText(/a payment method/);
+    await expect(page.getByRole('region', { name: 'Can this store sell' })).toContainText(
+      'Not yet',
+    );
     await page.getByRole('button', { name: 'Activate' }).click();
     await expect(missing).toHaveText(/a tax rate for NL/);
     await expect(missing).toHaveText(/a shipping option for NL/);
+    await expect(missing).toHaveText(/a payment method/);
     const nl = page.getByRole('form', { name: 'Create a rate for NL' });
     await nl.getByLabel('Rate name', { exact: true }).fill('VAT 21%');
     await nl.getByLabel('Rate (basis points)', { exact: true }).fill('2100');
@@ -88,7 +97,22 @@ test.describe('HQ onboarding', () => {
     await ship.getByRole('button', { name: 'Create a shipping option for NL' }).click();
     await expect(page.getByText('NL: shipping option created (standard-nl).')).toBeVisible();
     await page.getByRole('button', { name: 'Activate' }).click();
+    await expect(missing).toHaveText(/a payment method/);
+    await expect(missing).not.toHaveText(/a shipping option/);
+    await page.getByRole('button', { name: 'Turn on pay on invoice' }).click();
+    await expect(page.getByText('Pay on invoice is on — activate again.')).toBeVisible();
+    console.info(
+      `G1 payment: Activate refused without a payment method (after rate + option); pay on invoice turned on from the readiness panel`,
+    );
+    await page.getByRole('button', { name: 'Activate' }).click();
     await expect(page.getByRole('status').filter({ hasText: /Active/ })).toBeVisible();
+    // Active with no product yet: the can-sell box says so (#830: ACTIVE is not can-sell).
+    await expect(page.getByRole('region', { name: 'Can this store sell' })).toContainText(
+      'Pay on invoice',
+    );
+    await expect(page.getByRole('alert', { name: 'Warnings' })).toContainText(
+      'No product can be bought yet',
+    );
 
     // Read back where a store admin manages them: one active option, €4.95 (495 minor units), NL.
     // No waiting: onboarding drops the core's cached staff scopes (#819), so the store created a

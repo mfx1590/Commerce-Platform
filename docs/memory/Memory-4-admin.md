@@ -557,6 +557,12 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#839 admin half: ONE commit on `integration/readiness-payment-admin`, cut from 4ecc9354** (contracts
+  f4b538cf + window 1's core). Built in a temp worktree (scratchpad/wt-839, removed after) so the demo core's
+  tsx watch never saw the integration core. Generated StoreReadiness + getStoreReadiness; parse pinned with
+  `satisfies`; warnings = contract enum. hq-onboarding.spec turns invoice on from the panel before the last
+  Activate (a PATCH with invoice_allowed + status active together is refused). The manager fast-forwards and
+  opens the one PR. Admin 66 files / 1131 tests; test:contract 133.
 - **PR for #820 wizard flash (code commit 690621f4; head = this memory commit).** Branch
   `admin/phase6-820-wizard-flash` (renamed from the #830 branch; main 112758c1 merged in). "Done" now sets
   `leavingTo` and renders "Opening the readiness panel…" + an "Open it now" link instead of falling back to

@@ -665,6 +665,22 @@ the Status field of the Store view's General form (store_admin cannot call `acti
 owner on hq; the core runs the same check on `updateStore`), and the HQ store form (owner) saves the
 other fields first and then calls `activateStore`.
 
+**Readiness read and "can sell" (#830, CONTRACT CHANGE #839; Admin API 0.4.29).** The
+page also reads `getStoreReadiness` (`GET /admin/stores/{id}/readiness`, viewer): the same check
+`activateStore` runs, without activating. A draft store's panel therefore lists what is missing
+**before** Activate is pressed (and pre-fills the tax/shipping countries); Activate stays the gate and
+the core re-checks every time. Missing `payment_method` ("a payment method customers can pay with")
+comes with an inline **Turn on pay on invoice** (`updatePaymentSettingsAction`, store_admin, the
+rendered `updated_at` as the stale check) and a link to Settings › Payment. Below it, **Can this
+store sell?** (`CanSellBox`) shows the payment methods, the purchasable-product count the core
+computes, and each warning (`no_purchasable_product` → the catalogue): ACTIVE alone is not "can
+sell". The body is parsed (`src/lib/readiness`), never trusted: another shape is a 502 failure, and a
+failed read only hides the box and the pre-filled list. The type is the generated
+`AdminComponents['StoreReadiness']`, and the parse is pinned to it with `satisfies`. A warning the contract
+doesn't declare is a malformed answer. The core refuses activation without a payment method, so the onboarding
+e2e turns _Pay on invoice_ on from the panel (its own settings-only PATCH) before the last Activate. A single
+PATCH setting `invoice_allowed` and `status: active` together is refused (window 1).
+
 **Integration 3 G1 (#518) — proven from the UI, core mode.** The owner journey in
 `e2e/hq-onboarding.spec.ts` goes on after Activate, on the same single owner sign-in (a TOTP code
 is refused twice). (a) The key the wizard showed answers `GET /store` on the core as the new store,
