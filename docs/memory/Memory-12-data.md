@@ -86,6 +86,17 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   mart_bookings_daily, tested A and B), fct_return_line, mart_stock_daily (stock-out = transition >0 → ≤0; v1 rows by
   legacy_variant_id). #871 §b updated to match. Live models+erasure+live 42/42, unit 154. NEXT: wait for the #871
   verdict + #839 on main; then catalogue v2 / compiler / ops / Ask tools in apps/core reporting (all local).
+  REVIEW of #871 (Fable, via thirteen): ACCEPT WITH CHANGES, 12 required + 5 rec. #871 body REWRITTEN as revision 2
+  (single source, review ledger at the end): stock series scope (org by organization_id; store by mapped stock
+  items as Array(UUID) from Postgres); inventory per STOCK ITEM with a warehouses breakdown; stock_out = available ≤ 0
+  regardless of sales, rate_understated, rate = non-cancelled by placement day, full UTC days before today, returns
+  not netted; two tax bases + NEW net_sales_minor / product_net_ex_tax_minor = Σ line (total − tax) (27 metrics);
+  source `sales` = mart_sales_daily; caller-visible stores only + suggestion_partial; drill-downs HQ-only (#890
+  filed); movers additive-only, per currency, min_base (10 major units by exponent), is_new/is_gone, share_bp,
+  "change never cause"; compare by OFFSET (29 Feb, weekdays, current_incomplete, changes[]); CSV labels opt-in;
+  LIMITS; Ask aliases with server-side substitution, bi_qa excludes stores from pooled rate, 200 rows; degraded
+  rate_available:false. Verified: NO bundle multiplier (variant.stock_item_id single FK); free shipping = shipping 0,
+  NOT in discount_minor (waived value unrecorded). Local marts need no change for the review.
   (mart_bookings_daily keys, mart_product_daily, mart_stock_daily, mart_sales_rate) once #871 is decided.
 - INT5 3c FOLLOW-UP (2026-11-05, manager eleven): #718 MERGED 1fad84d4; #633 MERGED as #719 268a81bf (richPayments
   opt-in). Branch data/phase5-int5-3c. Done: gate month richPayments + reconcileAll(createFixtureSource(month.payouts))
