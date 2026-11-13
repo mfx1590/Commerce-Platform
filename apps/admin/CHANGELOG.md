@@ -21,10 +21,16 @@
 - An item no variant maps shows why it cannot be moved, instead of the button.
 - **Store › Inventory**: each row links to its stock item's ledger in HQ › Warehouse. The link is shown only to principals who hold `operations` on hq; anyone else would land on a refusal.
 - Tests:
-  - `test/stock-movements.test.ts` (38): permission for 5 roles, validation, below reserved and below zero, the API's 409 / 404 / 403, the fresh read, a transfer's two calls in order, and each failure case.
-  - `test/stock-movement-form.test.tsx` (9): now/after numbers, live refusal, payloads, the ledger opened with the list's filters kept, and the Ledger link shown and hidden.
+  - `test/stock-movements.test.ts` (49): permission for 5 roles, validation and the upper bound, below reserved and below zero, the API's 409 / 404 / 403, an unknown outcome (adjust, receive, a transfer's first leg), the fresh read, a transfer's two calls in order, each failure case, and the compensation note.
+  - `test/stock-movement-form.test.tsx` (13): now/after numbers, live refusal, payloads, the ledger opened with the list's filters kept, the confirm step above 100 units, the bound, a single request while pending, and the Ledger link shown and hidden.
   - Mutation-checked: dropping the below-reserved rule or the compensation fails the suite.
   - The advisory e2e owner journey opens Move stock up to its live refusal and closes it (never submitted on the shared database). The store-admin journey asserts no Ledger link.
+- #879 review (Fable):
+  - **An unknown outcome is never "try again".** A network failure (status 0, which includes a reset after the request was sent) or a 5xx on a single move or on a transfer's first leg now says "Outcome unknown … check the item's ledger before repeating it". The movement may be recorded, and `createStockMovement` has no idempotency key. The page is revalidated.
+  - The page is also revalidated after a 409, because the shelf changed under the form.
+  - A move above 100 units asks once more, showing the shelf after the move. One movement carries at most 100,000 units (a typo guard; form and action).
+  - The compensation note names the destination and keeps the operator's note.
+  - A submit while one is pending sends nothing.
 
 ### Fixed — #860: a section guard no longer reports a failed /admin/me as "you need the owner relation"; service accounts are read-only on Roles
 

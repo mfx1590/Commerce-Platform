@@ -15,7 +15,9 @@ import {
 import type { ActionRefusalInfo } from '@/lib/forms/action-result';
 import {
   afterMove,
+  CONFIRM_MOVE_ABOVE,
   EMPTY_POOL,
+  MAX_MOVE_QUANTITY,
   formatDelta,
   MOVEMENT_KINDS,
   moveRefusal,
@@ -249,6 +251,8 @@ export function StockMovementForm({
   const [note, setNote] = useState('');
   const [failure, setFailure] = useState<Failure | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  /** The values a large move was shown for confirmation with (null: not asking). */
+  const [confirmedKey, setConfirmedKey] = useState<string | null>(null);
 
   if (!open) {
     return (
@@ -279,24 +283,14 @@ export function StockMovementForm({
       ? null
       : moveRefusal(source, delta, kind === 'transfer' ? 'the source warehouse' : 'this warehouse');
   const name = (id: string) => warehouses.find((w) => w.value === id)?.label ?? id;
+  const amountField = kind === 'adjust' ? 'delta' : 'quantity';
+  // A confirmation holds for exactly these values: changing any of them asks again.
+  const valuesKey = `${kind}:${warehouseId}:${toWarehouseId}:${trimmed}`;
+  const confirming = confirmedKey === valuesKey;
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    setFailure(null);
-    setDone(null);
-    if (delta === null || delta === 0 || (kind !== 'adjust' && parsed < 1)) {
-      setFailure({
-        message: null,
-        fieldErrors: {
-          [kind === 'adjust' ? 'delta' : 'quantity']:
-            kind === 'adjust'
-              ? 'Enter the change as a whole number, e.g. -3 or 5 (not 0).'
-              : 'Enter a whole number of 1 or more.',
-        },
-      });
-      return;
-    }
-    if (refusal !== null || sameWarehouse) return;
+  const send = () => {
+    if (pending) return;
+    setConfirmedKey(null);
     startTransition(async () => {
       const common = { stock_item_id: stockItemId, sku, note };
       const result = await moveStockAction(
@@ -334,6 +328,40 @@ export function StockMovementForm({
         fieldErrors: result.fieldErrors,
       });
     });
+  };
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (pending) return;
+    setFailure(null);
+    setDone(null);
+    if (delta === null || delta === 0 || (kind !== 'adjust' && parsed < 1)) {
+      setFailure({
+        message: null,
+        fieldErrors: {
+          [amountField]:
+            kind === 'adjust'
+              ? 'Enter the change as a whole number, e.g. -3 or 5 (not 0).'
+              : 'Enter a whole number of 1 or more.',
+        },
+      });
+      return;
+    }
+    if (Math.abs(delta) > MAX_MOVE_QUANTITY) {
+      setFailure({
+        message: null,
+        fieldErrors: {
+          [amountField]: `At most ${MAX_MOVE_QUANTITY.toLocaleString('en')} units per movement.`,
+        },
+      });
+      return;
+    }
+    if (refusal !== null || sameWarehouse) return;
+    if (Math.abs(delta) > CONFIRM_MOVE_ABOVE && !confirming) {
+      setConfirmedKey(valuesKey);
+      return;
+    }
+    send();
   };
 
   return (
@@ -429,11 +457,52 @@ export function StockMovementForm({
           </p>
         )}
       </div>
+      {confirming && delta !== null ? (
+        <div
+          role="alertdialog"
+          aria-label={`Confirm moving ${Math.abs(delta)} of ${sku}`}
+          className="border-warning/30 bg-warning/5 space-y-2 rounded-md border px-3 py-2 text-sm"
+        >
+          <p>
+            {kind === 'transfer'
+              ? `Transfer ${Math.abs(delta)} of ${sku} from ${name(warehouseId)} to ${name(toWarehouseId)}?`
+              : `${kind === 'receive' ? 'Receive' : 'Adjust by'} ${kind === 'receive' ? Math.abs(delta) : formatDelta(delta)} of ${sku} in ${name(warehouseId)}?`}{' '}
+            That is more than {CONFIRM_MOVE_ABOVE} units.
+          </p>
+          <p>
+            <Numbers label={`${name(warehouseId)} after`} numbers={afterMove(source, delta)} />
+          </p>
+          {kind === 'transfer' && (
+            <p>
+              <Numbers
+                label={`${name(toWarehouseId)} after`}
+                numbers={afterMove(pool(toWarehouseId), -delta)}
+              />
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Button size="sm" type="button" disabled={pending} onClick={send}>
+              {pending ? 'Moving…' : `Yes, move ${Math.abs(delta)}`}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              type="button"
+              disabled={pending}
+              onClick={() => setConfirmedKey(null)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
       <div className="flex gap-2">
         <Button
           size="sm"
           type="submit"
-          disabled={pending || refusal !== null || sameWarehouse || warehouseId === ''}
+          disabled={
+            pending || confirming || refusal !== null || sameWarehouse || warehouseId === ''
+          }
         >
           {pending
             ? 'Moving…'

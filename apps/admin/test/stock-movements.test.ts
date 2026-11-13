@@ -384,3 +384,71 @@ describe('the arithmetic the form and the action share', () => {
     });
   });
 });
+
+describe('#879 review: an unknown outcome is never "try again"', () => {
+  const cache = async () => vi.mocked((await import('next/cache')).revalidatePath);
+
+  it.each([
+    ['adjust', 0, () => adjust('2')],
+    ['receive', 503, () => receive('5')],
+    ['receive', 504, () => receive('5')],
+  ] as const)('%s, status %i: check the ledger before repeating', async (_, status, values) => {
+    api.createStockMovement.mockResolvedValue(fail(status, 'network_error', 'socket hang up'));
+    const result = await moveStockAction(values());
+    expect(api.createStockMovement).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe('error');
+    const message = result.status === 'error' ? (result.formError ?? '') : '';
+    expect(message).toContain('Outcome unknown');
+    expect(message).toContain("check the item's ledger before repeating it");
+    expect(message).not.toMatch(/try again/i);
+    expect(await cache()).toHaveBeenCalledWith('/warehouse');
+  });
+
+  it('a transfer whose FIRST leg has an unknown outcome: no second leg, no compensation', async () => {
+    api.createStockMovement.mockResolvedValueOnce(fail(0, 'network_error', 'reset'));
+    const result = await moveStockAction(transfer('3'));
+    expect(api.createStockMovement).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      status: 'error',
+      formError: expect.stringContaining('Outcome unknown'),
+    });
+  });
+
+  it('a 409 refreshes the page too: the shelf changed under the form', async () => {
+    api.createStockMovement.mockResolvedValue(fail(409, 'conflict', 'on_hand would go negative'));
+    await moveStockAction(adjust('-1'));
+    expect(await cache()).toHaveBeenCalledWith('/warehouse');
+  });
+});
+
+describe('#879 review: an upper bound per movement', () => {
+  it.each([
+    [receive('100001'), 'quantity'],
+    [transfer('100001'), 'quantity'],
+    [adjust('-100001'), 'delta'],
+    [adjust('100001'), 'delta'],
+  ] as const)('%o is refused under %s, nothing called', async (values, field) => {
+    expect(await moveStockAction(values)).toMatchObject({
+      status: 'error',
+      fieldErrors: { [field]: expect.stringContaining('100,000') },
+    });
+    expect(api.createStockMovement).not.toHaveBeenCalled();
+  });
+
+  it('exactly the bound is accepted', async () => {
+    expect((await moveStockAction(receive('100000'))).status).toBe('success');
+  });
+});
+
+describe('#879 review: the compensation note', () => {
+  it('names the destination and keeps the operator’s note', async () => {
+    api.createStockMovement
+      .mockResolvedValueOnce(ok(inventoryLevel(SPARE, 1, 0), 201))
+      .mockResolvedValueOnce(fail(404, 'not_found', 'warehouse not found'))
+      .mockResolvedValueOnce(ok(inventoryLevel(SPARE, 4, 0), 201));
+    await moveStockAction(transfer('3'));
+    const note = api.createStockMovement.mock.calls[2]?.[0].note as string;
+    expect(note).toContain(`transfer to warehouse ${MAIN} was refused (warehouse not found)`);
+    expect(note).toContain('Operator note: rebalance');
+  });
+});

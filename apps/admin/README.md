@@ -809,6 +809,8 @@ to its confirmation and cancels, and reads the counts.
 - **Permission:** `operations` on `organization:hq`, checked in `moveStockAction` before any read or write.
 - **Addressed by variant:** the action re-reads the item and moves it through a variant that maps it. An item no variant maps cannot be moved until one is pooled onto it.
 - **Floors:** below zero is refused by the core (409) and by the form. Below reserved is refused by the form and the action only: the core accepts it, so a sale between the read and the write can still beat the admin's check. The real guard is a REQUEST to the core (#877).
+- **Unknown outcome:** a network failure or 5xx is reported as "outcome unknown — check the ledger before repeating", never "try again". The operation has no idempotency key, so a repeat could receive or move the stock twice.
+- **Large moves:** above 100 units the form asks once more, showing the shelf after the move. One movement carries at most 100,000 units.
 - **Transfer is not atomic:** `transfer_out` at the source, then `transfer_in` at the destination.
   - A refused second leg is compensated at the source, and the message says so.
   - An unknown outcome (network, 5xx) is never compensated on a guess; the message names the ledger to check.

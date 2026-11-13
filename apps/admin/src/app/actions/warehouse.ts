@@ -24,6 +24,7 @@ import {
   formatDelta,
   isSuperseded,
   MOVEMENT_FIELDS,
+  movementOutcomeUnknown,
   moveRefusal,
   movementSchema,
   poolIn,
@@ -128,11 +129,6 @@ export interface MoveOutcome {
   after: PoolNumbers;
 }
 
-/** A failure whose outcome the API did not tell us: never followed by a write that assumes one. */
-function outcomeUnknown(status: number): boolean {
-  return status === 0 || status >= 500;
-}
-
 function apiReason(failure: { status: number; error: AdminComponents['Error'] }): string {
   return describeMovementError(failure).formError ?? failure.error.message;
 }
@@ -149,7 +145,9 @@ function apiReason(failure: { status: number; error: AdminComponents['Error'] })
  * `transfer_out` at the source first — a half-done transfer can only understate stock — then
  * `transfer_in` at the destination. When the second is refused, a compensating `transfer_in` puts
  * the units back at the source with a note; when its outcome is unknown (network, 5xx) nothing is
- * written on a guess, and the message says which ledger to check.
+ * written on a guess, and the message says which ledger to check. The same holds for a single move
+ * and a transfer's first leg: an unknown outcome is never "try again" (#879 review) — the movement
+ * may be recorded, and there is no idempotency key to make a repeat safe.
  */
 export async function moveStockAction(values: MovementValues): Promise<ActionResult<MoveOutcome>> {
   const refused = await refuseUnlessPermitted('createStockMovement', '');
@@ -211,11 +209,15 @@ export async function moveStockAction(values: MovementValues): Promise<ActionRes
       },
     };
   };
-  const failed = (result: { status: number; error: AdminComponents['Error'] }) =>
-    actionError(
+  // After any answer from the API the numbers on screen may be stale: a 409 means another movement
+  // (or a sale) changed the shelf, and an unknown outcome may have written this one.
+  const failed = (result: { status: number; error: AdminComponents['Error'] }) => {
+    revalidatePath('/warehouse');
+    return actionError(
       describeMovementError(result, MOVEMENT_FIELDS),
       refusalOf(result.status, result.error),
     );
+  };
 
   if (move.kind !== 'transfer') {
     const delta = move.kind === 'adjust' ? move.delta : move.quantity;
@@ -248,17 +250,19 @@ export async function moveStockAction(values: MovementValues): Promise<ActionRes
     return done(to, `Transferred ${quantity} of ${item.sku}.`, into.data);
   }
   revalidatePath('/warehouse');
-  if (outcomeUnknown(into.status)) {
+  if (movementOutcomeUnknown(into.status)) {
     return invalid(
-      `${quantity} of ${item.sku} left the source warehouse, and the destination did not answer (${apiReason(into)}). ` +
+      `${quantity} of ${item.sku} left the source warehouse, and the destination did not confirm (${into.error.message}). ` +
         `Check the destination's ledger: if no "Transfer in" of ${quantity} appears there, record it as a receipt; do not repeat the whole transfer.`,
     );
   }
+  // The return names the destination it never reached and keeps the operator's own note.
   const back = await call(
     from,
     quantity,
     'transfer_in',
-    `Returned: the transfer to the destination was refused (${into.error.message}).`,
+    `Returned: the transfer to warehouse ${to} was refused (${into.error.message}).` +
+      (move.note === undefined ? '' : ` Operator note: ${move.note}`),
   );
   if (back.ok) {
     return invalid(

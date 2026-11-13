@@ -75,10 +75,22 @@ const note = z
   .optional()
   .transform((value) => (value === undefined || value.trim() === '' ? undefined : value.trim()));
 
+/**
+ * The largest movement one request may carry: a typo guard (an extra zero or two), not a business
+ * rule. A real delivery above it is split. The form and the action both refuse it.
+ */
+export const MAX_MOVE_QUANTITY = 100_000;
+
+/** Above this many units the form asks once more, showing the shelf after the move. */
+export const CONFIRM_MOVE_ABOVE = 100;
+
+const tooMany = `At most ${MAX_MOVE_QUANTITY.toLocaleString('en')} units per movement.`;
+
 const positiveQuantity = z.coerce
   .number({ error: 'Enter a quantity.' })
   .int('Whole units only.')
-  .min(1, 'Enter at least 1.');
+  .min(1, 'Enter at least 1.')
+  .max(MAX_MOVE_QUANTITY, tooMany);
 
 export const movementSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -89,7 +101,8 @@ export const movementSchema = z.discriminatedUnion('kind', [
     delta: z.coerce
       .number({ error: 'Enter the change, e.g. -3 or 5.' })
       .int('Whole units only.')
-      .refine((value) => value !== 0, 'The change cannot be 0.'),
+      .refine((value) => value !== 0, 'The change cannot be 0.')
+      .refine((value) => Math.abs(value) <= MAX_MOVE_QUANTITY, tooMany),
     note,
   }),
   z.object({
@@ -174,12 +187,26 @@ export function moveRefusal(
   return null;
 }
 
+/** A failure whose outcome the API did not tell (network, 5xx): never repeated or compensated blind. */
+export function movementOutcomeUnknown(status: number): boolean {
+  return status === 0 || status >= 500;
+}
+
 /** `createStockMovement`'s refusals in words; a 409 keeps the API's own message. */
 export function describeMovementError(
   failure: { status: number; error: AdminError },
   knownFields: readonly string[] = [],
 ): FormErrors {
   const { status, error } = failure;
+  if (movementOutcomeUnknown(status)) {
+    // Status 0 includes a connection reset AFTER the request was sent, and a 5xx can come from a
+    // proxy after the core committed. The movement may be recorded; `createStockMovement` has no
+    // idempotency key, so "try again" could receive or move the stock twice.
+    return {
+      fieldErrors: {},
+      formError: `Outcome unknown: the Admin API did not confirm this movement (${error.message}). It may have been recorded — check the item's ledger before repeating it.`,
+    };
+  }
   if (status === 409) {
     return { fieldErrors: {}, formError: `The stock was not moved: ${error.message}` };
   }

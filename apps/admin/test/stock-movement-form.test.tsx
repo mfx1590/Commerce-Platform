@@ -3,7 +3,7 @@
  * or below reserved, the payload per movement, the ledger opened on success, and the Store ·
  * Inventory "Ledger" link (only for a principal the warehouse section lets in).
  */
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { StockMovementForm } from '@/app/(hq)/warehouse/warehouse-forms';
@@ -212,5 +212,67 @@ describe('Store · Inventory links each row to its ledger', () => {
   it('not for anyone else (the link would end on a refusal)', () => {
     render(<InventoryTable rows={[row]} warehouseNames={{}} sharedBrands={null} />);
     expect(screen.queryByRole('link', { name: /Ledger/ })).not.toBeInTheDocument();
+  });
+});
+
+describe('#879 review: large moves, the bound, and a single request', () => {
+  it('above 100 units asks once more, showing the shelf after; Yes sends it', async () => {
+    actions.moveStockAction.mockResolvedValue({
+      status: 'error',
+      fieldErrors: {},
+      formError: null,
+    });
+    const { user, form } = await openForm();
+    await user.selectOptions(within(form).getByLabelText('Movement'), 'receive');
+    await user.type(within(form).getByLabelText('Quantity'), '150');
+    await user.click(within(form).getByRole('button', { name: 'Receive' }));
+    const dialog = within(form).getByRole('alertdialog', {
+      name: 'Confirm moving 150 of TEE-M-RED',
+    });
+    expect(dialog).toHaveTextContent('Main DC after: on hand 160 · reserved 8 · available 152');
+    expect(actions.moveStockAction).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole('button', { name: 'Yes, move 150' }));
+    expect(actions.moveStockAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('changing the amount drops the confirmation; 100 or fewer never asks', async () => {
+    actions.moveStockAction.mockResolvedValue({
+      status: 'error',
+      fieldErrors: {},
+      formError: null,
+    });
+    const { user, form } = await openForm();
+    const change = within(form).getByLabelText('Change (e.g. -3 or 5)');
+    await user.type(change, '500');
+    await user.click(within(form).getByRole('button', { name: 'Adjust' }));
+    expect(within(form).getByRole('alertdialog')).toBeInTheDocument();
+    await user.clear(change);
+    await user.type(change, '100');
+    expect(within(form).queryByRole('alertdialog')).not.toBeInTheDocument();
+    await user.click(within(form).getByRole('button', { name: 'Adjust' }));
+    expect(actions.moveStockAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('more than 100,000 units is refused under the field, not sent', async () => {
+    const { user, form } = await openForm();
+    await user.type(within(form).getByLabelText('Change (e.g. -3 or 5)'), '100001');
+    await user.click(within(form).getByRole('button', { name: 'Adjust' }));
+    expect(within(form).getByText('At most 100,000 units per movement.')).toBeInTheDocument();
+    expect(actions.moveStockAction).not.toHaveBeenCalled();
+  });
+
+  it('a second submit while the first is pending sends nothing', async () => {
+    let resolve: (value: unknown) => void = () => undefined;
+    actions.moveStockAction.mockImplementation(() => new Promise((r) => (resolve = r)));
+    const { user, form } = await openForm();
+    await user.type(within(form).getByLabelText('Change (e.g. -3 or 5)'), '2');
+    fireEvent.submit(form);
+    fireEvent.submit(form);
+    await waitFor(() =>
+      expect(within(form).getByRole('button', { name: 'Moving…' })).toBeDisabled(),
+    );
+    fireEvent.submit(form);
+    expect(actions.moveStockAction).toHaveBeenCalledTimes(1);
+    resolve({ status: 'error', fieldErrors: {}, formError: null });
   });
 });
