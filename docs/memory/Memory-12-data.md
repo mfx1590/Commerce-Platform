@@ -52,6 +52,28 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- BI v2 PHASE A (2026-11-13, Manager session THIRTEEN local_a8e32bd9…; replaces eleven; owner rule: everything to the
+  manager, never the owner; paused messages → "FOR THE MANAGER:" in the reply). Issues #869 (BI v2) + #870 (admin
+  standard). Node 22 required (v22.23.5 ok). Main 71b0c625: contracts release 0.4.35 = admin-api.yaml 0.4.28.
+  TASK: CONTRACT CHANGE issue for wave 1 = Overview + Products/categories + Inventory health (a–g), Phase B issues,
+  then staging models on LOCAL branch integration/bi-v2-data (no PR until the contract lands).
+  VERIFIED: 38 topics, ingest takes EVENT_TOPICS (ingest.ts:285); catalogue 15 metrics / 4 dims, no compare; mart has
+  gross/discount/shipping/tax unused. FOUND: product.updated has NO title/category (stale after publish); no event for
+  category/sales channel/warehouse names (Postgres only); stock.moved@2 has on_hand_after/reserved_after but a
+  reservation is not a movement → current position from Postgres (inventory_level per stock_item × warehouse, RLS);
+  inventory_level.incoming exists but nothing writes it (always 0, no POs).
+  DESIGN: labels decorated from Postgres at response time (group by ids in CH); inventory health = Postgres position +
+  CH velocity; reorder = ceil(rate × (lead + cover)) − available − incoming, lead/cover as bounded request params.
+  FILED: #871 CONTRACT CHANGE (Admin API 0.4.29, catalogue v2: 24 metrics, 5 dims, compare, labels,
+  listMetricMovers, getInventoryHealth; 5 decisions to the manager); Phase B #872 funnel, #873 ad spend, #874 FX,
+  #875 targets, #876 CONTRACT CHANGE product.updated@2 (title + category_id); #559 unit cost referenced.
+  LOCAL branch integration/bi-v2-data (from origin/main 71b0c625, NOT pushed): staging (order.placed + channel,
+  countries, locale; stg_order_line; product.published category_id; stg_stock_moved_v2, stg_return_received_v1,
+  stg_stock_item_mapped_v1), dim_product, fct_order + sales_channel_id/country/customer_type (window fn,
+  mart_customers_daily rule), fct_order_line + those + category_id. Model tests written (fixtures: half the
+  products categorised; every-topic generator for stock/returns). SQL lint 48/48, typecheck/lint clean.
+  WAITING: the machine (asked thirteen) for the live model run; the 5 decisions on #871. NEXT after: marts
+  (mart_bookings_daily keys, mart_product_daily, mart_stock_daily, mart_sales_rate) once #871 is decided.
 - INT5 3c FOLLOW-UP (2026-11-05, manager eleven): #718 MERGED 1fad84d4; #633 MERGED as #719 268a81bf (richPayments
   opt-in). Branch data/phase5-int5-3c. Done: gate month richPayments + reconcileAll(createFixtureSource(month.payouts))
   after the consumers stop; 3c exemption removed (3 payouts reconciled, 3 keys, 6 psp.payout lines in CH); "3c fails
@@ -59,6 +81,9 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   sweep classifies every column type (UnclassifiedColumnError on IPv4/6, Tuple, AggregateFunction …), pii:sweep as
   CLICKHOUSE_READONLY_USER. #720 nit: ask route reader is a lazy getter → store B 403 before the reader's 503 (new
   route test; negative control: eager → 503). Live gate 9/9 (lag p95 599 ms). Unit: ingest 154, reporting 265.
+  DONE: #723 MERGED 62de3377 — data side of Integration 5 done; machine handed back. LATER nits (not now): in-file
+  negative control for the lazy ask reader (same app, store A → 503 not_configured); comment that columnClass reads
+  Tuple/Map containing String through toString. IDLE.
 - INTEGRATION 5 GATE (2026-11-05, Manager session ELEVEN local_3be8fff4…; plan on #612 latest comment). Branch
   data/phase5-int5-gate from origin/main 2bc270be (first push with explicit -u). Machine is MINE for live CH runs
   (report "machine free"). One PR "Refs #612", Fable review; message PR up (number+head) + checks finished; HOLD

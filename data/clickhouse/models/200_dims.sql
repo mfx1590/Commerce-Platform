@@ -28,6 +28,18 @@ FROM
 )
 GROUP BY store_id, variant_id;
 
+-- dim_product (BI v2, #871): a product's category per store, from its latest product.published. product.updated
+-- carries no category (#876), so a product moved to another category keeps the old one until it is republished.
+-- Names are not modelled here: labels come from Postgres at answer time.
+CREATE OR REPLACE VIEW dim_product AS
+SELECT
+    store_id,
+    product_id,
+    argMax(category_id, occurred_at)  AS category_id,
+    max(occurred_at)                  AS last_published_at
+FROM stg_product_published_v1
+GROUP BY store_id, product_id;
+
 -- dim_store: from store.created (legal entity, name, default currency) and store.updated (code, status; latest wins).
 CREATE OR REPLACE VIEW dim_store AS
 SELECT
