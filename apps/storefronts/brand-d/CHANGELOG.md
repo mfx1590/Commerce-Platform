@@ -1,5 +1,23 @@
 # Changelog — @platform/storefront-brand-d
 
+## Unreleased — 2026-11-13 · the money test this brand needed most (#834)
+
+- **`test/brand-money.test.ts`** (9 tests): brand D sells in **JPY**, which has no minor unit, so
+  `¥1,980` is `1980` and never 198000. Every other brand is two decimals, which is exactly why a
+  `/ 100`, a `* 100` or a `toFixed(2)` added for a plausible reason would look right in brands A, B
+  and C and be wrong by a factor of 100 here.
+- **Mutation-proved rather than asserted.** Each of the three regressions was applied to the built
+  formatter and the suite re-run: a digit count hard-coded to **2** → caught; `amount_minor / 100`
+  → caught; `amount_minor * 100` → caught. The file was restored byte-for-byte afterwards and the
+  check reports that it was.
+- It also carries the D8 order's own figures — 1980 + 990 shipping + 198 tax = 3168, tax added
+  rather than included and shipping untaxed — so a change that breaks the arithmetic has to break a
+  test naming the order it came from.
+- Why a unit test and not the suites that exist: the visual baselines provably cannot see it (a
+  currency symbol is **37 px** against a ~111 px tolerance, #814; a decimal point is smaller), and
+  the e2e that would catch it needs a core plus a store with stock, a payment method, two products,
+  two categories and an image (#830). This one needs none of that and runs on every CI job.
+
 ## Unreleased — 2026-11-12 · brand D, created in the D8 onboarding proving run
 
 - **Generated** by `apps/storefronts/brand-b/scripts/new-brand.mjs` from brand B: 260 files in **one
