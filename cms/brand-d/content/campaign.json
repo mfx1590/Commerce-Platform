@@ -1,0 +1,26 @@
+[
+  {
+    "_id": "campaignLanding.ja-JP.launch",
+    "_type": "campaignLanding",
+    "locale": "ja-JP",
+    "title": "[[CAMPAIGN_TITLE]]",
+    "slug": {
+      "_type": "slug",
+      "current": "launch"
+    },
+    "campaignId": "[[CAMPAIGN_ID]]",
+    "startsAt": "2026-11-12T00:00:00.000Z",
+    "endsAt": "2027-11-12T23:59:59.000Z",
+    "hero": {
+      "_type": "hero",
+      "headline": "[[CAMPAIGN_HEADLINE]]",
+      "subheadline": "[[CAMPAIGN_SUBHEADLINE]]",
+      "layout": "full-bleed"
+    },
+    "blocks": [],
+    "seo": {
+      "metaTitle": "[[CAMPAIGN_META_TITLE]]",
+      "metaDescription": "[[CAMPAIGN_META_DESCRIPTION]]"
+    }
+  }
+]

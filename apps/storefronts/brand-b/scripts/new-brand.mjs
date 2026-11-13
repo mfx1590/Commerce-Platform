@@ -467,6 +467,16 @@ function main() {
   log(`  pnpm install                      # a NEW workspace package needs a non-frozen install`);
   log(`  pnpm --filter @platform/storefront-${target.code} typecheck`);
   log(`  pnpm --filter @platform/storefront-${target.code} test`);
+  log('');
+  log('  To serve a store from a real core, four values, each of which fails separately (#828):');
+  log('    STORE_API_URL          the core');
+  log('    STORE_PUBLISHABLE_KEY  from the onboarding wizard, never committed');
+  log('    SITE_URL               a loopback origin locally, or a build made with');
+  log('                           E2E_LOCAL_IMAGES refuses to start');
+  log('    KEYCLOAK_URL           the identity provider; the CSP form-action needs its origin');
+  log(
+    `    then: pnpm --filter @platform/storefront-${target.code} start   (not node scripts/start.mjs)`,
+  );
   log(`  pnpm lint && pnpm format:check`);
   log('');
   log('  Read every generated file before believing it. This script does the mechanical half;');

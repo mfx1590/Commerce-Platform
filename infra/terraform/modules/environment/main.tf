@@ -171,6 +171,7 @@ variable "apps" {
     "storefront-brand-a",
     "storefront-brand-b",
     "storefront-brand-c",
+    "storefront-brand-d",
   ]
 }
 

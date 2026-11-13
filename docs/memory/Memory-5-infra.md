@@ -122,6 +122,24 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
+- **BRAND D (b), after #821's delta BLOCK:** CI 43239694924 on 01c008e0: images green (brand-d built + smoked),
+  brand-d perf red (window 10's missing perf/store.example.json, fixed in b90ab865), and the live job red ONLY on
+  brand-d's journeys (25 failed / 24 passed against CI's seed, which has no brand-d; A-C/admin/starter green), as
+  predicted. Fix: a named exclusion in run-e2e.sh (UNSEEDED_BRANDS 'brand-d:#832'), printed, with an override.
+  Issue #832 (seed brand-d). Merged window 10's b90ab865 (no infra files). Manager does the 3 reruns (rule F).
+- **BRAND D (b) continued:** the live client was created at 14:02:44Z, after the OWNER typed the command in this
+  session (blocked ~13:49→14:02:44). PR #821 is a draft. Window 10's tree came at 14:35:10Z (036dd733); I merged it
+  locally and added the Dockerfile + the COPY line in 11 Dockerfiles + compose/bake/terraform/smoke/dependabot.
+  Gotcha: generating brand D's Dockerfile by renaming brand C's also renamed C's own manifest COPY line; the
+  manifest guard caught it.
+- **BRAND D run (2026-11-12), step (b) on integration/brand-d (manager's approval).** Store `brand-d`
+  was created as a draft at 13:46:41Z and went active at 13:48:04Z.
+  - `add-brand-client.mjs brand-d --port 3104 --json-only`: realm JSON +83/-0, the profile, production/ re-derived,
+    and the production-realms.test.ts one-liner. auth-sdk realm tests 77/77; brand-client tests moved their
+    new-brand example to brand-zz:3199.
+  - The LIVE step (POST into the shared Keycloak) was DENIED by the session's permission classifier
+    ("Modify Shared Resources"). It needs the OWNER's permission or the owner runs it; a peer's approval is not enough.
+    Command: `node infra/keycloak/add-brand-client.mjs brand-d --port 3104 --live-only`.
 - **Brand D prep: add-brand-client (2026-11-11), branch integration/brand-d-keycloak (manager approved option a; window 2 named as owner) from main 61ed4d4f.**
   Ownership question to the manager: infra/keycloak/** is window 2's row (my infra/** also matches); I recommended
   an integration/ branch. ONBOARDING-GAPS §6 is window 10's; corrected text sent to the manager to route.
