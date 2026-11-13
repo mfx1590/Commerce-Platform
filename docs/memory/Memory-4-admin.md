@@ -557,17 +557,19 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
-- **#830 readiness panel — PLAN, waiting for the manager (2026-11-13).**
-  - Node 22 (v22.23.5) set up: `pnpm install --frozen-lockfile`, `pnpm --filter @platform/auth-sdk fga:seed`
-    (root has no `fga:seed`), `turbo run build --filter=./packages/*`. Admin typecheck + 65 files / 1110 tests
-    green on Node 22.
-  - Branch `admin/phase6-830-readiness-panel` from main 2f530d59 (#838 #841), carrying the #839 memory commit.
-  - Blocker: CONTRACT CHANGE #839 is still OPEN (no comments), so no PR against the unreleased contract.
-  - Plan (about 25-30 tool calls): `getStoreReadiness` wrapper behind a local typed `StoreReadiness` type;
-    the activation panel lists `missing` with a link each (`payment_method` → Settings `#payment`); a
-    "can sell" box (payment methods, purchasable count, `no_purchasable_product` warning linking the
-    catalogue); vi.mock fixture tests. Swap to the generated types and open the PR (Refs #830) once #839 lands.
-  - Asked the manager: build it now on the fixture, or do #820's wizard flash (admin-only) first.
+- **PR for #820 wizard flash (code commit 690621f4; head = this memory commit).** Branch
+  `admin/phase6-820-wizard-flash` (renamed from the #830 branch; main 112758c1 merged in). "Done" now sets
+  `leavingTo` and renders "Opening the readiness panel…" + an "Open it now" link instead of falling back to
+  Review. Test in onboarding-screens (fails without the fix). Hold pushes after the report.
+- **Demo servers (Manager session thirteen, 2026-11-13): core :9000 + admin :3000 RUNNING for the owner.**
+  Admin built on Node 22 from 4c66554b (= main code). Logs: scratchpad core-demo.log / admin-demo.log.
+  Leave them up until the manager says the owner is done. No `next build`/`next dev` in this worktree meanwhile.
+- **#839 ACCEPTED in principle** (manager 13): lands as an integration (main contracts → window 1 core → admin)
+  AFTER #844 and #806. To do: comment on #839 listing every admin spec/flow that activates a store without
+  a payment method; then the admin half on a LOCAL side branch against a mock of the proposed shapes —
+  no PR until the manager gives the integration sha to cut from.
+- Node 22 (v22.23.5): `pnpm install --frozen-lockfile`, `pnpm --filter @platform/auth-sdk fga:seed` (no root
+  script), `turbo run build --filter=./packages/*`. Admin 65 files / 1110 tests green on Node 22.
 - **PR #833 (code commit 59b68aad; head = this memory commit).** First code commit faf2b4d8. The Fable review
   follow-up 59b68aad syncs the form to a newer `updated_at` prop (a General save no longer makes the next
   Payment save stale) and adds the invoice-off action test. main ec10b3c1 merged in. No more pushes to
