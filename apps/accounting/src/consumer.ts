@@ -51,8 +51,14 @@ type Kafka = ReturnType<typeof createKafka>;
 type Validator = ReturnType<typeof createValidator>;
 
 export interface HandledEvent {
-  /** posted = rows written; parked = waiting for its order; noop = nothing to write; ignored = not a ledger topic. */
-  action: 'posted' | 'parked' | 'noop' | 'ignored';
+  /**
+   * posted = rows written; parked = waiting for its order; noop = nothing to write; ignored = not a ledger topic;
+   * duplicate = the ledger already holds this event (posted, parked or processed under ANOTHER group, #888): nothing is
+   * written, the event is only marked processed for this group.
+   */
+  action: 'posted' | 'parked' | 'noop' | 'ignored' | 'duplicate';
+  /** duplicate only: how the ledger already knew the event. */
+  duplicate_of?: 'ledger' | 'parked' | 'processed';
   outbox_id: string;
   topic: string;
   legal_entity_id: string | null;
@@ -108,6 +114,16 @@ export async function handleLedgerEvent(
     // at the same moment its order.placed applies the parked events, and stay parked. One transaction-scoped advisory
     // lock per order serialises every event of that order across instances (Fable review of #567, follow-up a).
     await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [orderId]);
+    // #888: idempotent by source event across consumer GROUPS. The per-group processed store only knows its own group;
+    // a group that re-reads a topic (offsets expired, a new group on an existing ledger) would re-apply events another
+    // group already posted. A shipment then "exceeds the order" (the shared projection already counts it) and a payment
+    // or refund hits UNIQUE (source_event_id, account_code): both dead-letter after the retries, and come back on every
+    // re-read. The ledger itself is the record: rows with this source event, or this event still parked, means it is in.
+    const known = await alreadyInLedger(tx, envelope.event_id, outboxId);
+    if (known) {
+      if (opts.markProcessed) await opts.markProcessed(tx);
+      return { ...base, action: 'duplicate', duplicate_of: known, legal_entity_id: legalEntityId };
+    }
     const order = await loadOrderProjection(tx, orderId);
     if (!order && needsOrderProjection(envelope)) {
       await parkEvent(tx, envelope, outboxId, orderId);
@@ -131,7 +147,24 @@ export async function handleLedgerEvent(
       if (r.refund) await saveRefundProjection(tx, r.refund);
     };
 
-    const result = postEvent(envelope, order);
+    let result: PostingResult;
+    try {
+      result = postEvent(envelope, order); // pure: a throw here has written nothing
+    } catch (err) {
+      // an event that posted NO rows under another group (a zero-amount shipment, a second cancel) is recognised only
+      // by that group's processed mark. consumer_processed is not indexed by outbox id, so this is asked only on the
+      // failure path, never for a healthy event (#888)
+      if (err instanceof PostingError && (await processedByAnotherLedgerGroup(tx, outboxId))) {
+        if (opts.markProcessed) await opts.markProcessed(tx);
+        return {
+          ...base,
+          action: 'duplicate',
+          duplicate_of: 'processed',
+          legal_entity_id: legalEntityId,
+        };
+      }
+      throw err;
+    }
     await write(result);
     let projection: OrderProjection | null = result.order ?? order;
     let applied = 0;
@@ -238,4 +271,29 @@ export function createLedgerConsumer(deps: LedgerConsumerDeps): EventConsumer {
       }
     },
   });
+}
+
+/** #888: does the ledger already hold this event — posted rows with its source event id, or still parked? */
+async function alreadyInLedger(
+  tx: Queryable,
+  eventId: string,
+  outboxId: string,
+): Promise<'ledger' | 'parked' | null> {
+  const r = await tx.query<{ how: 'ledger' | 'parked' | null }>(
+    `SELECT CASE
+              WHEN EXISTS (SELECT 1 FROM ledger_entry WHERE source_event_id = $1) THEN 'ledger'
+              WHEN EXISTS (SELECT 1 FROM accounting_parked_event WHERE outbox_id = $2) THEN 'parked'
+            END AS how`,
+    [eventId, outboxId],
+  );
+  return r.rows[0]?.how ?? null;
+}
+
+/** #888: was this event processed by another ledger group (`…accounting.ledger…`)? Failure path only (no index). */
+async function processedByAnotherLedgerGroup(tx: Queryable, outboxId: string): Promise<boolean> {
+  const r = await tx.query(
+    `SELECT 1 FROM ${PROCESSED_TABLE} WHERE outbox_id = $1 AND group_id LIKE '%accounting.ledger%' LIMIT 1`,
+    [outboxId],
+  );
+  return r.rows.length > 0;
 }
