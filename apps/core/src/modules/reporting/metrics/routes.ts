@@ -10,6 +10,11 @@
 //
 // The operations' x-permission is read from admin-api.yaml at construction, as every module router does; until the
 // contract lands (integration/phase5-metrics) the two routes answer 503 (fail closed; tests inject the spec).
+//
+// BI v2 (#871): `queryMetrics` gains labels (names resolved from Postgres under the caller's scope), the `stock` series
+// scope (organization, or the stock items the caller's stores map) and the CSV labels opt-in (`?labels=true`); two
+// operations join it, `listMetricMovers` and `getInventoryHealth`. Until #871's contract lands they answer 503 like
+// any operation the spec lacks.
 import { Router, type Request, type RequestHandler } from 'express';
 import {
   can,
@@ -23,18 +28,30 @@ import {
   visibleStoreIds,
   visibleStoresClientFor,
 } from '../../../http';
+import { organizationClient } from '../../../lib/db';
 import { AppError } from '../../../lib/errors';
-import { catalogueFor } from './catalogue';
-import { renderMetricCsv } from './csv';
+import { catalogueFor, METRICS } from './catalogue';
+import type { StockScope } from './compile';
+import { renderInventoryCsv, renderMetricCsv } from './csv';
 import { executeMetricQuery, type MetricsReader } from './execute';
-import { parseMetricQuery } from './query';
+import {
+  computeInventoryHealth,
+  loadInventoryInputs,
+  parseInventoryQuery,
+  type InventoryQuery,
+} from './inventory';
+import { idsOf, resolveLabels } from './labels';
+import { listMetricMovers, parseMoversQuery } from './movers';
+import { parseMetricQuery, type MetricQuery } from './query';
 import { sharedMetricsReader } from './reader';
 import { scopeForQuery } from './scope';
 
 export const METRICS_PATH = '/admin/metrics';
 export const METRICS_QUERY_PATH = '/admin/metrics/query';
+export const METRICS_MOVERS_PATH = '/admin/metrics/movers';
+export const METRICS_INVENTORY_PATH = '/admin/metrics/inventory';
 
-type Operation = 'listMetrics' | 'queryMetrics';
+type Operation = 'listMetrics' | 'queryMetrics' | 'listMetricMovers' | 'getInventoryHealth';
 type PermissionSpec = { relation: string; object: string };
 
 /** The slice of the loaded spec the router uses (tests replace it to prove the fail-closed path). */
@@ -71,6 +88,27 @@ export async function metricsScope(p: StaffPrincipal): Promise<{ id: string; cod
 
 const forbidden = (message: string, details: Record<string, unknown>) =>
   new AppError('forbidden', message, details);
+
+/**
+ * The `stock` series scope (#871 c): an organization caller reads the organization (narrowed to the stock items of
+ * `store_ids` when given); a store caller the stock items its stores' variants map, read under RLS.
+ */
+export async function stockScopeFor(
+  p: StaffPrincipal,
+  stores: readonly string[],
+  narrowed: boolean,
+): Promise<StockScope> {
+  if (hasOrganizationAccess(p) && !narrowed) return { organizationId: p.organizationId };
+  const r = await visibleStoresClientFor(p).query<{ id: string }>(
+    'SELECT DISTINCT stock_item_id::text AS id FROM product_variant WHERE store_id = ANY($1::uuid[])',
+    [[...stores]],
+  );
+  return { stockItemIds: r.rows.map((x) => x.id) };
+}
+
+const usesStock = (q: MetricQuery) => q.metrics.some((m) => METRICS[m].source?.id === 'stock');
+const wantsCsv = (req: Request) => req.accepts(['application/json', 'text/csv']) === 'text/csv';
+const labelsParam = (req: Request) => req.query.labels === 'true' || req.query.labels === '1';
 
 /**
  * The x-permission guard of an operation, resolved from the spec per request (cached once found). An operation the
@@ -128,14 +166,131 @@ export function metricsAdminRouter(opts: MetricsRouterOptions = {}): Router {
         stores: (await metricsScope(p)).map((s) => s.id),
         finance: () => can(p, 'finance', 'organization:hq'),
       });
-      const result = await executeMetricQuery(reader(), q, scope);
+      const stock = usesStock(q)
+        ? await stockScopeFor(p, scope, q.filters.store_ids !== undefined)
+        : undefined;
+      const result = await executeMetricQuery(reader(), q, scope, stock ? { stock } : {});
+      result.labels = await resolveLabels(
+        visibleStoresClientFor(p),
+        idsOf([...result.rows, ...(result.compare?.rows ?? [])]),
+      );
       // text/csv only when the client prefers it over JSON (the default stays JSON); errors stay JSON either way
-      if (req.accepts(['application/json', 'text/csv']) === 'text/csv') {
+      if (wantsCsv(req)) {
         res
           .status(200)
           .type('text/csv; charset=utf-8')
           .set('X-Truncated', String(result.truncated))
-          .send(renderMetricCsv(result));
+          .send(renderMetricCsv(result, { labels: labelsParam(req) }));
+        return;
+      }
+      res.json(result);
+    }),
+  );
+
+  r.post(
+    METRICS_MOVERS_PATH,
+    guard('listMetricMovers'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      spec.validateBody('listMetricMovers', req.body);
+      const mq = parseMoversQuery(req.body);
+      // the same scope and finance rules as queryMetrics (scope.ts), on the equivalent period query
+      const scope = await scopeForQuery(
+        {
+          metrics: [mq.metric],
+          dimensions: [mq.dimension],
+          grain: 'total',
+          from: mq.from,
+          to: mq.to,
+          filters: mq.filters,
+          limit: 1,
+        },
+        {
+          stores: (await metricsScope(p)).map((s) => s.id),
+          finance: () => can(p, 'finance', 'organization:hq'),
+        },
+      );
+      const result = await listMetricMovers(reader(), mq, scope);
+      const keys = result.by_currency.flatMap((b) => [...b.risers, ...b.fallers]).map((m) => m.key);
+      const column = {
+        store: 'store_id',
+        country: 'country',
+        sales_channel: 'sales_channel_id',
+        product: 'product_id',
+        category: 'category_id',
+      }[mq.dimension];
+      res.json({
+        ...result,
+        labels: await resolveLabels(
+          visibleStoresClientFor(p),
+          idsOf(keys.map((k) => ({ [column]: k }))),
+        ),
+      });
+    }),
+  );
+
+  r.post(
+    METRICS_INVENTORY_PATH,
+    guard('getInventoryHealth'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      spec.validateBody('getInventoryHealth', req.body ?? {});
+      const q: InventoryQuery = parseInventoryQuery(req.body ?? {});
+      const visible = (await metricsScope(p)).map((s) => s.id);
+      if (visible.length === 0)
+        throw forbidden('no visible store', { relation: 'viewer', object: 'store:*' });
+      for (const id of q.store_ids ?? [])
+        if (!visible.includes(id))
+          throw forbidden(`requires viewer on store:${id}`, {
+            relation: 'viewer',
+            object: `store:${id}`,
+          });
+      const stores = q.store_ids ?? visible;
+      const organization = hasOrganizationAccess(p);
+      const now = new Date();
+      const inputs = await loadInventoryInputs(
+        {
+          pg: visibleStoresClientFor(p),
+          // one organization-level fact for a store caller: does another store sell from this item (a boolean)
+          ...(organization
+            ? {}
+            : {
+                orgPg: organizationClient({ organizationId: p.organizationId, actorId: p.user.id }),
+              }),
+          reader: reader(),
+          stores,
+          rateStores: stores,
+          organization,
+          now,
+        },
+        q,
+      );
+      // a warehouse, category or product filter outside what the caller can see is a 403, never a silent narrowing
+      const seen = {
+        warehouse: new Set(inputs.positions.map((x) => x.warehouse_id)),
+        category: new Set(
+          inputs.mappings.map((x) => x.category_id).filter((x): x is string => x !== null),
+        ),
+        product: new Set(inputs.mappings.map((x) => x.product_id)),
+      };
+      for (const [field, ids, kind] of [
+        ['warehouse_ids', q.warehouse_ids, 'warehouse'],
+        ['category_ids', q.category_ids, 'category'],
+        ['product_ids', q.product_ids, 'product'],
+      ] as const)
+        for (const id of ids ?? [])
+          if (!seen[kind].has(id))
+            throw forbidden(`${field}: ${id} is outside your scope`, {
+              field,
+              object: `${kind}:${id}`,
+            });
+      const result = computeInventoryHealth(inputs, q, { organization, now });
+      if (wantsCsv(req)) {
+        res
+          .status(200)
+          .type('text/csv; charset=utf-8')
+          .set('X-Total', String(result.total))
+          .send(renderInventoryCsv(result));
         return;
       }
       res.json(result);

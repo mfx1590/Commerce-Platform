@@ -97,6 +97,32 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   LIMITS; Ask aliases with server-side substitution, bi_qa excludes stores from pooled rate, 200 rows; degraded
   rate_available:false. Verified: NO bundle multiplier (variant.stock_item_id single FK); free shipping = shipping 0,
   NOT in discount_minor (waived value unrecorded). Local marts need no change for the review.
+  #871 rev 2 ACCEPTED (thirteen). TASK NOW: core side locally on integration/bi-v2-data, separate commits per layer
+  (models / core), NO packages/contracts edits (tests overlay the spec, like ask's specWith). Plan: catalogue v2
+  (+27 metrics, 5 dims, kind/additive/formula, LIMITS, catalogue dimensions + inventory_defaults); query.ts (filters,
+  compare); compile.ts (sources sales/returns/stock, dim columns, stock scope org vs mapped items Array(UUID),
+  snapshot refused); execute (compare by offset + changes, null keys); labels resolver (Postgres batched);
+  movers.ts; inventory.ts (Postgres position per item + CH rate + understated + settings precedence + degraded);
+  routes (2 ops, CSV labels opt-in); Ask tools movers + inventory_health + server-side alias substitution;
+  golden owner question with CONCRETE expected items/cover/suggestion/"incoming not tracked" sentence; tests
+  (unit, metrics-live p95 incl. new ops, access-matrix = window 1's file → flag). Report cost of the 2 ops on seed.
+  STOPPED 2026-11-13 ~19:25 (owner: usage limit 83%; manager resumes after 22:40). Local commits on
+  integration/bi-v2-data: models 550ec144 (fct_refund + country/channel); CORE WIP commit after it (see git log).
+  CORE DONE (typecheck + lint clean): catalogue v2 (27 metrics, 5 dims, kind/additive/formula/total, LIMITS,
+  DIMENSION_INFO, INVENTORY_DEFAULTS, catalogueFor v2), query.ts (filters, compare + comparisonRange, snapshot 400),
+  compile.ts (sources sales/returns/stock, ORDER_DIMS, FILTERS, StockScope org|items), execute.ts (new keys, derived
+  ratios, total none, compare + changes, scopedEverywhere), csv.ts (labels opt-in, renderInventoryCsv), labels.ts,
+  movers.ts (parse, rankMovers, moversMetricQuery, moversFromResult, listMetricMovers), inventory.ts (parse, pure
+  computeInventoryHealth, loadInventoryInputs), metrics/routes.ts (labels, stockScopeFor, movers + inventory ops),
+  ask/tool.ts (Aliases, biQaToolHandler, moversTool, inventoryTool, substituteAliases, dimensionsLine grouped),
+  ask/ask.ts (3 tools, aliases, substitution, answer.inventory + answer.labels), ask/routes.ts (stockScope,
+  inventory, labels deps). metrics-v2.test.ts 20/20 passed; metrics.test.ts 30/30 passed (before ask changes).
+  NOT RUN since the ask changes: the full reporting suite (ask.test.ts dimensionsLine expectations will need
+  updating: the line is now "Dimensions: … take …"). NEXT: run reporting unit suites + fix ask tests; golden case for
+  the owner question with concrete items/cover/suggestion/"incoming not tracked"; metrics-live blocks (movers,
+  compare, inventory p95 + leak, stock series leak); access-matrix (window 1's file → flag); contract gaps to
+  report: MetricAnswer needs `inventory` + `labels` fields in #871 a3; template "change never cause" = REQUEST to
+  packages/ai (bi-qa-answer@4); routes route spec overlay in tests (no contracts edit).
   (mart_bookings_daily keys, mart_product_daily, mart_stock_daily, mart_sales_rate) once #871 is decided.
 - INT5 3c FOLLOW-UP (2026-11-05, manager eleven): #718 MERGED 1fad84d4; #633 MERGED as #719 268a81bf (richPayments
   opt-in). Branch data/phase5-int5-3c. Done: gate month richPayments + reconcileAll(createFixtureSource(month.payouts))
