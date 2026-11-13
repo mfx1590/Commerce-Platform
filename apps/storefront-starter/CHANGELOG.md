@@ -1,5 +1,9 @@
 # Changelog — @platform/storefront-starter
 
+## 0.16.6 — 2026-11-13 (window 3, test tooling)
+
+- Dev only: `jsdom` 26.1.0 → 31.0.1 (exact pin kept). It backs the two `@vitest-environment jsdom` suites (`hero-media`, `card-payment-remount`); no test change was needed, and all 795 tests pass. jsdom ≥ 30 declares `node: ^22.22.2 || ^24.15.0 || >=26`. That is stricter than the root `engines` (`>=22.12 <23`), but CI's `22` and the laptop (22.23.5) are both above it. No runtime dependency moved.
+
 ## 0.16.5 — 2026-11-13 (window 3, brand D sweep: blank Store API strings, plus the #838 nits)
 
 - **No empty tag from a blank Store API string.** No Store API string has a `minLength`, and the onboarding wizard leaves several empty (`seo: {}`, `subtitle: ""`, blank alt and brand). A `??` fallback stops at `""`. Each rendered fallback now goes through `src/lib/text.ts`:
