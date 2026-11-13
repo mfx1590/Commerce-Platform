@@ -557,6 +557,27 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **PR #853 — #851 part 1: HQ › Finance on the Accounting API (code 6c08b09f; head = this memory commit).**
+  Branch `admin/phase6-851-finance` from main de298c1b (main merged in after). Books (`listLegalEntityBooks`),
+  trial balance per currency (balanced/unbalanced; empty period never "balanced"), journal (filters, paging,
+  order ref → store order). `accounting-client.ts` typed by `@platform/contracts/accounting`; `jsonRequest<T>`
+  extracted from `adminRequest`. Gate: finance on hq checked BEFORE any request (`src/lib/api/accounting.ts`).
+  `ACCOUNTING_API_URL` → `MOCK_ACCOUNTING_API_URL` → :4013 outside production only (production = not configured).
+  Needs a Fable review (accounting). Hold pushes after reporting.
+  - Part 2 (next PR): payouts (`listPayouts`, `getPayout`), ops (`listParkedEvents`, `getErpSyncStatus`), e2e on
+    Prism accounting mock (admin playwright config starts :4013). REQUEST #852 (window 5): ACCOUNTING_API_URL in
+    deploy values + booting accounting in the advisory admin e2e job (the real-service waiver).
+- **#845 MERGED** (#820 wizard flash). **#839 admin half: LOCAL** branch `admin/phase6-839-readiness-local`
+  cfe11b71 (from main 79914780), not pushed; waits for the manager's integration sha (after #844, #806 and the
+  contracts commit). Its memory note lives here, not on that branch.
+- **Demo servers for the owner (manager 13):** core :9000 (restarted with CLICKHOUSE_* + AI key copied into the
+  worktree .env; logs scratchpad core-demo2.log) + admin :3000 (built from main code, 4c66554b). Keep them up
+  until the manager says the owner is done; no `next build`/`next dev` in this worktree meanwhile.
+  BI check (finance user): metrics 200, brand-a Sep 4 orders / Oct 164; sales report 200 (analyst); ask 503
+  `ai_disabled` (AI_ENABLED unset everywhere; not turned on: money). REQUEST #850 (window 1): boot line for
+  analytics/AI off by missing config.
+- **Owner rule 11-13:** every question/report goes to the manager, never the owner; paused messaging →
+  "FOR THE MANAGER:" in the final reply and keep working.
 - **PR for #820 wizard flash (code commit 690621f4; head = this memory commit).** Branch
   `admin/phase6-820-wizard-flash` (renamed from the #830 branch; main 112758c1 merged in). "Done" now sets
   `leavingTo` and renders "Opening the readiness panel…" + an "Open it now" link instead of falling back to
