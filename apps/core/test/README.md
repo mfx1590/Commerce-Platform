@@ -4,6 +4,24 @@ Cross-module tests of the core's HTTP app: they mount the real middleware chain 
 other modules only through their public `index.ts` (ADR 0005, lint-enforced here too). Each DB test creates and
 drops its own database. Module-level tests live next to their module under `src/`.
 
+## Contract coverage (`contract-coverage.test.ts`, #858)
+
+Every operation of `admin-api.yaml` and `store-api.yaml` must have a route the core mounts, or sit in the file's
+`ALLOWLIST` as `operationId: <issue>` (the issue that serves it, or removes it from the contract). The routes are read
+from the app, not grepped: `mountCoreMiddleware()` composes a bare Express app as `createServer()` does (the module
+Admin, Store and webhook routers included) and the test walks Express's router stack, nested routers too; hq-rbac's
+routes come from its own table (`HQ_RBAC_ROUTES`, plus `FINANCE_PING_ROUTE` outside production — the rule
+`createHqRbac` applies). No database: it runs in the required `unit` job.
+
+- **Fails both ways.** An unserved operation that is not allowlisted fails with a table (spec, operationId,
+  method + path); an allowlisted operation that is served now (or left the contract) fails too — delete it from
+  `ALLOWLIST` in the PR that serves it. Mutation-checked both ways (#858 PR).
+- **Not in the contract.** A route under `/admin` or `/store` the contract does not have fails unless
+  `NOT_IN_CONTRACT` names it with a reason; today only hq-rbac's test double `GET /admin/finance/ping`, which the
+  production table does not contain (asserted).
+- **Initial allowlist (2026-11-13, 12 of 172 operations):** `updateOrderLineItem`, `cancelOrderLineItem` (#855),
+  `getMarketingDashboard` (#856), and #857's eight Admin referral/review operations plus Store `listProductReviews`.
+
 ## The access matrix (`access-matrix.test.ts`, Integration 5 gate 3, #612)
 
 Every BI, metrics, AI and recommendation route × the principals that matter (owner, finance, HQ analyst, HQ
