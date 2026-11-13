@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added — #851 (part 1): HQ › Finance on the Accounting API — books, trial balance, journal
+
+- The Finance placeholder ("window 15 in Phase 4") is replaced. It lists legal entities with books
+  (`listLegalEntityBooks`), then for the chosen one either the trial balance (`getTrialBalance`: per currency,
+  balanced or unbalanced stated, an empty period never called balanced) or the journal (`listJournalLines`:
+  filters, paging, order references linking to the store order).
+- Typed by the generated `@platform/contracts/accounting`. `adminRequest`'s transport is extracted as
+  `jsonRequest<T>` and shared, unchanged.
+- `finance` on organization:hq is checked before any request (the contract's 403). `ACCOUNTING_API_URL` is new;
+  production never falls back to a mock, and its absence is "not configured".
+- Money: per currency, never summed across. A JPY fixture (Brand D K.K.) renders whole yen.
+- Tests: `finance` (the gate per role, the URL, the search params, the helpers; 19) and `finance-screens`
+  (JPY/EUR trial balance, empty period, journal links and paging, entities; 7).
+
 ### Fixed — #820: no Review flash after the onboarding wizard's "Done"
 
 - "Done — continue to readiness" dropped the one-time key by clearing the result, so the wizard
