@@ -1,7 +1,7 @@
 # Memory 15 — Automatic accounting
 
 Window: 15 · Key: `accounting` · Branch prefix: `accounting/` · Model: Opus 5.5 since 2026-10-24 (owner switch; was Fable)
-Last updated: 2026-11-13 (window 15, Opus 5.5) · Manager: **Manager session thirteen** · Status: **#888 part 1 = PR #897 (code commit cc06382e; pushed head 28571c8e; stacked on #880)** — PAUSED 11-13 by the owner (5-hour limit 83%); resume by the manager's message after 22:40 local; #835 DONE (verified, closed); #880 (#854) queued to merge on green.
+Last updated: 2026-11-16 (window 15, Opus 5.5) · Manager: **Manager session fourteen** (replaced thirteen) · Status: **#888 part 1 = PR #897**: #880 merged; main (5d0831ef) MERGED into accounting/phase6-888-idempotent (no rebase, no force; clean merge), gates green (root lint + typecheck; pnpm test --filter @platform/accounting 129 passed + 2 skipped, 18 files, month-replay gate 4/4); waiting for the Fable review — start nothing else.
 
 ## Identity (does not change)
 
