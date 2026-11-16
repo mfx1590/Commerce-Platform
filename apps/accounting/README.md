@@ -88,10 +88,13 @@ counted it) and a payment or refund hit `UNIQUE (source_event_id, account_code)`
 retries, and came back on every re-read (seen on the dev stack on 2026-11-13). Now the handler asks the ledger
 first, inside its transaction and after the per-order lock: an event whose id already has ledger rows, or that is
 still parked, is a `duplicate` (`duplicate_of: ledger | parked`). Nothing is written, nothing retried, and it is
-marked processed for the current group. An event that posted NO rows under another group (the cancel of a fully
-shipped order) is recognised by that group's processed mark (`duplicate_of: processed`), asked only when posting would
-fail: `consumer_processed` is not indexed by outbox id, and a healthy event never pays for that look-up. The UNIQUE
-constraint stays as the last guard. `test/cross-group.test.ts` replays a whole EUR + GBP month plus Brand D orders in
+marked processed for the current group. An event that posted NO rows under another group — a zero-release shipment
+(a line whose cumulative release rounds to 0), the cancel of a fully shipped order — leaves nothing for those two checks
+to find, yet still changes the projection (shipped quantity, status). It is recognised by the other group's processed
+mark (`duplicate_of: processed`), asked when the pure posting would write NO lines (#897 review) — before any projection
+is saved, so a re-reading group can never re-increment a shipped quantity — and also when posting throws. Only those
+two paths pay for the look-up (`consumer_processed` has no index on the outbox id); an event that writes rows never
+does. The UNIQUE constraint stays as the last guard. `test/cross-group.test.ts` replays a whole EUR + GBP month plus Brand D orders in
 JPY under a second group in both arrival orders, and interleaves two groups at random: always the reference ledger,
 zero throws, every event processed for both groups.
 
@@ -479,7 +482,7 @@ missing from the ledger without any alert. The ledger itself needs no code chang
 
 ## Tests
 
-`pnpm --filter @platform/accounting test` — 131 tests in eighteen files:
+`pnpm --filter @platform/accounting test` — 132 tests in eighteen files:
 
 - `src/posting/posting.test.ts` — pure: the arithmetic, the worked example of every topic above, partial shipments,
   proportional refunds and cancellations, every defect class, the netted life of one order, the late shipment, event

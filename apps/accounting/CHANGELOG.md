@@ -16,12 +16,15 @@
 
 - Fix: the ledger is idempotent by source event across consumer GROUPS. `handleLedgerEvent` answers `duplicate`
   (`duplicate_of: ledger | parked | processed`) for an event the ledger already holds — rows with its source event id,
-  still parked, or (asked only when posting would fail) processed by another `…accounting.ledger…` group — and marks
+  still parked, or processed by another `…accounting.ledger…` group (asked only when the posting would write no lines —
+  a zero-release shipment, the cancel of a fully shipped order — or throws, and before any projection is saved) — and marks
   it processed for the current group; nothing is written, retried or dead-lettered. Before, a group re-reading topics
   another group had posted dead-lettered the shipments (`ShipmentExceedsOrder`) and would have dead-lettered payments
   and refunds (UNIQUE), on every re-read (seen on the dev stack 2026-11-13). A redelivered `order.placed` without the
   mark is now `duplicate` (was `noop`).
-- Tests: 131 (+4, `test/cross-group.test.ts`); the second-guard test now proves both the handler check and UNIQUE.
+- Tests: 132 (+5, `test/cross-group.test.ts`, incl. the #897 review case: a zero-release shipment and a cancel with no
+  rows re-read by a second group → `duplicate_of: 'processed'`, the line's shipped quantity unchanged, its next real
+  shipment posts); the second-guard test now proves both the handler check and UNIQUE.
 
 ## 0.6.11 — 2026-11-13 (#854)
 

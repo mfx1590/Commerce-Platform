@@ -104,7 +104,8 @@ keycloakUrl?, keycloakRealm?, verifier?, permission? })`; `loadApiSpec(path?)` /
   it works, so give its client a pool of at least 2; an overlapping run is `ErpSyncInProgress`.
 - A parked event that is a posting defect stays parked when its order arrives (#639): `parked_defects` on the result.
 - Idempotency is by SOURCE EVENT, across groups (#888): an event the ledger already holds is `duplicate` for any group
-  (rows with its id, still parked, or another ledger group's mark when posting would fail). Never re-post to "repair".
+  (rows with its id, still parked, or — when the posting would write no lines or throws, before any projection is saved —
+  another ledger group's processed mark). Never re-post to "repair".
 - `@platform/test-utils` is a devDependency (#658): only tests and the tsx-run fixture generator may import it; the
   build excludes `src/posting/fixtures.ts`, `src/reconcile/fixtures/**` and `src/testing/**` (`src/packaging.test.ts`).
 - `order.placed@2` (#696) posts like v1; the ledger must be deployed with the @2-aware `@platform/events` no later than

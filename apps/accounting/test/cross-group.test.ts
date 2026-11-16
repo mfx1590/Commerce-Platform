@@ -183,11 +183,9 @@ describe('idempotent by source event across consumer groups (#888)', () => {
       const rows = await count(db, 'ledger_entry');
       const actions: string[] = [];
       for (const e of orderB(EVENTS)) actions.push(await consumeAs(db, GROUP_B, e)); // a throw fails the test
-      // B posts and parks NOTHING: every event is a duplicate, or a noop when it posted nothing under A either (the
-      // cancel of a fully shipped order) — and none throws
-      const t = tally(actions);
-      expect(Object.keys(t).every((k) => k === 'duplicate' || k === 'noop')).toBe(true);
-      expect(t.duplicate).toBeGreaterThan(EVENTS.length * 0.9);
+      // B posts and parks NOTHING: every event is a duplicate — including those that wrote no rows under A (the
+      // cancel of a fully shipped order: the processed mark, #897 review) — and none throws
+      expect(tally(actions)).toEqual({ duplicate: EVENTS.length });
       expect(await count(db, 'ledger_entry')).toBe(rows);
       expect(await totals(db)).toEqual(reference);
       expect(await count(db, `${PROCESSED_TABLE} WHERE group_id = $1`, [GROUP_B])).toBe(
@@ -195,6 +193,99 @@ describe('idempotent by source event across consumer groups (#888)', () => {
       );
       expect(await count(db, 'accounting_parked_event')).toBe(0);
     }, 300_000);
+
+  it('(4) #897 review: a ZERO-RELEASE shipment and the cancel of a fully shipped order (no rows) are recognised by the processed mark — the projection never moves twice', async () => {
+    const db = await fresh();
+    // one line: 3 units, net 1 minor (unit 1 × 3, discount 2), no tax, free shipping — shipping 1 of 3 releases floor(1 × 1 / 3) = 0
+    const zero = orderPlaced({
+      legalEntityId: LE_A,
+      currency: 'EUR',
+      lines: [{ quantity: 3, unit_price_minor: 1, discount_minor: 2, tax_rate_bp: 0 }],
+      shipping_minor: 0,
+      placed_at: '2026-10-05T10:00:00.000Z',
+    });
+    const line = zero.payload.line_items[0]!.order_line_item_id;
+    const ship1 = shipmentShipped(zero, [{ order_line_item_id: line, quantity: 1 }], {
+      cost_minor: 0,
+      shipped_at: '2026-10-06T10:00:00.000Z',
+    });
+    // a second order fully shipped, then cancelled: the cancel has nothing left to reverse (no rows)
+    const full = orderPlaced({
+      legalEntityId: LE_A,
+      currency: 'EUR',
+      lines: [{ quantity: 1, unit_price_minor: 5_000, tax_rate_bp: 2000 }],
+      placed_at: '2026-10-05T11:00:00.000Z',
+    });
+    const fullShip = shipmentShipped(
+      full,
+      [{ order_line_item_id: full.payload.line_items[0]!.order_line_item_id, quantity: 1 }],
+      {
+        cost_minor: 0,
+        shipped_at: '2026-10-06T11:00:00.000Z',
+      },
+    );
+    const fullCancel = orderCancelled(full, { cancelled_at: '2026-10-07T11:00:00.000Z' });
+    const lineState = async () =>
+      (
+        await db.hq.query<{ shipped_quantity: number; released_minor: string }>(
+          'SELECT shipped_quantity, released_minor::text FROM accounting_order_line WHERE order_line_item_id = $1',
+          [line],
+        )
+      ).rows[0];
+
+    // group A: everything posts; the zero-release shipment and the late cancel write NO rows
+    for (const e of [zero, ship1, full, fullShip, fullCancel]) await consumeAs(db, GROUP_A, e);
+    expect(await count(db, 'ledger_entry WHERE source_event_id = $1', [ship1.event_id])).toBe(0);
+    expect(await count(db, 'ledger_entry WHERE source_event_id = $1', [fullCancel.event_id])).toBe(
+      0,
+    );
+    const before = await lineState();
+    expect(before).toEqual({ shipped_quantity: 1, released_minor: '0' });
+    const statusOfFull = async () =>
+      (
+        await db.hq.query<{ status: string }>(
+          'SELECT status FROM accounting_order WHERE order_id = $1',
+          [full.payload.order_id],
+        )
+      ).rows[0]!.status;
+    expect(await statusOfFull()).toBe('cancelled');
+
+    // group B re-reads: the zero-row events are found through A's processed mark — duplicate_of 'processed'
+    const r = async (e: EventEnvelopeV1Base) => {
+      const store = createPgProcessedStore(db.hq, PROCESSED_TABLE);
+      return handleLedgerEvent(db.hq, decoded(e), {
+        markProcessed: (tx) => store.markProcessedWith!(tx, GROUP_B, e.event_id),
+      });
+    };
+    expect(await r(zero)).toMatchObject({ action: 'duplicate', duplicate_of: 'ledger' });
+    expect(await r(ship1)).toMatchObject({
+      action: 'duplicate',
+      duplicate_of: 'processed',
+      entries: 0,
+    });
+    expect(await r(fullCancel)).toMatchObject({
+      action: 'duplicate',
+      duplicate_of: 'processed',
+      entries: 0,
+    });
+    expect(await lineState()).toEqual(before); // shipped_quantity NOT re-incremented
+    expect(await statusOfFull()).toBe('cancelled');
+    expect(
+      await count(db, `${PROCESSED_TABLE} WHERE group_id = $1 AND outbox_id = $2`, [
+        GROUP_B,
+        ship1.event_id,
+      ]),
+    ).toBe(1);
+
+    // the line's next real shipment (the 2 remaining units) still posts, for whichever group reads it first
+    const ship2 = shipmentShipped(zero, [{ order_line_item_id: line, quantity: 2 }], {
+      cost_minor: 0,
+      shipped_at: '2026-10-08T10:00:00.000Z',
+    });
+    expect(await consumeAs(db, GROUP_B, ship2)).toBe('posted'); // before the fix: ShipmentExceedsOrder (1 + 1 + 2 > 3)
+    expect(await lineState()).toEqual({ shipped_quantity: 3, released_minor: '1' });
+    expect(await consumeAs(db, GROUP_A, ship2)).toBe('duplicate');
+  }, 300_000);
 
   it('(3) A and B interleaved at random, each in its own order: they split the work — the reference ledger, zero throws', async () => {
     const db = await fresh();

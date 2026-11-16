@@ -165,6 +165,23 @@ export async function handleLedgerEvent(
       }
       throw err;
     }
+    // #897 review: an event that writes NO rows (a zero-release shipment, the cancel of a fully shipped order) leaves
+    // nothing in ledger_entry for alreadyInLedger to find, yet it still changes the projection (shipped quantity,
+    // status). Under a second group it would be applied again — a re-incremented shipped_quantity makes the next real
+    // shipment of that line dead-letter. So when the posting writes nothing, ask the other ledger groups' marks BEFORE
+    // anything is saved. Only zero-row results pay this look-up; an event that writes rows never does.
+    if (
+      result.entries.every((en) => en.lines.length === 0) &&
+      (await processedByAnotherLedgerGroup(tx, outboxId))
+    ) {
+      if (opts.markProcessed) await opts.markProcessed(tx);
+      return {
+        ...base,
+        action: 'duplicate',
+        duplicate_of: 'processed',
+        legal_entity_id: legalEntityId,
+      };
+    }
     await write(result);
     let projection: OrderProjection | null = result.order ?? order;
     let applied = 0;
@@ -289,7 +306,10 @@ async function alreadyInLedger(
   return r.rows[0]?.how ?? null;
 }
 
-/** #888: was this event processed by another ledger group (`…accounting.ledger…`)? Failure path only (no index). */
+/**
+ * #888: was this event processed by another ledger group (`…accounting.ledger…`)? Asked only when the posting would
+ * write nothing or throws (consumer_processed has no outbox-id index; an event that writes rows never pays for it).
+ */
 async function processedByAnotherLedgerGroup(tx: Queryable, outboxId: string): Promise<boolean> {
   const r = await tx.query(
     `SELECT 1 FROM ${PROCESSED_TABLE} WHERE outbox_id = $1 AND group_id LIKE '%accounting.ledger%' LIMIT 1`,
