@@ -412,6 +412,47 @@ bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
 ## In progress — #870 wave 1 item 3, admin history (2026-11-13)
 
+### Merged main into the branch for the Fable review (2026-11-16, manager session fourteen)
+
+Session thirteen's stop order is superseded; **manager session fourteen** replaced it. One task:
+#896 conflicted with main since **#879** (window 3's #870 wave 1 item 1, stock movements in HQ ›
+Warehouse). Merged `origin/main` (`c2af9b9f`) in — no rebase, no force-push — merge commit
+`dc00eec6`, parents `51fb6ad7` + `c2af9b9f`.
+
+**The only conflict was `apps/admin/CHANGELOG.md`**, and it was additive: two `### Added` sections
+under the same `## Unreleased`. Kept both, main's landed item-1 entry first so the diff against main
+stays an append. `apps/admin/README.md` auto-merged. Nothing collided semantically: #879 touched the
+warehouse and inventory screens, `src/lib/api/admin.ts` and its own tests, while `sections.ts`,
+`navigation.test.ts` and `role-access.test.ts` — the files my work touches — were untouched by it.
+
+Gates after the merge: lint ✅, format:check ✅, typecheck 30/30 ✅, ownership ✅, admin suite
+**1251 passed / 72 files** (1189 mine + #879's).
+
+**I did not run `fga:seed`,** which the manager's message asked for. The admin unit suite is
+hermetic (Vitest with the API module mocked) and needs no OpenFGA, and seeding writes to the stack
+**every window shares** — the recorded rule is that a shared-stack write needs the owner in session,
+not a manager OK. Nothing in this task needed it, so the right move was to skip it rather than ask.
+
+### The follow-up is parked on a side branch, NOT in the PR
+
+Manager thirteen's decision (5) asked for two more things on HQ › Audit — a **page-size picker**
+and **a link from each row to the entity it concerns** — plus two named tests (an unlisted field in
+`before`/`after` renders as a NAME; `store.update` never prints `psp_account_id` or `settings`).
+
+`src/lib/audit/entity-links.ts`, the pure `entityHref` map, written but unwired and untested, lives
+on the local branch **`wip/admin-history-entity-links`** (commit `22b769ef`). It is deliberately
+**not** on `integration/admin-history`: #896 goes to a Fable review, and handing a reviewer an
+unused module is worse than handing them nothing. Nothing was lost and no history was rewritten —
+the commit was never pushed, so pointing a branch at it and resetting the reviewed branch back to
+`51fb6ad7` was not a force-push.
+
+To resume: `git cherry-pick 22b769ef`, then wire `entityHref` into `ActivityRows` behind a
+`showEntity` prop — HQ view only, linked when non-null, the short id as plain text otherwise,
+because a link to a route that does not exist is worse than no link — add the `limit` select
+(25 / 50 / 100; `parseAuditQuery` already reads and caps it at 100), write the two tests, then the
+gates, CHANGELOG/README lines under the existing #870 heading, and push.
+
+
 **PR #896**, branch `integration/admin-history` from main `62c13ee7` (code commit `0221813e`;
 head = this memory commit). **This is an ADMIN task, not a brands one**: the owner's new standard
 for the dashboard (#870) found window 4 to be the bottleneck, so the manager handed me an item on
