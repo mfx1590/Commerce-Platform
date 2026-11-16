@@ -2,6 +2,72 @@
 
 ## Unreleased
 
+### Added — #870 wave 1 item 1: stock movements in HQ › Warehouse (window 3)
+
+- **Move stock** on every stock item row: **Adjust** (± with a note, reason `adjustment`), **Receive** (quantity, `receipt`) and **Transfer** (from → to warehouse). This is `createStockMovement`, which the admin never called before. The form shows the shelf's on hand / reserved / available now and after the move. It refuses a result below zero or below what open orders reserved before sending anything. On success it opens the item's ledger on that warehouse, where the new row shows its actor and note.
+- `moveStockAction` (`src/app/actions/warehouse.ts`) checks, in this order, before any write:
+  1. `operations` on `organization:hq` (the yaml's `x-permission`, pinned by the existing table test); a non-permitted role is refused before any read or write.
+  2. The schema.
+  3. A **fresh** read of the item. The API is addressed by variant, so the action takes a variant that maps the item from this read, never from the browser.
+  4. The below-zero / below-reserved check.
+
+  The core refuses below zero itself (409, shown in its own words) but **not below reserved**. The admin's check is read-then-write without a lock, so the real guard is requested from the core (REQUEST #877).
+
+- **A transfer is two movements in two transactions**: there is no transfer operation and no idempotency key.
+  - `transfer_out` goes first at the source, so a half-done transfer can only understate stock.
+  - If the destination refuses, a compensating `transfer_in` puts the units back at the source with a note naming the refusal.
+  - If putting them back fails too, both errors and the stranded quantity are said.
+  - If the destination's outcome is unknown (network, 5xx), nothing is written on a guess, and the message says which ledger to check.
+- An item no variant maps shows why it cannot be moved, instead of the button.
+- **Store › Inventory**: each row links to its stock item's ledger in HQ › Warehouse. The link is shown only to principals who hold `operations` on hq; anyone else would land on a refusal.
+- Tests:
+  - `test/stock-movements.test.ts` (49): permission for 5 roles, validation and the upper bound, below reserved and below zero, the API's 409 / 404 / 403, an unknown outcome (adjust, receive, a transfer's first leg), the fresh read, a transfer's two calls in order, each failure case, and the compensation note.
+  - `test/stock-movement-form.test.tsx` (13): now/after numbers, live refusal, payloads, the ledger opened with the list's filters kept, the confirm step above 100 units, the bound, a single request while pending, and the Ledger link shown and hidden.
+  - Mutation-checked: dropping the below-reserved rule or the compensation fails the suite.
+  - The advisory e2e owner journey opens Move stock up to its live refusal and closes it (never submitted on the shared database). The store-admin journey asserts no Ledger link.
+- #879 review (Fable):
+  - **An unknown outcome is never "try again".** A network failure (status 0, which includes a reset after the request was sent) or a 5xx on a single move or on a transfer's first leg now says "Outcome unknown … check the item's ledger before repeating it". The movement may be recorded, and `createStockMovement` has no idempotency key. The page is revalidated.
+  - The page is also revalidated after a 409, because the shelf changed under the form.
+  - A move above 100 units asks once more, showing the shelf after the move. One movement carries at most 100,000 units (a typo guard; form and action).
+  - The compensation note names the destination and keeps the operator's note.
+  - A submit while one is pending sends nothing.
+
+### Fixed — #860: a section guard no longer reports a failed /admin/me as "you need the owner relation"; service accounts are read-only on Roles
+
+- `HqSectionGuard` / `StoreSectionGuard` rendered "You do not have access to this — you need the owner relation"
+  whenever `loadPrincipal()` failed (401, a 503 from a fail-closed OpenFGA, no answer). The owner saw it on HQ ›
+  Roles. A failed principal read now renders `ApiStatePanel` (its status and error). "You need X" appears only
+  when `/admin/me` answered without the relation. It was reachable only on a **soft navigation**: _Manage_ is a
+  client-side link, so Next re-renders the page segment alone, and the Shell, which handles a failed principal on
+  a full load, is not run again (Fable review of #862).
+- HQ › Roles: service-account rows (crm-sync, analytics-sync) are badged and offer **View**. The view is read-only
+  and names `provision:service-accounts`. The assign and revoke actions refuse them server-side. Ids are fixed
+  until `StaffUser.kind` (CONTRACT CHANGE #861).
+- Customer form: the customer-group hint no longer promises a picker "with the customer-groups operation". That
+  operation is served now; the picker is a follow-up.
+- Tests: `roles-screens` (guard on 401, 503 and no answer, HQ and store; service-account view; a person still
+  managed; +7), `roles-actions` (service accounts refused before the API; +2).
+
+### Added — #851 (part 1): HQ › Finance on the Accounting API — books, trial balance, journal
+
+- The Finance placeholder ("window 15 in Phase 4") is replaced. It lists legal entities with books
+  (`listLegalEntityBooks`), then for the chosen one either the trial balance (`getTrialBalance`: per currency,
+  balanced or unbalanced stated, an empty period never called balanced) or the journal (`listJournalLines`:
+  filters, paging, order references linking to the store order).
+- Typed by the generated `@platform/contracts/accounting`. `adminRequest`'s transport is extracted as
+  `jsonRequest<T>` and shared, unchanged.
+- `finance` on organization:hq is checked before any request (the contract's 403). `ACCOUNTING_API_URL` is new;
+  production never falls back to a mock, and its absence is "not configured".
+- Money: per currency, never summed across. A JPY fixture (Brand D K.K.) renders whole yen.
+- Tests: `finance` (the gate per role, the URL, the search params, the helpers; 23), `finance-screens`
+  (JPY/EUR trial balance, empty period, rows without a total, journal links and paging, entities; 9) and
+  `finance-page` (the page: placeholder gone; accounting down, not configured, 401, 403 and 5xx each named; 6).
+- #853 review (Fable):
+  - Accounting failures render `AccountingStatePanel`. `ApiStatePanel` had named the Admin API and dropped the hint.
+  - Production ignores `MOCK_ACCOUNTING_API_URL`.
+  - Rows of a currency without totals are shown and said.
+  - _Balanced_ requires debit = credit as well as a zero difference.
+
 ### Fixed — #820: no Review flash after the onboarding wizard's "Done"
 
 - "Done — continue to readiness" dropped the one-time key by clearing the result, so the wizard

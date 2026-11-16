@@ -64,6 +64,34 @@ export function resolveAdminApiUrl(
   return MOCK_URLS.admin;
 }
 
+/**
+ * Where the Accounting API (apps/accounting, `accounting.yaml`; #851) lives, or null when it is not
+ * configured:
+ *
+ * 1. `ACCOUNTING_API_URL` — the real service (`pnpm --filter @platform/accounting dev`, :9003).
+ * 2. Outside production only: `MOCK_ACCOUNTING_API_URL` — a Prism mock on a port of your choosing.
+ * 3. Outside production only: `MOCK_URLS.accounting`, what `pnpm mock` binds (:4013).
+ *
+ * In production only `ACCOUNTING_API_URL` counts: a missing one is "not configured" (HQ › Finance
+ * says so), never a mock answering with example books — not even one named by the mock variable
+ * (#853 review). The e2e run, which is a production build, passes `ACCOUNTING_API_URL`.
+ */
+export function resolveAccountingApiUrl(
+  source: Readonly<Record<string, string | undefined>> = process.env,
+): string | null {
+  const production = source['NODE_ENV'] === 'production';
+  const names = production
+    ? (['ACCOUNTING_API_URL'] as const)
+    : (['ACCOUNTING_API_URL', 'MOCK_ACCOUNTING_API_URL'] as const);
+  for (const name of names) {
+    const value = source[name];
+    if (value !== undefined && value !== '') {
+      return withoutTrailingSlash(httpUrl(name, value));
+    }
+  }
+  return production ? null : MOCK_URLS.accounting;
+}
+
 export const isProduction = process.env.NODE_ENV === 'production';
 
 /** 256 bits of base64 is 44 characters; 32 is the floor we accept. */
@@ -108,6 +136,8 @@ export const env = {
    * contracts package's own mock URL — see `resolveAdminApiUrl`.
    */
   adminApiUrl: resolveAdminApiUrl(),
+  /** Accounting API (#851): null = not configured (production without `ACCOUNTING_API_URL`). */
+  accountingApiUrl: resolveAccountingApiUrl(),
 } as const;
 
 export const OIDC_REDIRECT_PATH = '/api/auth/callback';

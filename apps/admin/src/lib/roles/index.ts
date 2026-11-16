@@ -58,3 +58,21 @@ export const inviteSchema = z
   })
   .strict();
 export type InviteValues = z.infer<typeof inviteSchema>;
+
+/**
+ * The machine clients' staff rows (#860): crm-sync and analytics-sync. Their roles are provisioned by
+ * `pnpm --filter @platform/auth-sdk provision:service-accounts` (fixed ids, the same as
+ * `SEED_IDS.serviceAccounts` in @platform/db), never assigned or revoked in the admin. Recognised by
+ * id until the contract says it (`StaffUser.kind`, CONTRACT CHANGE #861).
+ */
+export const SERVICE_ACCOUNT_IDS: ReadonlySet<string> = new Set([
+  '00000000-0000-4000-8000-000000000061', // crm-sync
+  '00000000-0000-4000-8000-000000000062', // analytics-sync
+]);
+
+export function isServiceAccount(userId: string): boolean {
+  return SERVICE_ACCOUNT_IDS.has(userId.toLowerCase());
+}
+
+export const SERVICE_ACCOUNT_REFUSAL =
+  'This is a service account: its roles are provisioned by `pnpm --filter @platform/auth-sdk provision:service-accounts`, not here. Nothing was changed.';

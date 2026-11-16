@@ -207,7 +207,8 @@ number of stores adds up to it.
 **Three gates, not one.** Hiding a nav entry is the weakest of them:
 
 1. the nav does not render the link;
-2. the page's `HqSectionGuard` / `StoreSectionGuard` renders a 403 panel if you type the URL anyway,
+2. the page's `HqSectionGuard` / `StoreSectionGuard` renders a 403 panel if you type the URL anyway (only when
+   `/admin/me` answered: a failed principal read is shown as its own failure, never as a missing relation, #860),
    and the store layout re-validates the store id against `stores[]` on _every_ request;
 3. the Admin API re-checks the operation's `x-permission`. This is the only one that is security.
 
@@ -620,6 +621,49 @@ forms at all, every card read-only with the relation named, keys card the store_
 No core defects found. Screenshots in [`docs/settings/`](./docs/settings/) — the revealed key is
 redacted in the DOM before capture; no key value is committed.
 
+## HQ › Finance (issue #851; Accounting API 0.1.0)
+
+`/finance` reads the accounting service (apps/accounting, `packages/contracts/openapi/accounting.yaml`). It is
+read-only: the ledger is derived from events and nothing here writes.
+
+- **Client.** `src/lib/api/accounting-client.ts` is typed by the generated `@platform/contracts/accounting`
+  (`AccountingResponse<K>`, `AccountingQuery<K>`), over the Admin API's transport (`jsonRequest`), so there are no
+  hand-typed shapes. The URL comes from `ACCOUNTING_API_URL`, then `MOCK_ACCOUNTING_API_URL`, then (not in
+  production) `pnpm mock`'s :4013. In production a missing URL reads as _not configured_.
+- **Gate.** Every operation is `finance` on `organization:hq` (owner implies it). `src/lib/api/accounting.ts` checks
+  the principal and refuses with the contract's 403 **before** any request; the service checks again with OpenFGA.
+  The bearer is the session's staff-realm token: the service verifies it with auth-sdk's default audience
+  `core-api`, the same token the core gets.
+- **Panels.**
+  - Legal entities with books (`listLegalEntityBooks`).
+  - For the chosen entity, the **trial balance** (`getTrialBalance`). It shows one table per currency with that
+    currency's own total and _Balanced_ / _Unbalanced by …_ state. A period with no lines says so and never
+    claims balanced.
+  - Or the **journal** (`listJournalLines`): period, currency, journal, account, reference and ERP filters, and
+    paging that keeps them. An order reference opens `/{storeId}/orders/{orderId}`.
+- **URL state.** The view lives in the URL (`entity`, `tab`, `from`, `to`, `currency` and the journal filters),
+  read by `readFinanceView`. Only declared parameters are sent. Anything malformed is dropped and named on the
+  page, never a 400 panel.
+- **Money.** Integer minor units per currency through `formatMoney`, so JPY is whole yen (JP¥1,980). Nothing is
+  ever summed across currencies.
+- **Errors.** `AccountingStatePanel` (`src/app/(hq)/finance/accounting-state.tsx`), never `ApiStatePanel`, which speaks
+  for the Admin API and drops `hint` outside 403 (#853 review). Each case names the accounting service and its
+  next step:
+  - down (status 0): check apps/accounting and `ACCOUNTING_API_URL`;
+  - `not_configured`: set `ACCOUNTING_API_URL`;
+  - 401: sign in again, or the realm differs;
+  - 5xx: usually temporary.
+
+  403 and 404 keep the shared panels. A failure is never an empty table.
+
+- **Production URL.** In production only `ACCOUNTING_API_URL` counts; `MOCK_ACCOUNTING_API_URL` is ignored there.
+- **Trial balance checks.** A currency is _Balanced_ only when its difference is zero **and** debit = credit. Rows of
+  a currency with no total are shown under "No total from the service — not checked", never dropped.
+- **Next PR (#851 part 2).**
+  - Payouts and reconciliation (`listPayouts`, `getPayout`).
+  - The ops panel (`listParkedEvents`, `getErpSyncStatus`).
+  - An e2e against Prism's accounting mock. The real service in the advisory e2e job is REQUEST #852.
+
 ## HQ roles (task 3.1 A, issue #428; Admin API 0.4.12)
 
 **HQ · Roles** (`/roles`, owner on `organization:hq`): every staff user with status and last
@@ -632,6 +676,15 @@ creates the person (`inviteUser`: email + display name — the contract takes no
 the optional initial relation with `assignRole`; a refused grant is said ("Invited, but the initial
 relation was not granted") and retried from the person's row. Until the invitation email exists
 (SMTP, Integration 2b) the first sign-in is set up by an admin in Keycloak — the screen says so.
+
+**Service accounts** (#860): crm-sync and analytics-sync are staff rows too, but their roles come from
+`pnpm --filter @platform/auth-sdk provision:service-accounts`.
+
+- Their rows carry a _service account_ badge and offer **View**, not **Manage**.
+- The view is read-only: relations without Revoke, no Assign, and a note naming the provisioning script.
+- `assignRoleAction` / `revokeRoleAction` refuse them before the API.
+- They are recognised by their fixed ids (`SERVICE_ACCOUNT_IDS` in `src/lib/roles`, the ids provisioning uses)
+  until `StaffUser.kind` exists (CONTRACT CHANGE #861).
 
 Every mutation is refused server-side before the API unless the principal is owner on hq
 (`ROLES_PERMISSIONS` in the shared guard, pinned against the yaml); a taken email (409) lands
@@ -748,6 +801,21 @@ Every mutation is refused server-side before the API unless the principal is ope
 writes no stock (the dev database is pooled and shared): the store admin's refusal and the
 inventory rows in both modes; in core mode the owner reads a shared item, opens the pool action up
 to its confirmation and cancels, and reads the counts.
+
+### Stock movements (#870 wave 1 item 1; `createStockMovement`)
+
+"Move stock" on each stock item row: Adjust (±), Receive, or Transfer between warehouses, each with a note that lands on the ledger row.
+
+- **Permission:** `operations` on `organization:hq`, checked in `moveStockAction` before any read or write.
+- **Addressed by variant:** the action re-reads the item and moves it through a variant that maps it. An item no variant maps cannot be moved until one is pooled onto it.
+- **Floors:** below zero is refused by the core (409) and by the form. Below reserved is refused by the form and the action only: the core accepts it, so a sale between the read and the write can still beat the admin's check. The real guard is a REQUEST to the core (#877).
+- **Unknown outcome:** a network failure or 5xx is reported as "outcome unknown — check the ledger before repeating", never "try again". The operation has no idempotency key, so a repeat could receive or move the stock twice.
+- **Large moves:** above 100 units the form asks once more, showing the shelf after the move. One movement carries at most 100,000 units.
+- **Transfer is not atomic:** `transfer_out` at the source, then `transfer_in` at the destination.
+  - A refused second leg is compensated at the source, and the message says so.
+  - An unknown outcome (network, 5xx) is never compensated on a guess; the message names the ledger to check.
+  - An atomic transfer needs a contract change: a transfer operation, or an idempotency key on `createStockMovement`.
+- **Ledger:** success opens the item's ledger (`?item=&view=movements&warehouse_id=`) on the warehouse that received the move. Store › Inventory rows link there for principals who may open the warehouse section.
 
 ## Draft copy with AI (#608, CONTRACT CHANGE #664; Admin API 0.4.26)
 

@@ -59,7 +59,7 @@ export function CustomerForm({
         <TextField label="Phone" error={errorMessage(errors.phone)} {...form.register('phone')} />
         <TextField
           label="Customer group id"
-          hint="A uuid; empty clears the group. A picker arrives with the customer-groups operation."
+          hint="The group's id (a uuid); empty clears the group."
           error={errorMessage(errors.customer_group_id)}
           {...form.register('customer_group_id')}
         />
