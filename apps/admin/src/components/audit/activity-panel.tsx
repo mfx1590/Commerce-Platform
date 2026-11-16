@@ -140,8 +140,9 @@ export function ActivityPanel({
           <RequestErrorPanel status={error.status} error={error.error} />
         ) : rows.length === 0 ? (
           <p className="text-muted text-sm">
-            No recorded changes yet. Every admin change to this {label} is recorded here from the
-            moment it happens.
+            Nothing recorded for this {label} yet. Rows appear here as the core writes them; a
+            change to something related — a product&rsquo;s variants or its media — is recorded
+            under that entity&rsquo;s own id, not this one.
           </p>
         ) : (
           <div className="space-y-3">

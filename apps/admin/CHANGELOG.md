@@ -58,6 +58,26 @@
   stands rather than disappearing. REQUEST #891 for a `viewer`-level name lookup.
 - The CSV neutralises a leading `=`, `+`, `-` or `@` in a cell: an audit log carries text somebody
   typed, and a CSV is how that becomes a formula in someone else's spreadsheet.
+- #896 review (Fable):
+  - **`/audit/export` is gated in the handler, before any API call.** A route handler is not a
+    screen: the section guard that hides `/audit` from a non-owner does nothing for a typed URL, and
+    `listAuditLog` is only `viewer` on a store — so a store-scoped staff user could have downloaded
+    their stores' whole audit log as a file. It now resolves the principal and applies the same
+    `visibleHqSections` predicate the page uses, from the same catalogue entry: no session 401, a
+    failed `/admin/me` forwarded as it is (a fail-closed 503 stays 503), no relation 403, and the
+    Admin API is not reached in any of those cases. `test/audit-export-route.test.ts` (13).
+  - **The filter was short by three entity types, because there are TWO audit writers.**
+    `apps/core/src/lib/audit.ts` accounts for 23; `packages/auth-sdk/src/audit/write.ts` adds
+    `role_assignment` and `staff_user` — the role grants and revokes, which are the rows an owner
+    is most likely to come here for — and `customer_address` was missed in the core. 25 now, and
+    `role_assignment` shows the relation, object type and object; `staff_user` shows its status and
+    withholds the rest, `keycloak_subject` included.
+  - **`stock_movement` allow-listed `quantity`, which nothing writes.** The core writes `delta`, so
+    the one number a reader wants was withheld. Fixed, with a test.
+  - Two on-screen sentences were not true and now are: the audit table no longer claims its columns
+    are "exactly" the CSV's (the file also carries ids, the actor type and the request id), and an
+    empty panel no longer promises that "every" change to the entity is recorded here — a change to
+    a product's variants or media is recorded under that entity's own id.
 
 ### Fixed — #860: a section guard no longer reports a failed /admin/me as "you need the owner relation"; service accounts are read-only on Roles
 

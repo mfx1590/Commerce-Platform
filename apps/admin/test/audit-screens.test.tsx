@@ -176,7 +176,9 @@ describe('the entity Activity panel', () => {
         basePath="/base"
       />,
     );
-    expect(screen.getByText(/No recorded changes yet/)).toBeTruthy();
+    expect(screen.getByText(/Nothing recorded for this promotion yet/)).toBeTruthy();
+    // #896 review: it must not promise that EVERY change to the entity lands here.
+    expect(screen.queryByText(/every/i)).toBeNull();
     expect(screen.queryByRole('table')).toBeNull();
   });
 

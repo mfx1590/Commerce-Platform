@@ -148,7 +148,7 @@ export default async function AuditPage({
         <Card>
           <CardHeader
             title={total === 0 ? 'Changes' : `Changes · ${first}–${first + shown - 1} of ${total}`}
-            description="The columns below are exactly what the CSV export contains — never a before/after body."
+            description="The export carries these rows with their ids, the actor type and the request id as well, and the changed fields by name — never a before/after body."
           />
           <CardBody>
             {!entries.ok ? (

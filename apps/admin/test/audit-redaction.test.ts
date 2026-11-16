@@ -132,6 +132,98 @@ describe('the allow-list decides what a value may show', () => {
   });
 });
 
+describe('the two cases the review asked to be pinned by name', () => {
+  it('a field the core starts writing tomorrow renders as a NAME, not a value', () => {
+    // The whole reason this is an allow-list: a new `writeAudit` call in the core changes what
+    // this screen renders without touching the admin. `product` HAS an allow-list, so this is the
+    // realistic case — a new key arriving on an entity type that is already allow-listed.
+    const changes = fieldChanges({
+      action: 'product.update',
+      entity_type: 'product',
+      before: { supplier_cost_note: `old ${MARKER}` },
+      after: { supplier_cost_note: `new ${MARKER}` },
+    });
+    expect(changes).toEqual([
+      { field: 'supplier_cost_note', kind: 'redacted', before: null, after: null },
+    ]);
+    expect(JSON.stringify(changes)).not.toContain(MARKER);
+    // And it is still NAMED in the summary, so the reader knows where to look.
+    expect(
+      summarise({
+        action: 'product.update',
+        entity_type: 'product',
+        after: { supplier_cost_note: MARKER },
+      }),
+    ).toBe('updated · supplier_cost_note');
+  });
+
+  it('store.update never prints psp_account_id or settings, which it writes in full', () => {
+    // `registry/service.ts` writes the WHOLE `Store` object as before/after.
+    const changes = fieldChanges({
+      action: 'store.update',
+      entity_type: 'store',
+      before: {
+        name: 'Brand A',
+        psp_account_id: `acct-${MARKER}`,
+        settings: { payment: { invoice_allowed: false }, note: MARKER },
+      },
+      after: {
+        name: 'Brand A EU',
+        psp_account_id: `acct-${MARKER}-2`,
+        settings: { payment: { invoice_allowed: true }, note: `${MARKER}!` },
+      },
+    });
+    expect(changes.map((change) => change.field)).toEqual(['name', 'psp_account_id', 'settings']);
+    expect(changes.every((change) => change.kind === 'redacted')).toBe(true);
+    expect(JSON.stringify(changes)).not.toContain(MARKER);
+    expect(JSON.stringify(changes)).not.toContain('invoice_allowed');
+  });
+
+  it("shows a stock movement's delta, which is the field the core actually writes", () => {
+    // The first version allow-listed `quantity`, which nothing writes, so the one number a reader
+    // wants was withheld (#896 review). `inventory/service.ts` writes `delta`.
+    const changes = fieldChanges({
+      action: 'stock_movement.create',
+      entity_type: 'stock_movement',
+      after: { delta: -3, reason: 'adjustment', addressed_variant_id: 'v1' },
+    });
+    expect(changes.find((change) => change.field === 'delta')).toEqual({
+      field: 'delta',
+      kind: 'shown',
+      before: null,
+      after: '-3',
+    });
+    // An id nobody reviewed stays a name.
+    expect(changes.find((change) => change.field === 'addressed_variant_id')?.kind).toBe(
+      'redacted',
+    );
+  });
+
+  it('shows who was granted what, and never a staff user’s subject or email', () => {
+    // `packages/auth-sdk` is the SECOND audit writer; the first version of this screen missed it.
+    const grant = fieldChanges({
+      action: 'role_assignment.create',
+      entity_type: 'role_assignment',
+      after: { relation: 'store_admin', object_type: 'store', object_id: 'store-1' },
+    });
+    expect(grant.map((change) => `${change.field}:${change.kind}`)).toEqual([
+      'object_id:shown',
+      'object_type:shown',
+      'relation:shown',
+    ]);
+
+    const invited = fieldChanges({
+      action: 'staff_user.create',
+      entity_type: 'staff_user',
+      after: { status: 'active', email: `${MARKER}@example.test`, keycloak_subject: MARKER },
+    });
+    expect(invited.find((change) => change.field === 'status')?.kind).toBe('shown');
+    expect(invited.find((change) => change.field === 'email')?.kind).toBe('redacted');
+    expect(invited.find((change) => change.field === 'keycloak_subject')?.kind).toBe('redacted');
+    expect(JSON.stringify(invited)).not.toContain(MARKER);
+  });
+});
+
 describe('formatValue', () => {
   it('renders scalars and names the absent and the empty', () => {
     expect(formatValue('Classic Tee')).toBe('Classic Tee');

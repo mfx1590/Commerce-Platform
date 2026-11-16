@@ -957,6 +957,18 @@ made and can never widen it. The date inputs are UTC calendar days and become th
 drop everything that happened on the day the reader asked for. `/audit/export` parses the same
 query with the same helpers, so "export what I am looking at" is true rather than nearly true.
 
+**The export route gates itself** (#896 review). A route handler is not a screen: the section guard
+does nothing for a typed URL, and `listAuditLog` is only `viewer` on a store, so the handler
+resolves the principal and applies the same `visibleHqSections` predicate the page uses before any
+API call — 401 without a session, the status of a failed `/admin/me` forwarded as it is, 403
+without the relation. Whenever a screen's data is also reachable as a route handler, the handler
+needs the screen's gate written out again; the guard component cannot reach it.
+
+**There are two audit writers.** `apps/core/src/lib/audit.ts` (`writeAudit`, 54 call sites, 23
+entity types) and `packages/auth-sdk/src/audit/write.ts` (`audit`), which is where
+`role_assignment` and `staff_user` come from — the role grants and revokes. 25 entity types in
+total, and the first version of this screen offered 22.
+
 ## Security headers (Phase 6 D4, #731)
 
 - **CSP, per request** — `src/middleware.ts` builds it with `src/lib/security/csp.ts`: a new

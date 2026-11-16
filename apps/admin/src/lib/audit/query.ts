@@ -15,16 +15,24 @@ export const MAX_LIMIT = 100;
 export const DEFAULT_LIMIT = 50;
 
 /**
- * The entity types the core writes audit rows for today (54 `writeAudit` call sites).
+ * The entity types that are written today: **25**.
+ *
+ * Two writers, not one — the first pass of this screen missed the second and the filter was short
+ * by three types (#896 review). `apps/core/src/lib/audit.ts` (`writeAudit`, 54 call sites) accounts
+ * for 23, and `packages/auth-sdk/src/audit/write.ts` (`audit`) adds `role_assignment` and
+ * `staff_user` — the role grants and revokes, which are the rows an owner is most likely to come
+ * here for.
  *
  * A filter the API would accept but nothing ever wrote is a dead end for the reader, so the select
- * offers exactly these. `order` is deliberately absent: nothing writes an order row yet.
+ * offers exactly these. `order` is deliberately absent: nothing writes an order row yet (REQUEST
+ * #887).
  */
 export const AUDITED_ENTITY_TYPES = [
   'campaign',
   'cart',
   'cart_recovery',
   'customer',
+  'customer_address',
   'customer_export',
   'cycle_count',
   'payment',
@@ -35,9 +43,11 @@ export const AUDITED_ENTITY_TYPES = [
   'product_media',
   'product_variant',
   'promotion',
+  'role_assignment',
   'sales_channel',
   'segment',
   'shipping_option',
+  'staff_user',
   'stock_movement',
   'store',
   'store_api_key',

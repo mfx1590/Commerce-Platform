@@ -52,7 +52,15 @@ export const SAFE_VALUE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   campaign: ['name', 'status', 'type'],
   segment: ['name', 'status'],
   product_feed: ['name', 'status', 'format'],
-  stock_movement: ['reason', 'quantity', 'warehouse_id'],
+  // `inventory/service.ts` writes `delta`, not `quantity` — the first version allow-listed a field
+  // that is never written, so the one number a reader wants was withheld (#896 review).
+  stock_movement: ['reason', 'delta', 'warehouse_id', 'stock_item_id'],
+  // `packages/auth-sdk/src/roles/service.ts`. Who was granted what, on which object, is the whole
+  // point of these rows; the staff user is a uuid here, so it stays a name.
+  role_assignment: ['relation', 'object_type', 'object_id'],
+  // `roles/invite.ts` writes the whole API user PLUS `keycloak_subject` and `required_actions`.
+  // Only the status is rendered; everything else, the subject included, is withheld by default.
+  staff_user: ['status'],
 };
 
 /**
@@ -62,7 +70,7 @@ export const SAFE_VALUE_FIELDS: Readonly<Record<string, readonly string[]>> = {
  * it from becoming an incident. Matches anywhere in the name, case-insensitively.
  */
 export const NEVER_SHOW =
-  /(secret|token|password|credential|api_key|key_hash|hash|psp|card|iban|bic|swift|account_number|routing|email|phone|address|postcode|zip|ip_address|tax_id|vat|dob|birth)/i;
+  /(secret|token|password|credential|api_key|key_hash|hash|psp|card|iban|bic|swift|account_number|routing|email|phone|address|postcode|zip|ip_address|subject|tax_id|vat|dob|birth)/i;
 
 /** Longest rendered value; anything longer is cut rather than wrapped across the row. */
 export const MAX_VALUE_LENGTH = 120;

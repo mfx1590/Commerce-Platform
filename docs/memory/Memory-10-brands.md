@@ -412,6 +412,48 @@ bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
 ## In progress — #870 wave 1 item 3, admin history (2026-11-13)
 
+### Fable review on #896: BLOCK — one real security hole and four false statements (2026-11-16)
+
+Head after the fix: see the push below. Branch `integration/admin-history`, one push, gates green.
+
+**The hole, and it was mine to see.** `/audit/export` called the Admin API with **no gate of its
+own**. The page is owner-only through `HqSectionGuard`, but a **route handler is not a screen**: the
+guard component never runs for a URL typed into the address bar, and `listAuditLog` is only `viewer`
+on a store — so a store-scoped staff user could have downloaded their stores' whole audit log as a
+CSV. Worse, my own PR body argued the gate "only decides who is offered the screen", which is true
+of a page and false of a handler that returns data. The handler now runs `loadPrincipal()` plus the
+same `visibleHqSections` predicate from the same catalogue entry: 401 with no session, a failed
+`/admin/me` forwarded as it is (a fail-closed 503 stays 503), 403 without the relation, and the API
+is not reached in any of those cases. 13 tests, including a 403 for all six non-owner roles.
+
+**The rule: whenever a screen's data is also reachable as a route handler, the handler needs the
+screen's gate written out again.** A guard component cannot reach it. Worth checking the BI export
+routes against this too — not mine, but the same shape.
+
+**I had also missed an entire audit writer.** `packages/auth-sdk/src/audit/write.ts` (`audit`)
+writes next to the core's `writeAudit`, and it is where **`role_assignment`** and **`staff_user`**
+come from — the role grants and revokes, the rows an owner is most likely to open this screen for.
+Plus `customer_address` missed inside the core. So the filter offered **22** of **25** types and
+silently hid who-granted-whom. The reviewer's count (25) was right and mine (23) was the core's
+share. **One grep of one module is not "every writer"** — grep the repo for the INSERT, not for the
+helper I happened to find first.
+
+**A dead allow-list entry.** `stock_movement` allow-listed `quantity`; `inventory/service.ts`
+writes **`delta`**. So the fail-closed rule worked exactly as designed and withheld the one number
+a reader wants. An allow-list entry nobody checked against the writer is not a safe default, it is
+a silent blank.
+
+**Four statements that read as facts and were not:** the audit table claimed its columns were
+"exactly" the CSV's (the file also carries ids, the actor type and the request id); an empty panel
+promised "every admin change to this X is recorded here" (a product's variants and media are
+recorded under their own ids, and an order has no rows at all); the entity-type list and its
+counts; and the `quantity` comment. All four now say what is true. The lesson is narrower than
+"be careful": **a sentence on a screen is an assertion, and nothing tests it.** Three of these four
+were in text I wrote while describing work I had just done correctly.
+
+Suite after the fix: **1268 passed / 73 files**.
+
+
 ### Merged main into the branch for the Fable review (2026-11-16, manager session fourteen)
 
 Session thirteen's stop order is superseded; **manager session fourteen** replaced it. One task:
@@ -466,7 +508,8 @@ on an order, an owner-only HQ › Audit view with filters / paging / CSV. Admin 
 ### Read the data before designing the screen — it changed the task
 
 The manager's brief named four detail pages. Grepping all **54 `writeAudit` call sites** in the core
-first showed **23 entity types and no `order`**: nothing writes `entity_type: 'order'` — not
+first showed **23 entity types and no `order`** (23 is the core's share; the real total is 25 — see
+the review entry above, which is where that mistake is recorded): nothing writes `entity_type: 'order'` — not
 placement, not the status machine, not cancel, not the line-item edits. A "History" panel on the
 order page keyed the way the API allows would have been **permanently empty**, and an owner reads an
 empty history as "nobody changed it". So the order page shows its PAYMENTS' rows under the honest
