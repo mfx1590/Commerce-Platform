@@ -19,8 +19,9 @@ routes come from its own table (`HQ_RBAC_ROUTES`, plus `FINANCE_PING_ROUTE` outs
 - **Not in the contract.** A route under `/admin` or `/store` the contract does not have fails unless
   `NOT_IN_CONTRACT` names it with a reason; today only hq-rbac's test double `GET /admin/finance/ping`, which the
   production table does not contain (asserted).
-- **Initial allowlist (2026-11-13, 12 of 172 operations):** `updateOrderLineItem`, `cancelOrderLineItem` (#855),
-  `getMarketingDashboard` (#856), and #857's eight Admin referral/review operations plus Store `listProductReviews`.
+- **Allowlist:** `getMarketingDashboard` (#856), and #857's eight Admin referral/review operations plus Store
+  `listProductReviews`. (The initial list of 2026-11-13 also had #855's `updateOrderLineItem` /
+  `cancelOrderLineItem`; mounted by #863 — behind `ORDER_LINE_EDITS_ENABLED`, still served — and dropped.)
 
 ## The access matrix (`access-matrix.test.ts`, Integration 5 gate 3, #612)
 

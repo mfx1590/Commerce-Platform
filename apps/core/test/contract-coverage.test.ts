@@ -26,9 +26,6 @@ import { mountCoreMiddleware } from '../src/server';
  * from the contract). An entry that becomes served makes this test fail: delete it in the same PR.
  */
 const ALLOWLIST: Readonly<Record<string, number>> = {
-  // #855 — order line-item edits (window 1; PR #863)
-  updateOrderLineItem: 855,
-  cancelOrderLineItem: 855,
   // #856 — HQ › Marketing dashboard
   getMarketingDashboard: 856,
   // #857 — referrals and reviews (Admin 8 + Store 1)

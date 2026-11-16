@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import type { AdminComponents } from '@/lib/api/admin-client';
 import { inventoryRowKey } from '@/lib/warehouse';
@@ -13,11 +14,14 @@ export function InventoryTable({
   rows,
   warehouseNames,
   sharedBrands,
+  ledgerLinks = false,
 }: {
   rows: readonly InventoryLevel[];
   warehouseNames: Readonly<Record<string, string>>;
   /** Stock item id → brands mapping it (shared items only); null when the principal cannot read it. */
   sharedBrands: Readonly<Record<string, number>> | null;
+  /** Link each row to its stock item's ledger in HQ · Warehouse (only for who may open it). */
+  ledgerLinks?: boolean;
 }) {
   if (rows.length === 0) return <p className="text-muted text-sm">No inventory rows match.</p>;
   return (
@@ -32,6 +36,7 @@ export function InventoryTable({
             <th>Reserved</th>
             <th>Incoming</th>
             <th>Available</th>
+            {ledgerLinks && <th />}
           </tr>
         </thead>
         <tbody className="divide-line divide-y">
@@ -51,6 +56,17 @@ export function InventoryTable({
                 <td>{row.reserved}</td>
                 <td>{row.incoming}</td>
                 <td>{row.available}</td>
+                {ledgerLinks && (
+                  <td className="text-right">
+                    <Link
+                      href={`/warehouse?item=${row.stock_item_id}&view=movements&warehouse_id=${row.warehouse_id}`}
+                      className="text-accent text-xs hover:underline"
+                      aria-label={`Ledger of ${row.sku} in ${warehouseNames[row.warehouse_id] ?? row.warehouse_code}`}
+                    >
+                      Ledger
+                    </Link>
+                  </td>
+                )}
               </tr>
             );
           })}

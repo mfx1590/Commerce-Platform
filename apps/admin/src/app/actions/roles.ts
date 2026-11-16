@@ -7,6 +7,8 @@ import type { AdminComponents } from '@/lib/api/admin-client';
 import { toActionResult, type ActionResult } from '@/lib/forms/action-result';
 import { refuseUnlessPermitted } from '@/lib/permissions/guard';
 import {
+  isServiceAccount,
+  SERVICE_ACCOUNT_REFUSAL,
   inviteSchema,
   roleAssignmentSchema,
   type InviteValues,
@@ -79,6 +81,7 @@ export async function assignRoleAction(
   const refused = await refuseUnlessPermitted('assignRole', '');
   if (refused !== null) return refused;
   if (!UUID.safeParse(userId).success) return invalid('That user is not valid.');
+  if (isServiceAccount(userId)) return invalid(SERVICE_ACCOUNT_REFUSAL);
   const parsed = roleAssignmentSchema.safeParse(values);
   if (!parsed.success) return invalid(parsed.error.issues[0]?.message);
   const result = await assignRole(userId, parsed.data);
@@ -95,6 +98,7 @@ export async function revokeRoleAction(
   if (!UUID.safeParse(userId).success || !UUID.safeParse(assignmentId).success) {
     return invalid('That assignment is not valid.');
   }
+  if (isServiceAccount(userId)) return invalid(SERVICE_ACCOUNT_REFUSAL);
   const result = await revokeRole(userId, assignmentId);
   if (result.ok) {
     revalidatePath('/roles');

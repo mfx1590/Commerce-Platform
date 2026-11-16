@@ -7,8 +7,33 @@
 - `test/contract-coverage.test.ts`: every Admin and Store API operation has a route on the composed app (Express's
   router stack walked, module routers and hq-rbac's table included) or is in a named `ALLOWLIST` with its issue; an
   allowlisted operation that becomes served fails the test too, and so does a route under `/admin` or `/store` the
-  contract does not have (except hq-rbac's non-production `GET /admin/finance/ping`, named). Initial allowlist: 12 of
-  172 operations (#855 ×2, #856, #857 ×9). Unit job, no database. See `test/README.md`.
+  contract does not have (except hq-rbac's non-production `GET /admin/finance/ping`, named). Allowlist: #856 and
+  #857 ×9 (#855's two dropped: #863 mounts them). Unit job, no database. See `test/README.md`.
+
+### 2026-11-13 · order line-item edits are served (#855)
+
+- Admin API `updateOrderLineItem` (`PATCH`) and `cancelOrderLineItem` (`DELETE`) on
+  `/admin/stores/{storeId}/orders/{orderId}/line-items/{lineItemId}` are mounted (`src/http/admin-routes.ts`) on the
+  orders module's existing `decreaseLineQuantity` / `cancelLine`: `store_admin` on the store, the body validated
+  against the spec, 200 `Order`; 400 (validation, not lower), 404 (unknown line, another store's order), 409 (not
+  editable, the last line). The admin's order-detail buttons stop ending in "the core does not serve … yet".
+- The edits now release the removed units' stock reservations in their transaction (new inventory
+  `releaseForOrderLine`: least-preferred warehouse first; a partly covered reservation keeps its id with a lower
+  quantity). Before, a lowered or cancelled line kept its units reserved until the order was cancelled.
+- **The edits are switched OFF by default** (`ORDER_LINE_EDITS_ENABLED`, manager decision on the #863 review): both
+  operations answer 409 `order_edits` for every order, after the permission check and the 404s, until #867 gives
+  edits a money side — the ledger posts at placement and never hears of an edit, capture takes the original
+  authorisation, nothing refunds `metadata.edits`. Not to be set in production before #867 closes.
+- With the switch on, an order with a shipment that is not `cancelled` (409 `shipments`) or a payment that is
+  `authorized`, `captured`, `partially_refunded` or `refunded` (409 `payment`) is refused; only `awaiting` proceeds.
+- `test/order-line-edits.test.ts` (8 tests, through HTTP): switched off → 409 for both, tenancy answers unchanged;
+  with it on (payment moved to `awaiting` at the module level — no public flow leaves one): EUR and JPY (brand D, ¥1,980 × 3 → 1: line ¥2,178, the
+  order −¥4,356) totals exact in minor units and recomputed independently; reservations and the pool's `reserved`;
+  exactly one `order.updated` per edit; a tax-provider failure after the line update rolls back the line, the
+  reservations, the totals and the outbox; the shipment 409 through `createShipment`; the payment 409 for
+  `authorized` (from placement) and `captured` (`markPaymentCaptured`) in EUR and JPY; two lines of one variant
+  release only their own quantity. Mutation-checked: the switch forced on, `authorized` allowed, no shipment rule,
+  no release — each fails.
 
 ### 2026-11-11 · a just-onboarded store is in scope at once (#809 follow-up)
 

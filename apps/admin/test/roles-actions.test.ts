@@ -183,3 +183,26 @@ describe('invite', () => {
     expect(api.inviteUser).not.toHaveBeenCalled();
   });
 });
+
+describe('service accounts (#860)', () => {
+  const CRM = '00000000-0000-4000-8000-000000000061';
+  const ANALYTICS = '00000000-0000-4000-8000-000000000062';
+  it.each([CRM, ANALYTICS])('assign and revoke refuse %s before the API', async (id) => {
+    const assign = await actions.assignRoleAction(id, {
+      relation: 'support',
+      object_type: 'store',
+      object_id: '00000000-0000-4000-8000-000000000031',
+    });
+    expect(assign).toMatchObject({
+      status: 'error',
+      formError: expect.stringContaining('provision:service-accounts'),
+    });
+    const revoke = await actions.revokeRoleAction(id, '00000000-0000-4000-8000-000000000072');
+    expect(revoke).toMatchObject({
+      status: 'error',
+      formError: expect.stringContaining('service account'),
+    });
+    expect(api.assignRole).not.toHaveBeenCalled();
+    expect(api.revokeRole).not.toHaveBeenCalled();
+  });
+});

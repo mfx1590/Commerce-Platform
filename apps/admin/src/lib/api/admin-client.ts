@@ -99,6 +99,15 @@ function coerceError(status: number, payload: unknown, fallbackMessage: string):
 export async function adminRequest<K extends keyof operations>(
   options: AdminRequestOptions,
 ): Promise<ApiResult<AdminResponse<K>>> {
+  return jsonRequest<AdminResponse<K>>(options);
+}
+
+/**
+ * The JSON transport under every typed client (the Admin API here, the Accounting API in
+ * `./accounting-client`): one place for the bearer, the query, network failures and the contract's
+ * `{ code, message, details }` errors. `T` is the caller's typed success body.
+ */
+export async function jsonRequest<T>(options: AdminRequestOptions): Promise<ApiResult<T>> {
   const doFetch = options.fetchImpl ?? fetch;
   const url = new URL(`${options.baseUrl}${options.path}`);
   applyQuery(url, options.query);
@@ -152,5 +161,5 @@ export async function adminRequest<K extends keyof operations>(
     };
   }
 
-  return { ok: true, status: response.status, data: payload as AdminResponse<K> };
+  return { ok: true, status: response.status, data: payload as T };
 }
