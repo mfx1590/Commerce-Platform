@@ -7,12 +7,23 @@ import { SelectField, TextField } from '@/components/form/fields';
 import { ActionRefusal } from '@/components/states/action-refusal';
 import {
   mapVariantAction,
+  moveStockAction,
   previewCycleCountAction,
   reconcileCycleCountAction,
   recordCycleCountAction,
 } from '@/app/actions/warehouse';
 import type { ActionRefusalInfo } from '@/lib/forms/action-result';
-import { formatDelta } from '@/lib/warehouse';
+import {
+  afterMove,
+  CONFIRM_MOVE_ABOVE,
+  EMPTY_POOL,
+  MAX_MOVE_QUANTITY,
+  formatDelta,
+  MOVEMENT_KINDS,
+  moveRefusal,
+  type MovementKind,
+  type PoolNumbers,
+} from '@/lib/warehouse';
 
 interface Failure {
   message: string | null;
@@ -173,6 +184,338 @@ export function PoolVariantForm({
           </div>
         </div>
       )}
+      {done !== null && (
+        <p role="status" className="text-success text-sm">
+          {done}
+        </p>
+      )}
+      <ActionRefusal refusal={failure?.refusal} message={failure?.message ?? null} />
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------------------- move stock
+
+/** The item's pool row in one warehouse, as the page read it. */
+export interface PoolRow extends PoolNumbers {
+  warehouse_id: string;
+}
+
+const KIND_LABELS: Record<MovementKind, string> = {
+  adjust: 'Adjust (correct up or down)',
+  receive: 'Receive',
+  transfer: 'Transfer to another warehouse',
+};
+
+function Numbers({ label, numbers }: { label: string; numbers: PoolNumbers }) {
+  return (
+    <span>
+      <span className="text-muted">{label}:</span> on hand {numbers.on_hand} · reserved{' '}
+      {numbers.reserved} · available {numbers.available}
+    </span>
+  );
+}
+
+/**
+ * Adjust, receive or transfer one item's stock (#870 wave 1 item 1). Shows the shelf's numbers now
+ * and after the move, and refuses a result below zero or below what open orders reserved before
+ * the request — the server action checks the same again on a fresh read. A transfer is two
+ * movements; the action says what happened if the second one fails. On success the item's ledger
+ * opens on the warehouse that received the move.
+ */
+export function StockMovementForm({
+  stockItemId,
+  sku,
+  levels,
+  warehouses,
+  listQuery,
+}: {
+  stockItemId: string;
+  sku: string;
+  levels: readonly PoolRow[];
+  /** Active warehouses. */
+  warehouses: readonly Option[];
+  /** The list's own query (filters, page), kept when the ledger opens. */
+  listQuery: string;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState<MovementKind>('adjust');
+  const first = warehouses[0]?.value ?? '';
+  const [warehouseId, setWarehouseId] = useState(levels[0]?.warehouse_id ?? first);
+  const [toWarehouseId, setToWarehouseId] = useState(
+    warehouses.find((w) => w.value !== (levels[0]?.warehouse_id ?? first))?.value ?? '',
+  );
+  const [amount, setAmount] = useState('');
+  const [note, setNote] = useState('');
+  const [failure, setFailure] = useState<Failure | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  /** The values a large move was shown for confirmation with (null: not asking). */
+  const [confirmedKey, setConfirmedKey] = useState<string | null>(null);
+
+  if (!open) {
+    return (
+      <Button
+        size="sm"
+        variant="secondary"
+        aria-label={`Move stock of ${sku}`}
+        onClick={() => setOpen(true)}
+        disabled={warehouses.length === 0}
+      >
+        Move stock
+      </Button>
+    );
+  }
+
+  const pool = (id: string): PoolNumbers => {
+    const row = levels.find((level) => level.warehouse_id === id);
+    return row === undefined ? EMPTY_POOL : row;
+  };
+  const trimmed = amount.trim();
+  const valid = kind === 'adjust' ? /^[+-]?\d+$/.test(trimmed) : /^\d+$/.test(trimmed);
+  const parsed = valid ? Number.parseInt(trimmed, 10) : NaN;
+  const delta = Number.isNaN(parsed) ? null : kind === 'transfer' ? -parsed : parsed;
+  const source = pool(warehouseId);
+  const sameWarehouse = kind === 'transfer' && toWarehouseId === warehouseId;
+  const refusal =
+    delta === null || delta === 0
+      ? null
+      : moveRefusal(source, delta, kind === 'transfer' ? 'the source warehouse' : 'this warehouse');
+  const name = (id: string) => warehouses.find((w) => w.value === id)?.label ?? id;
+  const amountField = kind === 'adjust' ? 'delta' : 'quantity';
+  // A confirmation holds for exactly these values: changing any of them asks again.
+  const valuesKey = `${kind}:${warehouseId}:${toWarehouseId}:${trimmed}`;
+  const confirming = confirmedKey === valuesKey;
+
+  const send = () => {
+    if (pending) return;
+    setConfirmedKey(null);
+    startTransition(async () => {
+      const common = { stock_item_id: stockItemId, sku, note };
+      const result = await moveStockAction(
+        kind === 'adjust'
+          ? { kind, ...common, warehouse_id: warehouseId, delta: trimmed }
+          : kind === 'receive'
+            ? { kind, ...common, warehouse_id: warehouseId, quantity: trimmed }
+            : {
+                kind,
+                ...common,
+                from_warehouse_id: warehouseId,
+                to_warehouse_id: toWarehouseId,
+                quantity: trimmed,
+              },
+      );
+      if (result.status === 'success') {
+        const { after, message, warehouseId: ledgerWarehouse } = result.data;
+        setDone(
+          `${message} ${name(ledgerWarehouse)} now: on hand ${after.on_hand}, reserved ${after.reserved}, available ${after.available}.`,
+        );
+        setAmount('');
+        setNote('');
+        const query = new URLSearchParams(listQuery);
+        query.set('item', stockItemId);
+        query.set('view', 'movements');
+        query.set('warehouse_id', ledgerWarehouse);
+        query.delete('dpage');
+        router.push(`/warehouse?${query.toString()}`);
+        router.refresh();
+        return;
+      }
+      setFailure({
+        message: result.formError,
+        refusal: result.refusal,
+        fieldErrors: result.fieldErrors,
+      });
+    });
+  };
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (pending) return;
+    setFailure(null);
+    setDone(null);
+    if (delta === null || delta === 0 || (kind !== 'adjust' && parsed < 1)) {
+      setFailure({
+        message: null,
+        fieldErrors: {
+          [amountField]:
+            kind === 'adjust'
+              ? 'Enter the change as a whole number, e.g. -3 or 5 (not 0).'
+              : 'Enter a whole number of 1 or more.',
+        },
+      });
+      return;
+    }
+    if (Math.abs(delta) > MAX_MOVE_QUANTITY) {
+      setFailure({
+        message: null,
+        fieldErrors: {
+          [amountField]: `At most ${MAX_MOVE_QUANTITY.toLocaleString('en')} units per movement.`,
+        },
+      });
+      return;
+    }
+    if (refusal !== null || sameWarehouse) return;
+    if (Math.abs(delta) > CONFIRM_MOVE_ABOVE && !confirming) {
+      setConfirmedKey(valuesKey);
+      return;
+    }
+    send();
+  };
+
+  return (
+    <form
+      onSubmit={submit}
+      aria-label={`Move stock of ${sku}`}
+      className="border-line space-y-3 rounded-md border px-3 py-2"
+    >
+      <div className="grid gap-3 sm:grid-cols-2">
+        <SelectField
+          label="Movement"
+          value={kind}
+          onChange={(event) => {
+            setKind(event.currentTarget.value as MovementKind);
+            setFailure(null);
+          }}
+          options={MOVEMENT_KINDS.map((k) => ({ value: k, label: KIND_LABELS[k] }))}
+        />
+        <SelectField
+          label={kind === 'transfer' ? 'From warehouse' : 'Warehouse'}
+          value={warehouseId}
+          onChange={(event) => setWarehouseId(event.currentTarget.value)}
+          options={warehouses}
+          error={
+            failure?.fieldErrors?.['warehouse_id'] ?? failure?.fieldErrors?.['from_warehouse_id']
+          }
+        />
+        {kind === 'transfer' && (
+          <SelectField
+            label="To warehouse"
+            value={toWarehouseId}
+            onChange={(event) => setToWarehouseId(event.currentTarget.value)}
+            options={warehouses}
+            error={
+              sameWarehouse
+                ? 'Choose a different warehouse to move to.'
+                : failure?.fieldErrors?.['to_warehouse_id']
+            }
+          />
+        )}
+        <TextField
+          label={kind === 'adjust' ? 'Change (e.g. -3 or 5)' : 'Quantity'}
+          inputMode="numeric"
+          value={amount}
+          onChange={(event) => setAmount(event.currentTarget.value)}
+          error={failure?.fieldErrors?.[kind === 'adjust' ? 'delta' : 'quantity']}
+        />
+        <TextField
+          label="Note"
+          hint="Why — kept on the ledger row."
+          value={note}
+          onChange={(event) => setNote(event.currentTarget.value)}
+          error={failure?.fieldErrors?.['note']}
+        />
+      </div>
+      <div className="space-y-1 text-sm" aria-live="polite" aria-label="Stock before and after">
+        <p>
+          <Numbers
+            label={kind === 'transfer' ? `${name(warehouseId)} now` : 'Now'}
+            numbers={source}
+          />
+        </p>
+        {delta !== null && delta !== 0 && (
+          <p>
+            <Numbers
+              label={kind === 'transfer' ? `${name(warehouseId)} after` : 'After'}
+              numbers={afterMove(source, delta)}
+            />
+          </p>
+        )}
+        {kind === 'transfer' && !sameWarehouse && toWarehouseId !== '' && (
+          <>
+            <p>
+              <Numbers label={`${name(toWarehouseId)} now`} numbers={pool(toWarehouseId)} />
+            </p>
+            {delta !== null && delta !== 0 && (
+              <p>
+                <Numbers
+                  label={`${name(toWarehouseId)} after`}
+                  numbers={afterMove(pool(toWarehouseId), -delta)}
+                />
+              </p>
+            )}
+            <p className="text-muted text-xs">
+              Two movements: out of the source first, then into the destination. If the second is
+              refused, the units are put back and you are told.
+            </p>
+          </>
+        )}
+        {refusal !== null && (
+          <p role="alert" className="text-danger">
+            {refusal}
+          </p>
+        )}
+      </div>
+      {confirming && delta !== null ? (
+        <div
+          role="alertdialog"
+          aria-label={`Confirm moving ${Math.abs(delta)} of ${sku}`}
+          className="border-warning/30 bg-warning/5 space-y-2 rounded-md border px-3 py-2 text-sm"
+        >
+          <p>
+            {kind === 'transfer'
+              ? `Transfer ${Math.abs(delta)} of ${sku} from ${name(warehouseId)} to ${name(toWarehouseId)}?`
+              : `${kind === 'receive' ? 'Receive' : 'Adjust by'} ${kind === 'receive' ? Math.abs(delta) : formatDelta(delta)} of ${sku} in ${name(warehouseId)}?`}{' '}
+            That is more than {CONFIRM_MOVE_ABOVE} units.
+          </p>
+          <p>
+            <Numbers label={`${name(warehouseId)} after`} numbers={afterMove(source, delta)} />
+          </p>
+          {kind === 'transfer' && (
+            <p>
+              <Numbers
+                label={`${name(toWarehouseId)} after`}
+                numbers={afterMove(pool(toWarehouseId), -delta)}
+              />
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Button size="sm" type="button" disabled={pending} onClick={send}>
+              {pending ? 'Moving…' : `Yes, move ${Math.abs(delta)}`}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              type="button"
+              disabled={pending}
+              onClick={() => setConfirmedKey(null)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          type="submit"
+          disabled={
+            pending || confirming || refusal !== null || sameWarehouse || warehouseId === ''
+          }
+        >
+          {pending
+            ? 'Moving…'
+            : kind === 'receive'
+              ? 'Receive'
+              : kind === 'transfer'
+                ? 'Transfer'
+                : 'Adjust'}
+        </Button>
+        <Button size="sm" variant="secondary" type="button" onClick={() => setOpen(false)}>
+          Close
+        </Button>
+      </div>
       {done !== null && (
         <p role="status" className="text-success text-sm">
           {done}

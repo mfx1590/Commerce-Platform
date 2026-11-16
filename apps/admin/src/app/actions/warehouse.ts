@@ -4,20 +4,34 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import {
   createCycleCount,
+  createStockMovement,
+  listStockItems,
   mapVariantToStockItem,
   previewCycleCountReconcile,
   reconcileCycleCount,
+  type StockMovementBody,
 } from '@/lib/api/admin';
 import type { AdminComponents } from '@/lib/api/admin-client';
 import { actionError, type ActionResult } from '@/lib/forms/action-result';
+import { mapServerError } from '@/lib/forms/server-errors';
 import { refuseUnlessPermitted } from '@/lib/permissions/guard';
 import {
   CYCLE_COUNT_FIELDS,
   cycleCountSchema,
   describeCycleCountError,
   describeMapError,
+  describeMovementError,
+  formatDelta,
   isSuperseded,
+  MOVEMENT_FIELDS,
+  movementOutcomeUnknown,
+  moveRefusal,
+  movementSchema,
+  poolIn,
   type CycleCountValues,
+  type MovementKind,
+  type MovementValues,
+  type PoolNumbers,
 } from '@/lib/warehouse';
 
 /**
@@ -100,6 +114,165 @@ export async function reconcileCycleCountAction(
   }
   revalidatePath('/warehouse');
   return { status: 'success', data: result.data };
+}
+
+// ---------------------------------------------------------------------------- stock movements
+
+/** What a move did, for the form's success line and the ledger it opens. */
+export interface MoveOutcome {
+  kind: MovementKind;
+  stockItemId: string;
+  /** The warehouse the ledger opens on: the target, or a transfer's destination. */
+  warehouseId: string;
+  message: string;
+  /** The pool row after the move (a transfer: the destination's). */
+  after: PoolNumbers;
+}
+
+function apiReason(failure: { status: number; error: AdminComponents['Error'] }): string {
+  return describeMovementError(failure).formError ?? failure.error.message;
+}
+
+/**
+ * Receive, adjust or transfer stock (#870 wave 1 item 1). Refused before the API unless the
+ * principal holds `operations` on hq. Then the body is re-validated, the item is read FRESH (its
+ * pool numbers and a variant that maps it — `createStockMovement` is addressed by variant), and a
+ * move below zero or below what open orders reserved is refused here: the core refuses below zero
+ * itself (409, its message is shown) but not below reserved, and this read-then-write check holds
+ * no lock, so a sale in between can still beat it (REQUEST #877: the real guard, in the core).
+ *
+ * A transfer is two movements in two transactions (no transfer operation, no idempotency key):
+ * `transfer_out` at the source first — a half-done transfer can only understate stock — then
+ * `transfer_in` at the destination. When the second is refused, a compensating `transfer_in` puts
+ * the units back at the source with a note; when its outcome is unknown (network, 5xx) nothing is
+ * written on a guess, and the message says which ledger to check. The same holds for a single move
+ * and a transfer's first leg: an unknown outcome is never "try again" (#879 review) — the movement
+ * may be recorded, and there is no idempotency key to make a repeat safe.
+ */
+export async function moveStockAction(values: MovementValues): Promise<ActionResult<MoveOutcome>> {
+  const refused = await refuseUnlessPermitted('createStockMovement', '');
+  if (refused !== null) return refused;
+  const parsed = movementSchema.safeParse(values);
+  if (!parsed.success) {
+    const fieldErrors: Record<string, string> = {};
+    for (const issue of parsed.error.issues) {
+      const field = String(issue.path[0] ?? '');
+      if ((MOVEMENT_FIELDS as readonly string[]).includes(field) && !(field in fieldErrors)) {
+        fieldErrors[field] = issue.message;
+      }
+    }
+    return {
+      status: 'error',
+      fieldErrors,
+      formError: Object.keys(fieldErrors).length > 0 ? null : 'Some fields are not valid.',
+    };
+  }
+  const move = parsed.data;
+
+  const items = await listStockItems({ sku: move.sku, limit: 100 });
+  if (!items.ok) {
+    return actionError(mapServerError(items, []), refusalOf(items.status, items.error));
+  }
+  const item = items.data.items.find((candidate) => candidate.id === move.stock_item_id);
+  if (item === undefined) {
+    return invalid('That stock item was not found. Reload the page and try again.');
+  }
+  const variantId = item.variants[0]?.variant_id;
+  if (variantId === undefined) {
+    return invalid(
+      `No variant maps ${item.sku}, and the Admin API moves stock by variant. Pool a variant onto it first.`,
+    );
+  }
+  const call = (
+    warehouseId: string,
+    delta: number,
+    reason: StockMovementBody['reason'],
+    text?: string,
+  ) =>
+    createStockMovement({
+      variant_id: variantId,
+      warehouse_id: warehouseId,
+      delta,
+      reason,
+      ...(text === undefined ? {} : { note: text }),
+    });
+  const done = (warehouseId: string, message: string, level: PoolNumbers) => {
+    revalidatePath('/warehouse');
+    return {
+      status: 'success' as const,
+      data: {
+        kind: move.kind,
+        stockItemId: item.id,
+        warehouseId,
+        message,
+        after: { on_hand: level.on_hand, reserved: level.reserved, available: level.available },
+      },
+    };
+  };
+  // After any answer from the API the numbers on screen may be stale: a 409 means another movement
+  // (or a sale) changed the shelf, and an unknown outcome may have written this one.
+  const failed = (result: { status: number; error: AdminComponents['Error'] }) => {
+    revalidatePath('/warehouse');
+    return actionError(
+      describeMovementError(result, MOVEMENT_FIELDS),
+      refusalOf(result.status, result.error),
+    );
+  };
+
+  if (move.kind !== 'transfer') {
+    const delta = move.kind === 'adjust' ? move.delta : move.quantity;
+    const refusal = moveRefusal(poolIn(item, move.warehouse_id), delta);
+    if (refusal !== null) return invalid(refusal);
+    const result = await call(
+      move.warehouse_id,
+      delta,
+      move.kind === 'adjust' ? 'adjustment' : 'receipt',
+      move.note,
+    );
+    if (!result.ok) return failed(result);
+    return done(
+      move.warehouse_id,
+      move.kind === 'adjust'
+        ? `Adjusted ${item.sku} by ${formatDelta(delta)}.`
+        : `Received ${delta} of ${item.sku}.`,
+      result.data,
+    );
+  }
+
+  const { from_warehouse_id: from, to_warehouse_id: to, quantity } = move;
+  const refusal = moveRefusal(poolIn(item, from), -quantity, 'the source warehouse');
+  if (refusal !== null) return invalid(refusal);
+  const out = await call(from, -quantity, 'transfer_out', move.note);
+  if (!out.ok) return failed(out);
+
+  const into = await call(to, quantity, 'transfer_in', move.note);
+  if (into.ok) {
+    return done(to, `Transferred ${quantity} of ${item.sku}.`, into.data);
+  }
+  revalidatePath('/warehouse');
+  if (movementOutcomeUnknown(into.status)) {
+    return invalid(
+      `${quantity} of ${item.sku} left the source warehouse, and the destination did not confirm (${into.error.message}). ` +
+        `Check the destination's ledger: if no "Transfer in" of ${quantity} appears there, record it as a receipt; do not repeat the whole transfer.`,
+    );
+  }
+  // The return names the destination it never reached and keeps the operator's own note.
+  const back = await call(
+    from,
+    quantity,
+    'transfer_in',
+    `Returned: the transfer to warehouse ${to} was refused (${into.error.message}).` +
+      (move.note === undefined ? '' : ` Operator note: ${move.note}`),
+  );
+  if (back.ok) {
+    return invalid(
+      `The transfer was refused at the destination (${apiReason(into)}). The ${quantity} units were put back in the source warehouse; nothing moved overall.`,
+    );
+  }
+  return invalid(
+    `${quantity} of ${item.sku} left the source warehouse and did not arrive: the destination refused (${apiReason(into)}) and putting them back failed (${apiReason(back)}). ` +
+      `Check both ledgers and record the ${quantity} units as a receipt where they physically are.`,
+  );
 }
 
 type CycleCountPreview = AdminComponents['CycleCountPreview'];
