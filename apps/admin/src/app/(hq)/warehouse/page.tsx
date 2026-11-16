@@ -20,6 +20,7 @@ import {
   PoolVariantForm,
   ReconcileButton,
   RecordCountForm,
+  StockMovementForm,
   type VariantChoice,
 } from './warehouse-forms';
 
@@ -119,6 +120,9 @@ export default async function WarehousePage({ searchParams }: { searchParams: Pr
         )
       : [],
   );
+  const activeWarehouses = warehouses.ok
+    ? warehouses.data.items.filter((w) => w.is_active).map((w) => ({ value: w.id, label: w.name }))
+    : [];
   const brand = (storeId: string) => storeLabel.get(storeId) ?? storeId;
   const warehouseName = (id: string) => warehouseLabel.get(id) ?? id;
 
@@ -131,16 +135,13 @@ export default async function WarehousePage({ searchParams }: { searchParams: Pr
           brand,
           warehouseName,
           storeOptions: stores.ok ? stores.data.items.map((s) => ({ id: s.id, name: s.name })) : [],
+          warehouseOptions: activeWarehouses,
         })
       : await CycleCounts({
           raw,
           canOperate: access.canOperate,
           warehouseName,
-          warehouseOptions: warehouses.ok
-            ? warehouses.data.items
-                .filter((w) => w.is_active)
-                .map((w) => ({ value: w.id, label: w.name }))
-            : [],
+          warehouseOptions: activeWarehouses,
         });
 
   return (
@@ -176,12 +177,15 @@ async function StockItems({
   brand,
   warehouseName,
   storeOptions,
+  warehouseOptions,
 }: {
   raw: Params;
   canOperate: boolean;
   brand: (storeId: string) => string;
   warehouseName: (id: string) => string;
   storeOptions: { id: string; name: string }[];
+  /** Active warehouses: where stock can be moved. */
+  warehouseOptions: { value: string; label: string }[];
 }) {
   const sku = param(raw, 'sku');
   const storeId = uuidParam(raw, 'store_id');
@@ -229,6 +233,7 @@ async function StockItems({
           hrefFor: (extra) => href(detailBase, extra),
         });
   const detailHref = (itemId: string, v: DetailView) => href(listBase, { item: itemId, view: v });
+  const listQuery = href(listBase, {}).slice('/warehouse?'.length);
 
   const choicesFor = (item: StockItem): VariantChoice[] =>
     items
@@ -392,6 +397,21 @@ async function StockItems({
                         Record a count
                       </Link>
                     )}
+                    {canOperate &&
+                      (item.variants.length > 0 ? (
+                        <StockMovementForm
+                          stockItemId={item.id}
+                          sku={item.sku}
+                          levels={item.levels}
+                          warehouses={warehouseOptions}
+                          listQuery={listQuery}
+                        />
+                      ) : (
+                        <p className="text-muted text-xs">
+                          No variant maps this item, and the Admin API moves stock by variant: pool
+                          a variant onto it to receive, adjust or transfer its stock.
+                        </p>
+                      ))}
                     {canOperate && (
                       <PoolVariantForm
                         stockItemId={item.id}

@@ -802,6 +802,21 @@ writes no stock (the dev database is pooled and shared): the store admin's refus
 inventory rows in both modes; in core mode the owner reads a shared item, opens the pool action up
 to its confirmation and cancels, and reads the counts.
 
+### Stock movements (#870 wave 1 item 1; `createStockMovement`)
+
+"Move stock" on each stock item row: Adjust (±), Receive, or Transfer between warehouses, each with a note that lands on the ledger row.
+
+- **Permission:** `operations` on `organization:hq`, checked in `moveStockAction` before any read or write.
+- **Addressed by variant:** the action re-reads the item and moves it through a variant that maps it. An item no variant maps cannot be moved until one is pooled onto it.
+- **Floors:** below zero is refused by the core (409) and by the form. Below reserved is refused by the form and the action only: the core accepts it, so a sale between the read and the write can still beat the admin's check. The real guard is a REQUEST to the core (#877).
+- **Unknown outcome:** a network failure or 5xx is reported as "outcome unknown — check the ledger before repeating", never "try again". The operation has no idempotency key, so a repeat could receive or move the stock twice.
+- **Large moves:** above 100 units the form asks once more, showing the shelf after the move. One movement carries at most 100,000 units.
+- **Transfer is not atomic:** `transfer_out` at the source, then `transfer_in` at the destination.
+  - A refused second leg is compensated at the source, and the message says so.
+  - An unknown outcome (network, 5xx) is never compensated on a guess; the message names the ledger to check.
+  - An atomic transfer needs a contract change: a transfer operation, or an idempotency key on `createStockMovement`.
+- **Ledger:** success opens the item's ledger (`?item=&view=movements&warehouse_id=`) on the warehouse that received the move. Store › Inventory rows link there for principals who may open the warehouse section.
+
 ## Draft copy with AI (#608, CONTRACT CHANGE #664; Admin API 0.4.26)
 
 **Product page → Draft copy with AI.** Pick a locale (the store's enabled locales; the default is
