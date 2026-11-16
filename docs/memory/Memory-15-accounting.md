@@ -1,7 +1,7 @@
 # Memory 15 — Automatic accounting
 
 Window: 15 · Key: `accounting` · Branch prefix: `accounting/` · Model: Opus 5.5 since 2026-10-24 (owner switch; was Fable)
-Last updated: 2026-11-16 (window 15, Opus 5.5) · Manager: **Manager session fourteen** (replaced thirteen) · Status: **#888 part 1 = PR #897**: #880 merged; main (5d0831ef) MERGED into accounting/phase6-888-idempotent (no rebase, no force; clean merge), gates green (root lint + typecheck; pnpm test --filter @platform/accounting 129 passed + 2 skipped, 18 files, month-replay gate 4/4); waiting for the Fable review — start nothing else.
+Last updated: 2026-11-16 (window 15, Opus 5.5) · Manager: **Manager session fourteen** · Status: **#888 part 1 = PR #897, Fable BLOCK answered** (code commit b4ce84a1; head = this memory commit): a posting with NO lines (zero-release shipment, row-less cancel) now asks the other ledger groups' processed marks BEFORE any projection is saved (only zero-line results pay the look-up; the throw path kept); test (4) in cross-group.test.ts (duplicate_of processed, accounting_order_line unchanged, next real shipment posts), scenarios (1)/(2) tightened to all-duplicate; mutant without the check fails (noop). Gates: lint, typecheck, accounting 130 passed + 2 skipped (132, 18 files), month-replay 4/4. Waiting for the re-review; start nothing else.
 
 ## Identity (does not change)
 
