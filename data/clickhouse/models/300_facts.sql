@@ -1,4 +1,7 @@
 -- Facts (#601). One row per business key; money in Int64 minor units beside its currency.
+-- Every view with a JOIN ends with SETTINGS join_algorithm = 'hash' (BI v2, #871 f): ClickHouse 25.8's default
+-- parallel hash join preallocates ~300 MiB per query whatever the data size (fct_order_line on the generated month:
+-- 309 MiB → 4.4 MiB), and the shared server's memory cap is ~1.1 GiB. A view's SETTINGS apply when it is read.
 
 -- fct_order: one row per order (the first order.placed of an order, should a producer ever emit two), from every
 -- order.placed version (stg_order_placed: v1 and v2, #696).
@@ -116,7 +119,8 @@ FROM
     ARRAY JOIN o.line_items AS li
 ) AS l
 LEFT JOIN dim_variant AS v ON v.store_id = l.store_id AND v.variant_id = l.variant_key
-LEFT JOIN dim_product AS p ON p.store_id = l.store_id AND p.product_id = v.product_id;
+LEFT JOIN dim_product AS p ON p.store_id = l.store_id AND p.product_id = v.product_id
+SETTINGS join_algorithm = 'hash';
 
 -- fct_payment: one row per payment and outcome (captured, failed).
 CREATE OR REPLACE VIEW fct_payment AS
@@ -155,7 +159,8 @@ SELECT
     o.country                                                AS country,
     o.sales_channel_id                                       AS sales_channel_id
 FROM stg_refund_issued_v1 AS r
-LEFT JOIN fct_order AS o ON o.order_id = r.order_id;
+LEFT JOIN fct_order AS o ON o.order_id = r.order_id
+SETTINGS join_algorithm = 'hash';
 
 -- fct_shipment_line: one row per (shipment, order line): what left the warehouse, for lineage and the lifetime
 -- invariant of #602. Shipment cost stays on the shipment, not on its lines. No posting rule is encoded here (D7).
@@ -172,7 +177,8 @@ SELECT
     shipped_at,
     event_id                                             AS source_event_id
 FROM stg_shipment_shipped_v1
-ARRAY JOIN items AS it;
+ARRAY JOIN items AS it
+SETTINGS join_algorithm = 'hash';
 
 -- fct_return_line (BI v2, #871): one row per returned line (return.received), attributed through its order line to
 -- the product, category, store, currency, country, channel and customer type of the sale. A return whose order line
@@ -195,5 +201,12 @@ SELECT
     l.sales_channel_id                                       AS sales_channel_id,
     l.customer_type                                          AS customer_type,
     r.event_id                                               AS source_event_id
-FROM stg_return_received_v1 AS r
-INNER JOIN fct_order_line AS l ON l.order_line_item_id = r.order_line_item_id;
+-- The returns are the RIGHT side (ClickHouse holds the right side of a join in memory: the few returned lines, never
+-- every order line), and the order lines are narrowed to the returned ones first.
+FROM
+(
+    SELECT * FROM fct_order_line
+    WHERE order_line_item_id IN (SELECT order_line_item_id FROM stg_return_received_v1)
+) AS l
+INNER JOIN stg_return_received_v1 AS r ON r.order_line_item_id = l.order_line_item_id
+SETTINGS join_algorithm = 'hash';

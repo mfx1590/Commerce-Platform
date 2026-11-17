@@ -1,6 +1,9 @@
 -- Marts (#601): organization × store × currency × UTC day. Nothing is summed across currencies.
 -- mart_recognised_daily was DROPPED (manager 2026-10-25): recognised revenue comes from the ledger's own posted
 -- lines in #602, never a recomputation here (D7).
+-- Every view with a JOIN ends with SETTINGS join_algorithm = 'hash' (BI v2, #871 f): ClickHouse 25.8's default
+-- parallel hash join preallocates ~300 MiB per query whatever the data size (fct_order_line on the generated month:
+-- 309 MiB → 4.4 MiB), and the shared server's memory cap is ~1.1 GiB. A view's SETTINGS apply when it is read.
 
 -- mart_bookings_daily: the same rules and columns as Postgres rpt_sales_daily (packages/db 0200), so #602 can
 -- compare them row for row: orders by placement day, excluding cancelled orders and orders whose payment failed
@@ -31,7 +34,8 @@ WHERE o.order_status != 'cancelled'
       WHERE status = 'failed'
         AND order_id NOT IN (SELECT order_id FROM fct_payment WHERE status = 'captured')
   )
-GROUP BY organization_id, store_id, day, currency;
+GROUP BY organization_id, store_id, day, currency
+SETTINGS join_algorithm = 'hash';
 
 -- mart_cash_daily: the same rules and columns as Postgres rpt_payments_daily: captures by capture day and provider,
 -- known fees summed, unknown fees counted (fee_minor is NULL until the PSP reports it).
@@ -80,7 +84,8 @@ SELECT
     countIf(o.customer_key IS NULL)                                                AS unknown_orders
 FROM fct_order AS o
 LEFT JOIN firsts AS f ON f.store_id = o.store_id AND f.customer_key = o.customer_key
-GROUP BY organization_id, store_id, day;
+GROUP BY organization_id, store_id, day
+SETTINGS join_algorithm = 'hash';
 
 -- mart_sales_daily (BI v2, #871): mart_bookings_daily's figures with the keys country, sales_channel_id and
 -- customer_type, plus the cancelled and placed counts the cancellation rate needs. mart_bookings_daily stays as it is
@@ -116,7 +121,8 @@ WHERE o.order_id NOT IN
       WHERE status = 'failed'
         AND order_id NOT IN (SELECT order_id FROM fct_payment WHERE status = 'captured')
   )
-GROUP BY organization_id, store_id, day, currency, country, sales_channel_id, customer_type;
+GROUP BY organization_id, store_id, day, currency, country, sales_channel_id, customer_type
+SETTINGS join_algorithm = 'hash';
 
 -- mart_stock_daily (BI v2, #871): stock movements per warehouse × stock item × UTC day. Before the pool (#456,
 -- stock.moved v1) a movement has no stock item: it is keyed by its variant (legacy_variant_id) instead.

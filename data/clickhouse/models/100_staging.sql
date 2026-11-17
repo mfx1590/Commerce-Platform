@@ -5,6 +5,9 @@
 -- No PII: customer_id and titles are left out; email_hash is kept only as order.placed's `customer_key` (#623, the
 -- erasure-aware pseudonymous key for new vs returning customers).
 -- Money is Int64 minor units beside its currency.
+-- Every view with a JOIN ends with SETTINGS join_algorithm = 'hash' (BI v2, #871 f): ClickHouse 25.8's default
+-- parallel hash join preallocates ~300 MiB per query whatever the data size (fct_order_line on the generated month:
+-- 309 MiB → 4.4 MiB), and the shared server's memory cap is ~1.1 GiB. A view's SETTINGS apply when it is read.
 
 CREATE OR REPLACE VIEW stg_order_placed_v1 AS
 SELECT
@@ -91,7 +94,8 @@ SELECT
     JSONExtractInt(li, 'tax_minor')                                        AS tax_minor,
     JSONExtractInt(li, 'total_minor')                                      AS total_minor
 FROM stg_order_placed AS o
-ARRAY JOIN o.line_items AS li;
+ARRAY JOIN o.line_items AS li
+SETTINGS join_algorithm = 'hash';
 
 CREATE OR REPLACE VIEW stg_order_cancelled_v1 AS
 SELECT
@@ -274,7 +278,8 @@ SELECT
     nullIf(JSONExtractString(item, 'condition'), '')                       AS condition,
     parseDateTime64BestEffort(JSONExtractString(payload, 'received_at'), 3, 'UTC') AS received_at
 FROM (SELECT * FROM raw_events FINAL WHERE topic = 'return.received' AND version = 1 AND store_id IS NOT NULL)
-ARRAY JOIN JSONExtractArrayRaw(payload, 'items') AS item;
+ARRAY JOIN JSONExtractArrayRaw(payload, 'items') AS item
+SETTINGS join_algorithm = 'hash';
 
 -- stock_item.mapped v1: which stock item a variant sells from, over time (the sales rate per stock item).
 CREATE OR REPLACE VIEW stg_stock_item_mapped_v1 AS
