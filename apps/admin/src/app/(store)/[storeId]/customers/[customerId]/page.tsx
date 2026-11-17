@@ -13,6 +13,8 @@ import { loadPrincipal } from '@/lib/principal';
 import { customerTone, displayName } from '../customers-table.config';
 import { CustomerForm } from './customer-form';
 import { EraseControl } from './erase-control';
+import { ActivityPanel, activityPage } from '@/components/audit/activity-panel';
+import { loadActivity } from '@/lib/audit/load';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,13 +39,17 @@ function formatAt(value: string | null): string {
  */
 export default async function CustomerDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ storeId: string; customerId: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { storeId, customerId } = await params;
-  const [customer, principal] = await Promise.all([
+  const page = activityPage((await searchParams)?.['activity']);
+  const [customer, principal, activity] = await Promise.all([
     getCustomer(storeId, customerId),
     loadPrincipal(),
+    loadActivity({ storeId, entityType: 'customer', entityId: customerId, page }),
   ]);
 
   if (!customer.ok) {
@@ -226,6 +232,13 @@ export default async function CustomerDetailPage({
             </CardBody>
           </Card>
         </div>
+
+        <ActivityPanel
+          activity={activity}
+          entityType="customer"
+          basePath={`/${storeId}/customers/${customerId}`}
+          note="The core records which fields changed, never their values, for a customer."
+        />
       </div>
     </StoreSectionGuard>
   );

@@ -66,6 +66,13 @@ export const HQ_SECTIONS: readonly Section[] = [
     why: 'listUsers / assignRole — x-permission owner on organization:hq',
   },
   {
+    id: 'audit',
+    label: 'Audit',
+    scope: 'hq',
+    requires: ['owner'],
+    why: "listAuditLog is viewer on store:{store_id}, but without a store filter the core answers from the caller's own scope — so this screen is a cross-store read of every mutation in the organization, and the app already treats audit rows as owner-only (HQ › Roles shows them per person under the same gate). The server decides scope either way; this gate only decides who is offered the screen (#870 wave 1 item 3)",
+  },
+  {
     id: 'onboarding',
     label: 'Onboarding',
     scope: 'hq',

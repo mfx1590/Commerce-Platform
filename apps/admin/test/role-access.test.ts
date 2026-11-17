@@ -51,7 +51,7 @@ function allowedStore(role: PrincipalKey, storeId: string): string[] {
 
 describe('HQ route access, per role', () => {
   const expected: Record<PrincipalKey, string[]> = {
-    owner: ['stores', 'warehouse', 'finance', 'bi', 'marketing', 'roles', 'onboarding'],
+    owner: ['stores', 'warehouse', 'finance', 'bi', 'marketing', 'roles', 'audit', 'onboarding'],
     finance: ['stores', 'finance'],
     operations: ['stores', 'warehouse'],
     support: ['stores'],
@@ -72,8 +72,10 @@ describe('HQ route access, per role', () => {
     expect(reachable).toEqual(['owner', 'finance']);
   });
 
-  it('Roles and Onboarding are owner-only', () => {
-    for (const section of ['roles', 'onboarding']) {
+  it('Roles, Audit and Onboarding are owner-only', () => {
+    // Audit (#870) is a cross-store read of every mutation; the same gate as Roles, which shows
+    // the same rows per person. The server decides scope either way.
+    for (const section of ['roles', 'audit', 'onboarding']) {
       expect(ROLES.filter((role) => canOpenHq(role, section))).toEqual(['owner']);
     }
   });

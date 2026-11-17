@@ -80,6 +80,65 @@
   - The compensation note names the destination and keeps the operator's note.
   - A submit while one is pending sends nothing.
 
+### Added — #870 wave 1 item 3: history, who changed what (integration/admin-history)
+
+- **An "Activity" panel on the product, customer and promotion detail pages**, and "Payment
+  activity" on an order. Time, actor, action and a readable summary of what changed, 20 per page,
+  from `listAuditLog` filtered to that `(entity_type, entity_id)`.
+- **HQ › Audit**, an organization-wide view with filters (store, entity type, actor, UTC date
+  range), newest/oldest first, paging and a CSV export of the visible columns. Owner-only, like
+  Roles, which shows the same rows per person; the server decides scope either way.
+- **Values are redacted unless allow-listed** (`src/lib/audit/redaction.ts`). `listAuditLog`
+  returns `before`/`after` as raw JSON bodies (`additionalProperties: true`), so a value is printed
+  only for an `(entity_type, field)` pair that was reviewed; a name matching the deny pattern is
+  withheld even if allow-listed; a nested object is always withheld; an unknown entity type shows
+  field NAMES only. The reader still learns **which** field changed. `test/audit-redaction.test.ts`
+  is the guard, including that the two lists stay consistent and that a body cannot reach the CSV.
+- **An order has no audit rows of its own.** Nothing in the core writes `entity_type: 'order'` —
+  not placement, not the status machine, not cancel, not the line-item edits — so the order page
+  shows its **payments'** rows and is titled "Payment activity". A panel called "History" querying
+  `entity_type=order` would be permanently empty, which an owner reads as "nobody changed it".
+  REQUEST #887; when the rows land, the ordinary panel joins this one. A product's variant and
+  media rows live under their own ids and `listAuditLog` takes one `entity_id`, so the product
+  panel shows the product's own rows and says so (CONTRACT CHANGE #889).
+- **Actor names need `owner` on `organization:hq`,** because that is `listUsers`' permission. For
+  anyone else the lookup is refused and the row says "Unknown staff (ab12cd34)" — the history
+  stands rather than disappearing. REQUEST #891 for a `viewer`-level name lookup.
+- The CSV neutralises a leading `=`, `+`, `-` or `@` in a cell: an audit log carries text somebody
+  typed, and a CSV is how that becomes a formula in someone else's spreadsheet.
+- #896 review (Fable):
+  - **`/audit/export` is gated in the handler, before any API call.** A route handler is not a
+    screen: the section guard that hides `/audit` from a non-owner does nothing for a typed URL, and
+    `listAuditLog` is only `viewer` on a store — so a store-scoped staff user could have downloaded
+    their stores' whole audit log as a file. It now resolves the principal and applies the same
+    `visibleHqSections` predicate the page uses, from the same catalogue entry: no session 401, a
+    failed `/admin/me` forwarded as it is (a fail-closed 503 stays 503), no relation 403, and the
+    Admin API is not reached in any of those cases. `test/audit-export-route.test.ts` (13).
+  - **The filter was short by three entity types, because there are TWO audit writers.**
+    `apps/core/src/lib/audit.ts` accounts for 23; `packages/auth-sdk/src/audit/write.ts` adds
+    `role_assignment` and `staff_user` — the role grants and revokes, which are the rows an owner
+    is most likely to come here for — and `customer_address` was missed in the core. 25 now, and
+    `role_assignment` shows the relation, object type and object; `staff_user` shows its status and
+    withholds the rest, `keycloak_subject` included.
+  - **`stock_movement` allow-listed `quantity`, which nothing writes.** The core writes `delta`, so
+    the one number a reader wants was withheld. Fixed, with a test.
+  - **The product's status badge has a handle of its own** (`data-testid="product-status"`), and
+    `e2e/catalog-core.spec.ts` uses it. The Activity panel renders audit values, so a
+    `product.create` row prints "draft" and a `product.publish` row prints "published" next to the
+    badge: a page-wide exact-text locator matched two elements and the advisory core e2e failed on
+    every head of this branch while passing on main. Every other admin e2e assertion on a product,
+    customer, promotion or order detail page is role-scoped or scoped to an exactly named table, so
+    those two lines were the only collision. `test/catalog-refusals.test.tsx` encodes it: the badge
+    and the panel rendered together, a page-wide locator matching more than one element, the handle
+    matching exactly one.
+  - `ACTIVITY_PAGE_SIZE` and `ActivityData` moved from `src/lib/audit/load.ts` to the pure
+    `projection.ts`: `load.ts` imports the `server-only` API client, so a presentational panel was
+    dragging the whole server module into anything that touched it.
+  - Two on-screen sentences were not true and now are: the audit table no longer claims its columns
+    are "exactly" the CSV's (the file also carries ids, the actor type and the request id), and an
+    empty panel no longer promises that "every" change to the entity is recorded here — a change to
+    a product's variants or media is recorded under that entity's own id.
+
 ### Fixed — #860: a section guard no longer reports a failed /admin/me as "you need the owner relation"; service accounts are read-only on Roles
 
 - `HqSectionGuard` / `StoreSectionGuard` rendered "You do not have access to this — you need the owner relation"
