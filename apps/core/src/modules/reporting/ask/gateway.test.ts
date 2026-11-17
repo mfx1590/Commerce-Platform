@@ -83,7 +83,7 @@ describe('askMetrics on the real gateway (packages/ai, fake transport)', () => {
     );
     expect(audit.records.every((x) => x.actorId === ACTOR && x.organizationId === ORG)).toBe(true);
     // the model got the one narrowed tool and the store, and the tool result came back to it
-    expect(transport.calls[0]!.tools!.map((t) => t.name)).toEqual(['query_metrics']);
+    expect(transport.calls[0]!.tools!.map((t) => t.name)).toEqual(['query_metrics', 'movers']);
     expect(transport.calls[0]!.user).toContain('brand-a');
     expect(transport.calls[0]!.user).toContain('<locale>en</locale>'); // @2: no locale sent → en
     expect(transport.calls[0]!.user).not.toContain('brand-b');
