@@ -74,6 +74,18 @@
     withholds the rest, `keycloak_subject` included.
   - **`stock_movement` allow-listed `quantity`, which nothing writes.** The core writes `delta`, so
     the one number a reader wants was withheld. Fixed, with a test.
+  - **The product's status badge has a handle of its own** (`data-testid="product-status"`), and
+    `e2e/catalog-core.spec.ts` uses it. The Activity panel renders audit values, so a
+    `product.create` row prints "draft" and a `product.publish` row prints "published" next to the
+    badge: a page-wide exact-text locator matched two elements and the advisory core e2e failed on
+    every head of this branch while passing on main. Every other admin e2e assertion on a product,
+    customer, promotion or order detail page is role-scoped or scoped to an exactly named table, so
+    those two lines were the only collision. `test/catalog-refusals.test.tsx` encodes it: the badge
+    and the panel rendered together, a page-wide locator matching more than one element, the handle
+    matching exactly one.
+  - `ACTIVITY_PAGE_SIZE` and `ActivityData` moved from `src/lib/audit/load.ts` to the pure
+    `projection.ts`: `load.ts` imports the `server-only` API client, so a presentational panel was
+    dragging the whole server module into anything that touched it.
   - Two on-screen sentences were not true and now are: the audit table no longer claims its columns
     are "exactly" the CSV's (the file also carries ids, the actor type and the request id), and an
     empty panel no longer promises that "every" change to the entity is recorded here — a change to

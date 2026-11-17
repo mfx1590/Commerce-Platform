@@ -9,11 +9,28 @@
  * Pure: no `next/*`, no I/O.
  */
 
-import type { AdminComponents } from '../api/admin-client';
+import type { AdminComponents, AdminError } from '../api/admin-client';
 import { fieldChanges, entityLabel, summarise, type FieldChange } from './redaction';
 
 type AuditEntry = AdminComponents['AuditEntry'];
 type StaffUser = AdminComponents['StaffUser'];
+
+export const ACTIVITY_PAGE_SIZE = 20;
+
+/**
+ * What a panel renders: rows, the count, the page, or the refusal to show instead.
+ *
+ * It lives here, in the pure module, rather than beside the fetchers in `load.ts` — that module
+ * imports the `server-only` API client, so a presentational component that needed this type was
+ * dragging the whole server module into any test or client bundle that touched it.
+ */
+export interface ActivityData {
+  rows: AuditRow[];
+  total: number;
+  page: number;
+  /** Set when the audit read itself failed — the panel shows the refusal, not an empty table. */
+  error?: { status: number; error: AdminError };
+}
 
 export type ActorKind = 'staff' | 'service' | 'system' | 'customer' | 'unknown';
 

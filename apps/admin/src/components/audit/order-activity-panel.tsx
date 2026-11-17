@@ -1,6 +1,6 @@
 import { RequestErrorPanel } from '@/components/states/state-panel';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
-import type { ActivityData } from '@/lib/audit/load';
+import type { ActivityData } from '@/lib/audit/projection';
 import { ActivityRows } from './activity-panel';
 
 /**

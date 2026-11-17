@@ -1,22 +1,16 @@
 import { listAuditLog, listUsers } from '@/lib/api/admin';
-import type { AdminComponents, AdminError } from '@/lib/api/admin-client';
-import { toAuditRows, type AuditRow } from './projection';
+import type { AdminComponents } from '@/lib/api/admin-client';
+import { ACTIVITY_PAGE_SIZE, toAuditRows, type ActivityData } from './projection';
 import { isServiceAccount } from '@/lib/roles';
 
 type StaffUser = AdminComponents['StaffUser'];
 type AuditEntry = AdminComponents['AuditEntry'];
 
-export const ACTIVITY_PAGE_SIZE = 20;
 /** More payments than this on one order does not happen; the merge stays bounded. */
 const MAX_PAYMENTS = 5;
 
-export interface ActivityData {
-  rows: AuditRow[];
-  total: number;
-  page: number;
-  /** Set when the audit read itself failed — the panel shows the refusal, not an empty table. */
-  error?: { status: number; error: AdminError };
-}
+// Both are defined in the pure `projection` module so a panel does not import this one.
+export { ACTIVITY_PAGE_SIZE, type ActivityData };
 
 /**
  * The audit read for one entity, reduced to rendered rows **here, on the server**.

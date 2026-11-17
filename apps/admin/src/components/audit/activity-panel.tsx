@@ -2,8 +2,7 @@ import Link from 'next/link';
 import { RequestErrorPanel } from '@/components/states/state-panel';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
-import { ACTIVITY_PAGE_SIZE, type ActivityData } from '@/lib/audit/load';
-import type { AuditRow } from '@/lib/audit/projection';
+import { ACTIVITY_PAGE_SIZE, type ActivityData, type AuditRow } from '@/lib/audit/projection';
 import { entityLabel } from '@/lib/audit/redaction';
 
 /** `?activity=` on the page that hosts the panel; nothing else about that page changes. */

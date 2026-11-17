@@ -353,3 +353,45 @@ describe('the form can actually be submitted', () => {
     expect(screen.getByText(/lower-case letters, numbers and single hyphens/)).toBeInTheDocument();
   });
 });
+
+describe('the product status has a handle of its own (#896 e2e fix)', () => {
+  it('resolves to exactly one element even when a history row prints the same word', async () => {
+    // The e2e failure this encodes: `page.getByText('draft', { exact: true })` matched TWO elements
+    // once the Activity panel (#870 item 3) started rendering audit values — a `product.create`
+    // row prints `status: none → draft`. The product's status needs a handle that cannot drift
+    // onto a history row, and `catalog-core.spec.ts` uses this one.
+    const { ActivityPanel } = await import('@/components/audit/activity-panel');
+    const { toAuditRow } = await import('@/lib/audit/projection');
+    const row = toAuditRow({
+      id: 'a1',
+      store_id: 's1',
+      actor_id: null,
+      actor_type: 'system',
+      action: 'product.create',
+      entity_type: 'product',
+      entity_id: 'p1',
+      before: null,
+      after: { status: 'draft', title: 'Classic Tee' },
+      request_id: null,
+      created_at: '2026-11-17T09:00:00.000Z',
+    } as Parameters<typeof toAuditRow>[0]);
+
+    render(
+      <div>
+        <PublishControls storeId="s1" product={product()} />
+        <ActivityPanel
+          activity={{ rows: [row], total: 1, page: 1 }}
+          entityType="product"
+          basePath="/s1/catalog/p1"
+        />
+      </div>,
+    );
+
+    // The collision is real: a page-wide exact-text locator would match both.
+    expect(screen.getAllByText('draft', { exact: true }).length).toBeGreaterThan(1);
+    // The handle is not ambiguous, and it carries the product's status, not the history's.
+    const status = screen.getAllByTestId('product-status');
+    expect(status).toHaveLength(1);
+    expect(status[0]).toHaveTextContent('draft');
+  });
+});

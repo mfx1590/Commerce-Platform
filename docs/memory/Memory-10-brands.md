@@ -412,6 +412,49 @@ bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
 ## In progress — #870 wave 1 item 3, admin history (2026-11-13)
 
+### The e2e my own panel broke, and why unit gates could not see it (2026-11-17)
+
+The manager read the fix at `3404cdc7` and merged on the code; one thing remained: **"admin e2e
+against the core (advisory)" failed on every #896 head and passed on main.** Not a flake and not
+the core — `catalog-core.spec.ts` line 50 did `page.getByText('draft', { exact: true })`, and my
+Activity panel renders audit VALUES, so the `product.create` row prints `status: none → draft`
+right under the badge. Two matches, Playwright strict mode, fail. Line 65 (`'published'`) would
+have failed next for the same reason: the `product.publish` row prints it in its before → after.
+
+**Fix:** `data-testid="product-status"` on the badge in `publish-controls.tsx`, and the two spec
+lines scoped to it with `toHaveText`. `data-testid` is already this repo's convention for exactly
+this (BI, onboarding, the order panels).
+
+**Checked every other admin e2e spec for the same collision** — the manager asked, and it was the
+right question. Only those two lines. Everything else that reads a product / customer / promotion /
+order detail page is role-scoped (`getByRole('cell' | 'heading' | 'link' | 'button')`) or scoped to
+a table named exactly, and no unnamed `getByRole('table')` or page-wide `getByRole('row')` count
+runs on a page that now carries a panel. `getByRole`'s `name` is a case-insensitive SUBSTRING by
+default, so I checked that too: "Payments" does not occur in "Payment activity on this order".
+
+**The lesson, which is bigger than the locator.** A panel that renders another entity's field
+values makes every page-wide text locator on that page ambiguous. Unit tests cannot see it — mine
+were green on all three heads — because the collision only exists in the assembled page under
+strict-mode matching. **Adding a panel to an existing page means re-reading that page's e2e
+locators.** `test/catalog-refusals.test.tsx` now encodes it: it renders the badge and the panel
+together, asserts a page-wide exact locator WOULD match more than one element, and asserts the
+handle resolves to exactly one.
+
+**One design fix fell out of it.** The guard test could not even import the panel: `activity-panel`
+took `ACTIVITY_PAGE_SIZE` and `ActivityData` from `load.ts`, which imports the `server-only` API
+client — so a presentational component dragged the whole server module into any test or client
+bundle that touched it. Both now live in the pure `projection.ts` and `load.ts` re-exports them.
+Mocking `server-only` in the test would have hidden that.
+
+**I did not run the e2e, and that was the instruction's own branch.** `E2E_API=core` on
+`catalog-core.spec.ts` **creates real products** in the shared database, and `fga:seed` writes the
+shared OpenFGA store — both are shared-data writes, which need the owner in session, not a manager
+OK. The hermetic Prism run would prove nothing here: `catalog-core.spec.ts` only runs with
+`E2E_API=core`. So: unit gates, and said so.
+
+Gates: lint ✅, format:check ✅, typecheck 30/30 ✅, ownership ✅, admin suite **1269 / 73 files**.
+
+
 ### Fable review on #896: BLOCK — one real security hole and four false statements (2026-11-16)
 
 Head after the fix: see the push below. Branch `integration/admin-history`, one push, gates green.
