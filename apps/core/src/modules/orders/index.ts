@@ -34,7 +34,7 @@ export {
   markShipped,
   transition,
 } from './service';
-export { cancelLine, decreaseLineQuantity } from './edits';
+export { cancelLine, decreaseLineQuantity, orderLineEditsEnabled } from './edits';
 export type { OrderEdit } from './edits';
 export {
   getAdminOrder,
