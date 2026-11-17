@@ -640,3 +640,16 @@ describe('labels and the CSV opt-in (#871 review 10)', () => {
     );
   });
 });
+
+describe('the store-scoped stock series limit (#908)', () => {
+  it('above 2 500 mapped stock items: a clear validation_error, never a ClickHouse one', async () => {
+    const { MAX_STOCK_SCOPE_ITEMS, stockScopeTooLarge } = await import('./routes');
+    expect(MAX_STOCK_SCOPE_ITEMS).toBe(2500);
+    const e = stockScopeTooLarge(3100);
+    expect(e).toMatchObject({
+      code: 'validation_error',
+      details: { reason: 'stock_scope_too_large', items: 3100, max: 2500 },
+    });
+    expect(e.message).toMatch(/#908/);
+  });
+});

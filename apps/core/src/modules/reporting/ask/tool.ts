@@ -313,7 +313,15 @@ export function queryMetricsHandler(deps: ToolDeps): (call: AiToolCall) => Promi
       deps.executed.push({ ref, query, error: errorOf(e) });
       return { isError: true, content: JSON.stringify({ ref, error: errorOf(e) }) };
     }
-    const stock = needsStock ? await deps.stockScope!() : undefined;
+    let stock: StockScope | undefined;
+    try {
+      stock = needsStock ? await deps.stockScope!() : undefined;
+    } catch (e) {
+      // a scope the series cannot carry (#908) is a tool error the model can read, never a broken run
+      if (!(e instanceof AppError)) throw e;
+      deps.executed.push({ ref, query, error: errorOf(e) });
+      return { isError: true, content: JSON.stringify({ ref, error: errorOf(e) }) };
+    }
     const result = await executeMetricQuery(deps.reader, query, scope, stock ? { stock } : {});
     deps.executed.push({ ref, query, result });
     // What the model reads carries no uuid (#680 review): each store by its CODE, everything else by an alias stable

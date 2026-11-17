@@ -89,9 +89,22 @@ export async function metricsScope(p: StaffPrincipal): Promise<{ id: string; cod
 const forbidden = (message: string, details: Record<string, unknown>) =>
   new AppError('forbidden', message, details);
 
+/** Stock items a store-scoped series can carry (#908: one ClickHouse parameter holds ~128 KB, about 3 000 ids). */
+export const MAX_STOCK_SCOPE_ITEMS = 2500;
+
+/** The clear refusal a store-scoped stock series gets above that, before any ClickHouse call (#908). */
+export function stockScopeTooLarge(items: number): AppError {
+  return new AppError(
+    'validation_error',
+    `this store sells from ${items} stock items; a store-scoped stock series covers at most ${MAX_STOCK_SCOPE_ITEMS} for now (#908) — HQ's view covers every store`,
+    { reason: 'stock_scope_too_large', items, max: MAX_STOCK_SCOPE_ITEMS },
+  );
+}
+
 /**
  * The `stock` series scope (#871 c): an organization caller reads the organization (narrowed to the stock items of
- * `store_ids` when given); a store caller the stock items its stores' variants map, read under RLS.
+ * `store_ids` when given); a store caller the stock items its stores' variants map, read under RLS. Above
+ * MAX_STOCK_SCOPE_ITEMS a clear 400 instead of ClickHouse's "field value too long" (#908).
  */
 export async function stockScopeFor(
   p: StaffPrincipal,
@@ -103,6 +116,7 @@ export async function stockScopeFor(
     'SELECT DISTINCT stock_item_id::text AS id FROM product_variant WHERE store_id = ANY($1::uuid[])',
     [[...stores]],
   );
+  if (r.rows.length > MAX_STOCK_SCOPE_ITEMS) throw stockScopeTooLarge(r.rows.length);
   return { stockItemIds: r.rows.map((x) => x.id) };
 }
 

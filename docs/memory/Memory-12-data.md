@@ -135,6 +135,11 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   loader reads stock-outs by organization; store-scoped stock series still sends its item list (limit stated).
   Postgres template literals are scanned by the alias-shadow lint too (rename `x AS x`). The reconcile gate NOT run
   (needs the relay on the shared broker → manager OK); shared analytics DB needs ch:migrate after landing.
+  FOURTEEN decided: reconcile gate OK (prefixed self-cleaning suites need no machine) → RAN 9/9, every identity 0
+  (1: 68 keys, 2a 743/36, 2b 273, 2c 92, 3a 71, 3b 71, 3c 3); PII sweep 38 tables / 97 cols / 0. join_algorithm on
+  every joining view stays in this branch (PR calls it out as a fix: 309→4.4, 163→4.5, 394→4.1 MiB). #908 filed (the
+  ~3 000-id limit): store-scoped series > 2 500 items → validation_error stock_scope_too_large (Ask: tool error).
+  ch:migrate on shared analytics = after merge, OWNER-typed. NO PR until the manager lands the contracts commit.
   (mart_bookings_daily keys, mart_product_daily, mart_stock_daily, mart_sales_rate) once #871 is decided.
 - INT5 3c FOLLOW-UP (2026-11-05, manager eleven): #718 MERGED 1fad84d4; #633 MERGED as #719 268a81bf (richPayments
   opt-in). Branch data/phase5-int5-3c. Done: gate month richPayments + reconcileAll(createFixtureSource(month.payouts))
