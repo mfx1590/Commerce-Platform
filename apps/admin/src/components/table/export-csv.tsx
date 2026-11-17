@@ -60,7 +60,15 @@ export function ExportCsvButton({
           setSaid(null);
           setFailure(null);
           startTransition(async () => {
-            const result = await run();
+            let result: Awaited<ReturnType<typeof run>>;
+            try {
+              result = await run();
+            } catch {
+              setFailure({
+                message: 'The export did not come back. Try again; nothing was changed.',
+              });
+              return;
+            }
             if (result.status !== 'success') {
               setFailure({ message: result.formError, refusal: result.refusal });
               return;

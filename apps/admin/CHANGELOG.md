@@ -37,6 +37,13 @@
   - Every CSV cell that would run as a spreadsheet formula (`=`, `+`, `-`, `@`) is prefixed with `'`.
 - **DEFECT FIXED — the catalog checked no permission in the admin.** None of the seven catalog actions (create / update product, create / update variant, create category, publish, archive) refused a principal before calling the API. All seven now go through `CATALOG_PERMISSIONS` (yaml-pinned). The same search found six more in files this PR doesn't touch: customers update and erase, pricing (2), promotions (2). They are #903, erase first. The core's own OpenFGA check still refused those requests, so this is defence in depth, not a bypass.
 - `listPromotions` has no status filter: CONTRACT CHANGE #902, for PR 2.
+- #904 review (Fable):
+  - **Bulk cancel says what happened to the money.** Cancelling voids an authorisation but never refunds a captured payment; the question now says so. Each cancelled row's message comes from the `payment_status` the API returned: "Cancelled — authorisation voided", "Cancelled — payment captured, refund needed", "Cancelled — payment already refunded", or "no payment taken". The results CSV is therefore the refund worklist.
+  - The core answers 200 for an order that is already cancelled (core gap #905), so the status _before_ is read first: from the list row for "all matching", or with `getOrder` for ticked ids. An already-cancelled order is not cancelled again and is reported "Already cancelled" (skipped).
+  - **A run that never comes back** (a network drop, a crashed action) is shown as "outcome unknown — reload the list and check before running it again". It is never retried, and the list is reloaded. Export CSV says the same kind of thing when its request fails.
+  - **The principal is loaded once per bulk action** and each row is checked against it (`refusalFor`, pure). React's `cache()` memoises `loadPrincipal` within a server render, not inside a server action's body, so a per-row `refuseUnlessPermitted` would have cost one `GET /admin/me` per row (up to 500).
+  - The date range says its days are UTC.
+  - Tests: `bulk-actions` 25 (+5), `bulk-ui` 20 (+4). Mutation-checked: dropping the already-cancelled skip or the try/catch fails the suite.
 - More tests:
   - `test/table-export.test.ts` (14): CSV quoting and the formula guard, filters in words, the export actions (whitelists, cap and truncation, a 401 / 403 refusal before any read, a failed page), and all seven catalog actions refused for 3 roles.
   - `test/bulk-ui.test.tsx` (16 now): scope in words, the typed count, the results CSV, and Export CSV with the cap and refusal.

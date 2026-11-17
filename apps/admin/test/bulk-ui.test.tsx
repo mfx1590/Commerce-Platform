@@ -380,3 +380,84 @@ describe('#870 part 1 (manager decisions): scope in words, no-undo confirmation,
     expect(clicked).toEqual([]);
   });
 });
+
+describe('#904 review: a run that never comes back, and honest copy', () => {
+  it('a thrown run is "outcome unknown": nothing retried, the list reloaded, check first', async () => {
+    const user = userEvent.setup();
+    const run = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+    const onClose = vi.fn();
+    render(
+      <BulkAction
+        label="Cancel…"
+        noun={{ one: 'order', many: 'orders' }}
+        selection={{ mode: 'rows', ids: new Set([ID_1]) }}
+        filters={{}}
+        run={run}
+        onClose={onClose}
+        destructive
+        question={(_, words) => `Cancel ${words}?`}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Cancel…' }));
+    await user.type(screen.getByLabelText('Type 1 to confirm'), '1');
+    await user.click(screen.getByRole('button', { name: 'Yes, cancel 1 order' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Cancel: outcome unknown — the request did not come back.');
+    expect(alert).toHaveTextContent('Reload the list and check them before running it again');
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(router.refresh).toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /^Yes, / })).not.toBeInTheDocument();
+    await user.click(within(alert).getByRole('button', { name: 'Close' }));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('a thrown export says so and downloads nothing', async () => {
+    const { ExportCsvButton } = await import('@/components/table/export-csv');
+    const user = userEvent.setup();
+    render(<ExportCsvButton what="orders" run={vi.fn().mockRejectedValue(new Error('x'))} />);
+    await user.click(screen.getByRole('button', { name: /^Export CSV/ }));
+    expect(
+      await screen.findByText('The export did not come back. Try again; nothing was changed.'),
+    ).toBeInTheDocument();
+  });
+
+  it('the date range says its days are UTC', () => {
+    render(
+      <DateRangeFilter query={query()} fromKey="placed_from" toKey="placed_to" label="Placed" />,
+    );
+    expect(screen.getByRole('group', { name: 'Placed' })).toHaveTextContent('(whole days, UTC)');
+  });
+
+  it('bulk cancel says a captured payment is not refunded, and no longer claims cancelled ones are skipped by the API', async () => {
+    const user = userEvent.setup();
+    render(
+      <OrdersTable
+        storeId="00000000-0000-4000-8000-000000000031"
+        locale="en-GB"
+        rows={
+          [
+            {
+              id: ID_1,
+              display_id: 1042,
+              email: 'a@example.com',
+              status: 'confirmed',
+              payment_status: 'captured',
+              fulfillment_status: 'not_fulfilled',
+              total: { amount_minor: 1200, currency: 'EUR' },
+              placed_at: '2026-11-10T10:00:00Z',
+            },
+          ] as never
+        }
+        total={1}
+        query={query()}
+        canCancel
+      />,
+    );
+    await user.click(screen.getByRole('checkbox', { name: `Select row ${ID_1}` }));
+    await user.click(screen.getByRole('button', { name: 'Cancel…' }));
+    const dialog = screen.getByRole('alertdialog');
+    expect(dialog).toHaveTextContent('A payment already CAPTURED is NOT refunded by cancelling');
+    expect(dialog).toHaveTextContent('refund needed');
+    expect(dialog).not.toHaveTextContent('are skipped');
+  });
+});

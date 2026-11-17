@@ -32,6 +32,7 @@ const api = vi.hoisted(() => ({
   updateVariant: vi.fn(),
   listOrders: vi.fn(),
   cancelOrder: vi.fn(),
+  getOrder: vi.fn(),
 }));
 vi.mock('@/lib/api/admin', () => api);
 
@@ -40,6 +41,7 @@ const { bulkArchiveProductsAction, bulkPublishProductsAction } =
   await import('@/app/actions/bulk-catalog');
 const { archiveProductAction, publishProductAction } = await import('@/app/actions/catalog');
 const { bulkCancelOrdersAction } = await import('@/app/actions/bulk-orders');
+const { cancelledMessage } = await import('@/lib/orders/cancel-outcome');
 const { CATALOG_PERMISSIONS } = await import('@/lib/catalog/permissions');
 
 const STORE = SEED.stores.brandA;
@@ -400,5 +402,118 @@ describe('bulk cancel on the orders table', () => {
         ],
       },
     });
+  });
+});
+
+describe('#904 review: bulk cancel says what happened to the money', () => {
+  const before = (n: number, status: string) => ok({ id: id(n), display_id: 1000 + n, status });
+  const after = (n: number, payment_status: string) =>
+    ok({ id: id(n), display_id: 1000 + n, status: 'cancelled', payment_status });
+
+  it('the message comes from the payment status the API returned', () => {
+    expect(cancelledMessage('voided')).toBe('Cancelled — authorisation voided.');
+    expect(cancelledMessage('captured')).toBe('Cancelled — payment captured, refund needed.');
+    expect(cancelledMessage('partially_refunded')).toBe(
+      'Cancelled — payment captured, refund needed.',
+    );
+    expect(cancelledMessage('refunded')).toBe('Cancelled — payment already refunded.');
+    expect(cancelledMessage('awaiting')).toBe('Cancelled — no payment taken (awaiting).');
+  });
+
+  it('ticked ids: the status before is read; an order already cancelled is not cancelled again', async () => {
+    api.getOrder.mockImplementation((_s: string, orderId: string) =>
+      Promise.resolve(
+        orderId === id(3) ? before(3, 'cancelled') : before(Number(orderId.slice(-1)), 'confirmed'),
+      ),
+    );
+    api.cancelOrder
+      .mockResolvedValueOnce(after(1, 'voided'))
+      .mockResolvedValueOnce(after(2, 'captured'));
+    const result = await bulkCancelOrdersAction(
+      STORE,
+      { mode: 'rows', ids: [id(1), id(2), id(3)] },
+      'out of stock',
+    );
+    expect(api.getOrder).toHaveBeenCalledTimes(3);
+    expect(api.cancelOrder.mock.calls.map(([, orderId]) => orderId)).toEqual([id(1), id(2)]);
+    expect(result).toMatchObject({
+      status: 'success',
+      data: {
+        counts: { done: 2, skipped: 1 },
+        results: [
+          { label: '#1001', outcome: 'done', message: 'Cancelled — authorisation voided.' },
+          {
+            label: '#1002',
+            outcome: 'done',
+            message: 'Cancelled — payment captured, refund needed.',
+          },
+          { label: '#1003', outcome: 'skipped', message: 'Already cancelled.' },
+        ],
+      },
+    });
+  });
+
+  it('all matching: the status comes from the list row, no extra read', async () => {
+    api.listOrders.mockResolvedValue(
+      ok({
+        page: 1,
+        limit: 100,
+        total: 2,
+        items: [{ ...before(1, 'cancelled').data }, { ...before(2, 'confirmed').data }],
+      }),
+    );
+    api.cancelOrder.mockResolvedValueOnce(after(2, 'voided'));
+    const result = await bulkCancelOrdersAction(
+      STORE,
+      { mode: 'all-matching', excluded: [], total: 2, filters: {} },
+      'duplicate',
+    );
+    expect(api.getOrder).not.toHaveBeenCalled();
+    expect(api.cancelOrder).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      data: {
+        results: [
+          { message: 'Already cancelled.' },
+          { message: 'Cancelled — authorisation voided.' },
+        ],
+      },
+    });
+  });
+
+  it('a failed read of the order is that row’s failure, and nothing is cancelled', async () => {
+    api.getOrder.mockResolvedValue(fail(404, 'order not found'));
+    const result = await bulkCancelOrdersAction(STORE, { mode: 'rows', ids: [id(1)] }, 'x');
+    expect(api.cancelOrder).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      data: { results: [{ outcome: 'failed', message: 'order not found' }] },
+    });
+  });
+
+  it('the principal is loaded once for the action, not once per row (cache() does not hold in an action)', async () => {
+    const principal = await import('@/lib/principal');
+    const fixtures = await import('./fixtures/principals');
+    const spy = vi
+      .spyOn(principal, 'loadPrincipal')
+      .mockImplementation(
+        async () =>
+          ({ ok: true, status: 200, data: fixtures.principals.storeAdmin }) as Awaited<
+            ReturnType<typeof principal.loadPrincipal>
+          >,
+      );
+    api.getOrder.mockImplementation((_s: string, orderId: string) =>
+      Promise.resolve(before(Number(orderId.slice(-1)), 'confirmed')),
+    );
+    api.cancelOrder.mockImplementation((_s: string, orderId: string) =>
+      Promise.resolve(after(Number(orderId.slice(-1)), 'voided')),
+    );
+    await bulkCancelOrdersAction(
+      STORE,
+      { mode: 'rows', ids: [id(1), id(2), id(3), id(4), id(5), id(6)] },
+      'x',
+    );
+    // The up-front refusal check, plus the one principal the rows are checked against.
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(api.cancelOrder).toHaveBeenCalledTimes(6);
+    spy.mockRestore();
   });
 });

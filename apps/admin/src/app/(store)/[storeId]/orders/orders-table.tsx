@@ -178,7 +178,7 @@ export function OrdersTable({
                     placeholder: 'e.g. out of stock',
                   }}
                   question={(_, words) =>
-                    `Cancel ${words}? Each authorised payment is voided; orders already fulfilled or cancelled are skipped.`
+                    `Cancel ${words}? An authorised payment is voided. A payment already CAPTURED is NOT refunded by cancelling: those orders are marked "refund needed" in the results — download them as your refund list. Orders already cancelled are left as they are; the API refuses orders it can no longer cancel.`
                   }
                 />
               ),

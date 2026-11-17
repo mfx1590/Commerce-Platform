@@ -117,7 +117,9 @@ export function DateRangeFilter({
         apply(withFilter(withFilter(query, fromKey, range.from), toKey, range.to));
       }}
     >
-      <span className="text-muted self-center">{label}</span>
+      <span className="text-muted self-center">
+        {label} <span className="text-xs">(whole days, UTC)</span>
+      </span>
       <label className="flex flex-col gap-0.5">
         <span className="text-muted text-xs">From</span>
         <input

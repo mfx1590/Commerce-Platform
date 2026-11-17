@@ -82,9 +82,37 @@ export function BulkAction({
     refusal?: ActionRefusalInfo | undefined;
   } | null>(null);
   const [report, setReport] = useState<BulkReport | null>(null);
+  const [unknown, setUnknown] = useState(false);
 
   const count = selectionCount(selection);
   const words = `${count} ${count === 1 ? noun.one : noun.many}`;
+
+  if (unknown) {
+    return (
+      <div
+        role="alert"
+        className="border-warning/30 bg-warning/5 w-full space-y-2 rounded-md border px-3 py-2"
+      >
+        <p className="font-medium">
+          {label.replace(/…$/, '')}: outcome unknown — the request did not come back.
+        </p>
+        <p className="text-sm">
+          Some {noun.many} may have been changed. Reload the list and check them before running it
+          again; nothing is retried automatically.
+        </p>
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => {
+            setUnknown(false);
+            onClose();
+          }}
+        >
+          Close
+        </Button>
+      </div>
+    );
+  }
 
   if (report !== null) {
     const rows = sortForReport(report.results);
@@ -219,7 +247,17 @@ export function BulkAction({
           onClick={() => {
             if (pending) return;
             startTransition(async () => {
-              const result = await run(toBulkSelection(selection, filters), text.trim());
+              let result: Awaited<ReturnType<typeof run>>;
+              try {
+                result = await run(toBulkSelection(selection, filters), text.trim());
+              } catch {
+                // The request failed in flight (network, a crashed action): some rows may have been
+                // done. Never retried (no idempotency key) — the person checks first (#904 review).
+                setAsking(false);
+                setUnknown(true);
+                router.refresh();
+                return;
+              }
               if (result.status === 'success') {
                 setAsking(false);
                 setText('');
