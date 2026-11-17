@@ -2,6 +2,14 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-11-13 · contract coverage test (#858)
+
+- `test/contract-coverage.test.ts`: every Admin and Store API operation has a route on the composed app (Express's
+  router stack walked, module routers and hq-rbac's table included) or is in a named `ALLOWLIST` with its issue; an
+  allowlisted operation that becomes served fails the test too, and so does a route under `/admin` or `/store` the
+  contract does not have (except hq-rbac's non-production `GET /admin/finance/ping`, named). Allowlist: #856 and
+  #857 ×9 (#855's two dropped: #863 mounts them). Unit job, no database. See `test/README.md`.
+
 ### 2026-11-13 · order line-item edits are served (#855)
 
 - Admin API `updateOrderLineItem` (`PATCH`) and `cancelOrderLineItem` (`DELETE`) on
