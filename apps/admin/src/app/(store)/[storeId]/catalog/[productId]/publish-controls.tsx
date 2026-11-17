@@ -93,7 +93,15 @@ export function PublishControls({ storeId, product }: { storeId: string; product
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-3 text-sm">
-        <Badge tone={TONE[state.status] ?? 'neutral'}>{state.status}</Badge>
+        {/*
+          `data-testid` because the status word is no longer unique on this page: the Activity
+          panel (#870 item 3) renders audit values, so a `product.create` row prints "draft" and a
+          `product.publish` row prints "published" too. An e2e locator for THE product's status
+          needs a handle that cannot drift onto a history row (#896 e2e fix).
+        */}
+        <Badge data-testid="product-status" tone={TONE[state.status] ?? 'neutral'}>
+          {state.status}
+        </Badge>
         <span className="text-muted">
           Published: <span className="font-mono text-xs">{formatDate(state.publishedAt)}</span>
         </span>

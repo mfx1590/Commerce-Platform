@@ -36,6 +36,9 @@ const api = vi.hoisted(() => ({
   getStore: vi.fn(),
   getPromotion: vi.fn(),
   listPriceLists: vi.fn(),
+  // #870 item 3: the detail page now carries an Activity panel.
+  listAuditLog: vi.fn(),
+  listUsers: vi.fn(),
 }));
 vi.mock('@/lib/api/admin', () => api);
 
@@ -59,6 +62,8 @@ const jpyStore = ok({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  api.listAuditLog.mockResolvedValue(ok({ page: 1, limit: 20, total: 0, items: [] }));
+  api.listUsers.mockResolvedValue(ok({ page: 1, limit: 100, total: 0, items: [] }));
   api.listPriceLists.mockResolvedValue(ok({ items: [] }));
   api.getPromotion.mockResolvedValue(
     ok({
