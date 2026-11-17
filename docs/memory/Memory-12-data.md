@@ -123,6 +123,18 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   compare, inventory p95 + leak, stock series leak); access-matrix (window 1's file → flag); contract gaps to
   report: MetricAnswer needs `inventory` + `labels` fields in #871 a3; template "change never cause" = REQUEST to
   packages/ai (bi-qa-answer@4); routes route spec overlay in tests (no contracts edit).
+  RESUMED 2026-11-17 under Manager session FOURTEEN (local_66534535…; replaces thirteen). Pushed on
+  integration/bi-v2-data (no PR): 5e5eeee5 Ask tests, 8ac55347 owner stock golden (golden/stock.ts checker +
+  stock.test.ts: Red mug stock_out order 3, Blue mug 10 d order 64, Espresso cup 30 d order 12, incoming sentence),
+  82abed96 MODELS (every joining view SETTINGS join_algorithm='hash': CH 25.8 parallel hash preallocated ~300 MiB/query
+  → 4.4 MiB; shared CH caps 1.13 GiB; fct_return_line returns on the join's right), 13b0e8f9 CORE live blocks
+  (metrics-live 14/14: inventory p95 143 store / 117 HQ, movers 53, compare 67, random 48; stock leak A 50 / HQ 120),
+  then the access overlay (access-v2.test.ts). Step 4: #906 REQUEST window 1 access-matrix rows (land WITH the
+  contracts commit; matrix fails on POST /admin/metrics/movers until then). #907 REQUEST bi-qa-answer@4 (packages/ai).
+  #871 addendum comment: MetricAnswer.inventory + labels. GOTCHAS: CH form field ~128 KB (~3000 uuids) — inventory
+  loader reads stock-outs by organization; store-scoped stock series still sends its item list (limit stated).
+  Postgres template literals are scanned by the alias-shadow lint too (rename `x AS x`). The reconcile gate NOT run
+  (needs the relay on the shared broker → manager OK); shared analytics DB needs ch:migrate after landing.
   (mart_bookings_daily keys, mart_product_daily, mart_stock_daily, mart_sales_rate) once #871 is decided.
 - INT5 3c FOLLOW-UP (2026-11-05, manager eleven): #718 MERGED 1fad84d4; #633 MERGED as #719 268a81bf (richPayments
   opt-in). Branch data/phase5-int5-3c. Done: gate month richPayments + reconcileAll(createFixtureSource(month.payouts))
