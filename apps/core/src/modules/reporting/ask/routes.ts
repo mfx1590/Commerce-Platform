@@ -113,6 +113,7 @@ export function askAdminRouter(opts: AskRouterOptions = {}): Router {
                   get reader() {
                     return opts.reader ?? sharedMetricsReader();
                   },
+                  organizationId: p.organizationId,
                   stores: ids,
                   rateStores: ids,
                   organization,

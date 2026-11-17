@@ -15,6 +15,8 @@ export interface MetricsReader {
     query: string;
     format: 'JSONEachRow';
     query_params?: Record<string, unknown>;
+    /** Parameters (and the SQL) in the multipart BODY: a long id list never hits the URL / form-field limit. */
+    use_multipart_params?: boolean;
   }): Promise<{ json<T>(): Promise<T[]> }>;
 }
 
@@ -203,7 +205,12 @@ async function runOne(
       Promise.all(
         compiled.sources.map(async (s) =>
           (
-            await reader.query({ query: s.sql, format: 'JSONEachRow', query_params: s.params })
+            await reader.query({
+              query: s.sql,
+              format: 'JSONEachRow',
+              query_params: s.params,
+              use_multipart_params: true,
+            })
           ).json<Raw>(),
         ),
       ),

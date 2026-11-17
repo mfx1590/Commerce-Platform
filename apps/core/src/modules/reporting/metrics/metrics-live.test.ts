@@ -48,6 +48,9 @@ describe.runIf(skip === null)('metrics API on ClickHouse (#603)', () => {
   let A: string;
   let B: string;
   let ro: MetricsReader | null = null;
+  /** BI v2 (#871): schema-valid events into this test's raw_events (classified like the ingest does) */
+  let insertEvents: (events: unknown[]) => Promise<void>;
+  let templateOrder: Record<string, unknown>;
 
   beforeAll(async () => {
     const ingest = await import('@platform/analytics-ingest');
@@ -86,6 +89,31 @@ describe.runIf(skip === null)('metrics API on ClickHouse (#603)', () => {
     });
     await ingest.createRawEventsSink(ch).insert(rows);
     reader = ch as unknown as MetricsReader;
+    templateOrder = month.events.find(
+      (e) => e.topic === 'order.placed' && e.store_id === A,
+    ) as never;
+    insertEvents = async (events) => {
+      const now = new Date();
+      await ingest.createRawEventsSink(ch).insert(
+        events.map((e, i) => {
+          const ev = e as { event_id: string; topic: string; occurred_at: string };
+          const c = ingest.classify(
+            {
+              key: null,
+              value: JSON.stringify(e),
+              headers: { outbox_id: ev.event_id },
+              offset: String(100_000 + i),
+              timestamp: String(Date.parse(ev.occurred_at)),
+            },
+            { topic: ev.topic, partition: 0 },
+            { groupId: 'analytics.raw', validator, now },
+          );
+          if (c.kind !== 'row')
+            throw new Error(`v2 fixture ${ev.topic} dead-lettered: ${c.letter.error_class}`);
+          return c.row;
+        }),
+      );
+    };
     const roUser = process.env.CLICKHOUSE_READONLY_USER?.trim();
     if (roUser) {
       const roClient = ingest.createChReader({
@@ -111,10 +139,13 @@ describe.runIf(skip === null)('metrics API on ClickHouse (#603)', () => {
     let runs = 0;
     for (const m of Object.keys(METRICS) as MetricId[])
       for (const grain of METRICS[m].grains ?? ['day', 'week', 'month', 'total']) {
+        // snapshot metrics (stock now) are getInventoryHealth's (#871): queryMetrics refuses them
+        if (METRICS[m].kind === 'snapshot') break;
         await executeMetricQuery(
           reader,
           parseMetricQuery({ metrics: [m], grain, from: '2026-10-01', to: '2026-11-01' }),
           [A],
+          { stock: { stockItemIds: [] } },
         );
         runs += 1;
       }
@@ -156,6 +187,21 @@ describe.runIf(skip === null)('metrics API on ClickHouse (#603)', () => {
           expect(t.values.bookings_minor, JSON.stringify(q)).toBe(truth.get(t.currency!) ?? 0);
           compared += 1;
         }
+    }
+    // and one comparison is always made (the random draw rarely lands on it with 42 metrics)
+    const fixed = await executeMetricQuery(
+      reader,
+      parseMetricQuery({
+        metrics: ['bookings_minor'],
+        grain: 'total',
+        from: '2026-10-01',
+        to: '2027-01-01',
+      }),
+      [A],
+    );
+    for (const t of fixed.currency_totals) {
+      expect(t.values.bookings_minor).toBe(truth.get(t.currency!) ?? 0);
+      compared += 1;
     }
     // the property was exercised: rows came back, and totals were compared with the marts
     expect(rows).toBeGreaterThan(0);
@@ -245,13 +291,13 @@ describe.runIf(skip === null)('metrics API on ClickHouse (#603)', () => {
     const marts = await (
       await ro.query({
         query:
-          "SELECT count() AS n FROM system.tables WHERE database = currentDatabase() AND name = 'mart_bookings_daily'",
+          "SELECT count() AS n FROM system.tables WHERE database = currentDatabase() AND name = 'mart_sales_daily'",
         format: 'JSONEachRow',
       })
     ).json<{ n: string }>();
     if (Number(marts[0]!.n) === 0) {
       console.warn(
-        'metrics-live.test: the shared analytics database has no models yet (ch:migrate not run on it): the compiled query through analytics_ro is skipped; reading and the readonly refusal are proven above',
+        'metrics-live.test: the shared analytics database does not carry the catalogue v2 models yet (mart_sales_daily; ch:migrate not run on it): the compiled query through analytics_ro is skipped; reading and the readonly refusal are proven above',
       );
       return;
     }
@@ -377,6 +423,291 @@ describe.runIf(skip === null)('metrics API on ClickHouse (#603)', () => {
       console.info(
         JSON.stringify({ test: 'metrics-live', block: 'HTTP scope escape (a)-(d) + organization' }),
       );
+    });
+  });
+
+  // ---- BI v2 (#871): the two new operations, compare and the stock series over HTTP, on real data -------------------
+  describe('BI v2 over HTTP: inventory health, movers, compare and the stock series stay in scope (#871)', () => {
+    let pg: { drop(): Promise<void> } | undefined;
+    let app: Express;
+    let closePg: () => Promise<void> = async () => {};
+    const day = (offset: number) =>
+      new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+    const post = (path: string, subject: string, body: Record<string, unknown>) =>
+      request(app).post(path).set('Authorization', `Bearer dev:${subject}`).send(body);
+    let aItem: string;
+    let bOnlyItem: string;
+    let aSku: string;
+    let bSku: string;
+    const p95 = async (n: number, call: () => Promise<{ status: number }>) => {
+      const ms: number[] = [];
+      for (let i = 0; i < n; i++) {
+        const t = performance.now();
+        expect((await call()).status).toBe(200);
+        ms.push(performance.now() - t);
+      }
+      ms.sort((x, y) => x - y);
+      return {
+        p50: Math.round(ms[Math.floor(n * 0.5)]!),
+        p95: Math.round(ms[Math.floor(n * 0.95)]!),
+        max: Math.round(ms.at(-1)!),
+      };
+    };
+
+    beforeAll(async () => {
+      const express = (await import('express')).default;
+      const { createOrganizationClient, SEED_IDS } = await import('@platform/db');
+      const { makeEvent } = await import('@platform/events');
+      const { createReportingDatabase } = await import('../testing/fixtures');
+      const { coreErrorHandler, DevTokenVerifier } = await import('../../../http');
+      const { closePool, initDb } = await import('../../../lib/db');
+      const { mountCoreMiddleware } = await import('../../../server');
+      const { metricsAdminRouter } = await import('./routes');
+      process.env.CORE_DEV_TOKENS = '1';
+      const db = await createReportingDatabase('metrics_v2');
+      pg = db;
+      await initDb({ connectionString: db.app.options.connectionString! });
+      closePg = async () => {
+        await closePool();
+        await db.drop();
+      };
+      const hq = createOrganizationClient(db.app, { organizationId: SEED_IDS.organization });
+      const user = await hq.query<{ id: string }>(
+        `INSERT INTO staff_user (organization_id, keycloak_subject, email, display_name, status)
+         VALUES ($1, 'v2-admin-a', 'v2-admin-a@example.test', 'V2 admin A', 'active') RETURNING id`,
+        [SEED_IDS.organization],
+      );
+      await hq.query(
+        `INSERT INTO role_assignment (organization_id, staff_user_id, relation, object_type, object_id)
+         VALUES ($1, $2, 'store_admin', 'store', $3)`,
+        [SEED_IDS.organization, user.rows[0]!.id, A],
+      );
+      // a stock item only store A sells from, one only store B sells from, and a warehouse each lies in
+      const pick = async (store: string, other: string) =>
+        (
+          await hq.query<{ variant: string; item: string; sku: string; warehouse: string }>(
+            `SELECT v.id::text AS variant, v.stock_item_id::text AS item, v.sku, il.warehouse_id::text AS warehouse
+               FROM product_variant v JOIN inventory_level il ON il.stock_item_id = v.stock_item_id
+              WHERE v.store_id = $1
+                AND NOT EXISTS (SELECT 1 FROM product_variant o
+                                 WHERE o.store_id = $2 AND o.stock_item_id = v.stock_item_id)
+              ORDER BY v.id LIMIT 1`,
+            [store, other],
+          )
+        ).rows[0]!;
+      const a = await pick(A, B);
+      const b = await pick(B, A);
+      aItem = a.item;
+      bOnlyItem = b.item;
+      aSku = a.sku;
+      bSku = b.sku;
+      // sales two days ago (inside the 28-day rate window): 6 units of A's item at A, 4 of B's item at B
+      const order = (store: string, variant: string, sku: string, quantity: number) => {
+        const t = templateOrder as { payload: Record<string, unknown> };
+        const line = (t.payload.line_items as Record<string, unknown>[])[0]!;
+        const placed = new Date(Date.now() - 2 * 86_400_000);
+        return makeEvent({
+          topic: 'order.placed',
+          organizationId: SEED_IDS.organization,
+          storeId: store,
+          aggregateType: 'order',
+          aggregateId: crypto.randomUUID(),
+          occurredAt: placed,
+          payload: {
+            ...(t.payload as object),
+            order_id: crypto.randomUUID(),
+            line_items: [
+              {
+                ...line,
+                order_line_item_id: crypto.randomUUID(),
+                variant_id: variant,
+                sku,
+                quantity,
+              },
+            ],
+            placed_at: placed.toISOString(),
+          } as never,
+        });
+      };
+      // pool receipts yesterday (no store caused them): 50 of A's item, 70 of B's
+      const receipt = (item: string, sku: string, warehouse: string, delta: number) =>
+        makeEvent({
+          topic: 'stock.moved',
+          organizationId: SEED_IDS.organization,
+          storeId: null,
+          aggregateType: 'stock_item' as never,
+          aggregateId: item,
+          occurredAt: new Date(Date.now() - 86_400_000),
+          payload: {
+            stock_movement_id: crypto.randomUUID(),
+            stock_item_id: item,
+            sku,
+            warehouse_id: warehouse,
+            delta,
+            reason: 'receipt',
+            reference_type: null,
+            reference_id: null,
+            on_hand_after: 1000 + delta,
+            reserved_after: 0,
+          } as never,
+        });
+      await insertEvents([
+        order(A, a.variant, a.sku, 6),
+        order(B, b.variant, b.sku, 4),
+        receipt(a.item, a.sku, a.warehouse, 50),
+        receipt(b.item, b.sku, b.warehouse, 70),
+      ]);
+      const posted = { relation: 'viewer', object: 'store:*' };
+      app = express();
+      mountCoreMiddleware(app, new DevTokenVerifier(), {
+        moduleRouters: [
+          metricsAdminRouter({
+            reader,
+            spec: { permission: () => posted, validateBody: () => {} },
+          }),
+        ],
+      });
+      app.use(coreErrorHandler);
+    }, 240_000);
+
+    afterAll(async () => {
+      if (pg) await closePg();
+    });
+
+    it('inventory: a store admin sees its own items and its own sales only; HQ sees every brand', async () => {
+      const mine = await post('/admin/metrics/inventory', 'v2-admin-a', { limit: 500 });
+      const mineA = await post('/admin/metrics/inventory', 'v2-admin-a', { q: aSku });
+      const mineB = await post('/admin/metrics/inventory', 'v2-admin-a', { q: bSku });
+      expect(mine.status).toBe(200);
+      const rows = mine.body.rows as {
+        stock_item_id: string;
+        store_ids: string[];
+        units_sold: number;
+      }[];
+      expect(rows.length).toBeGreaterThan(0);
+      for (const r of rows) expect(r.store_ids).toEqual([A]);
+      expect(rows.some((r) => r.stock_item_id === bOnlyItem)).toBe(false);
+      expect(
+        (mineB.body.rows as { stock_item_id: string }[]).some((r) => r.stock_item_id === bOnlyItem),
+      ).toBe(false);
+      expect(
+        (mineA.body.rows as { stock_item_id: string; units_sold: number }[]).find(
+          (r) => r.stock_item_id === aItem,
+        ),
+      ).toMatchObject({ units_sold: 6 });
+      expect(mine.body).toMatchObject({ incoming_tracked: false, rate_available: true });
+      const hq = await post('/admin/metrics/inventory', 'seed-analyst', { q: bSku });
+      expect(hq.status).toBe(200);
+      expect(
+        (hq.body.rows as { stock_item_id: string; units_sold: number }[]).find(
+          (r) => r.stock_item_id === bOnlyItem,
+        ),
+      ).toMatchObject({ units_sold: 4 });
+      // a warehouse the caller cannot see is a 403, never a silent narrowing
+      const other = await post('/admin/metrics/inventory', 'v2-admin-a', {
+        warehouse_ids: ['00000000-0000-4000-8000-00000000dead'],
+      });
+      expect(other.status).toBe(403);
+      console.info(
+        JSON.stringify({
+          test: 'metrics-live',
+          block: 'v2 inventory scope',
+          store_rows: rows.length,
+          hq_rows: hq.body.rows.length,
+        }),
+      );
+    });
+
+    it('the stock series: a store admin counts the pool receipts of its own items only (#871 review 1)', async () => {
+      const body = { metrics: ['units_received'], grain: 'total', from: day(-7), to: day(1) };
+      const mine = await post('/admin/metrics/query', 'v2-admin-a', body);
+      const all = await post('/admin/metrics/query', 'seed-analyst', body);
+      expect(mine.status).toBe(200);
+      expect(mine.body.currency_totals).toEqual([
+        { currency: null, values: { units_received: 50 } },
+      ]);
+      expect(all.body.currency_totals).toEqual([
+        { currency: null, values: { units_received: 120 } },
+      ]);
+      console.info(
+        JSON.stringify({
+          test: 'metrics-live',
+          block: 'v2 stock series leak',
+          store_a: 50,
+          hq: 120,
+        }),
+      );
+    });
+
+    it('movers and compare stay in scope, movers ranked per currency', async () => {
+      const mv = { metric: 'net_sales_minor', dimension: 'store', from: day(-7), to: day(1) };
+      const mine = await post('/admin/metrics/movers', 'v2-admin-a', mv);
+      expect(mine.status).toBe(200);
+      type Block = { risers: { key: string }[]; fallers: { key: string }[] };
+      const keys = (mine.body.by_currency as Block[]).flatMap((b) => [
+        ...b.risers.map((m) => m.key),
+        ...b.fallers.map((m) => m.key),
+      ]);
+      expect(keys.length).toBeGreaterThan(0);
+      expect(new Set(keys)).toEqual(new Set([A]));
+      expect(mine.body.labels.store[A]).toBeTruthy();
+      const hq = await post('/admin/metrics/movers', 'seed-analyst', mv);
+      expect(
+        new Set((hq.body.by_currency as Block[]).flatMap((b) => b.risers.map((m) => m.key))),
+      ).toEqual(new Set([A, B]));
+      const cmp = await post('/admin/metrics/query', 'v2-admin-a', {
+        metrics: ['net_sales_minor', 'units'],
+        grain: 'total',
+        from: day(-7),
+        to: day(1),
+        compare: 'previous_period',
+      });
+      expect(cmp.status).toBe(200);
+      expect(cmp.body.compare).toMatchObject({
+        mode: 'previous_period',
+        offset: '-8d',
+        current_incomplete: true,
+      });
+      for (const r of [...cmp.body.rows, ...cmp.body.compare.rows])
+        expect([null, A]).toContain(r.store_id);
+      expect(cmp.body.compare.changes.length).toBeGreaterThan(0);
+    });
+
+    it('cost: p95 of the new operations on seeded data (inventory < 300 ms, movers and compare < 600 ms)', async () => {
+      const inv = await p95(30, () => post('/admin/metrics/inventory', 'v2-admin-a', {}));
+      const invHq = await p95(30, () => post('/admin/metrics/inventory', 'seed-analyst', {}));
+      const mv = await p95(30, () =>
+        post('/admin/metrics/movers', 'seed-analyst', {
+          metric: 'net_sales_minor',
+          dimension: 'store',
+          from: '2026-10-01',
+          to: '2026-11-01',
+        }),
+      );
+      const cmp = await p95(30, () =>
+        post('/admin/metrics/query', 'seed-analyst', {
+          metrics: ['net_sales_minor', 'orders'],
+          dimensions: ['store'],
+          grain: 'day',
+          from: '2026-10-01',
+          to: '2026-11-01',
+          compare: 'previous_period',
+        }),
+      );
+      console.info(
+        JSON.stringify({
+          test: 'metrics-live',
+          block: 'v2 cost (HTTP, ms)',
+          inventory_store: inv,
+          inventory_hq: invHq,
+          movers: mv,
+          compare: cmp,
+        }),
+      );
+      expect(inv.p95).toBeLessThan(300);
+      expect(invHq.p95).toBeLessThan(300);
+      expect(mv.p95).toBeLessThan(600);
+      expect(cmp.p95).toBeLessThan(600);
     });
   });
 });

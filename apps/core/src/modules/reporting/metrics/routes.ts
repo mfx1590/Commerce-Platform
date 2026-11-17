@@ -258,6 +258,7 @@ export function metricsAdminRouter(opts: MetricsRouterOptions = {}): Router {
                 orgPg: organizationClient({ organizationId: p.organizationId, actorId: p.user.id }),
               }),
           reader: reader(),
+          organizationId: p.organizationId,
           stores,
           rateStores: stores,
           organization,

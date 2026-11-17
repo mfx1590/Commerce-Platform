@@ -469,6 +469,7 @@ export interface InventoryLoadDeps {
    */
   orgPg?: Pick<ScopedClient, 'query'>;
   reader: MetricsReader;
+  organizationId: string;
   /** the stores whose variants count (caller-visible, narrowed by store_ids) */
   stores: readonly string[];
   /** the stores whose sales count toward the rate (= stores, minus BI Q&A-excluded ones on the Ask path) */
@@ -501,8 +502,8 @@ export async function loadInventoryInputs(
         WHERE v.store_id = ANY($1::uuid[])`,
       [[...d.stores]],
     ),
-    d.pg.query<{ id: string; inv: Partial<Params> | null }>(
-      `SELECT id::text AS id, settings -> 'analytics' -> 'inventory' AS inv FROM store WHERE id = ANY($1::uuid[])`,
+    d.pg.query<{ store: string; inv: Partial<Params> | null }>(
+      `SELECT id::text AS store, settings -> 'analytics' -> 'inventory' AS inv FROM store WHERE id = ANY($1::uuid[])`,
       [[...d.stores]],
     ),
   ]);
@@ -517,12 +518,12 @@ export async function loadInventoryInputs(
   const items = [...new Set(pos.map((p) => p.stock_item_id))];
   let shared = new Set<string>();
   if (!d.organization && d.orgPg && items.length > 0) {
-    const r = await d.orgPg.query<{ stock_item_id: string }>(
-      `SELECT DISTINCT stock_item_id::text AS stock_item_id FROM product_variant
+    const r = await d.orgPg.query<{ item: string }>(
+      `SELECT DISTINCT stock_item_id::text AS item FROM product_variant
         WHERE stock_item_id = ANY($1::uuid[]) AND NOT (store_id = ANY($2::uuid[]))`,
       [items, [...d.stores]],
     );
-    shared = new Set(r.rows.map((x) => x.stock_item_id));
+    shared = new Set(r.rows.map((x) => x.item));
   }
   const settingsMap = new Map<string, Partial<Params>>();
   for (const s of settings.rows) {
@@ -532,7 +533,7 @@ export async function loadInventoryInputs(
       if (Number.isInteger(x) && (x as number) >= RANGES[k][0] && (x as number) <= RANGES[k][1])
         v[k] = x as number;
     }
-    settingsMap.set(s.id, v);
+    settingsMap.set(s.store, v);
   }
 
   let sales: InventoryInputs['sales'] = null;
@@ -540,7 +541,14 @@ export async function loadInventoryInputs(
     try {
       const today = dayOf(d.now);
       const run = async <T>(query: string, params: Record<string, unknown>) =>
-        (await d.reader.query({ query, format: 'JSONEachRow', query_params: params })).json<T>();
+        (
+          await d.reader.query({
+            query,
+            format: 'JSONEachRow',
+            query_params: params,
+            use_multipart_params: true,
+          })
+        ).json<T>();
       const stores =
         d.rateStores.length > 0 ? [...d.rateStores] : ['00000000-0000-0000-0000-000000000000'];
       const [byDay, last, stock, asOf] = await Promise.all([
@@ -558,16 +566,17 @@ export async function loadInventoryInputs(
             GROUP BY v`,
           { stores },
         ),
-        items.length === 0
-          ? Promise.resolve([] as { i: string; w: string; d: string; s: string; r: string }[])
-          : run<{ i: string; w: string; d: string; s: string; r: string }>(
-              `SELECT toString(stock_item_id) AS i, toString(warehouse_id) AS w, toString(day) AS d,
-                      sum(stockout_events) AS s, sum(units_received) AS r
-                 FROM mart_stock_daily
-                WHERE stock_item_id IN {items:Array(UUID)} AND (stockout_events > 0 OR units_received > 0)
-                GROUP BY i, w, d`,
-              { items },
-            ),
+        // the organization's stock-out and receipt days (sparse), never a list of every item as a parameter: a
+        // ClickHouse form field holds ~128 KB (about 3 000 ids); the visible items are kept below, in code
+        run<{ i: string; w: string; d: string; s: string; r: string }>(
+          `SELECT toString(stock_item_id) AS i, toString(warehouse_id) AS w, toString(day) AS d,
+                  sum(stockout_events) AS s, sum(units_received) AS r
+             FROM mart_stock_daily
+            WHERE organization_id = {org:UUID} AND stock_item_id IS NOT NULL
+              AND day >= {since:Date} AND (stockout_events > 0 OR units_received > 0)
+            GROUP BY i, w, d`,
+          { org: d.organizationId, since: shift(today, -400) },
+        ),
         run<{ t: string | null }>(
           'SELECT if(count() = 0, NULL, toString(max(ingested_at))) AS t FROM raw_events',
           {},
@@ -576,7 +585,9 @@ export async function loadInventoryInputs(
       const iso = (t: string) => `${t.replace(' ', 'T')}Z`;
       const stockoutDays = new Map<string, string[]>();
       const lastReceipt = new Map<string, string>();
+      const visible = new Set(items);
       for (const r of stock) {
+        if (!visible.has(r.i)) continue;
         if (Number(r.s) > 0) stockoutDays.set(r.i, [...(stockoutDays.get(r.i) ?? []), r.d]);
         if (Number(r.r) > 0) {
           const k = `${r.i}|${r.w}`;
