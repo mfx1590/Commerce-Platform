@@ -782,9 +782,14 @@ describe("tax: the calculator's per-line amounts and prices_include_tax (#221)",
     // #855 review: line edits are OFF by default and refuse an authorised payment until #867; this test checks the
     // edit's own arithmetic, so the switch is on and the payment is moved to `awaiting` at the module level.
     process.env.ORDER_LINE_EDITS_ENABLED = '1';
-    await db.owner.query(`UPDATE "order" SET payment_status = 'awaiting' WHERE id = $1`, [orderId]);
-    await decreaseLineQuantity(a, orderId, lineId, 1, staff);
-    delete process.env.ORDER_LINE_EDITS_ENABLED;
+    try {
+      await db.owner.query(`UPDATE "order" SET payment_status = 'awaiting' WHERE id = $1`, [
+        orderId,
+      ]);
+      await decreaseLineQuantity(a, orderId, lineId, 1, staff);
+    } finally {
+      delete process.env.ORDER_LINE_EDITS_ENABLED;
+    }
     const l = (await lineRows(orderId)).rows[0]!;
     const contained = taxOn(unit, bp, true);
     expect(Number(l.tax_minor)).toBe(contained);
