@@ -14,8 +14,10 @@ import 'server-only';
 
 import { actionError, type ActionResult } from '../forms/action-result';
 import { mapServerError } from '../forms/server-errors';
+import { CATALOG_PERMISSIONS } from '../catalog/permissions';
 import { COPY_DRAFT_PERMISSIONS } from '../copy-drafts';
 import { ORDER_PERMISSIONS } from '../orders/permissions';
+import type { Principal } from '../nav/navigation';
 import { loadPrincipal } from '../principal';
 import { ROLES_PERMISSIONS } from '../roles/permissions';
 import { REGISTRY_PERMISSIONS } from '../settings';
@@ -32,6 +34,7 @@ const OPERATIONS = {
   ...TAX_PERMISSIONS,
   ...SHIPPING_PERMISSIONS,
   ...COPY_DRAFT_PERMISSIONS,
+  ...CATALOG_PERMISSIONS,
 } satisfies Record<string, PermissionRule>;
 
 export type GuardedOperation = keyof typeof OPERATIONS;
@@ -57,8 +60,23 @@ export async function refuseUnlessPermitted(
     const refusal = failure.status === 401 || failure.status === 403 ? failure : undefined;
     return actionError(mapServerError(failure), refusal);
   }
-  if (holds(principal.data, rule, storeId)) return null;
+  return refusalFor(principal.data, operation, storeId);
+}
 
+/**
+ * The same decision for a principal already loaded: null when it holds the operation's relation on
+ * the store, else the contract's `Forbidden` refusal. Pure — a bulk action loads the principal ONCE
+ * and asks this per row: React's `cache()` memoises `loadPrincipal` within a server render, not
+ * inside a server action's body, so calling `refuseUnlessPermitted` per row would cost one
+ * `GET /admin/me` per row (#904 review).
+ */
+export function refusalFor(
+  principal: Principal,
+  operation: GuardedOperation,
+  storeId: string,
+): ActionResult<never> | null {
+  const rule: PermissionRule = OPERATIONS[operation];
+  if (holds(principal, rule, storeId)) return null;
   // The contract's `Forbidden` body, as `requiresRelation` in the state panels builds it.
   const object = ruleObject(rule, storeId);
   const error = {

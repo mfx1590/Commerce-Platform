@@ -2,6 +2,54 @@
 
 ## Unreleased
 
+### Added — #870 wave 1 item 2 (part 1): bulk actions, page size and filters on Orders and Catalog (window 3)
+
+- **Bulk actions on the shared table.** The DataTable already had selection, including "select all N matching", but no page used it. Now:
+  - Catalog: **Publish** (store_staff) and **Archive…** (store_admin; the API has no unarchive, and the question says so).
+  - Orders: **Cancel…** (store_admin) with one required reason for every order.
+
+  Each action is offered only to principals who hold its relation; the server decides regardless.
+
+- **One way to run a bulk action** (`src/lib/table/bulk.ts`, `bulk-server.ts`). The Admin API has no bulk endpoint, so it is N single calls:
+  - Refused up front, before any read, without the relation; then **checked again per row** before that row's call.
+  - The selection is resolved on the server. Ticked rows are uuid ids, at most 500. "All matching" re-runs the list with only the table's own filters (anything else in the request is dropped) and is **refused when the total moved** since the user saw it, or when it exceeds 500.
+  - Concurrency 4.
+  - Every row is reported: done, skipped (the API's 409 in its words, e.g. already fulfilled), failed, refused, or **outcome unknown** (status 0 / 5xx: never retried, because no mutation takes an idempotency key).
+  - The report lists what needs attention first and stays until closed, which clears the selection.
+- **Page size**: 20 / 50 / 100 rows per page on every DataTable (the contract caps at 100). It writes `limit` and goes back to page 1.
+- **Filters the API already took**:
+  - Orders: **Placed from / to** (`placed_from` / `placed_to`, whole days in UTC; they were only reachable by editing the URL).
+  - Catalog: **Category** (`category_id`, from `listCategories`).
+
+  Generic `SelectFilter` / `DateRangeFilter` (`src/components/table/url-filters.tsx`) for the next tables.
+
+- **Fixed**: the single-row `publishProductAction` / `archiveProductAction` checked no permission server-side; catalog was not in the guard. `CATALOG_PERMISSIONS` (yaml-pinned) now guards both, single row and bulk.
+- Tests:
+  - `test/bulk-actions.test.ts` (20): resolution with the drift and cap refusals, outcomes, concurrency, the report, catalog and orders bulk with up-front and per-row refusal, the filter whitelist, a required reason, a 409 reported as skipped, catalog permissions pinned, and single-row publish / archive refused.
+  - `test/bulk-ui.test.tsx` (11): the page-size picker, BulkAction from ask to report, both filters, and the orders bulk bar gated.
+  - Mutation-checked: the per-row check, the filter whitelist and the drift refusal each fail the suite when removed.
+  - Two existing tests gained a mock for the bulk server module they now import.
+- Manager decisions (11-13, session thirteen; resumed 11-17):
+  - **The confirmation always states the exact count**, and for "all matching" the filters it acts on, in words (e.g. "every one matching Status: draft · Category: Kitchen, except the 1 unticked"). Unfiltered says "no filter (the whole list)".
+  - **Archive… and Cancel… need the count typed** before Yes is offered. Neither has an undo; product unarchive is CONTRACT CHANGE #901.
+  - **The results download as CSV** (id, name, result, message) for the follow-up.
+  - **Export CSV of the current filtered and sorted list** on Catalog and Orders, up to 1,000 rows (stated on the button; the file says when it holds only the first ones). Built by a server action that checks the store section first, with the same rule as the page, and returns 401/403 refusals. Only the table's own filters and sorts are sent. Money is written in minor units with its currency.
+  - Every CSV cell that would run as a spreadsheet formula (`=`, `+`, `-`, `@`) is prefixed with `'`.
+- **DEFECT FIXED — the catalog checked no permission in the admin.** None of the seven catalog actions (create / update product, create / update variant, create category, publish, archive) refused a principal before calling the API. All seven now go through `CATALOG_PERMISSIONS` (yaml-pinned). The same search found six more in files this PR doesn't touch: customers update and erase, pricing (2), promotions (2). They are #903, erase first. The core's own OpenFGA check still refused those requests, so this is defence in depth, not a bypass.
+- `listPromotions` has no status filter: CONTRACT CHANGE #902, for PR 2.
+- #904 review (Fable):
+  - **Bulk cancel says what happened to the money.** Cancelling voids an authorisation but never refunds a captured payment; the question now says so. Each cancelled row's message comes from the `payment_status` the API returned: "Cancelled — authorisation voided", "Cancelled — payment captured, refund needed", "Cancelled — payment already refunded", or "no payment taken". The results CSV is therefore the refund worklist.
+  - The core answers 200 for an order that is already cancelled (core gap #905), so the status _before_ is read first: from the list row for "all matching", or with `getOrder` for ticked ids. An already-cancelled order is not cancelled again and is reported "Already cancelled" (skipped).
+  - **A run that never comes back** (a network drop, a crashed action) is shown as "outcome unknown — reload the list and check before running it again". It is never retried, and the list is reloaded. Export CSV says the same kind of thing when its request fails.
+  - **The principal is loaded once per bulk action** and each row is checked against it (`refusalFor`, pure). React's `cache()` memoises `loadPrincipal` within a server render, not inside a server action's body, so a per-row `refuseUnlessPermitted` would have cost one `GET /admin/me` per row (up to 500).
+  - The date range says its days are UTC.
+  - Tests: `bulk-actions` 25 (+5), `bulk-ui` 20 (+4). Mutation-checked: dropping the already-cancelled skip or the try/catch fails the suite.
+- More tests:
+  - `test/table-export.test.ts` (14): CSV quoting and the formula guard, filters in words, the export actions (whitelists, cap and truncation, a 401 / 403 refusal before any read, a failed page), and all seven catalog actions refused for 3 roles.
+  - `test/bulk-ui.test.tsx` (16 now): scope in words, the typed count, the results CSV, and Export CSV with the cap and refusal.
+  - Mutation-checked: removing the formula guard, the section check or the typed count fails the suite.
+  - `test/product-media.test.ts` now uses a uuid store and a store_staff principal, since its actions are guarded.
+
 ### Added — #870 wave 1 item 1: stock movements in HQ › Warehouse (window 3)
 
 - **Move stock** on every stock item row: **Adjust** (± with a note, reason `adjustment`), **Receive** (quantity, `receipt`) and **Transfer** (from → to warehouse). This is `createStockMovement`, which the admin never called before. The form shows the shelf's on hand / reserved / available now and after the move. It refuses a result below zero or below what open orders reserved before sending anything. On success it opens the item's ledger on that warehouse, where the new row shows its actor and note.

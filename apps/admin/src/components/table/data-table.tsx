@@ -52,8 +52,11 @@ export interface DataTableProps<T> {
   caption: string;
   /** Column ids whose headers become sort buttons. */
   sortableColumns?: readonly string[];
-  /** Renders the bulk bar's actions. Receives the live selection so it can name the count. */
-  bulkActions?: (selection: Selection) => ReactNode;
+  /**
+   * Renders the bulk bar's actions. Receives the live selection so it can name the count, and
+   * `clear` to drop the selection once an action has run (#870 wave 1 item 2).
+   */
+  bulkActions?: (selection: Selection, helpers: { clear: () => void }) => ReactNode;
   /** Filter key wired to the search box (`q` for every list in contracts-v0.1). */
   searchKey?: string;
   searchPlaceholder?: string;
@@ -189,7 +192,9 @@ export function DataTable<T>({
             Clear
           </Button>
           {bulkActions !== undefined && (
-            <div className="ml-auto flex items-center gap-2">{bulkActions(selection)}</div>
+            <div className="ml-auto flex items-center gap-2">
+              {bulkActions(selection, { clear: () => setSelection(clearSelection()) })}
+            </div>
           )}
         </div>
       )}
@@ -282,6 +287,24 @@ export function DataTable<T>({
             {selected > 0 && ` · ${selected} selected`}
           </p>
           <div className="ml-auto flex items-center gap-2">
+            <label className="text-muted flex items-center gap-1">
+              Rows per page
+              <select
+                aria-label={`Rows per page of ${caption}`}
+                value={query.limit}
+                disabled={isPending}
+                onChange={(event) =>
+                  navigate({ ...query, limit: Number(event.currentTarget.value), page: 1 })
+                }
+                className="border-line bg-surface h-8 rounded-md border px-1"
+              >
+                {pageSizeOptions(query.limit).map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
             <Button
               variant="secondary"
               size="sm"
@@ -306,6 +329,13 @@ export function DataTable<T>({
       )}
     </div>
   );
+}
+
+/** The page sizes offered: 20 / 50 / 100 (the contract's cap), plus a size set by hand in the URL. */
+export const PAGE_SIZES = [20, 50, 100] as const;
+
+export function pageSizeOptions(current: number): number[] {
+  return [...new Set<number>([...PAGE_SIZES, current])].sort((a, b) => a - b);
 }
 
 /**

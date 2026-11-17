@@ -13,6 +13,7 @@ import {
 import { compact, compactList } from '@/lib/api/payload';
 import type { AdminComponents } from '@/lib/api/admin-client';
 import { toActionResult, type ActionResult } from '@/lib/forms/action-result';
+import { refuseUnlessPermitted } from '@/lib/permissions/guard';
 import {
   categoryCreateSchema,
   fieldNames,
@@ -57,6 +58,8 @@ export async function createProductAction(
   storeId: string,
   values: ProductCreateValues,
 ): Promise<ActionResult<Product>> {
+  const refused = await refuseUnlessPermitted('createProduct', storeId);
+  if (refused !== null) return refused;
   const parsed = productCreateSchema.safeParse(values);
   if (!parsed.success) return invalid();
 
@@ -70,6 +73,8 @@ export async function updateProductAction(
   productId: string,
   values: ProductCreateValues,
 ): Promise<ActionResult<Product>> {
+  const refused = await refuseUnlessPermitted('updateProduct', storeId);
+  if (refused !== null) return refused;
   const parsed = productCreateSchema.safeParse(values);
   if (!parsed.success) return invalid();
 
@@ -86,6 +91,8 @@ export async function publishProductAction(
   storeId: string,
   productId: string,
 ): Promise<ActionResult<Product>> {
+  const refused = await refuseUnlessPermitted('publishProduct', storeId);
+  if (refused !== null) return refused;
   const result = await publishProduct(storeId, productId);
   if (result.ok) revalidateProduct(storeId, productId);
   return toActionResult(result, []);
@@ -99,6 +106,8 @@ export async function archiveProductAction(
   storeId: string,
   productId: string,
 ): Promise<ActionResult<null>> {
+  const refused = await refuseUnlessPermitted('archiveProduct', storeId);
+  if (refused !== null) return refused;
   const result = await archiveProduct(storeId, productId);
   if (result.ok) revalidateProduct(storeId, productId);
   return toActionResult(result, []);
@@ -109,6 +118,8 @@ export async function createVariantAction(
   productId: string,
   values: VariantCreateValues,
 ): Promise<ActionResult<AdminComponents['Variant']>> {
+  const refused = await refuseUnlessPermitted('createVariant', storeId);
+  if (refused !== null) return refused;
   const parsed = variantCreateSchema.safeParse(values);
   if (!parsed.success) return invalid();
 
@@ -131,6 +142,8 @@ export async function updateVariantAction(
   variantId: string,
   values: VariantCreateValues,
 ): Promise<ActionResult<AdminComponents['Variant']>> {
+  const refused = await refuseUnlessPermitted('updateVariant', storeId);
+  if (refused !== null) return refused;
   const parsed = variantCreateSchema.safeParse(values);
   if (!parsed.success) return invalid();
 
@@ -147,6 +160,8 @@ export async function createCategoryAction(
   storeId: string,
   values: CategoryCreateValues,
 ): Promise<ActionResult<AdminComponents['Category']>> {
+  const refused = await refuseUnlessPermitted('createCategory', storeId);
+  if (refused !== null) return refused;
   const parsed = categoryCreateSchema.safeParse(values);
   if (!parsed.success) return invalid();
 

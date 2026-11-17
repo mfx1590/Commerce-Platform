@@ -14,6 +14,17 @@ vi.mock('@/lib/api/admin', () => ({
   updateVariant: vi.fn(),
 }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
+// actions/catalog checks every mutation server-side (#870 audit): the guard is server-only and
+// reads the principal. A store_staff principal on brand A; this file tests media, not permissions.
+vi.mock('server-only', () => ({}));
+vi.mock('@/lib/principal', () => ({
+  loadPrincipal: async () => ({
+    ok: true,
+    status: 200,
+    data: (await import('./fixtures/principals')).principals.storeStaff,
+  }),
+}));
+const STORE = '00000000-0000-4000-8000-000000000031'; // SEED.stores.brandA
 
 const { createProductAction, updateProductAction } = await import('@/app/actions/catalog');
 
@@ -37,7 +48,7 @@ beforeEach(() => {
 
 describe('media positions are renumbered from the array order', () => {
   it('numbers a fresh list from zero', async () => {
-    await createProductAction('s1', {
+    await createProductAction(STORE, {
       ...base,
       media: [image('https://x/a.jpg'), image('https://x/b.jpg'), image('https://x/c.jpg')],
     });
@@ -47,7 +58,7 @@ describe('media positions are renumbered from the array order', () => {
   it('closes the gap left by removing the first image', async () => {
     // The form assigns a position on append and never revisits it, so after a removal the surviving
     // rows carried 1 and 2 with no 0. The array order is what the user sees, so it is what is sent.
-    await createProductAction('s1', {
+    await createProductAction(STORE, {
       ...base,
       media: [image('https://x/b.jpg', 1), image('https://x/c.jpg', 2)],
     });
@@ -56,7 +67,7 @@ describe('media positions are renumbered from the array order', () => {
 
   it('refuses to send a duplicate position', async () => {
     // Remove the middle of three, then append: the new row reused a number already in use.
-    await createProductAction('s1', {
+    await createProductAction(STORE, {
       ...base,
       media: [
         image('https://x/a.jpg', 0),
@@ -70,7 +81,7 @@ describe('media positions are renumbered from the array order', () => {
   });
 
   it('keeps the order the user arranged, not the numbers they arrived with', async () => {
-    await createProductAction('s1', {
+    await createProductAction(STORE, {
       ...base,
       media: [image('https://x/c.jpg', 9), image('https://x/a.jpg', 3)],
     });
@@ -81,7 +92,7 @@ describe('media positions are renumbered from the array order', () => {
   });
 
   it('does the same on update', async () => {
-    await updateProductAction('s1', 'p1', {
+    await updateProductAction(STORE, 'p1', {
       ...base,
       media: [image('https://x/b.jpg', 5), image('https://x/a.jpg', 5)],
     });
@@ -90,13 +101,13 @@ describe('media positions are renumbered from the array order', () => {
   });
 
   it('sends no media key at all when there are none', async () => {
-    await createProductAction('s1', base);
+    await createProductAction(STORE, base);
     const body = createProduct.mock.calls[0]?.[1] as Record<string, unknown>;
     expect('media' in body).toBe(false);
   });
 
   it('sends an empty list as an empty list', async () => {
-    await createProductAction('s1', { ...base, media: [] });
+    await createProductAction(STORE, { ...base, media: [] });
     expect(sentMedia(createProduct)).toEqual([]);
   });
 });
