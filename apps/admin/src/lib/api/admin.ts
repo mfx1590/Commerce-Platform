@@ -822,6 +822,25 @@ export async function createCycleCount(
   return adminCall<'createCycleCount'>({ path: '/admin/cycle-counts', method: 'POST', body });
 }
 
+/** `createStockMovement`'s request body, straight from the generated operation. */
+export type StockMovementBody =
+  operations['createStockMovement']['requestBody']['content']['application/json'];
+
+/**
+ * A receipt, adjustment or one leg of a transfer on the variant's stock item (operations on hq).
+ * 201 with the pool row's numbers AFTER the move. One transaction per call; no idempotency key, so
+ * a caller never retries an unknown outcome.
+ */
+export async function createStockMovement(
+  body: StockMovementBody,
+): Promise<ApiResult<AdminResponse<'createStockMovement'>>> {
+  return adminCall<'createStockMovement'>({
+    path: '/admin/inventory/movements',
+    method: 'POST',
+    body,
+  });
+}
+
 /**
  * Reconciles a count: `applied` or `flagged`. `approve` applies whatever the delta is now
  * (recomputed under the pool row's lock) and records the approver. No body when not approving.

@@ -15,6 +15,8 @@ export const WAREHOUSE_PERMISSIONS = {
   reconcileCycleCount: { relation: 'operations', object: 'organization' },
   // A read, but called from a server action (the approve dialog), so it is guarded like one.
   previewCycleCountReconcile: { relation: 'operations', object: 'organization' },
+  // Receipts, adjustments and both legs of a transfer (#870 wave 1 item 1).
+  createStockMovement: { relation: 'operations', object: 'organization' },
 } as const satisfies Record<string, PermissionRule>;
 
 /** The reads, as the yaml writes them (`viewer` = any relation on the object). */

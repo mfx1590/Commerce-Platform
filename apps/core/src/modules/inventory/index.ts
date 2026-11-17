@@ -20,6 +20,7 @@ export {
   consumeReservationsForShipment,
   lockStock,
   releaseForOrder,
+  releaseForOrderLine,
   releaseReservationsForShipment,
   reserveForOrder,
 } from './reservations';
