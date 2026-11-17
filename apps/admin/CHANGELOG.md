@@ -29,6 +29,19 @@
   - `test/bulk-ui.test.tsx` (11): the page-size picker, BulkAction from ask to report, both filters, and the orders bulk bar gated.
   - Mutation-checked: the per-row check, the filter whitelist and the drift refusal each fail the suite when removed.
   - Two existing tests gained a mock for the bulk server module they now import.
+- Manager decisions (11-13, session thirteen; resumed 11-17):
+  - **The confirmation always states the exact count**, and for "all matching" the filters it acts on, in words (e.g. "every one matching Status: draft · Category: Kitchen, except the 1 unticked"). Unfiltered says "no filter (the whole list)".
+  - **Archive… and Cancel… need the count typed** before Yes is offered. Neither has an undo; product unarchive is CONTRACT CHANGE #901.
+  - **The results download as CSV** (id, name, result, message) for the follow-up.
+  - **Export CSV of the current filtered and sorted list** on Catalog and Orders, up to 1,000 rows (stated on the button; the file says when it holds only the first ones). Built by a server action that checks the store section first, with the same rule as the page, and returns 401/403 refusals. Only the table's own filters and sorts are sent. Money is written in minor units with its currency.
+  - Every CSV cell that would run as a spreadsheet formula (`=`, `+`, `-`, `@`) is prefixed with `'`.
+- **DEFECT FIXED — the catalog checked no permission in the admin.** None of the seven catalog actions (create / update product, create / update variant, create category, publish, archive) refused a principal before calling the API. All seven now go through `CATALOG_PERMISSIONS` (yaml-pinned). The same search found six more in files this PR doesn't touch: customers update and erase, pricing (2), promotions (2). They are #903, erase first. The core's own OpenFGA check still refused those requests, so this is defence in depth, not a bypass.
+- `listPromotions` has no status filter: CONTRACT CHANGE #902, for PR 2.
+- More tests:
+  - `test/table-export.test.ts` (14): CSV quoting and the formula guard, filters in words, the export actions (whitelists, cap and truncation, a 401 / 403 refusal before any read, a failed page), and all seven catalog actions refused for 3 roles.
+  - `test/bulk-ui.test.tsx` (16 now): scope in words, the typed count, the results CSV, and Export CSV with the cap and refusal.
+  - Mutation-checked: removing the formula guard, the section check or the typed count fails the suite.
+  - `test/product-media.test.ts` now uses a uuid store and a store_staff principal, since its actions are guarded.
 
 ### Added — #870 wave 1 item 1: stock movements in HQ › Warehouse (window 3)
 

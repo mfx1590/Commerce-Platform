@@ -87,6 +87,11 @@ export default async function CatalogPage({
             error={result.ok ? undefined : { status: result.status, error: result.error }}
             canPublish={can(CATALOG_PERMISSIONS.publishProduct)}
             canArchive={can(CATALOG_PERMISSIONS.archiveProduct)}
+            categoryNames={
+              categories.ok
+                ? Object.fromEntries(categories.data.items.map((c) => [c.id, c.name]))
+                : {}
+            }
           />
         </CardBody>
       </Card>

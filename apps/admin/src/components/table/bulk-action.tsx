@@ -5,14 +5,18 @@ import { useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { ActionRefusal } from '@/components/states/action-refusal';
 import type { ActionRefusalInfo, ActionResult } from '@/lib/forms/action-result';
+import { downloadCsv } from '@/components/table/export-csv';
 import {
+  describeFilters,
   describeReport,
   sortForReport,
   toBulkSelection,
   type BulkReport,
   type BulkSelection,
+  type FilterNames,
   type RowOutcome,
 } from '@/lib/table/bulk';
+import { csvFileName, reportCsv } from '@/lib/table/csv';
 import { selectionCount, type Selection } from '@/lib/table/selection';
 import { cn } from '@/lib/utils';
 
@@ -49,7 +53,10 @@ export function BulkAction({
   question,
   reason,
   destructive = false,
+  filterNames,
 }: {
+  /** How the table names its filters, for "every one matching Status: draft · Category: Kitchen". */
+  filterNames?: FilterNames;
   /** The button: "Publish", "Archive…". */
   label: string;
   /** What a row is: { one: 'product', many: 'products' }. */
@@ -69,6 +76,7 @@ export function BulkAction({
   const [pending, startTransition] = useTransition();
   const [asking, setAsking] = useState(false);
   const [text, setText] = useState('');
+  const [typed, setTyped] = useState('');
   const [failure, setFailure] = useState<{
     message: string | null;
     refusal?: ActionRefusalInfo | undefined;
@@ -102,16 +110,30 @@ export function BulkAction({
             </li>
           ))}
         </ul>
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={() => {
-            setReport(null);
-            onClose();
-          }}
-        >
-          Close
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() =>
+              downloadCsv(
+                csvFileName(`${noun.many}-${label.replace(/…$/, '').toLowerCase()}-results`),
+                reportCsv(report.results),
+              )
+            }
+          >
+            Download results (CSV)
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              setReport(null);
+              onClose();
+            }}
+          >
+            Close
+          </Button>
+        </div>
       </div>
     );
   }
@@ -124,6 +146,7 @@ export function BulkAction({
         disabled={count === 0}
         onClick={() => {
           setFailure(null);
+          setTyped('');
           setAsking(true);
         }}
       >
@@ -133,6 +156,9 @@ export function BulkAction({
   }
 
   const missingReason = reason !== undefined && text.trim() === '';
+  // No undo (archive has no unarchive; a cancelled order stays cancelled): the count, typed.
+  const unconfirmed = destructive && typed.trim() !== String(count);
+  const scope = describeFilters(filters, filterNames);
   return (
     <div
       role="alertdialog"
@@ -143,6 +169,20 @@ export function BulkAction({
       )}
     >
       <p>{question(count, words)}</p>
+      <p className="text-sm" aria-label="What this acts on">
+        {selection.mode === 'rows' ? (
+          <>
+            Exactly <strong>{words}</strong>: the ones ticked.
+          </>
+        ) : (
+          <>
+            Exactly <strong>{words}</strong>: every one matching{' '}
+            {scope === '' ? <strong>no filter (the whole list)</strong> : <strong>{scope}</strong>}
+            {selection.excluded.size > 0 && `, except the ${selection.excluded.size} unticked`}. If
+            that list has changed by the time it runs, nothing is done and you are told.
+          </>
+        )}
+      </p>
       <p className="text-muted text-xs">
         Each {noun.one} is done on its own; the result of every one is shown afterwards. Nothing is
         retried automatically.
@@ -158,10 +198,24 @@ export function BulkAction({
           />
         </label>
       )}
+      {destructive && (
+        <label className="flex flex-col gap-1 text-sm">
+          <span>
+            There is no undo. Type <strong>{count}</strong> to confirm.
+          </span>
+          <input
+            value={typed}
+            inputMode="numeric"
+            aria-label={`Type ${count} to confirm`}
+            onChange={(event) => setTyped(event.currentTarget.value)}
+            className="border-line bg-surface h-9 w-28 rounded-md border px-3"
+          />
+        </label>
+      )}
       <div className="flex gap-2">
         <Button
           size="sm"
-          disabled={pending || missingReason}
+          disabled={pending || missingReason || unconfirmed}
           onClick={() => {
             if (pending) return;
             startTransition(async () => {

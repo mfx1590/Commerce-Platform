@@ -6,6 +6,9 @@ import { Badge } from '@/components/ui/badge';
 import { BulkAction } from '@/components/table/bulk-action';
 import { DataTable } from '@/components/table/data-table';
 import { bulkArchiveProductsAction, bulkPublishProductsAction } from '@/app/actions/bulk-catalog';
+import { exportProductsCsvAction } from '@/app/actions/export-lists';
+import { ExportCsvButton } from '@/components/table/export-csv';
+import type { FilterNames } from '@/lib/table/bulk';
 import type { AdminComponents, AdminError } from '@/lib/api/admin-client';
 import type { ReactNode } from 'react';
 import type { TableQuery } from '@/lib/table/query-state';
@@ -34,11 +37,14 @@ export function ProductsTable({
   error,
   canPublish = false,
   canArchive = false,
+  categoryNames = {},
 }: {
   storeId: string;
   /** Offer bulk Publish (store_staff) / Archive (store_admin). A convenience: the server decides. */
   canPublish?: boolean;
   canArchive?: boolean;
+  /** Category id → name, so "all matching" says the category in words. */
+  categoryNames?: Readonly<Record<string, string>>;
   rows: readonly Product[];
   total: number;
   query: TableQuery;
@@ -93,53 +99,77 @@ export function ProductsTable({
     },
   ];
 
+  const filterNames: FilterNames = {
+    q: { label: 'Search' },
+    status: { label: 'Status' },
+    category_id: { label: 'Category', value: (id) => categoryNames[id] ?? id },
+  };
+
   return (
-    <DataTable<Product>
-      columns={columns}
-      rows={rows}
-      total={total}
-      query={query}
-      defaults={PRODUCTS_TABLE_DEFAULTS}
-      getRowId={(product) => product.id}
-      caption="Products"
-      sortableColumns={PRODUCTS_SORTABLE_COLUMNS}
-      searchKey="q"
-      searchPlaceholder="Title or handle"
-      emptyAction={emptyAction}
-      error={error}
-      {...(canPublish || canArchive
-        ? {
-            bulkActions: (selection, { clear }) => (
-              <>
-                {canPublish && (
-                  <BulkAction
-                    label="Publish"
-                    noun={{ one: 'product', many: 'products' }}
-                    selection={selection}
-                    filters={query.filters}
-                    run={(sent) => bulkPublishProductsAction(storeId, sent)}
-                    onClose={clear}
-                    question={(_, words) => `Publish ${words}? Each becomes visible in the store.`}
-                  />
-                )}
-                {canArchive && (
-                  <BulkAction
-                    label="Archive…"
-                    noun={{ one: 'product', many: 'products' }}
-                    selection={selection}
-                    filters={query.filters}
-                    run={(sent) => bulkArchiveProductsAction(storeId, sent)}
-                    onClose={clear}
-                    destructive
-                    question={(_, words) =>
-                      `Archive ${words}? They leave the store; the Admin API has no "unarchive".`
-                    }
-                  />
-                )}
-              </>
-            ),
+    <div className="space-y-2">
+      <div className="flex justify-end">
+        <ExportCsvButton
+          what="catalog"
+          run={() =>
+            exportProductsCsvAction(
+              storeId,
+              { ...query.filters },
+              { sort: query.sort, order: query.order },
+            )
           }
-        : {})}
-    />
+        />
+      </div>
+      <DataTable<Product>
+        columns={columns}
+        rows={rows}
+        total={total}
+        query={query}
+        defaults={PRODUCTS_TABLE_DEFAULTS}
+        getRowId={(product) => product.id}
+        caption="Products"
+        sortableColumns={PRODUCTS_SORTABLE_COLUMNS}
+        searchKey="q"
+        searchPlaceholder="Title or handle"
+        emptyAction={emptyAction}
+        error={error}
+        {...(canPublish || canArchive
+          ? {
+              bulkActions: (selection, { clear }) => (
+                <>
+                  {canPublish && (
+                    <BulkAction
+                      label="Publish"
+                      noun={{ one: 'product', many: 'products' }}
+                      selection={selection}
+                      filters={query.filters}
+                      filterNames={filterNames}
+                      run={(sent) => bulkPublishProductsAction(storeId, sent)}
+                      onClose={clear}
+                      question={(_, words) =>
+                        `Publish ${words}? Each becomes visible in the store.`
+                      }
+                    />
+                  )}
+                  {canArchive && (
+                    <BulkAction
+                      label="Archive…"
+                      noun={{ one: 'product', many: 'products' }}
+                      selection={selection}
+                      filters={query.filters}
+                      filterNames={filterNames}
+                      run={(sent) => bulkArchiveProductsAction(storeId, sent)}
+                      onClose={clear}
+                      destructive
+                      question={(_, words) =>
+                        `Archive ${words}? They leave the store; the Admin API has no "unarchive".`
+                      }
+                    />
+                  )}
+                </>
+              ),
+            }
+          : {})}
+      />
+    </div>
   );
 }

@@ -325,6 +325,10 @@ A table offers bulk actions by passing `bulkActions={(selection, { clear }) => �
 
 There is no bulk endpoint in the Admin API; this is N single calls by design.
 
+The confirmation states the exact count and, for "all matching", the filters in words (`filterNames` on `BulkAction`). A `destructive` action (no undo) needs the count typed. The report downloads as CSV.
+
+**Export CSV** (`ExportCsvButton` plus a server action over `exportStoreList` in `src/lib/table/export-server.ts`) writes the current filtered and sorted list, up to 1,000 rows. The action checks the store section itself with `refuseUnlessSection`, the same predicate as `StoreSectionGuard`, because a server action is reachable without the page. It sends only the table's filter and sort keys, and `csvCell` neutralises formula cells.
+
 Live today: Catalog Publish / Archive…, Orders Cancel… (a reason is required). Every DataTable has a 20 / 50 / 100 page-size picker. `SelectFilter` and `DateRangeFilter` (`src/components/table/url-filters.tsx`) expose list parameters that had no control: Orders placed from / to, and Catalog category.
 
 ## Forms: `useContractForm`

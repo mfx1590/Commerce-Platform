@@ -58,6 +58,8 @@ export async function createProductAction(
   storeId: string,
   values: ProductCreateValues,
 ): Promise<ActionResult<Product>> {
+  const refused = await refuseUnlessPermitted('createProduct', storeId);
+  if (refused !== null) return refused;
   const parsed = productCreateSchema.safeParse(values);
   if (!parsed.success) return invalid();
 
@@ -71,6 +73,8 @@ export async function updateProductAction(
   productId: string,
   values: ProductCreateValues,
 ): Promise<ActionResult<Product>> {
+  const refused = await refuseUnlessPermitted('updateProduct', storeId);
+  if (refused !== null) return refused;
   const parsed = productCreateSchema.safeParse(values);
   if (!parsed.success) return invalid();
 
@@ -114,6 +118,8 @@ export async function createVariantAction(
   productId: string,
   values: VariantCreateValues,
 ): Promise<ActionResult<AdminComponents['Variant']>> {
+  const refused = await refuseUnlessPermitted('createVariant', storeId);
+  if (refused !== null) return refused;
   const parsed = variantCreateSchema.safeParse(values);
   if (!parsed.success) return invalid();
 
@@ -136,6 +142,8 @@ export async function updateVariantAction(
   variantId: string,
   values: VariantCreateValues,
 ): Promise<ActionResult<AdminComponents['Variant']>> {
+  const refused = await refuseUnlessPermitted('updateVariant', storeId);
+  if (refused !== null) return refused;
   const parsed = variantCreateSchema.safeParse(values);
   if (!parsed.success) return invalid();
 
@@ -152,6 +160,8 @@ export async function createCategoryAction(
   storeId: string,
   values: CategoryCreateValues,
 ): Promise<ActionResult<AdminComponents['Category']>> {
+  const refused = await refuseUnlessPermitted('createCategory', storeId);
+  if (refused !== null) return refused;
   const parsed = categoryCreateSchema.safeParse(values);
   if (!parsed.success) return invalid();
 

@@ -235,3 +235,27 @@ export function sortForReport(results: readonly BulkRowResult[]): BulkRowResult[
     .sort((a, b) => rank[a.result.outcome] - rank[b.result.outcome] || a.index - b.index)
     .map(({ result }) => result);
 }
+
+// ---------------------------------------------------------------------------- filters in words
+
+/** How a table names its filters: the label, and optionally how a value reads. */
+export type FilterNames = Readonly<
+  Record<string, { label: string; value?: (value: string) => string }>
+>;
+
+/**
+ * The filters "all matching" will act on, in words: `Status: draft · Category: Kitchen`. A key
+ * the table did not name is still said (`key: value`), never hidden. '' when unfiltered.
+ */
+export function describeFilters(
+  filters: Readonly<Record<string, string>>,
+  names: FilterNames = {},
+): string {
+  return Object.entries(filters)
+    .filter(([, value]) => value !== '')
+    .map(([key, value]) => {
+      const name = names[key];
+      return `${name?.label ?? key}: ${name?.value?.(value) ?? value}`;
+    })
+    .join(' · ');
+}

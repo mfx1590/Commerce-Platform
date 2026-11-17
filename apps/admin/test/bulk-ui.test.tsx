@@ -21,6 +21,11 @@ vi.mock('next/navigation', () => ({
 }));
 const bulkOrders = vi.hoisted(() => ({ bulkCancelOrdersAction: vi.fn() }));
 vi.mock('@/app/actions/bulk-orders', () => bulkOrders);
+const exportLists = vi.hoisted(() => ({
+  exportOrdersCsvAction: vi.fn(),
+  exportProductsCsvAction: vi.fn(),
+}));
+vi.mock('@/app/actions/export-lists', () => exportLists);
 
 const { OrdersTable } = await import('@/app/(store)/[storeId]/orders/orders-table');
 
@@ -235,5 +240,143 @@ describe('orders: the bulk bar only for who may cancel', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel…' }));
     expect(screen.getByRole('alertdialog', { name: /^Cancel 1 order\?/ })).toBeInTheDocument();
     expect(screen.getByLabelText('Reason (sent with every order)')).toBeInTheDocument();
+  });
+});
+
+describe('#870 part 1 (manager decisions): scope in words, no-undo confirmation, CSV', () => {
+  const report: BulkReport = {
+    results: [{ id: ID_1, label: 'Linen towel', outcome: 'failed', message: 'gone' }],
+    counts: { done: 0, skipped: 0, failed: 1, unknown: 0, refused: 0 },
+  };
+  let clicked: string[] = [];
+  beforeEach(() => {
+    clicked = [];
+    URL.createObjectURL = vi.fn(() => 'blob:test');
+    URL.revokeObjectURL = vi.fn();
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      clicked.push(this.download);
+    });
+  });
+
+  it('"all matching" states the exact count and the filters it acts on, in words', async () => {
+    const user = userEvent.setup();
+    render(
+      <BulkAction
+        label="Publish"
+        noun={{ one: 'product', many: 'products' }}
+        selection={{ mode: 'all-matching', total: 40, excluded: new Set([ID_2]) }}
+        filters={{ status: 'draft', category_id: ID_1 }}
+        filterNames={{
+          status: { label: 'Status' },
+          category_id: { label: 'Category', value: () => 'Kitchen' },
+        }}
+        run={vi.fn()}
+        onClose={vi.fn()}
+        question={(_, words) => `Publish ${words}?`}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Publish' }));
+    expect(screen.getByLabelText('What this acts on')).toHaveTextContent(
+      'Exactly 39 products: every one matching Status: draft · Category: Kitchen, except the 1 unticked.',
+    );
+  });
+
+  it('unfiltered "all matching" says so; ticked rows say "the ones ticked"', async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(
+      <BulkAction
+        label="Publish"
+        noun={{ one: 'product', many: 'products' }}
+        selection={{ mode: 'all-matching', total: 7, excluded: new Set() }}
+        filters={{}}
+        run={vi.fn()}
+        onClose={vi.fn()}
+        question={(_, words) => `Publish ${words}?`}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Publish' }));
+    expect(screen.getByLabelText('What this acts on')).toHaveTextContent(
+      'every one matching no filter (the whole list)',
+    );
+    unmount();
+    render(
+      <BulkAction
+        label="Publish"
+        noun={{ one: 'product', many: 'products' }}
+        selection={{ mode: 'rows', ids: new Set([ID_1]) }}
+        filters={{}}
+        run={vi.fn()}
+        onClose={vi.fn()}
+        question={(_, words) => `Publish ${words}?`}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Publish' }));
+    expect(screen.getByLabelText('What this acts on')).toHaveTextContent(
+      'Exactly 1 product: the ones ticked.',
+    );
+  });
+
+  it('a destructive action needs the count typed before Yes is offered', async () => {
+    const user = userEvent.setup();
+    const run = vi.fn().mockResolvedValue({ status: 'success', data: report });
+    render(
+      <BulkAction
+        label="Archive…"
+        noun={{ one: 'product', many: 'products' }}
+        selection={{ mode: 'rows', ids: new Set([ID_1, ID_2]) }}
+        filters={{}}
+        run={run}
+        onClose={vi.fn()}
+        destructive
+        question={(_, words) => `Archive ${words}?`}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Archive…' }));
+    const yes = screen.getByRole('button', { name: 'Yes, archive 2 products' });
+    expect(yes).toBeDisabled();
+    await user.type(screen.getByLabelText('Type 2 to confirm'), '3');
+    expect(yes).toBeDisabled();
+    await user.clear(screen.getByLabelText('Type 2 to confirm'));
+    await user.type(screen.getByLabelText('Type 2 to confirm'), '2');
+    await user.click(yes);
+    expect(run).toHaveBeenCalledTimes(1);
+    // The report downloads as CSV, every row.
+    await user.click(await screen.findByRole('button', { name: 'Download results (CSV)' }));
+    expect(clicked[0]).toMatch(/^products-archive-results-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}\.csv$/);
+  });
+
+  it('Export CSV states the cap, downloads, and says when the file holds only the first rows', async () => {
+    const { ExportCsvButton } = await import('@/components/table/export-csv');
+    const user = userEvent.setup();
+    const run = vi.fn().mockResolvedValue({
+      status: 'success',
+      data: { csv: 'id\r\n', exported: 1000, total: 1400, truncated: true },
+    });
+    render(<ExportCsvButton what="orders" run={run} />);
+    await user.click(screen.getByRole('button', { name: 'Export CSV (up to 1,000 rows)' }));
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Exported the first 1000 of 1400 rows in this order (the cap is 1,000). Narrow the filter for the rest.',
+    );
+    expect(clicked[0]).toMatch(/^orders-.*\.csv$/);
+  });
+
+  it('a refused export is shown, nothing downloaded', async () => {
+    const { ExportCsvButton } = await import('@/components/table/export-csv');
+    const user = userEvent.setup();
+    render(
+      <ExportCsvButton
+        what="orders"
+        run={vi.fn().mockResolvedValue({
+          status: 'error',
+          fieldErrors: {},
+          formError: 'You do not have access to this store.',
+        })}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: /^Export CSV/ }));
+    expect(await screen.findByText('You do not have access to this store.')).toBeInTheDocument();
+    expect(clicked).toEqual([]);
   });
 });
