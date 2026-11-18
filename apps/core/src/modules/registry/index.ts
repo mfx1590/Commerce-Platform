@@ -8,6 +8,7 @@ export {
   createStore,
   generatePlainKey,
   getStore,
+  getStoreReadiness,
   hashKey,
   listApiKeys,
   listCurrencies,
@@ -28,7 +29,15 @@ export { activateStore, onboardStore, onboardingConventions } from './onboarding
 export type { OnboardStoreResult } from './onboarding';
 export { inMemoryStoreRegistrar } from './registrar';
 export type { InMemoryStoreRegistrar } from './registrar';
-export { marketCountries, READINESS_PREREQUISITES, storeReadiness } from './readiness';
+export {
+  marketCountries,
+  purchasableProductCount,
+  READINESS_PREREQUISITES,
+  storeReadiness,
+} from './readiness';
+// what the checkout can offer (Store API `payment.methods`; the activation prerequisite `payment_method`, #839)
+export { paymentMethodsOf } from './payment-methods';
+export type { PaymentMethod } from './payment-methods';
 // tax rates for a store (#520, CONTRACT CHANGE #522)
 export { createTaxRate, deleteTaxRate, listTaxRates, updateTaxRate } from './tax-rates';
 export {
@@ -37,7 +46,12 @@ export {
   updateShippingOption,
 } from './shipping-options';
 export type { ShippingOption, ShippingOptionInput, ShippingOptionPatch } from './shipping-options';
-export type { ReadinessPrerequisite, StoreReadiness } from './readiness';
+export type {
+  ReadinessPrerequisite,
+  ReadinessWarning,
+  StoreReadiness,
+  StoreReadinessReport,
+} from './readiness';
 export { STORE_SETTINGS_SHAPES, settingsProblems, validateStoreSettings } from './settings-schema';
 export type { SettingsProblems } from './settings-schema';
 export type {
