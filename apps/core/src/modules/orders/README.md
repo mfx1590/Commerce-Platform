@@ -101,13 +101,20 @@ no-op that always succeeds; a `failed` void → 402 `payment_failed`, nothing wr
 through the `CancelRefunder` seam (`setCancelRefunder`; registered by `src/wiring.ts` with window 7's
 `createRefundIn`, reason `cancellation`, provider key `<payment idempotency_key>:cancel-refund`): the `refund` row,
 `refund.issued` and `payment_status → refunded` commit with the cancel or not at all. A provider refusal → 402
-`payment_failed` and the order stays uncancelled (no refund row, no `refund.failed`); an unknown outcome (outage,
+`payment_failed` and the order stays uncancelled (no refund row, no `refund.failed`); a later cancel sends the same key, and
+REAL Stripe replays the saved refusal for ~24 h on that key, so the cancel keeps failing for that day (FakeStripe does
+not record failures; the test's successful retry shows the order is untouched, not Stripe's behaviour). Today's
+workaround: refund through the Admin API `createRefund` with a fresh `Idempotency-Key`, then cancel (nothing is left
+to refund, so the cancel only cancels). The real fix is #918 (sticky refusal key, orphan PSP refunds, pending → failed
+on a cancelled order). An unknown outcome (outage,
 timeout) throws and commits nothing — never retried by us; a later cancel sends the SAME provider key, so the PSP
 returns the refund it already made. A refund the PSP only accepted stays `pending` (the order is cancelled;
 `refund.issued` and `refunded` follow the webhook, window 7's rule). No refunder registered → 503, nothing changes
 (never a cancelled order that is still charged). Nothing consumes `order.cancelled` to refund. Accounting posts a
 `cancellation` refund as Dr 1200 / Cr 1100 — it settles the credit `order.cancelled` + `payment.captured` leave, so
-VAT is not reversed twice. An order whose `payment_status`
+VAT is not reversed twice **for a fully captured order with no earlier refund**. After an earlier partial (goodwill)
+refund — which already reversed its share of VAT — `order.cancelled` reverses the whole order's VAT again and 1200 ends
+at −X: a pre-existing accounting rule, #919 (window 15). An order whose `payment_status`
 was `authorized` then reads **`voided`** (#466): its own transition, so `order.updated` (`changed_fields:
 ['payment_status']`) is written before `order.cancelled` (payload unchanged), both in the cancel's transaction.
 `awaiting` / `failed` (nothing held) keep their value; a captured one moves with its refund (above). `voided` is terminal. Reservations are released here

@@ -296,7 +296,10 @@ describe('cancelOrder on a captured payment refunds what is still captured (#905
     const after = await state(o.orderId);
     expect(after).toEqual(before); // status, payment_status, refunds, every event, reservations
     expect(after.topics).not.toContain('refund.failed');
-    // the next attempt (the PSP no longer refuses) cancels and refunds once
+    // FakeStripe does NOT record a failed request under its key, so the next attempt can succeed here. Real Stripe
+    // replays the saved refusal for ~24 h on the same key (`<payment key>:cancel-refund`): the cancel keeps failing for
+    // that day. Today's workaround: Admin `createRefund` with a fresh Idempotency-Key, then cancel. Real fix: #918.
+    // What this asserts is only that the refusal left the order untouched and a later success refunds once.
     const retry = await storeAdminApi.post(cancelPath(A, o.orderId), {
       reason: 'customer request',
     });

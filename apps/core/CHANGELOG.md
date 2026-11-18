@@ -9,9 +9,11 @@
   (`setCancelRefunder`), registered by `registerModuleSeams()` as `paymentsCancelRefunder` over window 7's
   `createRefundIn` (reason `cancellation`, provider key `<payment idempotency_key>:cancel-refund`): refund row,
   `refund.issued` and `payment_status → refunded` commit with the cancel. A provider refusal → 402 `payment_failed`,
-  the order stays uncancelled; an unknown outcome commits nothing and a later cancel reuses the key (the PSP returns
+  the order stays uncancelled — and real Stripe replays that refusal for ~24 h on the same key (workaround: Admin
+  `createRefund` with a fresh key, then cancel; fix #918); an unknown outcome commits nothing and a later cancel reuses the key (the PSP returns
   the same refund); a pending PSP refund cancels with the row `pending` (`refund.issued` at the webhook). No refunder
-  → 503. Before: a cancelled captured order stayed charged — the doc comment's "window 7's to refund on
+  → 503. Ledger: no double VAT reversal for a fully captured order; after an earlier partial (goodwill) refund the
+  cancel over-reverses VAT (pre-existing accounting, #919). Before: a cancelled captured order stayed charged — the doc comment's "window 7's to refund on
   `order.cancelled`" was never true (no consumer); corrected.
 - `test/cancel-refund.test.ts` (7, Admin API route, Stripe provider over FakeStripe with real captures): EUR and JPY,
   partly refunded, provider refusal, a lost provider answer then a retry (one refund at the PSP), pending, re-cancel,
