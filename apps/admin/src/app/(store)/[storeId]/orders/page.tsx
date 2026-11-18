@@ -86,6 +86,7 @@ export default async function OrdersPage({
             }
             error={result.ok ? undefined : { status: result.status, error: result.error }}
             canCancel={access?.canEditOrder ?? false}
+            canCapture={access?.canCapture ?? false}
           />
         </CardBody>
       </Card>
