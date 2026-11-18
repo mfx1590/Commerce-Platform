@@ -4,7 +4,11 @@
 // `tax_rates` (#520): a tax rate for every market country (`marketCountries`), or the store sells there at 0 bp.
 // `shipping_options` (#809, CONTRACT CHANGE #811): an ACTIVE shipping option in the store's `default_currency` for
 // every market country, or a cart to that country can never check out (the store is active and cannot sell).
+// `payment_method` (#839, Admin API 0.4.29): at least one method the checkout can offer (`paymentMethodsOf`, the
+// Store API's rule). Only a MOVE to `active` is gated: an already-active store is never re-checked or deactivated.
+// `getStoreReadiness` answers the same check without changing anything, plus the purchasable-products count.
 import type { Queryable } from '@platform/db';
+import { paymentMethodsOf, type PaymentMethod } from './payment-methods';
 import type { StoreRegistrar } from './types';
 
 /** The prerequisites, in the order they are reported (the contract's closed list, #417). */
@@ -17,6 +21,7 @@ export const READINESS_PREREQUISITES = [
   'fga_object',
   'tax_rates',
   'shipping_options',
+  'payment_method',
 ] as const;
 export type ReadinessPrerequisite = (typeof READINESS_PREREQUISITES)[number];
 
@@ -28,6 +33,8 @@ export interface StoreReadiness {
   /** The market countries with no active option in the store currency, sorted (#809; non-empty exactly when
    * `shipping_options` is missing). */
   missing_shipping_countries: string[];
+  /** What the checkout can offer (#839; empty exactly when `payment_method` is missing). */
+  payment_methods: PaymentMethod[];
 }
 
 /**
@@ -96,11 +103,14 @@ export async function storeReadiness(
   tx: Queryable,
   store: {
     id: string;
+    code: string;
+    settings: Record<string, unknown>;
     legal_entity_id: string | null;
     default_country: string;
     default_currency: string;
   },
   registrar: StoreRegistrar,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<StoreReadiness> {
   const counts = await tx.query<{
     locales: string;
@@ -127,5 +137,47 @@ export async function storeReadiness(
   if (untaxed.length) missing.push('tax_rates');
   const unshippable = await unshippableMarketCountries(tx, store);
   if (unshippable.length) missing.push('shipping_options');
-  return { missing, missing_tax_countries: untaxed, missing_shipping_countries: unshippable };
+  const payment_methods = paymentMethodsOf(store.code, store.settings ?? {}, env);
+  if (payment_methods.length === 0) missing.push('payment_method');
+  return {
+    missing,
+    missing_tax_countries: untaxed,
+    missing_shipping_countries: unshippable,
+    payment_methods,
+  };
+}
+
+/**
+ * Published products with at least one variant a cart can buy now (#839): priced for quantity 1 in the store's
+ * `default_currency` on an ACTIVE `default` price list (the cart's `defaultListPriceResolver` rule) and with stock
+ * available (`on_hand − reserved > 0`) in any warehouse of the variant's pool item. One query; the store's own
+ * rows only (RLS + `store_id`).
+ */
+export async function purchasableProductCount(
+  tx: Queryable,
+  store: { id: string; default_currency: string },
+): Promise<number> {
+  const r = await tx.query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM product p
+     WHERE p.store_id = $1 AND p.status = 'published'
+       AND EXISTS (
+         SELECT 1 FROM product_variant v
+         JOIN price pr ON pr.variant_id = v.id AND pr.currency = $2 AND pr.min_quantity <= 1
+         JOIN price_list pl ON pl.id = pr.price_list_id AND pl.type = 'default' AND pl.status = 'active'
+                            AND pl.currency = $2
+         WHERE v.product_id = p.id AND v.store_id = $1
+           AND EXISTS (SELECT 1 FROM inventory_level il
+                       WHERE il.stock_item_id = v.stock_item_id AND il.available > 0))`,
+    [store.id, store.default_currency],
+  );
+  return r.rows[0]?.n ?? 0;
+}
+
+export type ReadinessWarning = 'no_purchasable_product';
+
+/** Admin API `StoreReadiness` (#839): what activation would refuse now, and whether the store can sell. */
+export interface StoreReadinessReport extends StoreReadiness {
+  status: 'draft' | 'active' | 'paused' | 'archived';
+  purchasable_products: number;
+  warnings: ReadinessWarning[];
 }

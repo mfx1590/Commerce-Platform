@@ -23,6 +23,7 @@ import type {
 import { adminRequest, buildPath } from './admin-client';
 import { apiMode } from './api-mode';
 import { reclassifyUnmounted } from './not-implemented';
+import { parseReadiness, type StoreReadiness } from '../readiness';
 
 type CallOptions = Omit<AdminRequestOptions, 'baseUrl' | 'accessToken'>;
 type Query = Record<string, string | number>;
@@ -79,6 +80,26 @@ export async function createStore(
 
 export async function getStore(storeId: string): Promise<ApiResult<AdminResponse<'getStore'>>> {
   return adminCall<'getStore'>({ path: buildPath('/admin/stores/{storeId}', { storeId }) });
+}
+
+/**
+ * `GET /admin/stores/{storeId}/readiness` (`getStoreReadiness`, viewer on the store; #839, Admin API
+ * 0.4.29). The body is parsed into the generated `StoreReadiness`: one that is not one reads as a
+ * 502-shaped failure (the retry panel), never as a guess.
+ */
+export async function getStoreReadiness(storeId: string): Promise<ApiResult<StoreReadiness>> {
+  const result = await adminCall<'getStoreReadiness'>({
+    path: buildPath('/admin/stores/{storeId}/readiness', { storeId }),
+  });
+  if (!result.ok) return result;
+  const readiness = parseReadiness(result.data);
+  return readiness === null
+    ? {
+        ok: false,
+        status: 502,
+        error: { code: 'bad_response', message: 'The readiness answer had an unexpected shape.' },
+      }
+    : { ok: true, status: result.status, data: readiness };
 }
 
 export async function updateStore(

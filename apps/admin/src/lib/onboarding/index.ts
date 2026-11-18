@@ -59,6 +59,7 @@ export const MISSING_LABELS: Record<string, string> = {
   fga_object: 'its permission object (OpenFGA)',
   tax_rates: 'a tax rate for each market country',
   shipping_options: "an active shipping option in the store's currency for each market country",
+  payment_method: 'a payment method customers can pay with (card or pay on invoice)',
 };
 
 /** The 409's `details.missing`, read safely; unknown entries are kept as they came. */

@@ -93,7 +93,7 @@ that differ (`details.differs`). A failure anywhere inside the transaction leave
 is present, with an audit row (`store.activate`) and `store.updated` (`changed_fields: ['status']`); an active
 store is a no-op 200; `archived` is a 409 with `details.status`. The prerequisites, reported in this order in
 `details.missing` (409 `conflict`): `legal_entity`, `locale`, `currency`, `primary_domain`, `publishable_key`
-(a live one), `fga_object`, `tax_rates` (#520), `shipping_options` (#809). `updateStore` with `status: 'active'` runs the SAME gate (`refuseUnlessReady`) —
+(a live one), `fga_object`, `tax_rates` (#520), `shipping_options` (#809), `payment_method` (#839). `updateStore` with `status: 'active'` runs the SAME gate (`refuseUnlessReady`) —
 pass `{ registrar }` to it; without one the OpenFGA object counts as missing, never as present.
 
 **`tax_rates` (#520, CONTRACT CHANGE #522).** A store must have at least one `tax_rate` row for each of its
@@ -122,6 +122,23 @@ deleted (`is_active: false` retires one), and on an ACTIVE store a create or upd
 without an active option in the store currency is 409 `{ missing_shipping_countries }` (a country that was
 already uncovered does not block an unrelated edit). Every write locks the store row first.
 
+**`payment_method` (#839, Admin API 0.4.29).** At least one method the checkout can offer: `card` when the store has
+its Stripe secret key (`STRIPE_SECRET_KEY_<CODE>`, else `STRIPE_SECRET_KEY`), `invoice` when
+`settings.payment.invoice_allowed` is exactly `true`. One rule, `paymentMethodsOf` (`payment-methods.ts`), also behind
+the Store API's `payment.methods` — the two cannot disagree. The seed's stores (A–D) allow invoice. Only a MOVE to
+`active` is gated: an ACTIVE store that loses its last method is reported by readiness and is never deactivated
+(nothing re-checks an active store). Note that `updateStore` checks the rows BEFORE its patch, so a patch that sets
+`invoice_allowed` and `status: 'active'` together is refused; set the method first.
+
+**`getStoreReadiness(client, storeId, registrar, env?)`** (#839, `GET /admin/stores/{storeId}/readiness`, viewer on
+the store): the activation check without changing anything — `missing`, `missing_tax_countries`,
+`missing_shipping_countries` exactly as the 409 would carry them — plus `status`, `payment_methods`,
+`purchasable_products` and `warnings` (`no_purchasable_product` when the count is 0: a warning, never a block).
+`purchasableProductCount` is ONE query: published products with a variant priced for one unit in the store's
+`default_currency` on an ACTIVE `default` price list (the cart's `defaultListPriceResolver` rule) whose pool item has
+`available > 0` in any warehouse. Measured on a seeded store (12 products), 100 sequential reads through HTTP:
+p50 ≈ 15–21 ms, p95 ≈ 18–25 ms (`test/store-readiness.test.ts`, printed each run).
+
 **`StoreRegistrar`** (`{ ensureStoreObject(storeId), hasStoreObject(storeId) }`): the registry never talks to
 OpenFGA itself. The HTTP layer hands in `src/http/store-registrar.ts`, which writes through window 2's
 `ensureStoreObject` of `@platform/auth-sdk` (#415 / #421: read first, write only when missing, a concurrent
@@ -132,7 +149,8 @@ activation reads the real tuple — is `test/auth-live.test.ts` "#413 onboarding
 this task (through `createStore`) is repaired by `pnpm --filter @platform/auth-sdk fga:reconcile --fix`.
 
 Routes (`src/http/admin-routes.ts`): `POST /admin/onboarding/stores` (`onboardStore`, 201 / 200 / 400 / 409 / 422) and `POST /admin/stores/{storeId}/activate` (`activateStore`, 200 / 404 / 409), both `owner` on
-`organization:hq`; `updateStore` gains 404 / 409 / 422 (Admin API 0.4.11, contracts-v0.4.13).
+`organization:hq`; `updateStore` gains 404 / 409 / 422 (Admin API 0.4.11, contracts-v0.4.13). `GET
+/admin/stores/{storeId}/readiness` (`getStoreReadiness`, 200 / 403 / 404, `viewer` on the store; #839).
 
 ### Store settings the core reads (`settings-schema.ts`)
 
