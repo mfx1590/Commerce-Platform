@@ -403,10 +403,27 @@ function moversHandler(deps: ToolDeps & { aliases: Aliases }) {
       deps.executed.push({ ref, query, error: errorOf(e) });
       return { isError: true, content: JSON.stringify({ ref, error: errorOf(e) }) };
     }
-    const result = await executeMetricQuery(deps.reader, query, scope);
-    // the answer records the equivalent compare query and its full result (the admin shows it like any query)
-    deps.executed.push({ ref, query, result });
-    const r = moversFromResult(mq, result, new Date());
+    // ranked over EVERY key of both ranges (#924 review); the answer records the equivalent compare query with its
+    // rows capped at the query's limit, as any query result is (the ranking above is not affected by the cap)
+    const full = await executeMetricQuery(deps.reader, query, scope, { noLimit: true });
+    const r = moversFromResult(mq, full, new Date());
+    const cap = <T>(rows: T[]) => rows.slice(0, query.limit);
+    deps.executed.push({
+      ref,
+      query,
+      result: {
+        ...full,
+        truncated: full.rows.length > query.limit,
+        rows: cap(full.rows),
+        compare: full.compare
+          ? {
+              ...full.compare,
+              truncated: full.compare.rows.length > query.limit,
+              rows: cap(full.compare.rows),
+            }
+          : null,
+      },
+    });
     const kind: AliasKind | null =
       mq.dimension === 'product'
         ? 'product'

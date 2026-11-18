@@ -137,6 +137,11 @@ export interface ExecuteOptions {
   now?: () => Date;
   /** Required when a `stock` metric is asked for (compile.ts). */
   stock?: StockScope;
+  /**
+   * Keep EVERY row (no `limit` cut, `truncated` false): listMetricMovers ranks over all keys of both ranges, never a
+   * slice (#924 review). Its callers bound what they show themselves.
+   */
+  noLimit?: boolean;
 }
 
 export async function executeMetricQuery(
@@ -290,7 +295,7 @@ async function runOne(
       return (x - y) * sign;
     });
   }
-  const truncated = rows.length > q.limit;
+  const truncated = !o.noLimit && rows.length > q.limit;
   if (truncated) rows = rows.slice(0, q.limit);
 
   // per currency over every merged row (not only the shown ones); ratios recomputed from the totals

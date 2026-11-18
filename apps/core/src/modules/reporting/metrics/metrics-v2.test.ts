@@ -15,7 +15,8 @@ import {
   type PositionRow,
 } from './inventory';
 import { idsOf, resolveLabels } from './labels';
-import { defaultMinBase, parseMoversQuery, rankMovers } from './movers';
+import { defaultMinBase, listMetricMovers, parseMoversQuery, rankMovers } from './movers';
+import { Aliases, biQaToolHandler, type ExecutedQuery } from '../ask/tool';
 import { comparisonRange, parseMetricQuery } from './query';
 
 const A = '00000000-0000-4000-8000-000000000031';
@@ -651,5 +652,90 @@ describe('the store-scoped stock series limit (#908)', () => {
       details: { reason: 'stock_scope_too_large', items: 3100, max: 2500 },
     });
     expect(e.message).toMatch(/#908/);
+  });
+});
+
+describe('movers rank over EVERY key of both ranges, never a 1 000-row slice (#924 review)', () => {
+  // 1 500 products in two currencies. The true top riser in EUR sorts at position 1 400, the one in JPY at 1 200: a
+  // slice of the first 1 000 rows (sorted by key) would miss both, and a product present in both ranges but past the
+  // slice in one of them would come back as a false is_new / is_gone.
+  const N = 1500;
+  const pid = (i: number) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`;
+  const big: MetricsReader = {
+    async query({ query, query_params }) {
+      if (query.includes('FROM raw_events'))
+        return { json: async <T>() => [{ t: '2026-11-02 00:00:00.000' }] as T[] };
+      const current = query_params?.from === '2026-10-01';
+      const rows = [];
+      for (let i = 0; i < N; i++)
+        for (const currency of ['EUR', 'JPY']) {
+          let v = 1000 + i; // the same in both ranges: no movement at all
+          if (current && currency === 'EUR' && i === 1400) v += 1_000_000;
+          if (current && currency === 'JPY' && i === 1200) v += 50_000;
+          if (current && currency === 'EUR' && i === 1450) v -= 1400; // the largest fall
+          rows.push({
+            out_period: null,
+            out_product: pid(i),
+            out_currency: currency,
+            m_product_net_minor: String(v),
+          });
+        }
+      return { json: async <T>() => rows as T[] };
+    },
+  };
+  const mq = () =>
+    parseMoversQuery({
+      metric: 'product_net_minor',
+      dimension: 'product',
+      from: '2026-10-01',
+      to: '2026-11-01',
+      limit: 3,
+    });
+
+  it('listMetricMovers: the true movers per currency, no false new or gone', async () => {
+    const r = await listMetricMovers(big, mq(), [A]);
+    const eur = r.by_currency.find((b) => b.currency === 'EUR')!;
+    const jpy = r.by_currency.find((b) => b.currency === 'JPY')!;
+    expect(eur.risers.map((m) => m.key)).toEqual([pid(1400)]);
+    expect(eur.fallers.map((m) => m.key)).toEqual([pid(1450)]);
+    expect(jpy.risers.map((m) => m.key)).toEqual([pid(1200)]);
+    for (const b of r.by_currency)
+      for (const m of [...b.risers, ...b.fallers]) {
+        expect(m.is_new, m.key).toBe(false);
+        expect(m.is_gone, m.key).toBe(false);
+      }
+    // the totals are over every key too
+    expect(eur.total_current! - eur.total_previous!).toBe(1_000_000 - 1400);
+  });
+
+  it('the Ask movers tool ranks the same way; the answer records the result capped like any query', async () => {
+    const executed: ExecutedQuery[] = [];
+    const aliases = new Aliases();
+    const handle = biQaToolHandler({
+      reader: big,
+      caller: { stores: [A], finance: () => false },
+      executed,
+      aliases,
+    });
+    const out = await handle({
+      id: 't1',
+      name: 'movers',
+      input: {
+        metric: 'product_net_minor',
+        dimension: 'product',
+        from: '2026-10-01',
+        to: '2026-11-01',
+        limit: 3,
+      },
+    });
+    const body = JSON.parse(out.content) as {
+      by_currency: { currency: string; risers: { key: string }[] }[];
+    };
+    const eurTop = body.by_currency.find((b) => b.currency === 'EUR')!.risers[0]!.key;
+    expect(aliases.reverse.get(eurTop)).toEqual({ kind: 'product', id: pid(1400) });
+    const recorded = executed[0]!.result!;
+    expect(recorded.rows).toHaveLength(1000);
+    expect(recorded.truncated).toBe(true);
+    expect(recorded.compare!.truncated).toBe(true);
   });
 });

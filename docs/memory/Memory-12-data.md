@@ -146,6 +146,13 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   (fast-forward). Merged bi-v2-data clean; admin BI fixtures +5 MetricRow keys; #906 matrix rows applied (22/22);
   contract-v2.test (real outputs vs yaml). Gates: lint, typecheck 30/30, core 1829, admin 1349, ingest 154. Pushed
   9de5910b. PR #924 (integration/bi-v2-contracts → main), Fable review via the manager. Report checks.
+  #924 Fable BLOCK (2 items): (1) movers ranked a 1 000-row slice sorted by key → FIXED: ExecuteOptions.noLimit
+  (every key of BOTH ranges), listMetricMovers + Ask movers tool (records a result capped at the query limit;
+  ranking unaffected); test 1 500 keys × EUR/JPY, top riser past row 1 000, no false is_new/is_gone; negative
+  control (noLimit false) FAILS as it should. No contract change. (2) analytics_ro (readonly=1, real profile) reads
+  every view with SETTINGS join_algorithm and the setting TAKES EFFECT (~4 MiB peak per view) — probe
+  apps/analytics-ingest/src/testing/probe-readonly.ts: throwaway db + renamed user/profile/quota, all dropped (verified
+  0 left). Definitions now say lines counts failed-payment orders, sales does not. metrics-live 14/14 (movers p95 70).
   (mart_bookings_daily keys, mart_product_daily, mart_stock_daily, mart_sales_rate) once #871 is decided.
 - INT5 3c FOLLOW-UP (2026-11-05, manager eleven): #718 MERGED 1fad84d4; #633 MERGED as #719 268a81bf (richPayments
   opt-in). Branch data/phase5-int5-3c. Done: gate month richPayments + reconcileAll(createFixtureSource(month.payouts))

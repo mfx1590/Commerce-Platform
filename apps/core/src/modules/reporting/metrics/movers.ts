@@ -230,7 +230,12 @@ export async function listMetricMovers(
   scope: readonly string[],
   opts: ExecuteOptions = {},
 ): Promise<MoversResult> {
-  const r = await executeMetricQuery(reader, moversMetricQuery(mq), scope, opts);
+  // every key of BOTH ranges, merged in full: a 1 000-row slice (sorted by key) would drop real movers and turn
+  // a key present in only one slice into a false is_new / is_gone (#924 review)
+  const r = await executeMetricQuery(reader, moversMetricQuery(mq), scope, {
+    ...opts,
+    noLimit: true,
+  });
   return moversFromResult(mq, r, (opts.now ?? (() => new Date()))());
 }
 

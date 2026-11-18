@@ -249,7 +249,7 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     id: 'net_bookings_minor',
     label: 'Net bookings',
     description:
-      'Bookings minus the succeeded refunds of the orders placed that day (cohort-attributed).',
+      'Bookings minus the succeeded refunds of the orders placed that day (cohort-attributed). Orders whose payment only failed are left out, as are cancelled ones (they count only in cancelled orders / orders placed).',
     unit: 'minor',
     currency_bound: true,
     finance: false,
@@ -295,7 +295,8 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
   units: {
     id: 'units',
     label: 'Units sold',
-    description: 'Line quantities of orders that are not cancelled.',
+    description:
+      'Line quantities of orders that are not cancelled. Counts orders whose payment failed (only cancelled orders are left out), unlike the order-level figures (orders, bookings, AOV, gross sales, discounts, shipping, tax), which leave failed-payment orders out.',
     unit: 'count',
     currency_bound: false,
     finance: false,
@@ -307,7 +308,7 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     id: 'product_net_minor',
     label: 'Product sales',
     description:
-      'Line totals of orders that are not cancelled, tax included on both price bases (exclusive stores add it, inclusive stores have it inside).',
+      'Line totals of orders that are not cancelled, tax included on both price bases (exclusive stores add it, inclusive stores have it inside). Counts orders whose payment failed (only cancelled orders are left out), unlike the order-level figures (orders, bookings, AOV, gross sales, discounts, shipping, tax), which leave failed-payment orders out.',
     unit: 'minor',
     currency_bound: true,
     finance: false,
@@ -404,7 +405,7 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     id: 'net_sales_minor',
     label: 'Net sales',
     description:
-      'What customers paid for products after discounts, before tax and without shipping: per order line, its total minus its tax, summed. Comparable across stores whatever their price basis. Orders that are not cancelled, by placement day.',
+      'What customers paid for products after discounts, before tax and without shipping: per order line, its total minus its tax, summed. Comparable across stores whatever their price basis. Orders that are not cancelled, by placement day. Counts orders whose payment failed (only cancelled orders are left out), unlike the order-level figures (orders, bookings, AOV, gross sales, discounts, shipping, tax), which leave failed-payment orders out.',
     formula: 'Σ over order lines (line total − line tax)',
     unit: 'minor',
     currency_bound: true,
@@ -417,7 +418,7 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     id: 'gross_sales_minor',
     label: 'Gross sales',
     description:
-      "Items at their unit prices before discounts and shipping. Includes tax on tax-inclusive stores and excludes it on tax-exclusive ones: read it within one store's price basis.",
+      "Items at their unit prices before discounts and shipping. Includes tax on tax-inclusive stores and excludes it on tax-exclusive ones: read it within one store's price basis. Orders whose payment only failed are left out, as are cancelled ones (they count only in cancelled orders / orders placed).",
     unit: 'minor',
     currency_bound: true,
     finance: false,
@@ -429,7 +430,7 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     id: 'discounts_minor',
     label: 'Discounts',
     description:
-      'Discounts allocated to the order lines. Free shipping is not included: it shows as shipping 0, and the value of the shipping given away is not recorded.',
+      'Discounts allocated to the order lines. Free shipping is not included: it shows as shipping 0, and the value of the shipping given away is not recorded. Orders whose payment only failed are left out, as are cancelled ones (they count only in cancelled orders / orders placed).',
     unit: 'minor',
     currency_bound: true,
     finance: false,
@@ -440,7 +441,8 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
   shipping_minor: {
     id: 'shipping_minor',
     label: 'Shipping charged',
-    description: 'Shipping charged to customers; 0 for free shipping.',
+    description:
+      'Shipping charged to customers; 0 for free shipping. Orders whose payment only failed are left out, as are cancelled ones (they count only in cancelled orders / orders placed).',
     unit: 'minor',
     currency_bound: true,
     finance: false,
@@ -452,7 +454,7 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     id: 'tax_minor',
     label: 'Tax',
     description:
-      'Tax on the orders: added to the total on tax-exclusive stores, inside it on tax-inclusive ones.',
+      'Tax on the orders: added to the total on tax-exclusive stores, inside it on tax-inclusive ones. Orders whose payment only failed are left out, as are cancelled ones (they count only in cancelled orders / orders placed).',
     unit: 'minor',
     currency_bound: true,
     finance: false,
@@ -487,7 +489,8 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
   cancelled_orders: {
     id: 'cancelled_orders',
     label: 'Cancelled orders',
-    description: 'Orders placed in the period and since cancelled.',
+    description:
+      'Orders placed in the period and since cancelled. Orders whose payment only failed are left out, as are cancelled ones (they count only in cancelled orders / orders placed).',
     unit: 'count',
     currency_bound: false,
     finance: false,
@@ -536,7 +539,7 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     id: 'product_net_ex_tax_minor',
     label: 'Product net sales',
     description:
-      'Per order line, its total minus its tax: after discounts, before tax, on both price bases.',
+      'Per order line, its total minus its tax: after discounts, before tax, on both price bases. Counts orders whose payment failed (only cancelled orders are left out), unlike the order-level figures (orders, bookings, AOV, gross sales, discounts, shipping, tax), which leave failed-payment orders out.',
     formula: 'Σ (line total − line tax)',
     unit: 'minor',
     currency_bound: true,
@@ -548,7 +551,8 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
   product_gross_minor: {
     id: 'product_gross_minor',
     label: 'Product sales (gross)',
-    description: 'Unit price × quantity before discounts (tax inside on tax-inclusive stores).',
+    description:
+      'Unit price × quantity before discounts (tax inside on tax-inclusive stores). Counts orders whose payment failed (only cancelled orders are left out), unlike the order-level figures (orders, bookings, AOV, gross sales, discounts, shipping, tax), which leave failed-payment orders out.',
     unit: 'minor',
     currency_bound: true,
     finance: false,
@@ -559,7 +563,8 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
   product_discount_minor: {
     id: 'product_discount_minor',
     label: 'Product discounts',
-    description: 'Discounts allocated to the order lines.',
+    description:
+      'Discounts allocated to the order lines. Counts orders whose payment failed (only cancelled orders are left out), unlike the order-level figures (orders, bookings, AOV, gross sales, discounts, shipping, tax), which leave failed-payment orders out.',
     unit: 'minor',
     currency_bound: true,
     finance: false,
@@ -571,7 +576,7 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     id: 'product_orders',
     label: 'Orders with the product',
     description:
-      'Distinct orders containing the product (or a product of the category). A distinct count: it is not added up across rows, so a total is not given.',
+      'Distinct orders containing the product (or a product of the category). A distinct count: it is not added up across rows, so a total is not given. Counts orders whose payment failed (only cancelled orders are left out), unlike the order-level figures (orders, bookings, AOV, gross sales, discounts, shipping, tax), which leave failed-payment orders out.',
     unit: 'count',
     currency_bound: false,
     finance: false,
