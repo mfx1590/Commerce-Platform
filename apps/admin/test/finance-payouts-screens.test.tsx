@@ -159,8 +159,11 @@ describe('payout-level reasons (#865)', () => {
   it('discrepant with every line matched: says the reason is outside the lines, not in this API', () => {
     render(<PayoutDetailPanel payout={allMatched} entity={BRAND_D} />);
     const note = screen.getByRole('note', { name: 'Payout-level reasons' });
-    expect(note).toHaveTextContent('Every line above matched, yet the payout is discrepant');
-    expect(note).toHaveTextContent('not reported by the accounting API yet (#865)');
+    // Said plainly: the reasons are not available yet — never read as "there is no reason".
+    expect(note).toHaveTextContent('Why this payout is discrepant is not available yet.');
+    expect(note).toHaveTextContent('Every line above matched, so the reason is at payout level');
+    expect(note).toHaveTextContent('CONTRACT CHANGE #865');
+    expect(note).toHaveTextContent('No reason shown here does not mean there is none.');
   });
 
   it('a reconciled payout has no such note', () => {

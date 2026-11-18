@@ -557,6 +557,14 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#859 (Finance part 2), 2026-11-18 (Manager session fourteen):** merged origin/main (f313c8c6; CHANGELOG +
+  Memory-4 conflicts additive, both kept). Every 11-13 Fable BLOCK item answered in the PR body: (1) e2e runs in
+  the advisory core job on Prism accounting :4013 (proof run 43457259820: two FINANCE-E2E passed lines, 38
+  passed / 7 skipped); (2) the payout note now says plainly "Why this payout is discrepant is not available
+  yet" + CONTRACT CHANGE #865; (3) waiver comment on #851 naming #852; (4) this entry rides in the head commit
+  itself (code + memory in one commit; head sha in the PR body). Customer-group hint: already fixed on main by #862; picker not built
+  (no listCustomerGroups wrapper; a follow-up). #839 admin half is in PR #909 (manager); hands off
+  integration/readiness-payment(-admin). Demo core/admin NOT running.
 - **#853 MERGED** (Finance part 1). **#859 re-targeted to main** after the Fable BLOCK fixes (code 94801ea1;
   main merged in; head = this memory commit; one push). The advisory admin e2e job runs CORE mode, where
   finance.spec skipped everything: core mode now starts `prism mock openapi/accounting.yaml` on :4013 from

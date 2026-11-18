@@ -17,8 +17,9 @@
   - The store-admin refusal runs in both runs; the finance journey runs in core mode, asserting the contract's
     examples.
   - A `FINANCE-E2E` line is printed on pass and on skip. The real-service waiver is on #851 (REQUEST #852).
-- A discrepant payout says its reason may be outside its lines (payout total ≠ Σ net, ledger lines not carried),
-  which the accounting API doesn't report yet (CONTRACT CHANGE #865).
+- A discrepant payout says plainly that **why it is discrepant is not available yet**, and that no reason shown
+  doesn't mean there is none. The accounting service doesn't report payout-level reasons yet (payout total ≠ Σ net,
+  ledger payments or refunds the payout doesn't carry): CONTRACT CHANGE #865. Merged with main 2026-11-18.
 - Tests:
   - `finance-payouts-screens` (JPY payout and lines, verdicts, ERP gaps, parked links; 7).
   - `finance` grew to 22: every operation gated, the payouts query never carries a currency.
