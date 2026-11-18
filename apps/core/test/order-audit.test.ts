@@ -18,7 +18,7 @@ import {
   updateCart,
 } from '../src/modules/cart';
 import { completeCart, createPaymentSession } from '../src/modules/checkout';
-import { markPaymentCaptured } from '../src/modules/orders';
+import { markPaymentCaptured, markReturned, markShipped, transition } from '../src/modules/orders';
 import { mountCoreMiddleware } from '../src/server';
 
 const A = SEED_IDS.stores.brandA;
@@ -69,7 +69,9 @@ async function auditOf(orderId: string): Promise<AuditRow[]> {
 }
 
 /** One placed brand-A order (manual provider: authorised at placement) with two lines of 2. */
-async function place(): Promise<{ orderId: string; lines: { id: string; quantity: number }[] }> {
+async function place(
+  actor: { id: string | null; type: 'customer'; requestId: string } = customer,
+): Promise<{ orderId: string; lines: { id: string; quantity: number }[] }> {
   const client = tenantClient({ organizationId: SEED_IDS.organization, storeIds: [A] });
   const channel = await db.owner.query<{ id: string }>(
     `SELECT id FROM sales_channel WHERE store_id = $1 AND code = 'web'`,
@@ -104,7 +106,7 @@ async function place(): Promise<{ orderId: string; lines: { id: string; quantity
   const { order } = await completeCart(client, {
     cartId: cart.id,
     idempotencyKey: `audit-887-${cart.id}`,
-    actor: customer,
+    actor,
   });
   const lines = await db.owner.query<{ id: string; quantity: number }>(
     `SELECT id, quantity FROM order_line_item WHERE order_id = $1 ORDER BY created_at, id`,
@@ -174,6 +176,74 @@ describe('order audit rows (#887)', () => {
       after: { status: 'confirmed', changed_fields: ['status'] },
     });
     expectNoPii(rows);
+  });
+
+  it('a signed-in customer places it: actor_id is the CUSTOMER id (only a guest has NULL)', async () => {
+    const customerId = randomUUID();
+    const { orderId } = await place({ id: customerId, type: 'customer', requestId: 'req-887' });
+    const rows = await auditOf(orderId);
+    expect(rows.map((r) => [r.action, r.actor_type, r.actor_id])).toEqual([
+      ['order.place', 'customer', customerId],
+      ['order.status_change', 'customer', customerId],
+    ]);
+  });
+
+  it('shipments and returns write one row each, also when no status moves (a second partial shipment / return)', async () => {
+    const { orderId, lines } = await place();
+    const client = tenantClient({ organizationId: SEED_IDS.organization, storeIds: [A] });
+    const [l1, l2] = lines;
+    const n = (await auditOf(orderId)).length;
+    // 1st: confirmed → processing, unfulfilled → partially_fulfilled (a transition)
+    await markShipped(client, orderId, [{ lineItemId: l1!.id, quantity: 1 }], system);
+    // 2nd: still processing / partially_fulfilled — only the line's fulfilled quantity moves (no transition)
+    await markShipped(client, orderId, [{ lineItemId: l1!.id, quantity: 1 }], system);
+    // 3rd: → fulfilled
+    await markShipped(client, orderId, [{ lineItemId: l2!.id, quantity: 2 }], system);
+    // returns: 1 unit (→ partially_returned), then 1 more of another line (stays partially_returned)
+    await markReturned(client, orderId, [{ lineItemId: l1!.id, quantity: 1 }], system);
+    await markReturned(client, orderId, [{ lineItemId: l2!.id, quantity: 1 }], system);
+    const rows = (await auditOf(orderId)).slice(n);
+    expect(rows.map((r) => r.action)).toEqual([
+      'order.ship',
+      'order.ship',
+      'order.ship',
+      'order.return',
+      'order.return',
+    ]);
+    expect(rows[0]).toMatchObject({
+      actor_type: 'system',
+      before: { status: 'confirmed', fulfillment_status: 'unfulfilled' },
+      after: { status: 'processing', fulfillment_status: 'partially_fulfilled' },
+    });
+    expect(rows[1]).toMatchObject({
+      before: {},
+      after: { lines: [{ line_item_id: l1!.id, quantity: 1 }], changed_fields: ['line_items'] },
+    });
+    expect(rows[4]).toMatchObject({
+      before: {},
+      after: { lines: [{ line_item_id: l2!.id, quantity: 1 }], changed_fields: ['line_items'] },
+    });
+    expectNoPii(rows);
+  });
+
+  it('a transition that throws AFTER its audit row was written (hooks.afterEvents) leaves no row', async () => {
+    const { orderId } = await place();
+    const n = (await auditOf(orderId)).length;
+    const client = tenantClient({ organizationId: SEED_IDS.organization, storeIds: [A] });
+    await expect(
+      client.transaction((tx) =>
+        transition(tx, orderId, {
+          payment_status: 'captured',
+          actor: system,
+          hooks: {
+            afterEvents: async () => {
+              throw new Error('boom after the audit write (#887 test)');
+            },
+          },
+        }),
+      ),
+    ).rejects.toThrow(/boom after the audit write/);
+    expect((await auditOf(orderId)).length).toBe(n);
   });
 
   it('a capture (window 7 calls markPaymentCaptured): one order.status_change row, payment_status authorized → captured, by the SYSTEM', async () => {

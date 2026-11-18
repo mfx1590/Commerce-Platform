@@ -366,14 +366,48 @@ export async function markShippedInTx(
   // in the same transition (one event) when shipping did not report the pick itself (#350). A held (pending)
   // order keeps its status — the fulfilment facts are recorded all the same.
   const startsProcessing = current.status === 'confirmed';
+  // #887: one audit row per shipment, whether or not a status moves (a second partial shipment changes only the
+  // lines' fulfilled quantities) — through the transition when there is one, directly otherwise.
+  const audit = { action: 'order.ship', after: { lines: quantitiesOf(shipped) } };
   if (current.fulfillment_status !== next || startsProcessing) {
     await transition(tx, orderId, {
       ...(startsProcessing ? { status: 'processing' as const } : {}),
       ...(current.fulfillment_status !== next ? { fulfillment_status: next } : {}),
       actor,
       changed_fields: ['line_items'],
+      audit,
+    });
+  } else {
+    await auditOrder(tx, current, actor, audit.action, {
+      ...audit.after,
+      changed_fields: ['line_items'],
     });
   }
+}
+
+/** Ids and quantities of a shipment or a return, for its audit row (#887). */
+function quantitiesOf(lines: readonly LineQuantity[]) {
+  return lines.map((l) => ({ line_item_id: l.lineItemId, quantity: l.quantity }));
+}
+
+/** An order audit row for a mutation that moves no status (#887; `transition()` writes its own). */
+async function auditOrder(
+  tx: Queryable,
+  order: OrderRow,
+  actor: Actor,
+  action: string,
+  after: Record<string, unknown>,
+): Promise<void> {
+  await writeAudit(tx, {
+    organizationId: order.organization_id,
+    storeId: order.store_id,
+    actor,
+    action,
+    entityType: 'order',
+    entityId: order.id,
+    before: {},
+    after,
+  });
 }
 
 /**
@@ -447,10 +481,18 @@ export async function markReturnedIn(
   const lines = await loadOrderLines(tx, orderId);
   const next = fulfillmentFrom(lines, 'returned');
   const current = await loadOrder(tx, orderId, false);
+  // #887: one audit row per received return, whether or not the fulfilment status moves
+  const audit = { action: 'order.return', after: { lines: quantitiesOf(returned) } };
   if (current.fulfillment_status !== next) {
     await transition(tx, orderId, {
       fulfillment_status: next,
       actor,
+      changed_fields: ['line_items'],
+      audit,
+    });
+  } else {
+    await auditOrder(tx, current, actor, audit.action, {
+      ...audit.after,
       changed_fields: ['line_items'],
     });
   }
@@ -483,7 +525,11 @@ export async function setFulfillmentStatus(input: {
   return setFulfillmentStatusIn(input.tx, input.orderId, input.status, input.actor);
 }
 
-/** Merges keys into `order.metadata` on the caller's transaction (the returns module's exchange link). No event: metadata is storefront/ops-owned. */
+/**
+ * Merges keys into `order.metadata` on the caller's transaction (the returns module's exchange link, the fraud flag).
+ * No event: metadata is storefront/ops-owned. No audit row either (#887): its callers audit — the fraud flag through
+ * the `transition()` that follows it, the exchange link with its own `order.exchange_link` row.
+ */
 export async function mergeOrderMetadataIn(
   tx: Queryable,
   orderId: string,

@@ -5,7 +5,7 @@
 // order's returned quantities (orders module) → restock of resellable items (inventory module, `return`
 // movements) → `return.received` → the refund through the RefundRequester seam (idempotent per return).
 import type { Queryable, ScopedClient } from '@platform/db';
-import type { Actor } from '../../lib/audit';
+import { writeAudit, type Actor } from '../../lib/audit';
 import { AppError, conflict, notFound, validationError } from '../../lib/errors';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
 import { lockStock, moveStock } from '../inventory';
@@ -538,6 +538,7 @@ export async function linkExchange(
   client: ScopedClient,
   returnId: string,
   newOrderId: string,
+  actor: Actor,
 ): Promise<AdminReturn> {
   return client.transaction(async (tx) => {
     const ret = await loadReturn(tx, returnId, true);
@@ -553,6 +554,21 @@ export async function linkExchange(
     ]);
     await mergeOrderMetadataIn(tx, newOrderId, {
       exchange_for: { return_id: returnId, order_id: ret.order_id },
+    });
+    // #887: the exchange order's audit row (ids only)
+    await writeAudit(tx, {
+      organizationId: order.organization_id,
+      storeId: order.store_id,
+      actor,
+      action: 'order.exchange_link',
+      entityType: 'order',
+      entityId: newOrderId,
+      before: {},
+      after: {
+        return_id: returnId,
+        exchanged_order_id: ret.order_id,
+        changed_fields: ['metadata'],
+      },
     });
     return renderReturn(tx, returnId);
   });
