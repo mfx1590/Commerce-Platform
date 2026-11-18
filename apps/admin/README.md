@@ -329,6 +329,16 @@ The confirmation states the exact count and, for "all matching", the filters in 
 
 **Export CSV** (`ExportCsvButton` plus a server action over `exportStoreList` in `src/lib/table/export-server.ts`) writes the current filtered and sorted list, up to 1,000 rows. The action checks the store section itself with `refuseUnlessSection`, the same predicate as `StoreSectionGuard`, because a server action is reachable without the page. It sends only the table's filter and sort keys, and `csvCell` neutralises formula cells.
 
+**Bulk capture** (`bulk-capture.tsx`, `actions/bulk-capture.ts`, `lib/orders/bulk-capture.ts`) is money:
+
+- ticked orders only, at most 100;
+- a read-only preview with the per-currency totals, then the count typed;
+- each order captures its current total capped at its authorisation, always sent as `amount_minor`;
+- Stripe authorisations only;
+- a preview is dropped if the ticked orders change after it;
+- each row is re-read, and is not captured if its amount changed since the preview;
+- an unknown outcome is never retried.
+
 Live today: Catalog Publish / Archive…, Orders Cancel… (a reason is required; each row says whether the authorisation was voided or a captured payment needs a refund, because cancelling never refunds). A run that throws is shown as "outcome unknown" and is never retried. The rows are checked against the principal loaded once per action (`refusalFor`), not one `GET /admin/me` per row. Every DataTable has a 20 / 50 / 100 page-size picker. `SelectFilter` and `DateRangeFilter` (`src/components/table/url-filters.tsx`) expose list parameters that had no control: Orders placed from / to, and Catalog category.
 
 ## Forms: `useContractForm`

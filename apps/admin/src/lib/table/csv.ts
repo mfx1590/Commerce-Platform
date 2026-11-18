@@ -31,9 +31,19 @@ export function toCsv(header: readonly string[], rows: readonly (readonly CsvCel
 
 /** The bulk report as a specialist follows it up: id, name, result, message (every row). */
 export function reportCsv(results: readonly BulkRowResult[]): string {
+  const extra: string[] = [];
+  for (const row of results) {
+    for (const key of Object.keys(row.extra ?? {})) if (!extra.includes(key)) extra.push(key);
+  }
   return toCsv(
-    ['id', 'name', 'result', 'message'],
-    results.map((row) => [row.id, row.label, row.outcome, row.message]),
+    ['id', 'name', 'result', 'message', ...extra],
+    results.map((row) => [
+      row.id,
+      row.label,
+      row.outcome,
+      row.message,
+      ...extra.map((key) => row.extra?.[key] ?? null),
+    ]),
   );
 }
 
