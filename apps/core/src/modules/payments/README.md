@@ -93,7 +93,9 @@ Stripe does not return the balance transaction) → `payment.captured` v1 throug
   for ~24 h, so a retry after an unknown outcome that outlived it is a fresh request for an intent that IS captured,
   and Stripe answers `payment_intent_unexpected_state`. When the re-read says `succeeded`, the row converges to
   `captured` with Stripe's `amount_received` and fee (`metadata.capture` from those), `payment.captured`, and the
-  audit row with `converged: true` + the Stripe code — never `failed`. A re-read that fails writes nothing (the
+  audit row with `converged: true` + the Stripe code — never `failed`. A converged capture is dated **when Stripe
+  captured** (the balance transaction's `created`, else the charge's), not at the retry: `captured_at` and the
+  event's `occurred_at` / `captured_at`, so the ledger books it in the period it happened. A re-read that fails writes nothing (the
   outcome is unknown again; the next retry converges).
 - A **definitive** Stripe failure (4xx, not 429) on an intent Stripe does not hold as captured writes row `failed` + `failure_reason` + `payment.failed` + an
   audit row in the same transaction, then `markPaymentFailed`, then throws 402 `payment_failed`. An outage writes

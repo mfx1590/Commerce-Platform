@@ -98,6 +98,21 @@ const SELECT_PAYMENT = `SELECT id, organization_id, store_id, order_id, provider
   amount_minor::text, currency, status, fee_minor::text, captured_at, failure_reason
   FROM payment WHERE id = $1`;
 
+/**
+ * When Stripe captured (#914 review): the balance transaction's `created` (made at capture), else the charge's
+ * `created` (on a manual-capture intent that is the authorisation — still before our retry), else null.
+ */
+function stripeCapturedAt(intent: StripePaymentIntent): Date | null {
+  const charge = intent.latest_charge;
+  if (!charge || typeof charge === 'string') return null;
+  const txn = charge.balance_transaction;
+  const seconds =
+    txn && typeof txn !== 'string' && typeof txn.created === 'number'
+      ? txn.created
+      : charge.created;
+  return typeof seconds === 'number' ? new Date(seconds * 1000) : null;
+}
+
 function feeFrom(charge: string | StripeCharge | null | undefined): number | null {
   if (!charge || typeof charge === 'string') return null;
   const txn = charge.balance_transaction;
@@ -207,6 +222,9 @@ export async function capturePayment(
     ): Promise<CaptureOutcome> => {
       const fee = feeFrom(intent.latest_charge);
       const wasPartial = capturedMinor !== authorizedMinor;
+      // A converged capture happened at STRIPE'S time, possibly in an earlier period: `captured_at` and the event's
+      // `occurred_at` / `captured_at` carry it, so the ledger dates the capture where it happened, not at the retry.
+      const at = converged ? (stripeCapturedAt(intent) ?? now) : now;
       // The row's amount becomes what was captured: the refund ceiling (2.3) and `Order.payments[].amount` read
       // it; the authorised amount stays on record in `metadata.capture`.
       await tx.query(
@@ -216,7 +234,7 @@ export async function capturePayment(
                'authorized_minor', $5::bigint, 'captured_minor', $4::bigint, 'partial', $6::boolean)),
              updated_at = now()
          WHERE id = $1`,
-        [payment.id, now, fee, capturedMinor, authorizedMinor, wasPartial],
+        [payment.id, at, fee, capturedMinor, authorizedMinor, wasPartial],
       );
       await withEvents(tx, [
         await buildEvent({
@@ -226,7 +244,7 @@ export async function capturePayment(
           aggregateType: 'payment',
           aggregateId: payment.id,
           actor: eventActor(opts.actor),
-          occurredAt: now,
+          occurredAt: at,
           payload: {
             payment_id: payment.id,
             order_id: payment.order_id,
@@ -236,7 +254,7 @@ export async function capturePayment(
             amount_minor: capturedMinor,
             fee_minor: fee,
             currency: payment.currency,
-            captured_at: now.toISOString(),
+            captured_at: at.toISOString(),
           },
         }),
       ]);

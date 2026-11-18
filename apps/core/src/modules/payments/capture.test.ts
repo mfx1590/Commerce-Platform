@@ -145,8 +145,10 @@ async function paymentRow(id: string) {
 }
 
 async function topicsFor(aggregateId: string): Promise<string[]> {
+  // Insertion order (`seq`): a converged capture carries STRIPE'S capture time (#914), whole seconds, which can sort
+  // before an event written earlier in the same second.
   const r = await owner.query<{ topic: string }>(
-    `SELECT topic FROM outbox WHERE aggregate_id = $1 ORDER BY occurred_at, seq`,
+    `SELECT topic FROM outbox WHERE aggregate_id = $1 ORDER BY seq`,
     [aggregateId],
   );
   return r.rows.map((x) => x.topic);
@@ -373,6 +375,29 @@ describe('capturePayment — a retry after Stripe forgot the key converges to ca
     // what Stripe was asked: the refused capture, then the re-read
     const methods = fake.calls.map((c) => c.method);
     expect(methods.slice(-2)).toEqual(['capturePaymentIntent', 'retrievePaymentIntent']);
+  });
+
+  it('the converged capture is dated when STRIPE captured — across a period end — not at the retry', async () => {
+    const { paymentId, intentId } = await placedOrder();
+    // captured at Stripe on the last day of October (UTC); our retry runs now, in a later period
+    const stripeTime = new Date('2026-10-31T23:58:00.000Z');
+    fake.captureClock = stripeTime;
+    await capturedAtStripeOnly(intentId!);
+    fake.captureClock = null;
+    await capturePayment(a, paymentId, opts());
+    const row = await owner.query<{ captured_at: Date }>(
+      `SELECT captured_at FROM payment WHERE id = $1`,
+      [paymentId],
+    );
+    expect(row.rows[0]!.captured_at.toISOString()).toBe(stripeTime.toISOString());
+    const ev = await owner.query<{ occurred_at: Date; payload: { captured_at: string } }>(
+      `SELECT occurred_at, payload FROM outbox WHERE topic = 'payment.captured' AND aggregate_id = $1`,
+      [paymentId],
+    );
+    expect(ev.rows).toHaveLength(1);
+    // the ledger dates the capture by the event (accounting reads occurred_at / captured_at): October, not today
+    expect(ev.rows[0]!.occurred_at.toISOString()).toBe(stripeTime.toISOString());
+    expect(ev.rows[0]!.payload.captured_at).toBe(stripeTime.toISOString());
   });
 
   it('a PARTIAL capture happened at Stripe: the row converges to Stripe’s amount, not the one this retry asked for', async () => {
