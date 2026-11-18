@@ -11,20 +11,26 @@ import { CopyDraftPanel } from './copy-draft-panel';
 import type { ProductCreateValues } from '@/lib/forms/schemas';
 import { ProductForm } from '../product-form';
 import { PublishControls } from './publish-controls';
+import { ActivityPanel, activityPage } from '@/components/audit/activity-panel';
+import { loadActivity } from '@/lib/audit/load';
 
 export const dynamic = 'force-dynamic';
 
 export default async function ProductDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ storeId: string; productId: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { storeId, productId } = await params;
-  const [product, categories, store, principal] = await Promise.all([
+  const page = activityPage((await searchParams)?.['activity']);
+  const [product, categories, store, principal, activity] = await Promise.all([
     getProduct(storeId, productId),
     listCategories(storeId),
     getStore(storeId),
     loadPrincipal(),
+    loadActivity({ storeId, entityType: 'product', entityId: productId, page }),
   ]);
   const canDraft = principal.ok && mayDraftCopy(principal.data, storeId);
 
@@ -142,6 +148,13 @@ export default async function ProductDetailPage({
             <VariantsPanel storeId={storeId} product={current} />
           </CardBody>
         </Card>
+
+        <ActivityPanel
+          activity={activity}
+          entityType="product"
+          basePath={`/${storeId}/catalog/${productId}`}
+          note="Changes to a variant or to media are recorded against that variant or image, not here."
+        />
       </div>
     </StoreSectionGuard>
   );

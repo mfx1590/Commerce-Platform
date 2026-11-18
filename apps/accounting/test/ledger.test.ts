@@ -109,11 +109,16 @@ describe('one event, one transaction', () => {
     // the processed mark makes the redelivery a no-op before any posting
     expect(await consume(e)).toEqual({ action: 'duplicate' });
     // and even without it, a redelivered order.placed posts nothing (same source event on the projection)
-    expect(await handleLedgerEvent(t.hq, decoded(e))).toMatchObject({ action: 'noop', entries: 0 });
+    // #888: the ledger already holds this event (its rows), so a redelivery without the mark is a duplicate
+    expect(await handleLedgerEvent(t.hq, decoded(e))).toMatchObject({
+      action: 'duplicate',
+      duplicate_of: 'ledger',
+      entries: 0,
+    });
     expect(await count('ledger_entry WHERE source_event_id = $1', [e.event_id])).toBe(4);
   });
 
-  it('the second guard: the same payment posted twice without the mark is refused by UNIQUE (source_event_id, account_code) and nothing changes', async () => {
+  it('the second and third guards: the same payment twice without the mark is a duplicate (#888); UNIQUE (source_event_id, account_code) still refuses a direct second insert; nothing changes', async () => {
     const e = orderPlaced({
       lines: [{ quantity: 1, unit_price_minor: 10_000, tax_rate_bp: 2100 }],
     });
@@ -124,7 +129,24 @@ describe('one event, one transaction', () => {
       lines: 3,
     });
     const before = await count('ledger_entry');
-    await expect(handleLedgerEvent(t.hq, decoded(pay))).rejects.toMatchObject({ code: '23505' });
+    // the handler recognises it before posting (what a second consumer group re-reading the topic sees)
+    expect(await handleLedgerEvent(t.hq, decoded(pay))).toMatchObject({
+      action: 'duplicate',
+      duplicate_of: 'ledger',
+      entries: 0,
+    });
+    expect(await count('ledger_entry')).toBe(before);
+    // and the database still refuses the same (source event, account) twice, whatever the code does
+    await expect(
+      t.hq.query(
+        `INSERT INTO ledger_entry (organization_id, legal_entity_id, store_id, journal, entry_date, account_code,
+           debit_minor, credit_minor, currency, source_event_id, source_topic, reference_type, reference_id)
+         SELECT organization_id, legal_entity_id, store_id, journal, entry_date, account_code, debit_minor, credit_minor,
+                currency, source_event_id, source_topic, reference_type, reference_id
+           FROM ledger_entry WHERE source_event_id = $1 LIMIT 1`,
+        [pay.event_id],
+      ),
+    ).rejects.toMatchObject({ code: '23505' });
     expect(await count('ledger_entry')).toBe(before);
     expect(await count('accounting_payment WHERE payment_id = $1', [pay.payload.payment_id])).toBe(
       1,

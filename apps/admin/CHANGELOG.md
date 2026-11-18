@@ -2,6 +2,179 @@
 
 ## Unreleased
 
+### Added — #870 wave 1 item 2 (part 1): bulk actions, page size and filters on Orders and Catalog (window 3)
+
+- **Bulk actions on the shared table.** The DataTable already had selection, including "select all N matching", but no page used it. Now:
+  - Catalog: **Publish** (store_staff) and **Archive…** (store_admin; the API has no unarchive, and the question says so).
+  - Orders: **Cancel…** (store_admin) with one required reason for every order.
+
+  Each action is offered only to principals who hold its relation; the server decides regardless.
+
+- **One way to run a bulk action** (`src/lib/table/bulk.ts`, `bulk-server.ts`). The Admin API has no bulk endpoint, so it is N single calls:
+  - Refused up front, before any read, without the relation; then **checked again per row** before that row's call.
+  - The selection is resolved on the server. Ticked rows are uuid ids, at most 500. "All matching" re-runs the list with only the table's own filters (anything else in the request is dropped) and is **refused when the total moved** since the user saw it, or when it exceeds 500.
+  - Concurrency 4.
+  - Every row is reported: done, skipped (the API's 409 in its words, e.g. already fulfilled), failed, refused, or **outcome unknown** (status 0 / 5xx: never retried, because no mutation takes an idempotency key).
+  - The report lists what needs attention first and stays until closed, which clears the selection.
+- **Page size**: 20 / 50 / 100 rows per page on every DataTable (the contract caps at 100). It writes `limit` and goes back to page 1.
+- **Filters the API already took**:
+  - Orders: **Placed from / to** (`placed_from` / `placed_to`, whole days in UTC; they were only reachable by editing the URL).
+  - Catalog: **Category** (`category_id`, from `listCategories`).
+
+  Generic `SelectFilter` / `DateRangeFilter` (`src/components/table/url-filters.tsx`) for the next tables.
+
+- **Fixed**: the single-row `publishProductAction` / `archiveProductAction` checked no permission server-side; catalog was not in the guard. `CATALOG_PERMISSIONS` (yaml-pinned) now guards both, single row and bulk.
+- Tests:
+  - `test/bulk-actions.test.ts` (20): resolution with the drift and cap refusals, outcomes, concurrency, the report, catalog and orders bulk with up-front and per-row refusal, the filter whitelist, a required reason, a 409 reported as skipped, catalog permissions pinned, and single-row publish / archive refused.
+  - `test/bulk-ui.test.tsx` (11): the page-size picker, BulkAction from ask to report, both filters, and the orders bulk bar gated.
+  - Mutation-checked: the per-row check, the filter whitelist and the drift refusal each fail the suite when removed.
+  - Two existing tests gained a mock for the bulk server module they now import.
+- Manager decisions (11-13, session thirteen; resumed 11-17):
+  - **The confirmation always states the exact count**, and for "all matching" the filters it acts on, in words (e.g. "every one matching Status: draft · Category: Kitchen, except the 1 unticked"). Unfiltered says "no filter (the whole list)".
+  - **Archive… and Cancel… need the count typed** before Yes is offered. Neither has an undo; product unarchive is CONTRACT CHANGE #901.
+  - **The results download as CSV** (id, name, result, message) for the follow-up.
+  - **Export CSV of the current filtered and sorted list** on Catalog and Orders, up to 1,000 rows (stated on the button; the file says when it holds only the first ones). Built by a server action that checks the store section first, with the same rule as the page, and returns 401/403 refusals. Only the table's own filters and sorts are sent. Money is written in minor units with its currency.
+  - Every CSV cell that would run as a spreadsheet formula (`=`, `+`, `-`, `@`) is prefixed with `'`.
+- **DEFECT FIXED — the catalog checked no permission in the admin.** None of the seven catalog actions (create / update product, create / update variant, create category, publish, archive) refused a principal before calling the API. All seven now go through `CATALOG_PERMISSIONS` (yaml-pinned). The same search found six more in files this PR doesn't touch: customers update and erase, pricing (2), promotions (2). They are #903, erase first. The core's own OpenFGA check still refused those requests, so this is defence in depth, not a bypass.
+- `listPromotions` has no status filter: CONTRACT CHANGE #902, for PR 2.
+- #904 review (Fable):
+  - **Bulk cancel says what happened to the money.** Cancelling voids an authorisation but never refunds a captured payment; the question now says so. Each cancelled row's message comes from the `payment_status` the API returned: "Cancelled — authorisation voided", "Cancelled — payment captured, refund needed", "Cancelled — payment already refunded", or "no payment taken". The results CSV is therefore the refund worklist.
+  - The core answers 200 for an order that is already cancelled (core gap #905), so the status _before_ is read first: from the list row for "all matching", or with `getOrder` for ticked ids. An already-cancelled order is not cancelled again and is reported "Already cancelled" (skipped).
+  - **A run that never comes back** (a network drop, a crashed action) is shown as "outcome unknown — reload the list and check before running it again". It is never retried, and the list is reloaded. Export CSV says the same kind of thing when its request fails.
+  - **The principal is loaded once per bulk action** and each row is checked against it (`refusalFor`, pure). React's `cache()` memoises `loadPrincipal` within a server render, not inside a server action's body, so a per-row `refuseUnlessPermitted` would have cost one `GET /admin/me` per row (up to 500).
+  - The date range says its days are UTC.
+  - Tests: `bulk-actions` 25 (+5), `bulk-ui` 20 (+4). Mutation-checked: dropping the already-cancelled skip or the try/catch fails the suite.
+- More tests:
+  - `test/table-export.test.ts` (14): CSV quoting and the formula guard, filters in words, the export actions (whitelists, cap and truncation, a 401 / 403 refusal before any read, a failed page), and all seven catalog actions refused for 3 roles.
+  - `test/bulk-ui.test.tsx` (16 now): scope in words, the typed count, the results CSV, and Export CSV with the cap and refusal.
+  - Mutation-checked: removing the formula guard, the section check or the typed count fails the suite.
+  - `test/product-media.test.ts` now uses a uuid store and a store_staff principal, since its actions are guarded.
+
+### Added — #870 wave 1 item 1: stock movements in HQ › Warehouse (window 3)
+
+- **Move stock** on every stock item row: **Adjust** (± with a note, reason `adjustment`), **Receive** (quantity, `receipt`) and **Transfer** (from → to warehouse). This is `createStockMovement`, which the admin never called before. The form shows the shelf's on hand / reserved / available now and after the move. It refuses a result below zero or below what open orders reserved before sending anything. On success it opens the item's ledger on that warehouse, where the new row shows its actor and note.
+- `moveStockAction` (`src/app/actions/warehouse.ts`) checks, in this order, before any write:
+  1. `operations` on `organization:hq` (the yaml's `x-permission`, pinned by the existing table test); a non-permitted role is refused before any read or write.
+  2. The schema.
+  3. A **fresh** read of the item. The API is addressed by variant, so the action takes a variant that maps the item from this read, never from the browser.
+  4. The below-zero / below-reserved check.
+
+  The core refuses below zero itself (409, shown in its own words) but **not below reserved**. The admin's check is read-then-write without a lock, so the real guard is requested from the core (REQUEST #877).
+
+- **A transfer is two movements in two transactions**: there is no transfer operation and no idempotency key.
+  - `transfer_out` goes first at the source, so a half-done transfer can only understate stock.
+  - If the destination refuses, a compensating `transfer_in` puts the units back at the source with a note naming the refusal.
+  - If putting them back fails too, both errors and the stranded quantity are said.
+  - If the destination's outcome is unknown (network, 5xx), nothing is written on a guess, and the message says which ledger to check.
+- An item no variant maps shows why it cannot be moved, instead of the button.
+- **Store › Inventory**: each row links to its stock item's ledger in HQ › Warehouse. The link is shown only to principals who hold `operations` on hq; anyone else would land on a refusal.
+- Tests:
+  - `test/stock-movements.test.ts` (49): permission for 5 roles, validation and the upper bound, below reserved and below zero, the API's 409 / 404 / 403, an unknown outcome (adjust, receive, a transfer's first leg), the fresh read, a transfer's two calls in order, each failure case, and the compensation note.
+  - `test/stock-movement-form.test.tsx` (13): now/after numbers, live refusal, payloads, the ledger opened with the list's filters kept, the confirm step above 100 units, the bound, a single request while pending, and the Ledger link shown and hidden.
+  - Mutation-checked: dropping the below-reserved rule or the compensation fails the suite.
+  - The advisory e2e owner journey opens Move stock up to its live refusal and closes it (never submitted on the shared database). The store-admin journey asserts no Ledger link.
+- #879 review (Fable):
+  - **An unknown outcome is never "try again".** A network failure (status 0, which includes a reset after the request was sent) or a 5xx on a single move or on a transfer's first leg now says "Outcome unknown … check the item's ledger before repeating it". The movement may be recorded, and `createStockMovement` has no idempotency key. The page is revalidated.
+  - The page is also revalidated after a 409, because the shelf changed under the form.
+  - A move above 100 units asks once more, showing the shelf after the move. One movement carries at most 100,000 units (a typo guard; form and action).
+  - The compensation note names the destination and keeps the operator's note.
+  - A submit while one is pending sends nothing.
+
+### Added — #870 wave 1 item 3: history, who changed what (integration/admin-history)
+
+- **An "Activity" panel on the product, customer and promotion detail pages**, and "Payment
+  activity" on an order. Time, actor, action and a readable summary of what changed, 20 per page,
+  from `listAuditLog` filtered to that `(entity_type, entity_id)`.
+- **HQ › Audit**, an organization-wide view with filters (store, entity type, actor, UTC date
+  range), newest/oldest first, paging and a CSV export of the visible columns. Owner-only, like
+  Roles, which shows the same rows per person; the server decides scope either way.
+- **Values are redacted unless allow-listed** (`src/lib/audit/redaction.ts`). `listAuditLog`
+  returns `before`/`after` as raw JSON bodies (`additionalProperties: true`), so a value is printed
+  only for an `(entity_type, field)` pair that was reviewed; a name matching the deny pattern is
+  withheld even if allow-listed; a nested object is always withheld; an unknown entity type shows
+  field NAMES only. The reader still learns **which** field changed. `test/audit-redaction.test.ts`
+  is the guard, including that the two lists stay consistent and that a body cannot reach the CSV.
+- **An order has no audit rows of its own.** Nothing in the core writes `entity_type: 'order'` —
+  not placement, not the status machine, not cancel, not the line-item edits — so the order page
+  shows its **payments'** rows and is titled "Payment activity". A panel called "History" querying
+  `entity_type=order` would be permanently empty, which an owner reads as "nobody changed it".
+  REQUEST #887; when the rows land, the ordinary panel joins this one. A product's variant and
+  media rows live under their own ids and `listAuditLog` takes one `entity_id`, so the product
+  panel shows the product's own rows and says so (CONTRACT CHANGE #889).
+- **Actor names need `owner` on `organization:hq`,** because that is `listUsers`' permission. For
+  anyone else the lookup is refused and the row says "Unknown staff (ab12cd34)" — the history
+  stands rather than disappearing. REQUEST #891 for a `viewer`-level name lookup.
+- The CSV neutralises a leading `=`, `+`, `-` or `@` in a cell: an audit log carries text somebody
+  typed, and a CSV is how that becomes a formula in someone else's spreadsheet.
+- #896 review (Fable):
+  - **`/audit/export` is gated in the handler, before any API call.** A route handler is not a
+    screen: the section guard that hides `/audit` from a non-owner does nothing for a typed URL, and
+    `listAuditLog` is only `viewer` on a store — so a store-scoped staff user could have downloaded
+    their stores' whole audit log as a file. It now resolves the principal and applies the same
+    `visibleHqSections` predicate the page uses, from the same catalogue entry: no session 401, a
+    failed `/admin/me` forwarded as it is (a fail-closed 503 stays 503), no relation 403, and the
+    Admin API is not reached in any of those cases. `test/audit-export-route.test.ts` (13).
+  - **The filter was short by three entity types, because there are TWO audit writers.**
+    `apps/core/src/lib/audit.ts` accounts for 23; `packages/auth-sdk/src/audit/write.ts` adds
+    `role_assignment` and `staff_user` — the role grants and revokes, which are the rows an owner
+    is most likely to come here for — and `customer_address` was missed in the core. 25 now, and
+    `role_assignment` shows the relation, object type and object; `staff_user` shows its status and
+    withholds the rest, `keycloak_subject` included.
+  - **`stock_movement` allow-listed `quantity`, which nothing writes.** The core writes `delta`, so
+    the one number a reader wants was withheld. Fixed, with a test.
+  - **The product's status badge has a handle of its own** (`data-testid="product-status"`), and
+    `e2e/catalog-core.spec.ts` uses it. The Activity panel renders audit values, so a
+    `product.create` row prints "draft" and a `product.publish` row prints "published" next to the
+    badge: a page-wide exact-text locator matched two elements and the advisory core e2e failed on
+    every head of this branch while passing on main. Every other admin e2e assertion on a product,
+    customer, promotion or order detail page is role-scoped or scoped to an exactly named table, so
+    those two lines were the only collision. `test/catalog-refusals.test.tsx` encodes it: the badge
+    and the panel rendered together, a page-wide locator matching more than one element, the handle
+    matching exactly one.
+  - `ACTIVITY_PAGE_SIZE` and `ActivityData` moved from `src/lib/audit/load.ts` to the pure
+    `projection.ts`: `load.ts` imports the `server-only` API client, so a presentational panel was
+    dragging the whole server module into anything that touched it.
+  - Two on-screen sentences were not true and now are: the audit table no longer claims its columns
+    are "exactly" the CSV's (the file also carries ids, the actor type and the request id), and an
+    empty panel no longer promises that "every" change to the entity is recorded here — a change to
+    a product's variants or media is recorded under that entity's own id.
+
+### Fixed — #860: a section guard no longer reports a failed /admin/me as "you need the owner relation"; service accounts are read-only on Roles
+
+- `HqSectionGuard` / `StoreSectionGuard` rendered "You do not have access to this — you need the owner relation"
+  whenever `loadPrincipal()` failed (401, a 503 from a fail-closed OpenFGA, no answer). The owner saw it on HQ ›
+  Roles. A failed principal read now renders `ApiStatePanel` (its status and error). "You need X" appears only
+  when `/admin/me` answered without the relation. It was reachable only on a **soft navigation**: _Manage_ is a
+  client-side link, so Next re-renders the page segment alone, and the Shell, which handles a failed principal on
+  a full load, is not run again (Fable review of #862).
+- HQ › Roles: service-account rows (crm-sync, analytics-sync) are badged and offer **View**. The view is read-only
+  and names `provision:service-accounts`. The assign and revoke actions refuse them server-side. Ids are fixed
+  until `StaffUser.kind` (CONTRACT CHANGE #861).
+- Customer form: the customer-group hint no longer promises a picker "with the customer-groups operation". That
+  operation is served now; the picker is a follow-up.
+- Tests: `roles-screens` (guard on 401, 503 and no answer, HQ and store; service-account view; a person still
+  managed; +7), `roles-actions` (service accounts refused before the API; +2).
+
+### Added — #851 (part 1): HQ › Finance on the Accounting API — books, trial balance, journal
+
+- The Finance placeholder ("window 15 in Phase 4") is replaced. It lists legal entities with books
+  (`listLegalEntityBooks`), then for the chosen one either the trial balance (`getTrialBalance`: per currency,
+  balanced or unbalanced stated, an empty period never called balanced) or the journal (`listJournalLines`:
+  filters, paging, order references linking to the store order).
+- Typed by the generated `@platform/contracts/accounting`. `adminRequest`'s transport is extracted as
+  `jsonRequest<T>` and shared, unchanged.
+- `finance` on organization:hq is checked before any request (the contract's 403). `ACCOUNTING_API_URL` is new;
+  production never falls back to a mock, and its absence is "not configured".
+- Money: per currency, never summed across. A JPY fixture (Brand D K.K.) renders whole yen.
+- Tests: `finance` (the gate per role, the URL, the search params, the helpers; 23), `finance-screens`
+  (JPY/EUR trial balance, empty period, rows without a total, journal links and paging, entities; 9) and
+  `finance-page` (the page: placeholder gone; accounting down, not configured, 401, 403 and 5xx each named; 6).
+- #853 review (Fable):
+  - Accounting failures render `AccountingStatePanel`. `ApiStatePanel` had named the Admin API and dropped the hint.
+  - Production ignores `MOCK_ACCOUNTING_API_URL`.
+  - Rows of a currency without totals are shown and said.
+  - _Balanced_ requires debit = credit as well as a zero difference.
+
 ### Fixed — #820: no Review flash after the onboarding wizard's "Done"
 
 - "Done — continue to readiness" dropped the one-time key by clearing the result, so the wizard

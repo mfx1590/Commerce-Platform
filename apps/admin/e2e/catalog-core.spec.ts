@@ -47,7 +47,10 @@ test.describe('catalog against the core', () => {
     // 201 from the core: the editor for the id the core assigned, and the status it assigned.
     await page.waitForURL(new RegExp(`/${BRAND_A}/catalog/[0-9a-f-]{36}$`));
     await expect(page.getByRole('heading', { name: title })).toBeVisible();
-    await expect(page.getByText('draft', { exact: true })).toBeVisible();
+    // Scoped to the product's own status badge: since #870 item 3 the Activity panel renders
+    // audit values, so the `product.create` row prints "draft" as well and a page-wide exact
+    // text locator matches two elements (strict mode failure, not a product bug).
+    await expect(page.getByTestId('product-status')).toHaveText('draft');
     await expect(page.getByRole('button', { name: 'Create all 2' })).toBeVisible();
     await shot('01-created-draft');
 
@@ -62,7 +65,8 @@ test.describe('catalog against the core', () => {
     // Publish asks first, then renders what the core returned.
     await page.getByRole('button', { name: 'Publish' }).click();
     await page.getByRole('button', { name: 'Yes, publish' }).click();
-    await expect(page.getByText('published', { exact: true })).toBeVisible();
+    // Same reason: the `product.publish` row prints "published" in its before → after.
+    await expect(page.getByTestId('product-status')).toHaveText('published');
     await expect(page.getByRole('button', { name: 'Published' })).toBeDisabled();
     await shot('03-published');
 

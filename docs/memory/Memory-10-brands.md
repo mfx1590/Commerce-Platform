@@ -410,6 +410,184 @@ branch), dropping versions from the manifest (`--check`'s drift report needs the
 `bump-starter-dep.mjs` as the primary path — **a script of mine cannot make a starter edit legal**;
 bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
+## In progress — #870 wave 1 item 3, admin history (2026-11-13)
+
+### The e2e my own panel broke, and why unit gates could not see it (2026-11-17)
+
+The manager read the fix at `3404cdc7` and merged on the code; one thing remained: **"admin e2e
+against the core (advisory)" failed on every #896 head and passed on main.** Not a flake and not
+the core — `catalog-core.spec.ts` line 50 did `page.getByText('draft', { exact: true })`, and my
+Activity panel renders audit VALUES, so the `product.create` row prints `status: none → draft`
+right under the badge. Two matches, Playwright strict mode, fail. Line 65 (`'published'`) would
+have failed next for the same reason: the `product.publish` row prints it in its before → after.
+
+**Fix:** `data-testid="product-status"` on the badge in `publish-controls.tsx`, and the two spec
+lines scoped to it with `toHaveText`. `data-testid` is already this repo's convention for exactly
+this (BI, onboarding, the order panels).
+
+**Checked every other admin e2e spec for the same collision** — the manager asked, and it was the
+right question. Only those two lines. Everything else that reads a product / customer / promotion /
+order detail page is role-scoped (`getByRole('cell' | 'heading' | 'link' | 'button')`) or scoped to
+a table named exactly, and no unnamed `getByRole('table')` or page-wide `getByRole('row')` count
+runs on a page that now carries a panel. `getByRole`'s `name` is a case-insensitive SUBSTRING by
+default, so I checked that too: "Payments" does not occur in "Payment activity on this order".
+
+**The lesson, which is bigger than the locator.** A panel that renders another entity's field
+values makes every page-wide text locator on that page ambiguous. Unit tests cannot see it — mine
+were green on all three heads — because the collision only exists in the assembled page under
+strict-mode matching. **Adding a panel to an existing page means re-reading that page's e2e
+locators.** `test/catalog-refusals.test.tsx` now encodes it: it renders the badge and the panel
+together, asserts a page-wide exact locator WOULD match more than one element, and asserts the
+handle resolves to exactly one.
+
+**One design fix fell out of it.** The guard test could not even import the panel: `activity-panel`
+took `ACTIVITY_PAGE_SIZE` and `ActivityData` from `load.ts`, which imports the `server-only` API
+client — so a presentational component dragged the whole server module into any test or client
+bundle that touched it. Both now live in the pure `projection.ts` and `load.ts` re-exports them.
+Mocking `server-only` in the test would have hidden that.
+
+**I did not run the e2e, and that was the instruction's own branch.** `E2E_API=core` on
+`catalog-core.spec.ts` **creates real products** in the shared database, and `fga:seed` writes the
+shared OpenFGA store — both are shared-data writes, which need the owner in session, not a manager
+OK. The hermetic Prism run would prove nothing here: `catalog-core.spec.ts` only runs with
+`E2E_API=core`. So: unit gates, and said so.
+
+Gates: lint ✅, format:check ✅, typecheck 30/30 ✅, ownership ✅, admin suite **1269 / 73 files**.
+
+
+### Fable review on #896: BLOCK — one real security hole and four false statements (2026-11-16)
+
+Head after the fix: see the push below. Branch `integration/admin-history`, one push, gates green.
+
+**The hole, and it was mine to see.** `/audit/export` called the Admin API with **no gate of its
+own**. The page is owner-only through `HqSectionGuard`, but a **route handler is not a screen**: the
+guard component never runs for a URL typed into the address bar, and `listAuditLog` is only `viewer`
+on a store — so a store-scoped staff user could have downloaded their stores' whole audit log as a
+CSV. Worse, my own PR body argued the gate "only decides who is offered the screen", which is true
+of a page and false of a handler that returns data. The handler now runs `loadPrincipal()` plus the
+same `visibleHqSections` predicate from the same catalogue entry: 401 with no session, a failed
+`/admin/me` forwarded as it is (a fail-closed 503 stays 503), 403 without the relation, and the API
+is not reached in any of those cases. 13 tests, including a 403 for all six non-owner roles.
+
+**The rule: whenever a screen's data is also reachable as a route handler, the handler needs the
+screen's gate written out again.** A guard component cannot reach it. Worth checking the BI export
+routes against this too — not mine, but the same shape.
+
+**I had also missed an entire audit writer.** `packages/auth-sdk/src/audit/write.ts` (`audit`)
+writes next to the core's `writeAudit`, and it is where **`role_assignment`** and **`staff_user`**
+come from — the role grants and revokes, the rows an owner is most likely to open this screen for.
+Plus `customer_address` missed inside the core. So the filter offered **22** of **25** types and
+silently hid who-granted-whom. The reviewer's count (25) was right and mine (23) was the core's
+share. **One grep of one module is not "every writer"** — grep the repo for the INSERT, not for the
+helper I happened to find first.
+
+**A dead allow-list entry.** `stock_movement` allow-listed `quantity`; `inventory/service.ts`
+writes **`delta`**. So the fail-closed rule worked exactly as designed and withheld the one number
+a reader wants. An allow-list entry nobody checked against the writer is not a safe default, it is
+a silent blank.
+
+**Four statements that read as facts and were not:** the audit table claimed its columns were
+"exactly" the CSV's (the file also carries ids, the actor type and the request id); an empty panel
+promised "every admin change to this X is recorded here" (a product's variants and media are
+recorded under their own ids, and an order has no rows at all); the entity-type list and its
+counts; and the `quantity` comment. All four now say what is true. The lesson is narrower than
+"be careful": **a sentence on a screen is an assertion, and nothing tests it.** Three of these four
+were in text I wrote while describing work I had just done correctly.
+
+Suite after the fix: **1268 passed / 73 files**.
+
+
+### Merged main into the branch for the Fable review (2026-11-16, manager session fourteen)
+
+Session thirteen's stop order is superseded; **manager session fourteen** replaced it. One task:
+#896 conflicted with main since **#879** (window 3's #870 wave 1 item 1, stock movements in HQ ›
+Warehouse). Merged `origin/main` (`c2af9b9f`) in — no rebase, no force-push — merge commit
+`dc00eec6`, parents `51fb6ad7` + `c2af9b9f`.
+
+**The only conflict was `apps/admin/CHANGELOG.md`**, and it was additive: two `### Added` sections
+under the same `## Unreleased`. Kept both, main's landed item-1 entry first so the diff against main
+stays an append. `apps/admin/README.md` auto-merged. Nothing collided semantically: #879 touched the
+warehouse and inventory screens, `src/lib/api/admin.ts` and its own tests, while `sections.ts`,
+`navigation.test.ts` and `role-access.test.ts` — the files my work touches — were untouched by it.
+
+Gates after the merge: lint ✅, format:check ✅, typecheck 30/30 ✅, ownership ✅, admin suite
+**1251 passed / 72 files** (1189 mine + #879's).
+
+**I did not run `fga:seed`,** which the manager's message asked for. The admin unit suite is
+hermetic (Vitest with the API module mocked) and needs no OpenFGA, and seeding writes to the stack
+**every window shares** — the recorded rule is that a shared-stack write needs the owner in session,
+not a manager OK. Nothing in this task needed it, so the right move was to skip it rather than ask.
+
+### The follow-up is parked on a side branch, NOT in the PR
+
+Manager thirteen's decision (5) asked for two more things on HQ › Audit — a **page-size picker**
+and **a link from each row to the entity it concerns** — plus two named tests (an unlisted field in
+`before`/`after` renders as a NAME; `store.update` never prints `psp_account_id` or `settings`).
+
+`src/lib/audit/entity-links.ts`, the pure `entityHref` map, written but unwired and untested, lives
+on the local branch **`wip/admin-history-entity-links`** (commit `22b769ef`). It is deliberately
+**not** on `integration/admin-history`: #896 goes to a Fable review, and handing a reviewer an
+unused module is worse than handing them nothing. Nothing was lost and no history was rewritten —
+the commit was never pushed, so pointing a branch at it and resetting the reviewed branch back to
+`51fb6ad7` was not a force-push.
+
+To resume: `git cherry-pick 22b769ef`, then wire `entityHref` into `ActivityRows` behind a
+`showEntity` prop — HQ view only, linked when non-null, the short id as plain text otherwise,
+because a link to a route that does not exist is worse than no link — add the `limit` select
+(25 / 50 / 100; `parseAuditQuery` already reads and caps it at 100), write the two tests, then the
+gates, CHANGELOG/README lines under the existing #870 heading, and push.
+
+
+**PR #896**, branch `integration/admin-history` from main `62c13ee7` (code commit `0221813e`;
+head = this memory commit). **This is an ADMIN task, not a brands one**: the owner's new standard
+for the dashboard (#870) found window 4 to be the bottleneck, so the manager handed me an item on
+an **integration branch** — `integration/*` may write anywhere, a `brands/` prefix would fail the
+ownership job. The #846 + #806 re-sync before it: PR #849 MERGED.
+
+Built: an "Activity" panel on the product, customer and promotion detail pages, "Payment activity"
+on an order, an owner-only HQ › Audit view with filters / paging / CSV. Admin suite **1189** (was
+1155). Issues filed: **#887**, **#889**, **#891**.
+
+### Read the data before designing the screen — it changed the task
+
+The manager's brief named four detail pages. Grepping all **54 `writeAudit` call sites** in the core
+first showed **23 entity types and no `order`** (23 is the core's share; the real total is 25 — see
+the review entry above, which is where that mistake is recorded): nothing writes `entity_type: 'order'` — not
+placement, not the status machine, not cancel, not the line-item edits. A "History" panel on the
+order page keyed the way the API allows would have been **permanently empty**, and an owner reads an
+empty history as "nobody changed it". So the order page shows its PAYMENTS' rows under the honest
+heading "Payment activity" (REQUEST #887 for the real rows).
+
+Two more facts only the grep gave: a product's variants and media are their own entity types under
+their own ids while `listAuditLog` takes ONE `entity_id` (CONTRACT CHANGE #889), and actor names
+come from `listUsers`, which is **`owner` on `organization:hq`** — so for a store admin the lookup
+403s and the panel degrades to "Unknown staff (ab12cd34)" rather than vanishing (REQUEST #891).
+
+**The rule: for a screen over someone else's data, read every writer before designing the reader.**
+
+### The redaction rule is the reviewable part
+
+`listAuditLog` returns `before`/`after` as RAW JSON (`additionalProperties: true`). The core is
+disciplined today — `customers/admin.ts` "never a name, a phone or an email", `payments/capture.ts`
+"ids and amounts only", the API key row "never the plain key or its hash" — but the admin must not
+DEPEND on that: one new `writeAudit` call changes what the screen renders without touching the
+admin, and `store.update` already writes the whole `Store` with `psp_account_id` and `settings`.
+
+So: allow-list per `(entity_type, field)`, a deny pattern that wins even over the allow-list, a
+nested object never rendered, unknown entity type = names only. `AuditRow` has no `before`/`after`
+**by construction**, so nothing unreviewed can reach a client component or the CSV. The test plants
+a marker inside a body and asserts it reaches neither.
+
+### Two engineering notes to keep
+
+- **An async child component breaks the admin's screen tests.** The first version had
+  `<ActivityPanel>` fetch its own data; four existing page tests then rendered an empty `<div/>`,
+  because `render(await Page(...))` cannot resolve an async child. The panels are now synchronous
+  and the page awaits `loadActivity` — which is the better shape anyway (the data belongs to the
+  page). Worth remembering before adding any self-fetching component to this app.
+- **The CSV neutralises a leading `=`, `+`, `-` or `@`.** An audit log carries text somebody typed;
+  a CSV export is how that becomes a formula in someone else's spreadsheet.
+
 ## In progress — the batched A–D re-sync for #846 + #806 (2026-11-13)
 
 **PR #849**, branch `brands/phase6-resync-846-806` from main `78c69dd9` (code commit `aae544a0`;

@@ -4,7 +4,12 @@ import type { ColumnDef } from '@tanstack/react-table';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { BulkAction } from '@/components/table/bulk-action';
 import { DataTable } from '@/components/table/data-table';
+import { bulkCancelOrdersAction } from '@/app/actions/bulk-orders';
+import { exportOrdersCsvAction } from '@/app/actions/export-lists';
+import { ExportCsvButton } from '@/components/table/export-csv';
+import type { FilterNames } from '@/lib/table/bulk';
 import type { AdminError } from '@/lib/api/admin-client';
 import { formatMoney } from '@/lib/forms/money';
 import type { OrderRow } from '@/lib/orders/projection';
@@ -40,8 +45,11 @@ export function OrdersTable({
   query,
   emptyState,
   error,
+  canCancel = false,
 }: {
   storeId: string;
+  /** Offer bulk Cancel (store_admin). A convenience: the server decides, per row. */
+  canCancel?: boolean;
   /** The store's `default_locale`, for money and dates. */
   locale: string;
   /** `OrderRow` projections — the columns shown, without the `customer_id` the table never renders. */
@@ -116,20 +124,67 @@ export function OrdersTable({
     },
   ];
 
+  const day = (value: string) => value.slice(0, 10);
+  const filterNames: FilterNames = {
+    q: { label: 'Search' },
+    status: { label: 'Status', value: statusLabel },
+    payment_status: { label: 'Payment', value: statusLabel },
+    fulfillment_status: { label: 'Fulfilment', value: statusLabel },
+    placed_from: { label: 'Placed from', value: day },
+    placed_to: { label: 'Placed to', value: day },
+  };
+
   return (
-    <DataTable<OrderRow>
-      columns={columns}
-      rows={rows}
-      total={total}
-      query={query}
-      defaults={ORDERS_TABLE_DEFAULTS}
-      getRowId={(order) => order.id}
-      caption="Orders"
-      sortableColumns={ORDERS_SORTABLE_COLUMNS}
-      searchKey="q"
-      searchPlaceholder="Order number or email"
-      emptyState={emptyState}
-      error={error}
-    />
+    <div className="space-y-2">
+      <div className="flex justify-end">
+        <ExportCsvButton
+          what="orders"
+          run={() =>
+            exportOrdersCsvAction(
+              storeId,
+              { ...query.filters },
+              { sort: query.sort, order: query.order },
+            )
+          }
+        />
+      </div>
+      <DataTable<OrderRow>
+        columns={columns}
+        rows={rows}
+        total={total}
+        query={query}
+        defaults={ORDERS_TABLE_DEFAULTS}
+        getRowId={(order) => order.id}
+        caption="Orders"
+        sortableColumns={ORDERS_SORTABLE_COLUMNS}
+        searchKey="q"
+        searchPlaceholder="Order number or email"
+        emptyState={emptyState}
+        error={error}
+        {...(canCancel
+          ? {
+              bulkActions: (selection, { clear }) => (
+                <BulkAction
+                  label="Cancel…"
+                  noun={{ one: 'order', many: 'orders' }}
+                  selection={selection}
+                  filters={query.filters}
+                  filterNames={filterNames}
+                  run={(sent, reason) => bulkCancelOrdersAction(storeId, sent, reason)}
+                  onClose={clear}
+                  destructive
+                  reason={{
+                    label: 'Reason (sent with every order)',
+                    placeholder: 'e.g. out of stock',
+                  }}
+                  question={(_, words) =>
+                    `Cancel ${words}? An authorised payment is voided. A payment already CAPTURED is NOT refunded by cancelling: those orders are marked "refund needed" in the results — download them as your refund list. Orders already cancelled are left as they are; the API refuses orders it can no longer cancel.`
+                  }
+                />
+              ),
+            }
+          : {})}
+      />
+    </div>
   );
 }
