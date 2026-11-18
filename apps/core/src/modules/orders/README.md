@@ -96,10 +96,21 @@ is not a 409) and returns the Admin `Order`.
 `cancelOrder` is allowed only while `fulfillment_status = unfulfilled` (409 otherwise — use a return). Every
 **authorised, uncaptured** payment is voided through its `PaymentProvider.void()` (checkout module; `manual` is a
 no-op that always succeeds; a `failed` void → 402 `payment_failed`, nothing written) and the `payment` row goes
-`cancelled`; a captured payment is window 7's to refund on `order.cancelled`. An order whose `payment_status`
+`cancelled`. A **captured** payment (also one already partly refunded) is **refunded for what is still captured**
+(captured − refunded, pending refunds included) in the cancel's transaction (#905, manager decision 2026-11-18) —
+through the `CancelRefunder` seam (`setCancelRefunder`; registered by `src/wiring.ts` with window 7's
+`createRefundIn`, reason `cancellation`, provider key `<payment idempotency_key>:cancel-refund`): the `refund` row,
+`refund.issued` and `payment_status → refunded` commit with the cancel or not at all. A provider refusal → 402
+`payment_failed` and the order stays uncancelled (no refund row, no `refund.failed`); an unknown outcome (outage,
+timeout) throws and commits nothing — never retried by us; a later cancel sends the SAME provider key, so the PSP
+returns the refund it already made. A refund the PSP only accepted stays `pending` (the order is cancelled;
+`refund.issued` and `refunded` follow the webhook, window 7's rule). No refunder registered → 503, nothing changes
+(never a cancelled order that is still charged). Nothing consumes `order.cancelled` to refund. Accounting posts a
+`cancellation` refund as Dr 1200 / Cr 1100 — it settles the credit `order.cancelled` + `payment.captured` leave, so
+VAT is not reversed twice. An order whose `payment_status`
 was `authorized` then reads **`voided`** (#466): its own transition, so `order.updated` (`changed_fields:
 ['payment_status']`) is written before `order.cancelled` (payload unchanged), both in the cancel's transaction.
-`awaiting` / `failed` (nothing held) and `captured` / refunds (window 7's) keep their value. `voided` is terminal. Reservations are released here
+`awaiting` / `failed` (nothing held) keep their value; a captured one moves with its refund (above). `voided` is terminal. Reservations are released here
 (`releaseForOrder`, inventory module) before the transition — through this module's own cancel, never from
 window 8's side. The wrappers' idempotency read happens under the row lock (`FOR UPDATE`) so a concurrent change
 cannot turn an intended no-op into a 409 (#174 review).

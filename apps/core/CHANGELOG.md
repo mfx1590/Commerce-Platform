@@ -2,6 +2,21 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-11-18 · cancelling a captured order refunds it (#905)
+
+- `cancelOrder` / `cancelOrderInTx`: a CAPTURED payment (also partly refunded) is refunded for what is still captured
+  (captured − refunded) in the cancel's transaction, through the new orders seam `CancelRefunder`
+  (`setCancelRefunder`), registered by `registerModuleSeams()` as `paymentsCancelRefunder` over window 7's
+  `createRefundIn` (reason `cancellation`, provider key `<payment idempotency_key>:cancel-refund`): refund row,
+  `refund.issued` and `payment_status → refunded` commit with the cancel. A provider refusal → 402 `payment_failed`,
+  the order stays uncancelled; an unknown outcome commits nothing and a later cancel reuses the key (the PSP returns
+  the same refund); a pending PSP refund cancels with the row `pending` (`refund.issued` at the webhook). No refunder
+  → 503. Before: a cancelled captured order stayed charged — the doc comment's "window 7's to refund on
+  `order.cancelled`" was never true (no consumer); corrected.
+- `test/cancel-refund.test.ts` (7, Admin API route, Stripe provider over FakeStripe with real captures): EUR and JPY,
+  partly refunded, provider refusal, a lost provider answer then a retry (one refund at the PSP), pending, re-cancel,
+  fail closed. `test/wiring.test.ts` checks the registration. Mutation-checked.
+
 ### 2026-11-13 · contract coverage test (#858)
 
 - `test/contract-coverage.test.ts`: every Admin and Store API operation has a route on the composed app (Express's
