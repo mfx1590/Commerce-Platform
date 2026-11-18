@@ -140,6 +140,12 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   every joining view stays in this branch (PR calls it out as a fix: 309→4.4, 163→4.5, 394→4.1 MiB). #908 filed (the
   ~3 000-id limit): store-scoped series > 2 500 items → validation_error stock_scope_too_large (Ask: tool error).
   ch:migrate on shared analytics = after merge, OWNER-typed. NO PR until the manager lands the contracts commit.
+  CONTRACTS LANDED (manager fourteen): integration/bi-v2-contracts c2390ec6 (Admin API 0.4.30 / contracts 0.4.37; its
+  commit message's /admin/inventory/health is WRONG, yaml right: /admin/metrics/inventory). The branch is checked out in
+  the manager's wt-contracts worktree → I work on LOCAL w12/bi-v2-contracts and push HEAD:integration/bi-v2-contracts
+  (fast-forward). Merged bi-v2-data clean; admin BI fixtures +5 MetricRow keys; #906 matrix rows applied (22/22);
+  contract-v2.test (real outputs vs yaml). Gates: lint, typecheck 30/30, core 1829, admin 1349, ingest 154. Pushed
+  9de5910b. PR #924 (integration/bi-v2-contracts → main), Fable review via the manager. Report checks.
   (mart_bookings_daily keys, mart_product_daily, mart_stock_daily, mart_sales_rate) once #871 is decided.
 - INT5 3c FOLLOW-UP (2026-11-05, manager eleven): #718 MERGED 1fad84d4; #633 MERGED as #719 268a81bf (richPayments
   opt-in). Branch data/phase5-int5-3c. Done: gate month richPayments + reconcileAll(createFixtureSource(month.payouts))
