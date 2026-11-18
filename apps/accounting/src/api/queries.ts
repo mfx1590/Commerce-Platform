@@ -180,7 +180,8 @@ export async function listJournalLines(q: Queryable, legalEntityId: string, f: J
        FROM ledger_entry e
        LEFT JOIN ledger_account a ON a.legal_entity_id = e.legal_entity_id AND a.code = e.account_code
       WHERE ${where.join(' AND ')}
-      ORDER BY e.entry_date, e.created_at, e.source_event_id, e.account_code
+      -- #854: a TOTAL order, ending in the line id: a page boundary never skips or repeats a line
+      ORDER BY e.entry_date, e.created_at, e.source_event_id, e.account_code, e.id
       LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params,
   );
@@ -303,7 +304,8 @@ export async function listPayouts(q: Queryable, legalEntityId: string, f: Payout
   const r = await q.query<PayoutRow>(
     `${PAYOUT_SELECT}, count(*) OVER()::text AS total
        FROM psp_payout p WHERE ${where.join(' AND ')}
-      ORDER BY p.arrival_date, p.provider_payout_id COLLATE "C"
+      -- #854: the unique key is (legal entity, provider, payout id): two providers can share an id on one day
+      ORDER BY p.arrival_date, p.provider_payout_id COLLATE "C", p.provider COLLATE "C", p.id
       LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params,
   );

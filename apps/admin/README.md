@@ -207,7 +207,8 @@ number of stores adds up to it.
 **Three gates, not one.** Hiding a nav entry is the weakest of them:
 
 1. the nav does not render the link;
-2. the page's `HqSectionGuard` / `StoreSectionGuard` renders a 403 panel if you type the URL anyway,
+2. the page's `HqSectionGuard` / `StoreSectionGuard` renders a 403 panel if you type the URL anyway (only when
+   `/admin/me` answered: a failed principal read is shown as its own failure, never as a missing relation, #860),
    and the store layout re-validates the store id against `stores[]` on _every_ request;
 3. the Admin API re-checks the operation's `x-permission`. This is the only one that is security.
 
@@ -313,6 +314,22 @@ about whether it means 20 rows or 4 000. The model is pure and lives in
 are real `<button>`s inside `<th aria-sort>`, so the sort state is announced rather than only drawn;
 the range line is `aria-live="polite"`; the bulk bar is a `role="status"`; and a column that cannot
 be sorted never claims it can.
+
+### Bulk actions, page size and filters (#870 wave 1 item 2)
+
+A table offers bulk actions by passing `bulkActions={(selection, { clear }) => …}` to `DataTable` with one `<BulkAction>` per action. The server action calls `runStoreBulkAction` (`src/lib/table/bulk-server.ts`), which:
+
+- refuses up front without the operation's relation, and again per row before each call;
+- resolves the selection on the server: ticked ids (≤ 500), or "all matching" by re-running the list with only the table's filter keys. That is refused if the total moved since the user saw it, or if it is over 500;
+- runs 4 rows at a time and reports every row as done / skipped (409) / failed / refused / outcome unknown (0 or 5xx, never retried).
+
+There is no bulk endpoint in the Admin API; this is N single calls by design.
+
+The confirmation states the exact count and, for "all matching", the filters in words (`filterNames` on `BulkAction`). A `destructive` action (no undo) needs the count typed. The report downloads as CSV.
+
+**Export CSV** (`ExportCsvButton` plus a server action over `exportStoreList` in `src/lib/table/export-server.ts`) writes the current filtered and sorted list, up to 1,000 rows. The action checks the store section itself with `refuseUnlessSection`, the same predicate as `StoreSectionGuard`, because a server action is reachable without the page. It sends only the table's filter and sort keys, and `csvCell` neutralises formula cells.
+
+Live today: Catalog Publish / Archive…, Orders Cancel… (a reason is required; each row says whether the authorisation was voided or a captured payment needs a refund, because cancelling never refunds). A run that throws is shown as "outcome unknown" and is never retried. The rows are checked against the principal loaded once per action (`refusalFor`), not one `GET /admin/me` per row. Every DataTable has a 20 / 50 / 100 page-size picker. `SelectFilter` and `DateRangeFilter` (`src/components/table/url-filters.tsx`) expose list parameters that had no control: Orders placed from / to, and Catalog category.
 
 ## Forms: `useContractForm`
 
@@ -698,6 +715,15 @@ the optional initial relation with `assignRole`; a refused grant is said ("Invit
 relation was not granted") and retried from the person's row. Until the invitation email exists
 (SMTP, Integration 2b) the first sign-in is set up by an admin in Keycloak — the screen says so.
 
+**Service accounts** (#860): crm-sync and analytics-sync are staff rows too, but their roles come from
+`pnpm --filter @platform/auth-sdk provision:service-accounts`.
+
+- Their rows carry a _service account_ badge and offer **View**, not **Manage**.
+- The view is read-only: relations without Revoke, no Assign, and a note naming the provisioning script.
+- `assignRoleAction` / `revokeRoleAction` refuse them before the API.
+- They are recognised by their fixed ids (`SERVICE_ACCOUNT_IDS` in `src/lib/roles`, the ids provisioning uses)
+  until `StaffUser.kind` exists (CONTRACT CHANGE #861).
+
 Every mutation is refused server-side before the API unless the principal is owner on hq
 (`ROLES_PERMISSIONS` in the shared guard, pinned against the yaml); a taken email (409) lands
 under the email field, a 400 under the field it names, a 403 is the refusal panel. Journey
@@ -814,6 +840,21 @@ writes no stock (the dev database is pooled and shared): the store admin's refus
 inventory rows in both modes; in core mode the owner reads a shared item, opens the pool action up
 to its confirmation and cancels, and reads the counts.
 
+### Stock movements (#870 wave 1 item 1; `createStockMovement`)
+
+"Move stock" on each stock item row: Adjust (±), Receive, or Transfer between warehouses, each with a note that lands on the ledger row.
+
+- **Permission:** `operations` on `organization:hq`, checked in `moveStockAction` before any read or write.
+- **Addressed by variant:** the action re-reads the item and moves it through a variant that maps it. An item no variant maps cannot be moved until one is pooled onto it.
+- **Floors:** below zero is refused by the core (409) and by the form. Below reserved is refused by the form and the action only: the core accepts it, so a sale between the read and the write can still beat the admin's check. The real guard is a REQUEST to the core (#877).
+- **Unknown outcome:** a network failure or 5xx is reported as "outcome unknown — check the ledger before repeating", never "try again". The operation has no idempotency key, so a repeat could receive or move the stock twice.
+- **Large moves:** above 100 units the form asks once more, showing the shelf after the move. One movement carries at most 100,000 units.
+- **Transfer is not atomic:** `transfer_out` at the source, then `transfer_in` at the destination.
+  - A refused second leg is compensated at the source, and the message says so.
+  - An unknown outcome (network, 5xx) is never compensated on a guess; the message names the ledger to check.
+  - An atomic transfer needs a contract change: a transfer operation, or an idempotency key on `createStockMovement`.
+- **Ledger:** success opens the item's ledger (`?item=&view=movements&warehouse_id=`) on the warehouse that received the move. Store › Inventory rows link there for principals who may open the warehouse section.
+
 ## Draft copy with AI (#608, CONTRACT CHANGE #664; Admin API 0.4.26)
 
 **Product page → Draft copy with AI.** Pick a locale (the store's enabled locales; the default is
@@ -906,6 +947,65 @@ Every mutation is refused server-side before the API below `store_admin` on the 
 (`TAX_PERMISSIONS` in the shared guard, pinned against the yaml). The Prism contract suite
 walks list, create, update and delete through the actions plus every documented refusal (the
 201/200 examples were added to the spec for it, 9d39673).
+
+## History: who changed what (#870 wave 1 item 3)
+
+`listAuditLog` is the only history the platform has, and it was used in exactly one place (HQ ›
+Roles, per person). It now backs two screens.
+
+**The panel.** `loadActivity({ storeId, entityType, entityId, page })` reads the entries and
+`<ActivityPanel>` renders them; the page awaits the load so the panel stays synchronous (a page
+with an async child cannot be rendered by the screen tests, and the data belongs to the page). It
+is mounted on the product, customer and promotion detail pages.
+
+**What a row may show.** `src/lib/audit/redaction.ts` decides, and it fails closed:
+
+1. a value is printed only for an `(entity_type, field)` pair in `SAFE_VALUE_FIELDS`;
+2. a field name matching `NEVER_SHOW` is withheld even if the pair is allow-listed;
+3. a value that is not a string, number, boolean or null is withheld — a nested object is exactly
+   where an unreviewed body would hide;
+4. an entity type with no entry shows field names only.
+
+The core is disciplined about what it writes today (`customers/admin.ts`: "field names and
+non-personal values only — never a name, a phone or an email"; `payments/capture.ts`: "ids and
+amounts only"; `registry/service.ts`: "never the plain key or its hash"). This app does not depend
+on that: `before`/`after` are typed `additionalProperties: true`, and one new `writeAudit` call in
+the core would change what these screens render without touching the admin. A redacted field is
+still NAMED, so the history keeps its point.
+
+`AuditRow` (`src/lib/audit/projection.ts`) is what crosses to a client component and to the CSV. It
+has no `before`/`after` by construction.
+
+**The order page is different.** Nothing in the core writes an `entity_type: 'order'` audit row, so
+the order shows its payments' rows under the heading "Payment activity". `listAuditLog` takes one
+`entity_id`, so the payments are fetched in parallel and merged newest-first, bounded at five, one
+page — paging a merge of N queries would misstate the ordering. The missing order rows are
+REQUEST #887; a list `entity_id`, which would let the product panel include its variants, is
+CONTRACT CHANGE #889.
+
+**Actor names are owner-gated.** `listUsers` is `owner on organization:hq`. A store admin reading a
+product is refused there, so the lookup is allowed to fail and the row reads "Unknown staff
+(ab12cd34)". A `viewer`-level lookup (or `actor_display_name` on the entry) is REQUEST #891.
+
+**HQ › Audit** (`/audit`, owner-only) is the same renderer over the org-wide call: no `store_id`
+means the core answers from the caller's own scope — organization scope sees every row, a
+store-scoped caller only their stores — so the store filter narrows a decision the server already
+made and can never widen it. The date inputs are UTC calendar days and become the whole day
+(`from` → `00:00:00.000Z`, `to` → `23:59:59.999Z`): sending the bare date for `to` would silently
+drop everything that happened on the day the reader asked for. `/audit/export` parses the same
+query with the same helpers, so "export what I am looking at" is true rather than nearly true.
+
+**The export route gates itself** (#896 review). A route handler is not a screen: the section guard
+does nothing for a typed URL, and `listAuditLog` is only `viewer` on a store, so the handler
+resolves the principal and applies the same `visibleHqSections` predicate the page uses before any
+API call — 401 without a session, the status of a failed `/admin/me` forwarded as it is, 403
+without the relation. Whenever a screen's data is also reachable as a route handler, the handler
+needs the screen's gate written out again; the guard component cannot reach it.
+
+**There are two audit writers.** `apps/core/src/lib/audit.ts` (`writeAudit`, 54 call sites, 23
+entity types) and `packages/auth-sdk/src/audit/write.ts` (`audit`), which is where
+`role_assignment` and `staff_user` come from — the role grants and revokes. 25 entity types in
+total, and the first version of this screen offered 22.
 
 ## Security headers (Phase 6 D4, #731)
 

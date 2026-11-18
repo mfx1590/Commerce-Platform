@@ -414,6 +414,77 @@ export async function releaseForOrder(tx: Queryable, orderId: string): Promise<n
 }
 
 /**
+ * Releases `quantity` units of ONE variant's open reservations for an order (an order edit before fulfilment, #855:
+ * a line lowered or cancelled). Returns the quantity released — at most what is open: a line that reserved less
+ * (an untracked variant, a placement before reservations existed) releases what there is.
+ *
+ * Which rows: the least-preferred warehouse first — the reverse of the order `consumeForShipment` takes them in
+ * (priority, code, oldest first), so what stays reserved is what would ship first. A row the release covers whole is
+ * closed (`released_at`); a row it covers in part keeps its id with a lower `quantity`, so an id another module
+ * holds (window 8's fulfilment) stays valid. The pool row's `reserved` drops by exactly the released amount. Lock
+ * order as `releaseForOrder`: step 3 only, over the reservations' own stock items. Not a movement: no `stock.moved`.
+ */
+export async function releaseForOrderLine(
+  tx: Queryable,
+  orderId: string,
+  variantId: string,
+  quantity: number,
+): Promise<number> {
+  if (!Number.isInteger(quantity) || quantity < 1) return 0;
+  const open = await tx.query<{
+    id: string;
+    stock_item_id: string;
+    warehouse_id: string;
+    quantity: number;
+  }>(
+    `SELECT r.id, r.stock_item_id, r.warehouse_id, r.quantity
+     FROM reservation r JOIN warehouse w ON w.id = r.warehouse_id
+     WHERE r.order_id = $1 AND r.variant_id = $2 AND r.released_at IS NULL
+     ORDER BY w.priority DESC, w.code DESC, r.created_at DESC, r.id DESC`,
+    [orderId, variantId],
+  );
+  if (open.rows.length === 0) return 0;
+  const levels = await lockLevels(
+    tx,
+    open.rows.map((r) => r.stock_item_id),
+  );
+  let remaining = quantity;
+  for (const r of open.rows) {
+    if (remaining === 0) break;
+    const level = levels.find(
+      (l) => l.stock_item_id === r.stock_item_id && l.warehouse_id === r.warehouse_id,
+    );
+    if (!level) {
+      throw new AppError(
+        'internal',
+        'an open reservation holds a pool row this session cannot see',
+        {
+          order_id: orderId,
+          reservation_id: r.id,
+          stock_item_id: r.stock_item_id,
+          warehouse_id: r.warehouse_id,
+        },
+      );
+    }
+    const take = Math.min(remaining, r.quantity);
+    await bumpReserved(tx, level.id, -take);
+    if (take === r.quantity) {
+      await tx.query(
+        `UPDATE reservation SET released_at = now(), updated_at = now() WHERE id = $1`,
+        [r.id],
+      );
+    } else {
+      await tx.query(
+        `UPDATE reservation SET quantity = quantity - $2, updated_at = now() WHERE id = $1`,
+        [r.id, take],
+      );
+    }
+    remaining -= take;
+  }
+  return quantity - remaining;
+}
+
+/**
  * Window 8 at ship time: turns reserved units into shipped units — the reservation shrinks (or closes) and
  * `moveStock(reason 'sale')` lowers `on_hand` with one `stock.moved` per (variant, warehouse), attributed to the
  * store (it caused the movement). Shipping more than is reserved for the order → 409 `conflict`.

@@ -36,6 +36,9 @@ const actions = vi.hoisted(() => ({
   capturePaymentAction: vi.fn(),
 }));
 vi.mock('@/app/actions/orders', () => actions);
+// The table's bulk bar (#870) imports its server action; this file tests the screens, not bulk.
+vi.mock('@/app/actions/bulk-orders', () => ({ bulkCancelOrdersAction: vi.fn() }));
+vi.mock('@/app/actions/export-lists', () => ({ exportOrdersCsvAction: vi.fn() }));
 
 const ALL: OrderPermissions = {
   canEditOrder: true,

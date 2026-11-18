@@ -26,11 +26,27 @@ vi.mock('@/components/shell/section-guard', () => ({
 }));
 const principalOf = vi.hoisted(() => ({ current: 'owner' as string }));
 vi.mock('@/lib/principal', () => ({
-  loadPrincipal: async () => ({
-    ok: true,
-    status: 200,
-    data: (await import('./fixtures/principals')).principals[principalOf.current as PrincipalKey],
-  }),
+  loadPrincipal: async () => {
+    if (principalOf.current.startsWith('fail:')) {
+      const status = Number(principalOf.current.slice('fail:'.length));
+      return {
+        ok: false,
+        status,
+        error:
+          status === 0
+            ? { code: 'network_error', message: 'fetch failed' }
+            : {
+                code: status === 401 ? 'unauthorized' : 'internal',
+                message: 'authorization service unavailable',
+              },
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      data: (await import('./fixtures/principals')).principals[principalOf.current as PrincipalKey],
+    };
+  },
 }));
 const api = vi.hoisted(() => ({
   listUsers: vi.fn(),
@@ -121,6 +137,41 @@ describe('the roles screen', () => {
     },
   );
 
+  it.each([
+    ['fail:503', 'Admin API returned 503'],
+    ['fail:401', 'Your session has ended'],
+    ['fail:0', 'Could not reach the Admin API'],
+  ])(
+    'a failed /admin/me (%s) is shown as what it is, never "you need the owner relation" (#860)',
+    async (failure, title) => {
+      principalOf.current = failure;
+      const { HqSectionGuard } = await vi.importActual<typeof SectionGuard>(
+        '@/components/shell/section-guard',
+      );
+      render(await HqSectionGuard({ id: 'roles', children: <p>the roles screen</p> }));
+      expect(screen.queryByText('the roles screen')).toBeNull();
+      expect(screen.getByText(title)).toBeInTheDocument();
+      expect(document.body).not.toHaveTextContent(/You need the owner relation/);
+      expect(document.body).not.toHaveTextContent(/You do not have access/);
+    },
+  );
+
+  it('the store guard reports a failed /admin/me the same way', async () => {
+    principalOf.current = 'fail:503';
+    const { StoreSectionGuard } = await vi.importActual<typeof SectionGuard>(
+      '@/components/shell/section-guard',
+    );
+    render(
+      await StoreSectionGuard({
+        storeId: SEED.stores.brandA,
+        id: 'catalog',
+        children: <p>the catalog</p>,
+      }),
+    );
+    expect(screen.getByText('Admin API returned 503')).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/You need the/);
+  });
+
   it('owner passes the real guard', async () => {
     const { HqSectionGuard } = await vi.importActual<typeof SectionGuard>(
       '@/components/shell/section-guard',
@@ -152,6 +203,58 @@ describe('the roles screen', () => {
     expect(screen.getByText('product.published')).toBeInTheDocument();
     // The before/after bodies are never rendered.
     expect(document.body.innerHTML).not.toContain('secret-before');
+  });
+
+  it('a service account is marked, offers View, and its card is read-only (#860)', async () => {
+    const CRM = '00000000-0000-4000-8000-000000000061';
+    api.listUsers.mockResolvedValue(
+      ok({
+        items: [
+          {
+            id: CRM,
+            email: 'crm-sync@service.invalid',
+            display_name: 'CRM sync (service)',
+            status: 'active',
+            last_login_at: null,
+          },
+        ],
+        page: { page: 1, limit: 20, total: 1 },
+      }),
+    );
+    api.listUserRoles.mockResolvedValue(
+      ok({
+        items: [
+          {
+            id: '00000000-0000-4000-8000-000000000072',
+            relation: 'support',
+            object_type: 'store',
+            object_id: SEED.stores.brandA,
+            created_at: '2026-09-04T00:00:00Z',
+          },
+        ],
+      }),
+    );
+    await renderPage({ user: CRM });
+    const row = screen.getByRole('row', { name: /CRM sync \(service\)/ });
+    expect(within(row).getByText('service account')).toBeInTheDocument();
+    expect(within(row).getByRole('link', { name: 'View CRM sync (service)' })).toHaveTextContent(
+      'View',
+    );
+    expect(within(row).queryByRole('link', { name: /^Manage/ })).toBeNull();
+
+    expect(screen.getByRole('note')).toHaveTextContent(
+      'pnpm --filter @platform/auth-sdk provision:service-accounts',
+    );
+    const relations = screen.getByRole('list', { name: 'Relations' });
+    expect(within(relations).getByText('support')).toBeInTheDocument();
+    expect(within(relations).queryByRole('button', { name: /^Revoke/ })).toBeNull();
+    expect(screen.queryByRole('form', { name: /Assign/i })).toBeNull();
+  });
+
+  it('a person still gets Manage, Revoke and the assign form', async () => {
+    await renderPage({ user: USER });
+    expect(screen.getByRole('link', { name: 'Manage Sam StoreAdmin' })).toBeInTheDocument();
+    expect(screen.queryByRole('note')).toBeNull();
   });
 
   it('a user id that is not a uuid selects nobody', async () => {
