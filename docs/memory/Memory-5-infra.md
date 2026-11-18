@@ -122,6 +122,11 @@ Grafana/Prometheus/Loki/Tempo, Sentry, Vault. Reproducible from an empty account
 
 ## In progress
 
+- **picomatch audit (2026-11-18, manager fourteen), branch infra/audit-picomatch from main 6bfb4379.**
+  GHSA-fc5q-39xc-vjpf, no fix. Reachability: no glob matcher in our code or in @medusajs/*; mikro-orm globs config
+  paths only; vite is never required at runtime. Allow-listed to 2026-12-02 (#911). The real gate on today's
+  report: PASS with the entry, FAIL with main's list. The gate's tests pass (11/11).
+  Gotcha: pnpm packages live in the root node_modules/.pnpm/<pkg>@<ver>/node_modules, not apps/core/node_modules.
 - **#806 status:**
   - Commits: 9e4883f9 (the runtime), then a15d0887 (Opus BLOCK fix: storefront smoke KEYCLOAK_URL placeholder + the
     Node-base guard). a15d0887 had 3 green CI runs plus both k6 proofs; the manager's Opus verdict was MERGE.
