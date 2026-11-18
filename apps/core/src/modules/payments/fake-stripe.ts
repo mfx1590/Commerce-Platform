@@ -36,6 +36,8 @@ export class FakeStripe implements StripeApi {
   private readonly captureParams = new Map<string, string>();
   /** Fee the fake charges on capture (minor units); asserted as `payment.fee_minor`. */
   captureFee = 123;
+  /** When the fake's captures happen (Date; null = now) — the balance transaction's `created`, like Stripe's. */
+  captureClock: Date | null = null;
   /** Script the next refund to be accepted but not settled: Stripe answers `pending` (then reset). */
   pendingNextRefund = false;
   /** Script the next confirm to decline with this code (then reset). */
@@ -250,9 +252,15 @@ export class FakeStripe implements StripeApi {
     intent.amount_received = (toCapture as number | undefined) ?? intent.amount;
     if (opts.idempotencyKey) this.captureParams.set(opts.idempotencyKey, JSON.stringify(params));
     intent.status = 'succeeded';
+    const capturedAt = Math.floor((this.captureClock ?? new Date()).getTime() / 1000);
     intent.latest_charge = {
       id: `ch_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
-      balance_transaction: { id: `txn_${randomUUID().slice(0, 8)}`, fee: this.captureFee },
+      created: capturedAt - 60, // the charge exists since the authorisation
+      balance_transaction: {
+        id: `txn_${randomUUID().slice(0, 8)}`,
+        fee: this.captureFee,
+        created: capturedAt,
+      },
     };
     if (opts.idempotencyKey) this.recorded.set(opts.idempotencyKey, id);
     return intent;

@@ -21,6 +21,8 @@ export interface StripeBalanceTransaction {
   id: string;
   /** Stripe's fee in the settlement currency's minor units. */
   fee: number;
+  /** Unix seconds: when the funds were captured (a manual-capture charge's transaction is created at capture). */
+  created?: number;
 }
 
 /** Stripe Radar's verdict on a charge (task 2.5): codes only. */
@@ -32,6 +34,8 @@ export interface StripeChargeOutcome {
 
 export interface StripeCharge {
   id: string;
+  /** Unix seconds: when the charge was created (for a manual-capture intent, the AUTHORISATION time). */
+  created?: number;
   outcome?: StripeChargeOutcome | null;
   balance_transaction?: string | StripeBalanceTransaction | null;
 }
