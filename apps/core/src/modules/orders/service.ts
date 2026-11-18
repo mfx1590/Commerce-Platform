@@ -11,7 +11,7 @@
 // latest `markShippedInTx`), `completed` when every shipment is delivered (`markDeliveredInTx`). Only
 // `cancelled` is an explicit call. Each move happens in the transaction of its trigger, with its outbox row.
 import type { Queryable, ScopedClient } from '@platform/db';
-import type { Actor } from '../../lib/audit';
+import { writeAudit, type Actor } from '../../lib/audit';
 import { AppError, conflict, validationError } from '../../lib/errors';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
 import { paymentProvider } from '../../lib/payment-seam';
@@ -151,6 +151,31 @@ export async function transition(
     });
   }
   await withEvents(tx, [event]);
+  // #887: one audit row per order mutation, in this transaction (a rollback leaves none). Who: the actor as given —
+  // `staff` with its id, `customer` / `system` named as such. What: the status fields that moved (before → after),
+  // the changed field NAMES, and what the caller adds (line ids and quantities). Never PII.
+  const moved = FIELDS.filter((f) => changed.includes(f));
+  await writeAudit(tx, {
+    organizationId: after.organization_id,
+    storeId: after.store_id,
+    actor: change.actor,
+    action:
+      change.audit?.action ??
+      (change.status === 'cancelled'
+        ? 'order.cancel'
+        : moved.length > 0
+          ? 'order.status_change'
+          : 'order.update'),
+    entityType: 'order',
+    entityId: after.id,
+    before: Object.fromEntries(moved.map((f) => [f, before[f]])),
+    after: {
+      ...Object.fromEntries(moved.map((f) => [f, after[f]])),
+      ...(change.status === 'cancelled' ? { reason: after.cancel_reason } : {}),
+      changed_fields: [...new Set([...changed, ...extra])].sort(),
+      ...(change.audit?.after ?? {}),
+    },
+  });
   if (change.hooks?.afterEvents) await change.hooks.afterEvents(tx);
   return after;
 }

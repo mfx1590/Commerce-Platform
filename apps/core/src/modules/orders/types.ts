@@ -100,6 +100,12 @@ export interface TransitionChange {
   actor: Actor;
   occurredAt?: Date | undefined;
   hooks?: TransitionHooks | undefined;
+  /**
+   * The audit row this transition writes (#887): the action (default: `order.cancel` for a cancel,
+   * `order.status_change` when a status field moves, `order.update` for an edit) and extra `after` fields — ids,
+   * statuses and quantities only, never PII.
+   */
+  audit?: { action?: string; after?: Record<string, unknown> } | undefined;
 }
 
 export interface LineQuantity {

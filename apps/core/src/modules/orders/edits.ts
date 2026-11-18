@@ -263,7 +263,14 @@ export async function decreaseLineQuantity(
       to_quantity: quantity,
       delta_minor: Number(o.total_minor) - Number(after.total_minor),
     });
-    await transition(tx, orderId, { changed_fields: [...changed, 'metadata'], actor });
+    await transition(tx, orderId, {
+      changed_fields: [...changed, 'metadata'],
+      actor,
+      audit: {
+        action: 'order.line_item_update',
+        after: { line_item_id: lineItemId, from_quantity: line.quantity, to_quantity: quantity },
+      },
+    });
     return renderAdminOrder(tx, orderId);
   });
 }
@@ -303,7 +310,14 @@ export async function cancelLine(
       to_quantity: 0,
       delta_minor: Number(o.total_minor) - Number(after.total_minor),
     });
-    await transition(tx, orderId, { changed_fields: [...changed, 'metadata'], actor });
+    await transition(tx, orderId, {
+      changed_fields: [...changed, 'metadata'],
+      actor,
+      audit: {
+        action: 'order.line_item_cancel',
+        after: { line_item_id: lineItemId, from_quantity: line.quantity, to_quantity: 0 },
+      },
+    });
     return renderAdminOrder(tx, orderId);
   });
 }

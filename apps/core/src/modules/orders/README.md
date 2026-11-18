@@ -74,6 +74,19 @@ Locks the row (`FOR UPDATE`), validates every requested field against its table,
 Test seams `hooks.afterUpdate` / `hooks.afterEvents` throw inside the transaction (compensation test: row
 unchanged, no event).
 
+**Audit (#887).** Every transition also writes ONE `audit_log` row (`entity_type: 'order'`, the order id) in the same
+transaction, by the change's actor as given — a staff user with its id; `customer` / `system` named as such (`actor_id`
+NULL). The action is `change.audit.action` when the caller names one, else `order.cancel` for a cancel,
+`order.status_change` when a status field moves, `order.update` for an edit. `before` / `after` hold the status
+fields that moved (and the cancel's `reason`), `after.changed_fields` the changed field NAMES, plus the caller's extra
+fields — ids, statuses and quantities only, never an email, a name or an address. So every mutation of an order is
+audited through this one path: the automatic `confirmed` / `processing` / `completed` hops, window 7's capture and
+refund status moves (`markPayment*`, `syncOrderPaymentStatus`), window 8's fulfilment moves, the fraud hold, a cancel
+(and its void as its own `payment_status` row before it), and the line edits (`order.line_item_update` /
+`order.line_item_cancel` with `line_item_id`, `from_quantity`, `to_quantity`). Placement writes `order.place` itself
+(checkout module: `display_id`, `cart_id`, `currency`, `total_minor`, `line_count`, `payment_provider`). A mutation
+that rolls back or is refused writes none (`test/order-audit.test.ts`).
+
 ## Public functions for windows 7 and 8 (`index.ts`)
 
 Scoped client + ids, never provider objects. Each wrapper is **idempotent on its target state** (a webhook retry

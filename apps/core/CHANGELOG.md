@@ -2,6 +2,23 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
+### 2026-11-18 · audit rows for order mutations (#887)
+
+- `transition()` — the one mutation path of an order — writes one `audit_log` row per call (`entity_type: 'order'`),
+  in its transaction, by the change's actor (staff by id; `customer` / `system` named as such). Actions:
+  `order.cancel`, `order.status_change`, `order.update`, or the caller's (`order.line_item_update` /
+  `order.line_item_cancel` with the line and quantities); `before` / `after` = the status fields that moved + the
+  changed field names; no PII. So placement's confirm, captures and refunds (window 7's status moves), fulfilment
+  moves, the fraud hold, cancel (+ its void) and line edits are all audited on the order. Placement writes
+  `order.place` (ids, currency, total, line count, provider). Nothing wrote `entity_type 'order'` before.
+- `writeAudit` stamps `created_at` with `clock_timestamp()` (the write time), so several rows of one transaction keep
+  their order in a history sorted by time.
+- `test/order-audit.test.ts` (5): placement (customer), capture (system), cancel by a store admin (void row, then one
+  `order.cancel` with staff id, previous status, reason; re-cancel writes nothing), both line edits, and none for a
+  rolled-back or refused mutation; no email or address in any row. Mutation-checked.
+- Not yet: the cancel's refund link (`refund_ids` on `order.cancel`) — the cancel refund is #905 / PR #917, not on main;
+  it lands with whichever of the two merges second.
+
 ### 2026-11-13 · contract coverage test (#858)
 
 - `test/contract-coverage.test.ts`: every Admin and Store API operation has a route on the composed app (Express's
