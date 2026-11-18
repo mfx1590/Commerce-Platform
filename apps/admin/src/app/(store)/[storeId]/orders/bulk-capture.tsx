@@ -107,6 +107,34 @@ export function BulkCapture({
     );
   }
 
+  // The preview is for exactly the orders ticked when it was taken (#913 review). Untick or tick
+  // one afterwards and it no longer describes what would be sent: it is dropped, never confirmed.
+  const previewedKey = preview.rows
+    .map((row) => row.id)
+    .sort()
+    .join(',');
+  const tickedKey = [...ids].sort().join(',');
+  if (previewedKey !== tickedKey) {
+    return (
+      <div
+        role="status"
+        className="border-line bg-surface flex w-full items-center gap-3 rounded-md border px-3 py-2 text-sm"
+      >
+        <span>The selection changed since the preview. Nothing was captured — preview again.</span>
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => {
+            setPreview(null);
+            setTyped('');
+          }}
+        >
+          Preview again
+        </Button>
+      </div>
+    );
+  }
+
   const count = preview.capturable;
   const notCaptured = preview.rows.length - count;
   const unconfirmed = typed.trim() !== String(count);
@@ -166,7 +194,8 @@ export function BulkCapture({
             onClick={() => {
               if (pending) return;
               const confirmed = preview.rows
-                .filter((row) => row.capturable)
+                // Second guard: only orders that are still ticked.
+                .filter((row) => row.capturable && selection.ids.has(row.id))
                 .map((row) => ({
                   id: row.id,
                   amountMinor: row.amountMinor!,

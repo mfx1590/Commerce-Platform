@@ -136,6 +136,8 @@ export interface BulkRowResult {
   label: string;
   outcome: RowOutcome;
   message: string;
+  /** More columns for the results CSV (amount_minor, currency, payment_id for a capture). */
+  extra?: Readonly<Record<string, string | number | null>>;
 }
 
 export interface BulkReport {
@@ -163,7 +165,8 @@ export function outcomeOf(
 
 /**
  * Runs `work` for every row, at most `concurrency` at a time, results in the rows' order. A row
- * whose work throws is `failed` with the error's message; the others carry on.
+ * whose work throws is `unknown` (#913 review): the throw may come after its write went through, so
+ * it is never reported as a plain failure someone would simply run again. The others carry on.
  */
 export async function runBulk<R extends { id: string }>(
   rows: readonly R[],
@@ -183,8 +186,8 @@ export async function runBulk<R extends { id: string }>(
         results[index] = {
           id: row.id,
           label: row.id,
-          outcome: 'failed',
-          message: cause instanceof Error ? cause.message : 'Unexpected error.',
+          outcome: 'unknown',
+          message: `Outcome unknown (${cause instanceof Error ? cause.message : 'unexpected error'}): check this row before running it again.`,
         };
       }
     }

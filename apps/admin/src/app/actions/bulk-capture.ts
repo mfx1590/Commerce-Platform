@@ -182,11 +182,17 @@ export async function bulkCaptureAction(
       if (!plan.capturable) {
         return { id, label, outcome: 'skipped', message: plan.reason };
       }
+      const extra = {
+        amount_minor: plan.amountMinor,
+        currency: plan.currency,
+        payment_id: plan.paymentId,
+      };
       const want = expected.get(id)!;
       if (plan.amountMinor !== want.amountMinor || plan.currency !== want.currency) {
         return {
           id,
           label,
+          extra,
           outcome: 'skipped',
           message: `Not captured: the amount changed since the preview (${formatMoney(want.amountMinor, want.currency, lang)} → ${formatMoney(plan.amountMinor, plan.currency, lang)}). Preview again.`,
         };
@@ -195,21 +201,31 @@ export async function bulkCaptureAction(
         storeId,
         id,
         plan.paymentId,
-        plan.partial ? { amount_minor: plan.amountMinor } : {},
+        // Always the amount (#913 review): what was previewed and confirmed is what is asked for,
+        // never "whatever the authorisation is" by an empty body.
+        { amount_minor: plan.amountMinor },
       );
-      if (result.ok) return { id, label, outcome: 'done', message: capturedMessage(plan, lang) };
+      if (result.ok)
+        return { id, label, extra, outcome: 'done', message: capturedMessage(plan, lang) };
       if (result.status === 409) {
-        return { id, label, outcome: 'skipped', message: `Not captured: ${result.error.message}.` };
+        return {
+          id,
+          label,
+          extra,
+          outcome: 'skipped',
+          message: `Not captured: ${result.error.message}.`,
+        };
       }
       if (result.status === 422) {
         return {
           id,
           label,
+          extra,
           outcome: 'skipped',
           message: `Not capturable: ${result.error.message}.`,
         };
       }
-      return { id, label, ...outcomeOf(result, '') };
+      return { id, label, extra, ...outcomeOf(result, '') };
     },
   );
   revalidatePath(`/${storeId}/orders`);

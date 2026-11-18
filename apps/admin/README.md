@@ -333,7 +333,9 @@ The confirmation states the exact count and, for "all matching", the filters in 
 
 - ticked orders only, at most 100;
 - a read-only preview with the per-currency totals, then the count typed;
-- each order captures its current total capped at its authorisation;
+- each order captures its current total capped at its authorisation, always sent as `amount_minor`;
+- Stripe authorisations only;
+- a preview is dropped if the ticked orders change after it;
 - each row is re-read, and is not captured if its amount changed since the preview;
 - an unknown outcome is never retried.
 

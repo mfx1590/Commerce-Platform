@@ -236,7 +236,7 @@ describe('bulkCaptureAction', () => {
     expect(api.capturePayment).not.toHaveBeenCalled();
   });
 
-  it('the whole authorisation: an empty body; a lower total: amount_minor', async () => {
+  it('always sends amount_minor: the whole authorisation, or the lower total (#913 review)', async () => {
     api.getOrder.mockImplementation((_s: string, orderId: string) =>
       Promise.resolve(ok(orderId === id(2) ? order(2, { total: 900 }) : order(1))),
     );
@@ -248,7 +248,7 @@ describe('bulkCaptureAction', () => {
         body,
       ]),
     ).toEqual([
-      [id(1), payId(1), {}],
+      [id(1), payId(1), { amount_minor: 1200 }],
       [id(2), payId(2), { amount_minor: 900 }],
     ]);
     expect(result).toMatchObject({
@@ -332,5 +332,69 @@ describe('bulkCaptureAction', () => {
     expect(spy).toHaveBeenCalledTimes(2);
     expect(api.capturePayment).toHaveBeenCalledTimes(4);
     spy.mockRestore();
+  });
+});
+
+describe('#913 review', () => {
+  it('a payment of another provider is not capturable and stays out of the totals', async () => {
+    api.getOrder.mockImplementation((_s: string, orderId: string) => {
+      const n = Number(orderId.slice(-3));
+      const o = order(n);
+      if (n === 2) o.payments[0]!.provider = 'manual';
+      return Promise.resolve(ok(o));
+    });
+    const result = await previewBulkCaptureAction(STORE, [id(1), id(2)]);
+    expect(result).toMatchObject({
+      status: 'success',
+      data: {
+        capturable: 1,
+        totals: { JPY: 1200 },
+        rows: [
+          { id: id(1), capturable: true },
+          {
+            id: id(2),
+            capturable: false,
+            message: 'Paid through the manual provider: there is nothing to capture here.',
+          },
+        ],
+      },
+    });
+    // And at capture time it is not sent either.
+    await bulkCaptureAction(STORE, [{ id: id(2), amountMinor: 1200, currency: 'JPY' }]);
+    expect(api.capturePayment).not.toHaveBeenCalled();
+  });
+
+  it('a throw inside a capture row is "unknown", never "failed", and is not retried', async () => {
+    api.capturePayment.mockRejectedValue(new Error('socket closed after write'));
+    const result = await bulkCaptureAction(STORE, [
+      { id: id(1), amountMinor: 1200, currency: 'JPY' },
+    ]);
+    expect(api.capturePayment).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      data: { counts: { unknown: 1, failed: 0 }, results: [{ outcome: 'unknown' }] },
+    });
+  });
+
+  it('the results CSV carries amount_minor, currency and payment_id for every planned row', async () => {
+    const { reportCsv } = await import('@/lib/table/csv');
+    api.capturePayment
+      .mockResolvedValueOnce(ok({ id: payId(1), status: 'captured' }))
+      .mockResolvedValueOnce(fail(409, 'conflict', 'payment is already captured'));
+    const result = await bulkCaptureAction(STORE, [
+      { id: id(1), amountMinor: 1200, currency: 'JPY' },
+      { id: id(2), amountMinor: 1200, currency: 'JPY' },
+    ]);
+    const csv = result.status === 'success' ? reportCsv(result.data.results) : '';
+    const lines = csv.trim().split('\r\n');
+    expect(lines[0]).toBe('id,name,result,message,amount_minor,currency,payment_id');
+    expect(lines[1]).toBe(
+      `${id(1)},#1001,done,Captured JP¥1,200.,1200,JPY,${payId(1)}`.replace(
+        'Captured JP¥1,200.',
+        '"Captured JP¥1,200."',
+      ),
+    );
+    expect(lines[2]).toBe(
+      `${id(2)},#1002,skipped,Not captured: payment is already captured.,1200,JPY,${payId(2)}`,
+    );
   });
 });

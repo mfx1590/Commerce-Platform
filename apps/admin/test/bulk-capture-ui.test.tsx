@@ -151,7 +151,8 @@ describe('BulkCapture', () => {
 
   it('a capture run that never comes back is "outcome unknown", sent once, never retried', async () => {
     actions.bulkCaptureAction.mockRejectedValue(new TypeError('Failed to fetch'));
-    const { user, onClose } = setup(ticked(1, 2));
+    // All three ticked: the preview (three rows) matches the selection.
+    const { user, onClose } = setup(ticked(1, 2, 3));
     await user.click(screen.getByRole('button', { name: 'Capture…' }));
     await user.type(await screen.findByLabelText('Type 2 to confirm'), '2');
     await user.click(screen.getByRole('button', { name: /^Yes, capture/ }));
@@ -177,5 +178,34 @@ describe('BulkCapture', () => {
 
   it('a ja-JP store sees yen as it writes it', () => {
     expect(describeTotals({ JPY: 120000 }, 'ja-JP')).toBe('￥120,000');
+  });
+});
+
+describe('#913 review: the preview is for exactly the ticked orders', () => {
+  it('tick 3, preview, untick 1: the preview is dropped and nothing for the unticked order is sent', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const { rerender } = render(
+      <BulkCapture storeId={STORE} locale="en-GB" selection={ticked(1, 2, 3)} onClose={onClose} />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Capture…' }));
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
+    rerender(
+      <BulkCapture storeId={STORE} locale="en-GB" selection={ticked(1, 3)} onClose={onClose} />,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'The selection changed since the preview. Nothing was captured — preview again.',
+    );
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Yes, capture/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Preview again' }));
+    // Back to the start: a fresh preview of what is ticked now.
+    await user.click(screen.getByRole('button', { name: 'Capture…' }));
+    expect(actions.previewBulkCaptureAction).toHaveBeenLastCalledWith(
+      STORE,
+      [id(1), id(3)],
+      'en-GB',
+    );
+    expect(actions.bulkCaptureAction).not.toHaveBeenCalled();
   });
 });
