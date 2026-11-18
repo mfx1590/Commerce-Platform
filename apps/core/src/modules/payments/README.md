@@ -88,7 +88,14 @@ Stripe does not return the balance transaction) → `payment.captured` v1 throug
   a capture the row's `amount_minor` **is the captured amount** — the refund ceiling (2.3) and `Order.payments[]
 .amount` read it — and `metadata.capture = { authorized_minor, captured_minor, partial }` keeps the authorised
   one on record; `payment.captured.amount_minor` is what was captured ("source of truth for cash").
-- A **definitive** Stripe failure (4xx, not 429) writes row `failed` + `failure_reason` + `payment.failed` + an
+- **A refusal is re-checked first (#914).** Before a definitive refusal (other than `idempotency_error`) is recorded,
+  the PaymentIntent is re-read (`latest_charge.balance_transaction` expanded). Stripe remembers an idempotency key
+  for ~24 h, so a retry after an unknown outcome that outlived it is a fresh request for an intent that IS captured,
+  and Stripe answers `payment_intent_unexpected_state`. When the re-read says `succeeded`, the row converges to
+  `captured` with Stripe's `amount_received` and fee (`metadata.capture` from those), `payment.captured`, and the
+  audit row with `converged: true` + the Stripe code — never `failed`. A re-read that fails writes nothing (the
+  outcome is unknown again; the next retry converges).
+- A **definitive** Stripe failure (4xx, not 429) on an intent Stripe does not hold as captured writes row `failed` + `failure_reason` + `payment.failed` + an
   audit row in the same transaction, then `markPaymentFailed`, then throws 402 `payment_failed`. An outage writes
   NOTHING and rethrows: retry later, the idempotency key makes the retry safe. Stripe's `idempotency_error` (the
   same key with another amount — a retry after a lost response) is a 409 with nothing written: the first request's

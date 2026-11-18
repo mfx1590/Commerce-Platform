@@ -19,6 +19,7 @@ import {
   type StripeApi,
   type StripeCharge,
   type StripeParams,
+  type StripePaymentIntent,
 } from './stripe-client';
 
 /**
@@ -120,6 +121,10 @@ type CaptureOutcome =
  * - a provider other than `stripe` (the built-in `manual`) → 422 `provider_unsupported` `{ provider }`.
  * - Stripe `idempotency_error` (a retry after an outage with a DIFFERENT amount under the same key) → 409, nothing
  *   written: the first request's parameters stand; retry with the same amount or wait for the webhook.
+ * - any other definitive Stripe refusal: the PaymentIntent is re-read first (#914). Captured at Stripe
+ *   (`succeeded` — e.g. a retry after an unknown outcome that outlived Stripe's ~24 h key window) → the row converges
+ *   to `captured` with Stripe's `amount_received` and fee, `payment.captured`, audit `converged: true`; only an
+ *   intent Stripe does not hold as captured makes the payment `failed`. A failing re-read writes nothing.
  */
 export async function capturePayment(
   client: ScopedClient,
@@ -191,12 +196,17 @@ export async function capturePayment(
 
     const now = new Date();
     const params: StripeParams = partial ? { amount_to_capture: captureMinor } : {};
-    try {
-      const intent = await api.capturePaymentIntent(payment.provider_payment_id, params, {
-        idempotencyKey: `capture_${payment.id}`,
-        expand: ['latest_charge.balance_transaction'],
-      });
+    /**
+     * The captured state, from what Stripe says was captured: the row, `payment.captured`, the audit row. `converged`
+     * (#914) marks a capture whose own answer never reached us — learned from re-reading the PaymentIntent.
+     */
+    const recordCaptured = async (
+      intent: StripePaymentIntent,
+      capturedMinor: number,
+      converged: { stripe_code: string | null } | null,
+    ): Promise<CaptureOutcome> => {
       const fee = feeFrom(intent.latest_charge);
+      const wasPartial = capturedMinor !== authorizedMinor;
       // The row's amount becomes what was captured: the refund ceiling (2.3) and `Order.payments[].amount` read
       // it; the authorised amount stays on record in `metadata.capture`.
       await tx.query(
@@ -206,7 +216,7 @@ export async function capturePayment(
                'authorized_minor', $5::bigint, 'captured_minor', $4::bigint, 'partial', $6::boolean)),
              updated_at = now()
          WHERE id = $1`,
-        [payment.id, now, fee, captureMinor, authorizedMinor, partial],
+        [payment.id, now, fee, capturedMinor, authorizedMinor, wasPartial],
       );
       await withEvents(tx, [
         await buildEvent({
@@ -223,7 +233,7 @@ export async function capturePayment(
             legal_entity_id: store.legal_entity_id,
             provider: 'stripe',
             provider_payment_id: payment.provider_payment_id,
-            amount_minor: captureMinor,
+            amount_minor: capturedMinor,
             fee_minor: fee,
             currency: payment.currency,
             captured_at: now.toISOString(),
@@ -241,15 +251,23 @@ export async function capturePayment(
         before: { status: 'authorized', amount_minor: authorizedMinor },
         after: {
           status: 'captured',
-          amount_minor: captureMinor,
+          amount_minor: capturedMinor,
           authorized_minor: authorizedMinor,
-          partial,
+          partial: wasPartial,
           fee_minor: fee,
           order_id: payment.order_id,
+          ...(converged ? { converged: true, stripe_code: converged.stripe_code } : {}),
         },
       });
       const updated = await tx.query<PaymentRow>(SELECT_PAYMENT, [payment.id]);
       return { kind: 'captured', payment: updated.rows[0]! };
+    };
+    try {
+      const intent = await api.capturePaymentIntent(payment.provider_payment_id, params, {
+        idempotencyKey: `capture_${payment.id}`,
+        expand: ['latest_charge.balance_transaction'],
+      });
+      return await recordCaptured(intent, captureMinor, null);
     } catch (err) {
       // Outages / 5xx / network: write nothing, rethrow — the caller retries and idempotency protects us.
       if (!(err instanceof StripeError) || !err.definitive) throw err;
@@ -260,6 +278,19 @@ export async function capturePayment(
           'a capture with different parameters was already sent to Stripe for this payment; retry with the same amount',
           { field: 'amount_minor', requested_minor: captureMinor, stripe_code: err.code },
         );
+      }
+      // #914: a refusal is not proof the money was not taken. A retry after an unknown outcome that outlived
+      // Stripe's idempotency window (~24 h) sends a fresh request for an intent that IS captured, and Stripe
+      // answers `payment_intent_unexpected_state`. So re-read the PaymentIntent before writing anything: if Stripe
+      // holds it as captured (`succeeded`), converge to `captured` with Stripe's amount — never `failed`. If the
+      // re-read itself fails, nothing is written and the error goes up (unknown again; a later retry converges).
+      const current = await api.retrievePaymentIntent(payment.provider_payment_id, {
+        expand: ['latest_charge.balance_transaction'],
+      });
+      if (current.status === 'succeeded') {
+        return await recordCaptured(current, current.amount_received ?? current.amount, {
+          stripe_code: err.code ?? null,
+        });
       }
       const reason = err.declineCode ?? err.code ?? err.message;
       await tx.query(

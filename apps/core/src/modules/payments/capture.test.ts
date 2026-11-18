@@ -328,6 +328,93 @@ describe('capturePayment — partial capture (#355)', () => {
   });
 });
 
+describe('capturePayment — a retry after Stripe forgot the key converges to captured, never failed (#914)', () => {
+  /** The capture happened at Stripe under a key Stripe no longer remembers (~24 h); our row never learned it. */
+  async function capturedAtStripeOnly(intentId: string, params: Record<string, number> = {}) {
+    await fake.capturePaymentIntent(intentId, params, {
+      idempotencyKey: `expired-${randomUUID()}`,
+    });
+  }
+  async function captureAudit(paymentId: string) {
+    const r = await owner.query<{ action: string; after: Record<string, unknown> }>(
+      `SELECT action, after FROM audit_log WHERE entity_type = 'payment' AND entity_id = $1 ORDER BY created_at`,
+      [paymentId],
+    );
+    return r.rows;
+  }
+
+  it('the whole authorisation was captured: Stripe refuses the fresh request, the PaymentIntent is re-read, the row converges', async () => {
+    const { orderId, paymentId, intentId, amount } = await placedOrder();
+    await capturedAtStripeOnly(intentId!);
+    const out = await capturePayment(a, paymentId, opts());
+    expect(out.replayed).toBe(false);
+    expect(out.payment).toMatchObject({ status: 'captured', amount_minor: String(amount) });
+    const row = await paymentRow(paymentId);
+    expect(row).toMatchObject({
+      status: 'captured',
+      amount_minor: String(amount),
+      fee_minor: '123',
+    });
+    expect(row.metadata.capture).toEqual({
+      authorized_minor: amount,
+      captured_minor: amount,
+      partial: false,
+    });
+    expect(await topicsFor(paymentId)).toEqual(['payment.authorized', 'payment.captured']);
+    expect(await orderPaymentStatus(orderId)).toBe('captured');
+    const audit = await captureAudit(paymentId);
+    expect(audit.map((x) => x.action)).toEqual(['payment.capture']);
+    expect(audit[0]!.after).toMatchObject({
+      status: 'captured',
+      amount_minor: amount,
+      converged: true,
+      stripe_code: 'payment_intent_unexpected_state',
+    });
+    // what Stripe was asked: the refused capture, then the re-read
+    const methods = fake.calls.map((c) => c.method);
+    expect(methods.slice(-2)).toEqual(['capturePaymentIntent', 'retrievePaymentIntent']);
+  });
+
+  it('a PARTIAL capture happened at Stripe: the row converges to Stripe’s amount, not the one this retry asked for', async () => {
+    const { paymentId, intentId, amount } = await placedOrder();
+    const part = amount - 70;
+    await capturedAtStripeOnly(intentId!, { amount_to_capture: part });
+    const out = await capturePayment(a, paymentId, opts()); // asks for the whole authorisation
+    expect(out.payment).toMatchObject({ status: 'captured', amount_minor: String(part) });
+    expect((await paymentRow(paymentId)).metadata.capture).toEqual({
+      authorized_minor: amount,
+      captured_minor: part,
+      partial: true,
+    });
+    expect(await topicsFor(paymentId)).toEqual(['payment.authorized', 'payment.captured']);
+  });
+
+  it('a real refusal still fails: Stripe holds the intent uncaptured after the re-read', async () => {
+    const { orderId, paymentId } = await placedOrder();
+    fake.failNextCapture = 'card_declined';
+    await expect(capturePayment(a, paymentId, opts())).rejects.toMatchObject({
+      code: 'payment_failed',
+    });
+    expect((await paymentRow(paymentId)).status).toBe('failed');
+    expect(await topicsFor(paymentId)).toEqual(['payment.authorized', 'payment.failed']);
+    expect(await orderPaymentStatus(orderId)).toBe('failed');
+    expect(fake.calls.at(-1)!.method).toBe('retrievePaymentIntent');
+  });
+
+  it('the re-read fails (outage): nothing is written — neither failed nor captured; the next retry converges', async () => {
+    const { orderId, paymentId, intentId, amount } = await placedOrder();
+    await capturedAtStripeOnly(intentId!);
+    fake.outageNextRetrieve = true;
+    await expect(capturePayment(a, paymentId, opts())).rejects.toBeTruthy();
+    expect((await paymentRow(paymentId)).status).toBe('authorized');
+    expect(await topicsFor(paymentId)).toEqual(['payment.authorized']);
+    expect(await orderPaymentStatus(orderId)).toBe('authorized');
+    expect(await captureAudit(paymentId)).toEqual([]);
+    const out = await capturePayment(a, paymentId, opts());
+    expect(out.payment).toMatchObject({ status: 'captured', amount_minor: String(amount) });
+  });
+});
+
 // ------------------------------------------------------------------------------------------------- webhook
 
 describe('route and webhook agree', () => {

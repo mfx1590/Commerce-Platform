@@ -5,6 +5,16 @@ file is the module's own history (linked from the PRs).
 
 ## Integration 2a — payments/phase3 (contracts-v0.4.11)
 
+### 2026-11-18 · #914 (window 1, integration/capture-converge-914) — a late capture retry converges to captured
+
+- `capturePayment`: a definitive Stripe refusal is no longer proof the money was not taken. A retry after an unknown
+  outcome that outlived Stripe's ~24 h key window gets `payment_intent_unexpected_state` for an intent that IS
+  captured; the PaymentIntent is now re-read before anything is written and, when Stripe holds it as `succeeded`, the
+  row converges to `captured` with Stripe's amount and fee (`payment.captured`, audit `converged: true`). Only an
+  intent Stripe does not hold as captured becomes `failed`; a failing re-read writes nothing.
+- Tests (`capture.test.ts`, +4): full and partial captures made at Stripe under a forgotten key, a real refusal still
+  failing (after the re-read), an outage on the re-read writing nothing then converging. Mutation-checked.
+
 ### 2026-10-06 · with #373 — contracts 0.4.12 on main: the local `provider_unsupported` cast is gone
 
 - `capture.ts`: `PROVIDER_UNSUPPORTED` is a plain `ErrorCode`; `providerUnsupported()` lets `AppError` pick the 422 from the
