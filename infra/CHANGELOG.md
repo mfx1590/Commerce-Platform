@@ -4,6 +4,15 @@ Window 5 (Infra & DevOps). Owned paths: `infra/**`, `.github/workflows/**`, `**/
 
 ## Unreleased — Phase 6
 
+### Fixed (the production audit gate, red on every PR since 2026-11-18)
+
+- `infra/security/audit-allowlist.json`: picomatch **GHSA-fc5q-39xc-vjpf** (high: ReDoS through repeated extglobs)
+  is allowed until **2026-12-02**, owner window 5, with issue #911. No patched release exists. It is not
+  request-reachable in apps/core: our code imports no glob matcher, and @medusajs/* import none. The only runtime
+  caller is @mikro-orm/core (globby → fast-glob → micromatch), which globs its own config paths at bootstrap and
+  cache clear. vite, tailwind/chokidar, fdir, tinyglobby and vitest are build tooling. #911 is the bump
+  (an override or Medusa) once picomatch ships a fix.
+
 ### Changed (the Node 22 move, step 0: the runtime only)
 
 - Node 22 everywhere, with no dependency bumps: root engines `>=22.12 <23`, `.nvmrc` 22, `NODE_VERSION: 22` in
