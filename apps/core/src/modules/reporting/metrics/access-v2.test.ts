@@ -1,6 +1,6 @@
-// BI v2 (#871): the access matrix's two new rows, run HERE until they land in apps/core/test/access-matrix.test.ts
-// (window 1's file; the REQUEST carries the exact diff) together with the contract (the matrix refuses a row the
-// contract does not declare, and a declared route without a row). Until then this overlay is the proof.
+// BI v2 (#871): the two new operations' access, cell by cell. The access matrix carries their rows too (#906, landed
+// with the contract); this file adds what the matrix row does not: store B named → 403 before any read, and each store
+// admin's inventory rows are its own stores' only.
 //
 // Unit job only: Postgres, the REAL metrics router, dev tokens (the role_assignment stub of ADR 0002), the two
 // operations' x-permission overlaid on the spec exactly as #871 a3 declares it (viewer on store:*). ClickHouse is a
