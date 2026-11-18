@@ -329,6 +329,16 @@ The confirmation states the exact count and, for "all matching", the filters in 
 
 **Export CSV** (`ExportCsvButton` plus a server action over `exportStoreList` in `src/lib/table/export-server.ts`) writes the current filtered and sorted list, up to 1,000 rows. The action checks the store section itself with `refuseUnlessSection`, the same predicate as `StoreSectionGuard`, because a server action is reachable without the page. It sends only the table's filter and sort keys, and `csvCell` neutralises formula cells.
 
+**Bulk capture** (`bulk-capture.tsx`, `actions/bulk-capture.ts`, `lib/orders/bulk-capture.ts`) is money:
+
+- ticked orders only, at most 100;
+- a read-only preview with the per-currency totals, then the count typed;
+- each order captures its current total capped at its authorisation, always sent as `amount_minor`;
+- Stripe authorisations only;
+- a preview is dropped if the ticked orders change after it;
+- each row is re-read, and is not captured if its amount changed since the preview;
+- an unknown outcome is never retried.
+
 Live today: Catalog Publish / Archive…, Orders Cancel… (a reason is required; each row says whether the authorisation was voided or a captured payment needs a refund, because cancelling never refunds). A run that throws is shown as "outcome unknown" and is never retried. The rows are checked against the principal loaded once per action (`refusalFor`), not one `GET /admin/me` per row. Every DataTable has a 20 / 50 / 100 page-size picker. `SelectFilter` and `DateRangeFilter` (`src/components/table/url-filters.tsx`) expose list parameters that had no control: Orders placed from / to, and Catalog category.
 
 ## Forms: `useContractForm`
@@ -733,6 +743,22 @@ path.** #420: the same 409 from `updateStore` with `status: active` is said the 
 the Status field of the Store view's General form (store_admin cannot call `activateStore`, which is
 owner on hq; the core runs the same check on `updateStore`), and the HQ store form (owner) saves the
 other fields first and then calls `activateStore`.
+
+**Readiness read and "can sell" (#830, CONTRACT CHANGE #839; Admin API 0.4.29).** The
+page also reads `getStoreReadiness` (`GET /admin/stores/{id}/readiness`, viewer): the same check
+`activateStore` runs, without activating. A draft store's panel therefore lists what is missing
+**before** Activate is pressed (and pre-fills the tax/shipping countries); Activate stays the gate and
+the core re-checks every time. Missing `payment_method` ("a payment method customers can pay with")
+comes with an inline **Turn on pay on invoice** (`updatePaymentSettingsAction`, store_admin, the
+rendered `updated_at` as the stale check) and a link to Settings › Payment. Below it, **Can this
+store sell?** (`CanSellBox`) shows the payment methods, the purchasable-product count the core
+computes, and each warning (`no_purchasable_product` → the catalogue): ACTIVE alone is not "can
+sell". The body is parsed (`src/lib/readiness`), never trusted: another shape is a 502 failure, and a
+failed read only hides the box and the pre-filled list. The type is the generated
+`AdminComponents['StoreReadiness']`, and the parse is pinned to it with `satisfies`. A warning the contract
+doesn't declare is a malformed answer. The core refuses activation without a payment method, so the onboarding
+e2e turns _Pay on invoice_ on from the panel (its own settings-only PATCH) before the last Activate. A single
+PATCH setting `invoice_allowed` and `status: active` together is refused (window 1).
 
 **Integration 3 G1 (#518) — proven from the UI, core mode.** The owner journey in
 `e2e/hq-onboarding.spec.ts` goes on after Activate, on the same single owner sign-in (a TOTP code

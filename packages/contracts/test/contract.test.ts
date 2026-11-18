@@ -168,6 +168,7 @@ describe('Admin API mock', () => {
     const paths = [
       `/admin/stores`,
       `/admin/stores/${STORE_ID}`,
+      `/admin/stores/${STORE_ID}/readiness`, // getStoreReadiness (0.4.29, #839)
       `/admin/stores/${STORE_ID}/products`,
       `/admin/stores/${STORE_ID}/products/30000000-0000-4000-8000-000000000201`,
       `/admin/stores/${STORE_ID}/price-lists`,
