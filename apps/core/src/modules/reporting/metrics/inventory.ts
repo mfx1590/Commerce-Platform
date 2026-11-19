@@ -88,7 +88,9 @@ function uuids(v: unknown, field: string, max: number): string[] {
   return (v as string[]).map((s) => s.toLowerCase());
 }
 
-export function parseInventoryQuery(body: unknown): InventoryQuery {
+/** `csv` (#935): a text/csv answer may take up to LIMITS.max_csv_rows rows per page; JSON stays at max_inventory_rows. */
+export function parseInventoryQuery(body: unknown, opts: { csv?: boolean } = {}): InventoryQuery {
+  const maxRows = opts.csv ? LIMITS.max_csv_rows : LIMITS.max_inventory_rows;
   const b = (body ?? {}) as Record<string, unknown>;
   if (typeof b !== 'object' || Array.isArray(b))
     throw validationError('the body must be an object');
@@ -159,9 +161,9 @@ export function parseInventoryQuery(body: unknown): InventoryQuery {
     if (
       !Number.isInteger(b.limit) ||
       (b.limit as number) < 1 ||
-      (b.limit as number) > LIMITS.max_inventory_rows
+      (b.limit as number) > maxRows
     )
-      throw validationError(`limit is an integer 1–${LIMITS.max_inventory_rows}`, {
+      throw validationError(`limit is an integer 1–${maxRows}`, {
         field: 'limit',
       });
     out.limit = b.limit as number;

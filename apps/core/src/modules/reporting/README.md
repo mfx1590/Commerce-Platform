@@ -87,6 +87,37 @@ Tests:
   store → 403, (b) no filter → exactly its own totals, (c) a store dimension → only its own store, (d) finance → 403,
   and an organization principal sees all three brands.
 
+### BI v2 wave 2 (#935, catalogue version 3, Admin API 0.4.31)
+
+- **Customers** (`customers_v2` = `fct_order_sales`): the source aggregates PER CUSTOMER KEY inside ClickHouse (the key
+  is per store: a customer of two brands is two customers) and counts keys outside it, so distinct customers, repeat
+  customers and per-customer sums come from one statement and no key ever leaves ClickHouse. A customer group is the
+  customer's CURRENT group (`dim_customer`; no history).
+- **Totals** of distinct counts and quantiles (`total: 'query'`) come from their own query over every row in scope,
+  never from the rows. **Distribution** metrics (`kind: 'distribution'`, `unit: 'hours'`): one decimal, no currency,
+  no % in `compare`, refused by movers.
+- **Small cells** (`execute.ts` `suppressSmallCells`): any per-customer value of a row with fewer than 5 customers is
+  null with `suppressed: true`, and so is a complementary cell (the next-smallest of its period × currency); the
+  per-customer totals too under 5 customers.
+- **utm values**: lower-cased, trimmed, ≤ 64 characters in the models; per answer, the top 50 by attributed orders are
+  shown and the rest — and anything PII-shaped (`utmValue`) — are `other`.
+- **Promotions** (`promotions.ts`): Postgres `order.metadata.promotions` (the frozen per-promotion allocation:
+  automatic and code promotions, stacked ones each with its own share), through the caller's scoped client; the code
+  is never selected. The executor asks `ExecuteOptions.promotions` for them.
+- **Limits**: JSON at most 1 000 rows; `text/csv` up to 10 000 (`queryMetrics` and `getInventoryHealth`).
+- **Operations** (`operations.ts`): `getCustomerCohorts` (`POST /admin/metrics/cohorts`, ClickHouse, one currency,
+  small cells), `getOperationsBacklog` (`POST /admin/metrics/operations/backlog`, Postgres now: unassigned paid orders,
+  shipments not shipped, returns not received, by age), `listMetricDimensionValues` (`GET /admin/metrics/dimension-values`,
+  the pickers; a promotion by its name only). All `viewer` on `store:*`; `store_ids` outside the scope is a 403; they
+  fail closed (503) until the contract has them.
+- **Ask**: aliases for customer groups (g), campaigns (cp), promotions (pr) and utm values (u); a filter may name an
+  alias THIS question issued (`resolveAliasInputs`); the closed tools `customer_cohorts` and `operations_backlog`.
+
+Tests: `metrics/metrics-wave2.test.ts` (pure), `metrics/metrics-wave2-live.test.ts` (ClickHouse: every new metric ×
+dimension × grain × filter, and exact figures on a built store), `metrics/routes-wave2.test.ts` (Postgres: access,
+the backlog, the pickers, promotions over HTTP), `metrics/contract-wave2.test.ts` (shapes = admin-api.yaml 0.4.31),
+`ask/ask-wave2.test.ts`.
+
 ## BI Q&A (#606, D9) — `ask/`
 
 A question in words, answered with AI tool use over the metrics API. **No SQL is generated or accepted anywhere.**

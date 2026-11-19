@@ -291,7 +291,7 @@ export function metricsAdminRouter(opts: MetricsRouterOptions = {}): Router {
     handle(async (req, res) => {
       const p = requirePrincipal(req);
       spec.validateBody('getInventoryHealth', req.body ?? {});
-      const q: InventoryQuery = parseInventoryQuery(req.body ?? {});
+      const q: InventoryQuery = parseInventoryQuery(req.body ?? {}, { csv: wantsCsv(req) });
       const visible = (await metricsScope(p)).map((s) => s.id);
       if (visible.length === 0)
         throw forbidden('no visible store', { relation: 'viewer', object: 'store:*' });
