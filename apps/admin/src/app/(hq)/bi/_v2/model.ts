@@ -452,3 +452,29 @@ export function perDay(milli: number | null): string {
     ? '—'
     : (milli / 1000).toLocaleString('en-GB', { maximumFractionDigits: 2 });
 }
+
+/**
+ * The owner's question in one plain line, from the status counts of the whole filtered set:
+ * "N items need ordering (stock out, low or at the reorder point), M are out of stock; incoming
+ * stock is not tracked yet." Said differently when the rates are unavailable (no status), and
+ * prefixed when a status filter narrows what is counted.
+ */
+export function inventoryAnswer(
+  health: Pick<InventoryHealth, 'rate_available' | 'incoming_tracked' | 'summary'>,
+  statusFiltered: boolean,
+): string {
+  if (!health.rate_available) {
+    return 'Sales rates are unavailable right now, so what needs ordering cannot be said yet; the stock positions below are live.';
+  }
+  const count = (status: InventoryStatus) =>
+    (health.summary as Record<string, number>)[status] ?? 0;
+  const out = count('stock_out');
+  const need = out + count('low') + count('reorder');
+  const items = (n: number) => `${n} ${n === 1 ? 'item' : 'items'}`;
+  const prefix = statusFiltered ? 'Among the statuses shown: ' : '';
+  const head =
+    need === 0
+      ? 'Nothing needs ordering right now'
+      : `${items(need)} ${need === 1 ? 'needs' : 'need'} ordering, ${out} ${out === 1 ? 'is' : 'are'} out of stock`;
+  return `${prefix}${head}${health.incoming_tracked ? '.' : '; incoming stock is not tracked yet.'}`;
+}

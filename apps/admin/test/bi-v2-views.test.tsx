@@ -301,3 +301,30 @@ describe('Inventory health', () => {
     expect(screen.queryByRole('link', { name: /^Ledger of / })).not.toBeInTheDocument();
   });
 });
+
+describe('manager notes: the landing tab, the answer, the link', () => {
+  it('Inventory health is the first view in the BI nav, with the plain answer on top', async () => {
+    await show(InventoryView({ raw: {}, base: '/bi', canOpenLedger: false }));
+    const links = within(screen.getByRole('navigation', { name: 'BI views' })).getAllByRole('link');
+    expect(links.map((l) => l.textContent)).toEqual([
+      'Inventory health',
+      'Overview',
+      'Products & categories',
+      'Dashboard',
+    ]);
+    expect(screen.getByRole('status', { name: 'The answer' })).toHaveTextContent(
+      '6 items need ordering, 1 is out of stock; incoming stock is not tracked yet.',
+    );
+  });
+
+  it('"Copy link to this view" copies the URL, which holds every filter', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event');
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    await show(OverviewView({ raw: RAW, base: '/bi' }));
+    await user.click(screen.getByRole('button', { name: 'Copy link to this view' }));
+    expect(writeText).toHaveBeenCalledWith(window.location.href);
+    expect(await screen.findByText('Link copied: it opens this exact view.')).toBeInTheDocument();
+  });
+});

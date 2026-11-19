@@ -16,7 +16,7 @@ export default async function BiPage({ searchParams }: { searchParams: Promise<B
   return (
     <HqSectionGuard id="bi">
       <div className="space-y-6">
-        <BiNav base="/bi" current="dashboard" state={parseState(raw)} />
+        <BiNav base="/bi" current="dashboard" copyLink={false} state={parseState(raw)} />
         <BiReport params={raw} />
       </div>
     </HqSectionGuard>

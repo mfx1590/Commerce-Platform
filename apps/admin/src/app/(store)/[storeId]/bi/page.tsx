@@ -31,7 +31,7 @@ export default async function StoreBiPage({
     expandOrganizationRelations(principal.data.organization_relations).has('finance');
   return (
     <div className="space-y-6">
-      <BiNav base={`/${storeId}/bi`} current="dashboard" state={parseState(raw)} />
+      <BiNav base={`/${storeId}/bi`} current="dashboard" copyLink={false} state={parseState(raw)} />
       <MetricsDashboard
         window={windowFrom({ from: one(raw.from), to: one(raw.to) })}
         currencyParam={one(raw.currency)}

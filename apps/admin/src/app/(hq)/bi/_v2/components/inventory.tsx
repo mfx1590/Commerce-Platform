@@ -9,6 +9,7 @@ import {
   INVENTORY_LIMIT,
   INVENTORY_SORTS,
   INVENTORY_STATUSES,
+  inventoryAnswer,
   inventoryQuery,
   parseInventory,
   parseState,
@@ -139,6 +140,9 @@ export async function InventoryView({
           }
         />
         <CardBody className="space-y-4">
+          <p role="status" aria-label="The answer" className="text-base font-medium">
+            {inventoryAnswer(data, inventory.statuses.length > 0)}
+          </p>
           {!data.rate_available && (
             <Notice tone="warning">
               Sales rates are unavailable right now (the analytics store did not answer). The stock

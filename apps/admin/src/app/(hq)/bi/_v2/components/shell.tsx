@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { CopyLink } from './copy-link';
 import {
   BREAKDOWNS,
   CUSTOMER_TYPES,
@@ -20,30 +21,45 @@ import {
 export type BiView = 'dashboard' | 'overview' | 'products' | 'inventory';
 
 const VIEWS: { id: BiView; label: string; path: string }[] = [
-  { id: 'dashboard', label: 'Dashboard', path: '' },
+  // Inventory health first: it answers the owner's question, "do we need to order anything?".
+  { id: 'inventory', label: 'Inventory health', path: '/inventory' },
   { id: 'overview', label: 'Overview', path: '/overview' },
   { id: 'products', label: 'Products & categories', path: '/products' },
-  { id: 'inventory', label: 'Inventory health', path: '/inventory' },
+  { id: 'dashboard', label: 'Dashboard', path: '' },
 ];
 
-export function BiNav({ base, current, state }: { base: string; current: BiView; state: BiState }) {
+export function BiNav({
+  base,
+  current,
+  state,
+  copyLink = true,
+}: {
+  base: string;
+  current: BiView;
+  state: BiState;
+  /** Off on the existing dashboards: their URL holds their own parameters, not this model's. */
+  copyLink?: boolean;
+}) {
   return (
-    <nav aria-label="BI views" className="flex flex-wrap gap-4 text-sm">
-      {VIEWS.map((view) => (
-        <Link
-          key={view.id}
-          href={
-            view.id === 'dashboard'
-              ? `${base}${view.path}`
-              : stateHref(`${base}${view.path}`, state)
-          }
-          aria-current={view.id === current ? 'page' : undefined}
-          className={view.id === current ? 'font-semibold' : 'text-accent hover:underline'}
-        >
-          {view.label}
-        </Link>
-      ))}
-    </nav>
+    <div className="flex flex-wrap items-center gap-4">
+      <nav aria-label="BI views" className="flex flex-wrap gap-4 text-sm">
+        {VIEWS.map((view) => (
+          <Link
+            key={view.id}
+            href={
+              view.id === 'dashboard'
+                ? `${base}${view.path}`
+                : stateHref(`${base}${view.path}`, state)
+            }
+            aria-current={view.id === current ? 'page' : undefined}
+            className={view.id === current ? 'font-semibold' : 'text-accent hover:underline'}
+          >
+            {view.label}
+          </Link>
+        ))}
+      </nav>
+      {copyLink && <CopyLink />}
+    </div>
   );
 }
 

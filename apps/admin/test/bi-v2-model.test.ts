@@ -9,6 +9,7 @@ import {
   filtersOf,
   formatChange,
   formatValue,
+  inventoryAnswer,
   inventoryQuery,
   kpisOf,
   labelOf,
@@ -313,5 +314,35 @@ describe('one currency at a time', () => {
       change: -450,
     });
     expect(kpisOf([two], ['net_sales_minor'], 'JPY')[0]).toMatchObject({ current: 300000 });
+  });
+});
+
+describe('the owner’s question in one line', () => {
+  const health = (summary: Record<string, number>, extra = {}) => ({
+    rate_available: true,
+    incoming_tracked: false,
+    summary,
+    ...extra,
+  });
+
+  it('counts stock out + low + reorder as "need ordering", and says incoming is not tracked', () => {
+    expect(
+      inventoryAnswer(health({ stock_out: 1, low: 2, reorder: 3, dead: 4, ok: 10 }), false),
+    ).toBe('6 items need ordering, 1 is out of stock; incoming stock is not tracked yet.');
+  });
+
+  it('nothing to order; incoming tracked; a status filter narrows what is counted', () => {
+    expect(inventoryAnswer(health({ ok: 5 }, { incoming_tracked: true }), false)).toBe(
+      'Nothing needs ordering right now.',
+    );
+    expect(inventoryAnswer(health({ low: 1 }), true)).toBe(
+      'Among the statuses shown: 1 item needs ordering, 0 are out of stock; incoming stock is not tracked yet.',
+    );
+  });
+
+  it('rates unavailable: it cannot say, and says why', () => {
+    expect(inventoryAnswer(health({}, { rate_available: false }), false)).toMatch(
+      /cannot be said yet; the stock positions below are live/,
+    );
   });
 });

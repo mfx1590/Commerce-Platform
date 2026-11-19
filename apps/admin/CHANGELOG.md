@@ -1219,3 +1219,7 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   - `test/bi-v2-actions.test.ts` (9): HQ and store gates before any call, 401, queries rebuilt server-side, store narrowing, inventory 500 cap, errors passed on.
   - `test/bi-v2-views.test.tsx` (17): the three views as rendered.
   - Mutation-checked: removing the section gate, the store narrowing, or the single-currency rule fails the suite.
+- Manager notes (11-19):
+  - **Inventory health is the first tab** of the BI nav, and it opens with the owner's answer in one line: "N items need ordering (out of stock, low or at the reorder point), M are out of stock; incoming stock is not tracked yet". When rates are unavailable, it says it cannot tell yet.
+  - **"Copy link to this view"**: the URL holds every filter, the period, the comparison and the currency, so the link is the view. That's the first step to saved views (#869); named, per-user saved views come later. It's not on the two existing dashboards, whose URL holds their own parameters.
+  - The BI route handlers' own gate is #900 (window 4); untouched here.
