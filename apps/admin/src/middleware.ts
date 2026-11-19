@@ -116,5 +116,14 @@ export const config = {
   // Everything except the auth endpoints themselves, the container's liveness probe, and assets.
   // A probe that gets redirected to sign-in never reports healthy, so the pod would never become
   // ready. The sign-in error page is matched for its CSP and let through as a PUBLIC_PAGES entry.
-  matcher: ['/((?!api/auth|health|_next/static|_next/image|favicon.ico).*)'],
+  //
+  // #949: each exclusion is ANCHORED. A bare prefix (`api/auth`, `health`) also let `/healthx`,
+  // `/health/anything` and `/api/authxyz` skip the gate, so an anonymous request (a `Next-Action`
+  // POST included) reached the app there. Now only these stay outside:
+  // - `/api/auth/…` (login, callback, logout);
+  // - `/health` (an optional trailing slash);
+  // - `/_next/static/…` and `/_next/image`;
+  // - `/favicon.ico`.
+  // Pinned with Next's own matcher compiler in test/middleware.test.ts.
+  matcher: ['/((?!api/auth/|health/?$|_next/static/|_next/image$|favicon\\.ico$).*)'],
 };

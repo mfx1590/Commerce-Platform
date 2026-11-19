@@ -116,9 +116,18 @@ export default async function CustomerDetailPage({
             <CardHeader title="Orders" />
             <CardBody className="space-y-3">
               <p className="text-muted text-sm">
-                The orders list filters by email, so this customer&apos;s history is one click away.
+                The orders list filters by customer id, so this customer&apos;s history is one click
+                away.
               </p>
-              <Link href={`/${storeId}/orders?q=${encodeURIComponent(current.email)}`}>
+              {/*
+                #870 item 4: this linked `?q=<email>` until now, which put a customer's email
+                address into a URL — and so into browser history, into the referrer of anything the
+                orders page loads, and into any log that records paths. `listOrders` has taken an
+                exact `customer_id` since Admin API 0.4.24 (#569), which is both private and more
+                accurate: `q` also matches a display id, and two customers can share an email
+                across stores.
+              */}
+              <Link href={`/${storeId}/orders?customer_id=${current.id}`}>
                 <Button size="sm" variant="secondary">
                   Orders by this customer
                 </Button>

@@ -299,11 +299,21 @@ test.describe('store-admin', () => {
       // Where the consent was given: the example says checkout; the core records the sign-up.
       await expect(consent.getByRole('cell', { name: 'checkout' })).toBeVisible();
     }
-    // The order-history link carries the email into the orders filter.
-    await expect(page.getByRole('link', { name: 'Orders by this customer' })).toHaveAttribute(
+    // The order-history link carries the customer's ID, never their email (#870 item 4): a URL
+    // reaches browser history, the referrer of whatever the orders page loads next, and any log
+    // that records paths. The id comes from the address we are on, so this asserts the real link
+    // rather than a value copied into the spec.
+    const customerId = new URL(page.url()).pathname.split('/').pop() ?? '';
+    expect(customerId).toMatch(/^[0-9a-f-]{36}$/);
+    const ordersLink = page.getByRole('link', { name: 'Orders by this customer' });
+    await expect(ordersLink).toHaveAttribute(
       'href',
-      new RegExp(`/${BRAND_A}/orders\\?q=jane%40example\\.com$`),
+      `/${BRAND_A}/orders?customer_id=${customerId}`,
     );
+    const ordersHref = (await ordersLink.getAttribute('href')) ?? '';
+    expect(ordersHref).not.toContain(CORE_CUSTOMER.email);
+    expect(ordersHref).not.toContain(encodeURIComponent(CORE_CUSTOMER.email));
+    expect(ordersHref).not.toContain('%40');
     // Erasure is never one click: the typed confirmation gates it. Nothing is erased.
     await page.getByRole('button', { name: 'Erase this customer' }).click();
     await expect(page.getByRole('button', { name: 'Yes, erase' })).toBeDisabled();
