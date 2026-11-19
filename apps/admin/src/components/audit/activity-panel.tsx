@@ -32,14 +32,22 @@ function ChangeList({ row }: { row: AuditRow }) {
       {row.changes.map((change) => (
         <li key={change.field}>
           <span className="font-mono">{change.field}</span>{' '}
-          {change.kind === 'shown' ? (
-            <>
-              <span className="line-through">{change.before ?? 'none'}</span>
-              {' → '}
-              <span className="font-medium">{change.after ?? 'none'}</span>
-            </>
-          ) : (
+          {change.kind !== 'shown' ? (
             <span>changed — value not shown</span>
+          ) : change.before === null ? (
+            // The row records no previous value (`order.ship` writes `before: {}`): show what it
+            // does say rather than inventing a "none" it never claimed.
+            <span className="font-medium">{change.after}</span>
+          ) : change.after === null ? (
+            <span>
+              was <span className="line-through">{change.before}</span>
+            </span>
+          ) : (
+            <>
+              <span className="line-through">{change.before}</span>
+              {' → '}
+              <span className="font-medium">{change.after}</span>
+            </>
           )}
         </li>
       ))}

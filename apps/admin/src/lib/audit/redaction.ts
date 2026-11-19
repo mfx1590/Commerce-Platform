@@ -40,6 +40,36 @@ export interface AuditLike {
  */
 export const SAFE_VALUE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   product: ['title', 'handle', 'status', 'subtitle'],
+  /**
+   * `order`, from the four writers #920 added — `checkout/service.ts` (`order.place`),
+   * `orders/service.ts` (`transition` → status_change / update / cancel, and `auditOrder` → ship /
+   * return), `orders/edits.ts` (the line edits) and `returns/service.ts` (`order.exchange_link`).
+   *
+   * **`reason` is deliberately NOT here.** It is `order.cancel_reason`: free text somebody typed,
+   * which is exactly where a customer's name or a complaint ends up. It stays a field NAME until
+   * #922 decides what may be shown. `cart_id` is left out too — a uuid of a thing this screen
+   * cannot open adds nothing to a one-line history.
+   */
+  order: [
+    'status',
+    'payment_status',
+    'fulfillment_status',
+    'display_id',
+    'total_minor',
+    'currency',
+    'line_count',
+    'payment_provider',
+    'line_item_id',
+    'from_quantity',
+    'to_quantity',
+    // Arrays, summarised by `SHAPES` below rather than printed: `lines` is
+    // `[{line_item_id, quantity}]` and `refund_ids` is a list of uuids.
+    'lines',
+    'refund_ids',
+    // An exchange's whole content is the pair of ids it links; both are store-scoped, neither is PII.
+    'return_id',
+    'exchanged_order_id',
+  ],
   product_variant: ['sku', 'title', 'inventory_quantity', 'allow_backorder', 'manage_inventory'],
   product_category: ['name', 'handle'],
   promotion: ['code', 'type', 'status', 'starts_at', 'ends_at', 'usage_limit', 'stackable'],
@@ -109,6 +139,49 @@ export function formatValue(value: unknown): string | null {
   return null;
 }
 
+/**
+ * How a reviewed field whose value is NOT a scalar may be summarised.
+ *
+ * `formatValue` refuses an object or an array, because a nested body is where an unreviewed blob
+ * hides — that default stays. A pair in here declares a summary written against the exact shape
+ * the core writes, and each one fails closed itself: anything that is not that shape returns
+ * `null` and the field is redacted. A renderer may count and add; it may never print free text.
+ */
+export type ShapeRenderer = (value: unknown) => string | null;
+
+/** `[{ line_item_id, quantity }]` → "2 lines, 3 units". Ids and words are never printed. */
+const lineQuantities: ShapeRenderer = (value) => {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  let units = 0;
+  for (const line of value) {
+    const quantity = (line as { quantity?: unknown } | null)?.quantity;
+    if (typeof quantity !== 'number' || !Number.isFinite(quantity)) return null;
+    units += quantity;
+  }
+  const lines = `${value.length} line${value.length === 1 ? '' : 's'}`;
+  return `${lines}, ${units} unit${units === 1 ? '' : 's'}`;
+};
+
+/** A list of ids → how many there are. The ids themselves say nothing to a reader here. */
+const countOf =
+  (noun: string): ShapeRenderer =>
+  (value) => {
+    if (!Array.isArray(value)) return null;
+    if (!value.every((item) => typeof item === 'string')) return null;
+    return `${value.length} ${noun}${value.length === 1 ? '' : 's'}`;
+  };
+
+export const SHAPES: Readonly<Record<string, Readonly<Record<string, ShapeRenderer>>>> = {
+  order: { lines: lineQuantities, refund_ids: countOf('refund') },
+};
+
+/** A scalar, or a reviewed non-scalar shape summarised; `null` when neither applies. */
+export function formatFieldValue(entityType: string, field: string, value: unknown): string | null {
+  const scalar = formatValue(value);
+  if (scalar !== null) return scalar;
+  return SHAPES[entityType]?.[field]?.(value) ?? null;
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -152,13 +225,22 @@ export function fieldChanges(entry: AuditLike): FieldChange[] {
     const declaredOnly = !(before && field in before) && !(after && field in after);
     if (!declaredOnly && same(from, to)) continue;
 
-    const shownBefore = before === null ? null : formatValue(from);
-    const shownAfter = after === null ? null : formatValue(to);
+    // `null` here means "this body does not record that field", which is NOT the same as "the
+    // value was null". `order.ship` writes `before: {}`: printing "none → 2 lines" would assert the
+    // order had no lines before, which the row does not say. An explicitly null value still
+    // renders, as the word "none", through `formatValue`.
+    const recorded = (body: Record<string, unknown> | null, value: unknown) =>
+      body === null || !(field in body) ? null : formatFieldValue(entry.entity_type, field, value);
+    const shownBefore = recorded(before, from);
+    const shownAfter = recorded(after, to);
+    // Safe when the pair is reviewed AND every value this row actually records could be rendered.
+    const couldRender = (body: Record<string, unknown> | null, shown: string | null) =>
+      body === null || !(field in body) || shown !== null;
     const safe =
       isSafeField(entry.entity_type, field) &&
       !declaredOnly &&
-      (before === null || shownBefore !== null) &&
-      (after === null || shownAfter !== null);
+      couldRender(before, shownBefore) &&
+      couldRender(after, shownAfter);
 
     changes.push(
       safe
@@ -172,6 +254,15 @@ export function fieldChanges(entry: AuditLike): FieldChange[] {
 const VERBS: Readonly<Record<string, string>> = {
   create: 'created',
   update: 'updated',
+  // #920's order actions (#921). `cancel` was falling through to the bare verb before.
+  place: 'placed',
+  cancel: 'cancelled',
+  status_change: 'status changed',
+  line_item_update: 'line quantity changed',
+  line_item_cancel: 'line cancelled',
+  ship: 'shipped',
+  return: 'return received',
+  exchange_link: 'linked to an exchange',
   delete: 'deleted',
   publish: 'published',
   archive: 'archived',

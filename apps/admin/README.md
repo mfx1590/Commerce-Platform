@@ -1028,6 +1028,25 @@ API call — 401 without a session, the status of a failed `/admin/me` forwarded
 without the relation. Whenever a screen's data is also reachable as a route handler, the handler
 needs the screen's gate written out again; the guard component cannot reach it.
 
+**The order has two panels** (#921). #920 writes nine `order` actions, so the order page shows its
+own Activity next to Payment activity rather than one merged list: `listAuditLog` takes a single
+entity id, and merging two paged queries would mean inventing an ordering. The `order` allow-list
+was read off the four writers (`checkout/service.ts`, `orders/service.ts`, `orders/edits.ts`,
+`returns/service.ts`), not off the issue that asked for it.
+
+**`order.cancel_reason` is never shown.** It is free text somebody typed — the one field on an
+order where a customer's name or a complaint lands — so it stays a field NAME until #922 decides.
+
+**Two array fields are summarised, not printed.** `SHAPES` in `redaction.ts` holds a renderer per
+reviewed `(entity_type, field)` whose value is not a scalar: `lines` reads "2 lines, 3 units",
+`refund_ids` reads "2 refunds". `formatValue` still refuses every object and array by default; a
+renderer fails closed on anything that is not the shape the core writes, and it cannot put a field
+past the allow-list.
+
+**"Not recorded" is not "none".** `order.ship` writes `before: {}`. A field the body does not
+record shows only the value the row does carry; the word "none" is reserved for a value that is
+explicitly null.
+
 **There are two audit writers.** `apps/core/src/lib/audit.ts` (`writeAudit`, 54 call sites, 23
 entity types) and `packages/auth-sdk/src/audit/write.ts` (`audit`), which is where
 `role_assignment` and `staff_user` come from — the role grants and revokes. 25 entity types in

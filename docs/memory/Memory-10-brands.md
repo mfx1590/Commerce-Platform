@@ -410,6 +410,54 @@ branch), dropping versions from the manifest (`--check`'s drift report needs the
 `bump-starter-dep.mjs` as the primary path — **a script of mine cannot make a starter edit legal**;
 bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
+
+## In progress — #921, the order's own history (2026-11-19)
+
+Branch `integration/admin-order-history` from main `74d8c474`; #896 merged 11-17 and **#920**
+(order audit rows, the REQUEST this screen filed as #887) merged 11-19. PR number in the push below.
+Admin suite **1409 / 80 files**; lint, format:check, typecheck 30/30, ownership all green.
+
+**Read the four writers, not the issue — and this time it mattered twice.** The issue and its
+comment listed the fields; grepping `entityType: 'order'` gave the truth: `checkout/service.ts`
+(`order.place`), `orders/service.ts` (`transition` for status_change / update / cancel, plus
+`auditOrder` for ship / return), `orders/edits.ts` (the two line edits) and `returns/service.ts`
+(`order.exchange_link`). Nine actions. Two things the field list could not have told me:
+
+- **`lines` and `refund_ids` are ARRAYS.** `formatValue` refuses every object and array by design,
+  so allow-listing them as asked would have printed nothing — the same dead-entry failure as
+  `stock_movement.quantity` in #896, which is exactly the mistake I had already recorded. New
+  `SHAPES` table: a reviewed `(entity_type, field)` may declare a summary written against the
+  shape the core writes (`lines` → "2 lines, 3 units", `refund_ids` → "2 refunds"). Each renderer
+  fails closed itself, prints no free text, and cannot put a field past the allow-list — a test
+  walks `SHAPES` and asserts every field in it is also allow-listed.
+- **`order.ship` writes `before: {}`.** The old code read that as "the value was none" and printed
+  "lines: none → 2 lines", asserting the order had no lines before — which the row never said.
+  "Absent from the body" and "recorded as null" are different facts and now render differently.
+  This was only visible because a test asserted the exact `FieldChange`; a looser assertion would
+  have shipped it.
+
+**`reason` is withheld deliberately.** It is `order.cancel_reason`, free text somebody typed, and
+the one field on an order where a customer's name or a complaint lands. Name-only until #922
+decides; the manager set that and I pinned it with a test that plants a name in the reason and
+asserts it reaches neither the change nor the row.
+
+**The stale-dist trap cost me a detour.** `pnpm --filter @platform/admin typecheck` reported three
+errors in `test/bi/**` about a `country` dimension, which looked like main being red. It is the
+trap `apps/admin/CLAUDE.md` documents: running a package script directly needs the workspace
+packages built first. The root `pnpm typecheck` goes through turbo, builds `@platform/contracts`
+and passes 30/30. **Use the root gate; a filtered typecheck can report another window's code as
+broken when it is only stale.** I nearly reported main as red on someone else's work.
+
+**CHANGELOG appended at the END of `## Unreleased`,** not inserted at the top — the rule recorded
+11-19 after #926 was skipped by the merge queue. The file has no release headings, so the end of
+the file is the end of Unreleased.
+
+E2e: checked the order detail specs again for strict-mode collisions, since the page gained a
+table. All of them are role-scoped (`getByRole('list', { name: 'Payments' })`,
+`getByRole('table', { name: 'Order lines' })`, `getByTestId('order-status-meaning')`), and
+"Order lines" is not a substring of "Activity on this order" — `getByRole`'s `name` matches a
+substring by default, which is the trap #896 hit.
+
 ## In progress — #870 wave 1 item 3, admin history (2026-11-13)
 
 ### The e2e my own panel broke, and why unit gates could not see it (2026-11-17)

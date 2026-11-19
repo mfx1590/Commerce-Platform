@@ -1205,3 +1205,31 @@
 - Tests:
   - `finance-payouts-screens` (JPY payout and lines, verdicts, ERP gaps, parked links; 7).
   - `finance` grew to 22: every operation gated, the payouts query never carries a currency.
+
+### Added — #921: the order's own history, now that #920 writes it
+
+- **The order detail page has an Activity panel of its own**, beside Payment activity. #920 (the
+  REQUEST this screen filed, #887) writes nine order actions and the panel names every one:
+  `place`, `status_change`, `update`, `cancel`, `line_item_update`, `line_item_cancel`, `ship`,
+  `return`, `exchange_link`. The two panels stay separate because a merge would have to invent an
+  ordering across two paged queries.
+- `order` is in the HQ › Audit entity filter (26 types now), so "who cancelled this order" is
+  answerable across the organization.
+- **The `order` allow-list was read off the four writers**, not off the issue:
+  `checkout/service.ts` (`order.place`), `orders/service.ts` (`transition` and `auditOrder`),
+  `orders/edits.ts` and `returns/service.ts`. Shown: the three status fields, `display_id`,
+  `total_minor`, `currency`, `line_count`, `payment_provider`, `line_item_id`, `from_quantity`,
+  `to_quantity`, `return_id`, `exchanged_order_id`.
+- **`reason` is NOT shown.** It is `order.cancel_reason` — free text somebody typed, and the one
+  field on an order where a customer's name or a complaint lands. It stays a field NAME until #922
+  decides. `cart_id` is withheld too: a uuid of a thing this screen cannot open.
+- **Two array fields are summarised rather than printed**, through a new `SHAPES` table: `lines`
+  (`[{line_item_id, quantity}]`) reads "2 lines, 3 units" and `refund_ids` reads "2 refunds". A
+  renderer fails closed itself — one element that is not the shape the core writes and the field
+  goes back to being a name — and it cannot smuggle a field past the allow-list, which a test pins.
+- **"Absent from the body" is no longer rendered as "none".** `order.ship` writes `before: {}`, so
+  the old code printed "lines: none → 2 lines", asserting the order had no lines before — which
+  the row never said. A field the body does not record now shows only what the row does say; an
+  explicitly null value still reads "none".
+- Tests: 13 more (the nine verbs, the withheld reason, both shapes and their malformed forms, the
+  allow-list guard, and the order panel's two cases). Admin suite 1407.
