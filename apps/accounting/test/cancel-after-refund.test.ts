@@ -158,4 +158,90 @@ describe('#919 on the consumer path: a refund then a cancel settles the order, i
     expect(await run(false)).toEqual(expected);
     expect(await run(true)).toEqual(expected);
   });
+
+  // #931 review: the cancel consumed first, then the refund (its excess on 1200), then the late shipment — each in its
+  // own transaction, the refund totals re-read from accounting_refund every time
+  const lateWorld = (opts: {
+    jpy?: boolean;
+    reason: 'return' | 'goodwill';
+    amount: number;
+    rest: number;
+  }) => {
+    const e = opts.jpy
+      ? orderPlaced({
+          legalEntityId: SEED_IDS.legalEntities.brandD,
+          storeId: SEED_IDS.stores.brandD,
+          currency: 'JPY',
+          lines: [{ quantity: 2, unit_price_minor: 1_980, tax_rate_bp: 1000 }],
+          shipping_minor: 990,
+          shipping_tax_minor: 99,
+          placed_at: '2026-10-05T10:00:00.000Z',
+        })
+      : orderPlaced({
+          lines: [{ quantity: 2, unit_price_minor: 5_000, tax_rate_bp: 2000 }],
+          placed_at: '2026-10-05T10:00:00.000Z',
+        });
+    const pay = paymentCaptured(e, { fee_minor: FEE, captured_at: '2026-10-05T10:05:00.000Z' });
+    const ship = shipmentShipped(
+      e,
+      [{ order_line_item_id: e.payload.line_items[0]!.order_line_item_id, quantity: 1 }],
+      {
+        cost_minor: 0,
+        shipped_at: '2026-10-06T08:00:00.000Z',
+      },
+    );
+    const ref = refundIssued(e, pay, {
+      amount_minor: opts.amount,
+      reason: opts.reason,
+      issued_at: '2026-10-07T12:00:00.000Z',
+    });
+    const cancel = orderCancelled(e, { cancelled_at: '2026-10-09T09:00:00.000Z' });
+    const rest = refundIssued(e, pay, {
+      amount_minor: opts.rest,
+      reason: 'cancellation',
+      issued_at: '2026-10-09T09:30:00.000Z',
+    });
+    return { fact: [e, pay, ship, ref, cancel, rest], late: [e, pay, cancel, ref, ship, rest] };
+  };
+
+  it('cancel → return → late shipment (EUR): the fact-order books — 1200 = 0, 2200 = 0, 4090 = 50.00', async () => {
+    const expected = { '4000': -5_000, '4090': 5_000, ...SETTLED };
+    expect(await netOf(lateWorld({ reason: 'return', amount: 6_000, rest: 6_000 }).fact)).toEqual(
+      expected,
+    );
+    expect(await netOf(lateWorld({ reason: 'return', amount: 6_000, rest: 6_000 }).late)).toEqual(
+      expected,
+    );
+  });
+
+  it('cancel → goodwill → late shipment (EUR, above and within the shipped value)', async () => {
+    expect(await netOf(lateWorld({ reason: 'goodwill', amount: 8_400, rest: 3_600 }).late)).toEqual(
+      {
+        '4000': -5_000,
+        '4090': 5_000,
+        ...SETTLED,
+      },
+    );
+    expect(await netOf(lateWorld({ reason: 'goodwill', amount: 3_000, rest: 6_000 }).late)).toEqual(
+      {
+        '1100': 3_000 - FEE, // the customer keeps a 60.00 unit and paid 30.00 net
+        '2200': -500,
+        '4000': -5_000,
+        '4090': 2_500,
+        '6100': FEE,
+      },
+    );
+  });
+
+  it('cancel → return / goodwill → late shipment (JPY): identical to fact order to the yen, 1200 = 0', async () => {
+    for (const o of [
+      { reason: 'return' as const, amount: 3_267, rest: 2_178 },
+      { reason: 'goodwill' as const, amount: 4_000, rest: 1_445 },
+    ]) {
+      const fact = await netOf(lateWorld({ jpy: true, ...o }).fact);
+      const late = await netOf(lateWorld({ jpy: true, ...o }).late);
+      expect(late).toEqual(fact);
+      expect(late['1200']).toBeUndefined();
+    }
+  });
 });

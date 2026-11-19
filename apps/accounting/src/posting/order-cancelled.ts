@@ -8,8 +8,9 @@
 //     Cr 4090 Refunds and allowances       O net                                                  (#919)
 //     Cr 1200 Accounts receivable          the rest (the unreleased total − O)
 //
-// O (#919) = the part of the order's earlier refunds (return / goodwill / chargeback, as posted to 4090 and 2200) that
-// exceeds the value of what had shipped: a refund the cancellation now covers. Those refunds already reversed that
+// O (#919) = the part of the order's refunds (return / goodwill / chargeback, their GROSS amounts from the refund
+// projection, whatever arrival order posted them) that exceeds the value of what has shipped: a refund the
+// cancellation now covers. Those refunds already reversed that
 // VAT and booked that amount as an allowance; without O the cancel reversed the VAT a second time and credited the
 // receivable for money the customer already had back (1200 ended at −refund). O's VAT is the refunds' own VAT in
 // proportion (exact when every refund is covered); a refund of shipped goods (O = 0) is a real allowance and stays.
@@ -39,6 +40,14 @@ export function cancellationVat(
   const base = order.goods_net_minor + order.shipping_net_minor;
   if (base > 0) return roundShare(order.tax_minor, remaining, base);
   return shipped ? 0 : order.tax_minor;
+}
+
+/** The VAT part of a return / goodwill / chargeback refund: the order's own proportion, round-half-up. */
+export function refundTaxOf(
+  order: { total_minor: number; tax_minor: number },
+  amount: number,
+): number {
+  return order.total_minor > 0 ? roundShare(amount, order.tax_minor, order.total_minor) : 0;
 }
 
 /** The part of the placed entry not yet released: goods and shipping net, and their VAT (#919 helper). */

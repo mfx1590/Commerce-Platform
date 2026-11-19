@@ -18,7 +18,13 @@
 //     Cr 4000 Revenue goods                release
 //     Cr 4010 Revenue shipping             shipping net (first shipment)
 //     Cr 2200 VAT payable                  VAT delta = VAT the cancel reversed − VAT it would have reversed knowing this shipment
-// — the same ledger as if the two events had arrived in fact order. A shipment dated AT or AFTER the cancellation is a
+// and, when the order's refunds exceed the shipped value (#919), the cancellation's overlap O shrinks by the newly
+// shipped value: that part of the refunds is a sale reversal after all —
+//     Dr 4090 Refunds and allowances       ΔO net
+//     Dr 2200 VAT payable                  ΔO VAT
+//     Cr 1200 Accounts receivable          ΔO
+// (whether the refunds arrived before the cancellation or after it: O is computed from their gross amounts)
+// — the same ledger as if the events had arrived in fact order. A shipment dated AT or AFTER the cancellation is a
 // producer defect (ShipmentOfCancelledOrder), as are a line shipped beyond its quantity and an unknown line.
 //
 // Amounts come from the ledger's own projection of the order (ADR 0003 item 6), never from core tables. Without a
@@ -87,9 +93,9 @@ export function postShipmentShipped(
     const remainingAfter = remainingBefore - release - shippingNet;
     const vatDelta =
       cancellationVat(order, remainingBefore) - cancellationVat(order, remainingAfter, true);
-    // #919: the cancellation covered the refunds beyond the shipped value it knew (O); now that more has shipped, O
-    // shrinks — the difference goes back to the allowance (4090) and VAT the refunds booked, and off the receivable,
-    // exactly as the cancellation would have posted it in fact order
+    // #919: the cancellation (or a refund after it) covered the refunds beyond the shipped value then known (O); now
+    // that more has shipped, O shrinks — the difference goes back to the allowance (4090) and VAT, and off the
+    // receivable, exactly as fact order would have posted it
     const after: OrderProjection = {
       ...order,
       lines,
@@ -98,8 +104,8 @@ export function postShipmentShipped(
     };
     const o1 = refundOverlapOf(order);
     const o2 = refundOverlapOf(after);
-    const dTotal = Math.max(o1.total - o2.total, 0);
-    const dTax = Math.min(Math.max(o1.tax - o2.tax, 0), dTotal);
+    const dTotal = o1.total - o2.total;
+    const dTax = o1.tax - o2.tax;
     salesLines = [
       line(ACCOUNT.RECEIVABLE, cur, release + shippingNet + vatDelta, 'debit'),
       line(ACCOUNT.REVENUE_GOODS, cur, release, 'credit'),

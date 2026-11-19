@@ -112,5 +112,6 @@ keycloakUrl?, keycloakRealm?, verifier?, permission? })`; `loadApiSpec(path?)` /
   core, or the SDK counts v2 as `skipped_unknown` and the order never reaches the ledger. `src/testing/order-placed-v2.ts`
   is the local @2 mock for tests until @2 is published.
 - A refund before a cancel (#919): the cancel leaves out what the order's refunds already reversed beyond the shipped
-  value (`refundOverlapOf`); the projection's `refunded_net_minor` / `refunded_tax_minor` are DERIVED from the ledger in
-  `loadOrderProjection` (never stored, no column), so any posting that reads them must go through that loader.
+  value (`refundOverlapOf`); the projection's `refunded_net_minor` / `refunded_tax_minor` are the GROSS non-cancellation refunds,
+  DERIVED from `accounting_refund` in `loadOrderProjection` (never stored, no column; never from the 4090 / 2200 lines,
+  which depend on arrival order). Every posting after a cancel is a difference of `refundOverlapOf` — keep it that way.

@@ -16,12 +16,13 @@
 
 - Fix: a `return` / `goodwill` / `chargeback` refund before a cancel was reversed twice — `order.cancelled` reversed the
   whole unreleased VAT and credited 1200 the whole unreleased total, so after #917's cancellation refund of the rest
-  1200 ended at −refund and 2200 at −its VAT part. The order projection now carries what its refund entries posted to
-  4090 / 2200 (`refunded_net_minor`, `refunded_tax_minor`, from the ledger on load, not stored); the cancel posts Dr 2200
-  unreleased VAT − O's VAT, Cr 4090 O's net, Cr 1200 unreleased − O, with O = the refunds beyond the shipped value. A
-  non-cancellation refund consumed after the cancel reverses the sale only up to the shipped value not yet refunded,
-  the rest Dr 1200; a shipment consumed after the cancel posts the change of O. Reason `cancellation` is unchanged.
-- Tests: 143 (+6 pure in `src/posting/posting.test.ts`, +5 `test/cancel-after-refund.test.ts` on the consumer path).
+  1200 ended at −refund and 2200 at −its VAT part. The order projection now carries the order's return / goodwill /
+  chargeback refunds GROSS (`refunded_net_minor`, `refunded_tax_minor`, from `accounting_refund` on load, not stored);
+  the cancel posts Dr 2200 unreleased VAT − O's VAT, Cr 4090 O's net, Cr 1200 unreleased − O, with O = the refunds
+  beyond the shipped value. A non-cancellation refund consumed after the cancel posts the change of O (Dr 1200 for the
+  part beyond the shipped value), a shipment consumed after the cancel posts it back; every arrival order nets to the
+  fact-order books to the minor unit (#931 review: cancel → refund → late shipment). Reason `cancellation` is unchanged.
+- Tests: 150 (+10 pure in `src/posting/posting.test.ts`, +8 `test/cancel-after-refund.test.ts` on the consumer path).
 
 ## 0.6.12 — 2026-11-13 (#888 part 1)
 
