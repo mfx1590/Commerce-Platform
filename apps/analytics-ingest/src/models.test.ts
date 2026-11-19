@@ -578,7 +578,9 @@ describe.runIf(skip === null)('ClickHouse models on the generated month', () => 
       'fct_order_sales.customer_group_id',
       'mart_sales_daily.customer_group_id',
     ]);
-    expect(rows.filter((r) => !allowed.has(`${r.table}.${r.name}`))).toEqual([]);
+    // EXACTLY this set (#935 manager decision: the wave 2 exceptions are a recorded deviation): a new personal-data-named
+    // column fails here until it is named above, and an entry whose column is gone fails too (no stale allowance)
+    expect(rows.map((r) => `${r.table}.${r.name}`).sort()).toEqual([...allowed].sort());
   });
 });
 
