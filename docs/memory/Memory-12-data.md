@@ -67,6 +67,21 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   (3) live blocks (reconcile / leak / PII) before the PR. Send the manager the exact yaml text when final; he lands
   the contracts commit on the branch. Push after each green step, `pnpm format:check` first. Shared-stack writes →
   stop and tell the manager.
+  DONE 11-19 (pushed, no PR): f2cec4bf models; ac8daeda core catalogue v3 (32 metrics, 8 dims, per-key customers,
+  query totals, small cells + complement, utm top 50 / PII → other, promotions from Postgres, JSON 1 000 / CSV 10 000,
+  Ask aliases g/cp/pr/u); 6989ff72 operations (cohorts CH, backlog PG, dimension-values) + Ask alias inputs + tools
+  customer_cohorts / operations_backlog; eada5e43 inventory CSV 10 000, contract-wave2 test, README. YAML: overlay in
+  the WORKING TREE only (packages/contracts/openapi/admin-api.yaml 0.4.31 + apps/core/test/access-matrix.test.ts 3
+  rows, both uncommitted) — exact diffs posted on #935 (comment 7009530289) for the manager's contracts commit; spec
+  test pins to move: version, 147 ops, 17 dims, 74 ids, 17 filter arrays. Live, with the overlay: reporting + matrix
+  388 passed / 1 skipped (metrics-live leak 300 queries incl. wave 2, every metric × grain 264); wave2-live 7/7;
+  routes-wave2 9/9 on real Postgres; analytics-ingest 198/198 (erasure convergence budget 120 s, 43 s measured).
+  GOTCHAS: bash heredocs with quotes/backslashes break → Write a .py and run it (yaml backslashes: chr(92));
+  customer keys must be per store (concat(store_id, ':', key)) or one e-mail at two brands counts once; a
+  totals-only compile must take the answer's currencyKey; YAML plain scalars cannot hold "Accept: text/csv".
+  NOT DONE: cohort / backlog / pickers p95 not measured separately (wave2-live: >200 queries in 17.6 s ≈ 80 ms
+  each); movers by customer_type / customer_group / warehouse (#935 a2) not wired yet; refunds by product/category
+  not done; golden owner questions (#935 e, 8) not written. NEXT: manager lands contracts → PR → those gaps.
 - BI v2 PHASE A (2026-11-13, Manager session THIRTEEN local_a8e32bd9…; replaces eleven; owner rule: everything to the
   manager, never the owner; paused messages → "FOR THE MANAGER:" in the reply). Issues #869 (BI v2) + #870 (admin
   standard). Node 22 required (v22.23.5 ok). Main 71b0c625: contracts release 0.4.35 = admin-api.yaml 0.4.28.
