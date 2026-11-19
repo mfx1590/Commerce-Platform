@@ -147,9 +147,8 @@ export function ActivityPanel({
           <RequestErrorPanel status={error.status} error={error.error} />
         ) : rows.length === 0 ? (
           <p className="text-muted text-sm">
-            Nothing recorded for this {label} yet. Rows appear here as the core writes them; a
-            change to something related — a product&rsquo;s variants or its media — is recorded
-            under that entity&rsquo;s own id, not this one.
+            Nothing recorded for this {label} yet. Rows appear here as the core writes them, and a
+            change recorded against a related thing of its own appears there rather than here.
           </p>
         ) : (
           <div className="space-y-3">

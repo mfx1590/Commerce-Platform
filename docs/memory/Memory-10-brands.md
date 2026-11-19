@@ -453,6 +453,31 @@ broken when it is only stale.** I nearly reported main as red on someone else's 
 11-19 after #926 was skipped by the merge queue. The file has no release headings, so the end of
 the file is the end of Unreleased.
 
+### #933 Fable review: MERGE on the code, one prototype guard and four stale numbers (2026-11-19)
+
+**The real finding: `Object.hasOwn`.** Both keys into my lookup tables come from the API. A row
+with `entity_type: '__proto__'` made `SAFE_VALUE_FIELDS['__proto__']` return `Object.prototype`,
+which has no `.includes` — so the panel would have **thrown** instead of redacting. And
+`SHAPES['order']['toString']` is a function, so a field name borrowed from the prototype chain
+would have been **called as a renderer**. Both lookups are now `Object.hasOwn`-guarded, and the
+shape path requires `isSafeField` first so the allow-list stays the single gate. The lesson:
+**a plain object literal used as a lookup is attacker-reachable the moment its key comes from
+data** — every one of these tables takes `entity_type` and a field name straight off an audit row.
+
+**And four statements that were false again** — the same failure mode as the #896 review, which I
+had already written a lesson about: a CHANGELOG suite total (1407 vs 1409), the README's entity-type
+counts (still 23/25 after #920 made them 24/26), `load.ts`'s docstring still saying nothing writes
+an `entity_type: 'order'` row, and the panel's empty state telling an ORDER reader about "a
+product's variants or its media". Three of the four were prose I wrote while describing work that
+was itself correct.
+
+So the numbers are no longer written by hand: the README now says how to check the filter against
+the writers (grep both writer trees, compare the sets — 26 each way, verified), and the CHANGELOG
+quotes the counts the test run printed rather than arithmetic. **If a number in prose cannot be
+re-derived by a command, it will be wrong within two PRs.**
+
+Suite after the fixes: **1495 / 82 files**.
+
 **The append rule paid off within the hour.** #926 merged into main while this PR was open and
 touched the same `apps/admin/CHANGELOG.md`; the merge came through **clean**, because my entry is
 at the end of `## Unreleased` and theirs is not. Merged `origin/main` (`490b48aa`) in, no rebase,

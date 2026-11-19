@@ -118,7 +118,11 @@ export interface FieldChange {
 /** True when this exact `(entity_type, field)` pair may show its value. */
 export function isSafeField(entityType: string, field: string): boolean {
   if (NEVER_SHOW.test(field)) return false;
-  return (SAFE_VALUE_FIELDS[entityType] ?? []).includes(field);
+  // `Object.hasOwn`, not `?? []`: `entity_type` comes from the API, and `SAFE_VALUE_FIELDS['__proto__']`
+  // is `Object.prototype`, which has no `.includes` — a row with that entity type would throw
+  // instead of being redacted (#933 review). Every inherited key answers "not allow-listed" now.
+  if (!Object.hasOwn(SAFE_VALUE_FIELDS, entityType)) return false;
+  return SAFE_VALUE_FIELDS[entityType]!.includes(field);
 }
 
 /**
@@ -175,11 +179,24 @@ export const SHAPES: Readonly<Record<string, Readonly<Record<string, ShapeRender
   order: { lines: lineQuantities, refund_ids: countOf('refund') },
 };
 
-/** A scalar, or a reviewed non-scalar shape summarised; `null` when neither applies. */
+/**
+ * A scalar, or a reviewed non-scalar shape summarised; `null` when neither applies.
+ *
+ * The shape lookup is guarded twice (#933 review). `Object.hasOwn` because both keys come from the
+ * API: `SHAPES['__proto__']` is `Object.prototype` and `shapes['toString']` is a function, so an
+ * `entity_type` or a field name borrowed from the prototype chain would have been called as a
+ * renderer — a thrown error inside a panel, from a value the caller controls. And `isSafeField`,
+ * so a renderer can only ever run for a pair the allow-list already permits: the allow-list stays
+ * the single gate, and a shape is a presentation detail behind it.
+ */
 export function formatFieldValue(entityType: string, field: string, value: unknown): string | null {
   const scalar = formatValue(value);
   if (scalar !== null) return scalar;
-  return SHAPES[entityType]?.[field]?.(value) ?? null;
+  if (!isSafeField(entityType, field)) return null;
+  if (!Object.hasOwn(SHAPES, entityType)) return null;
+  const shapes = SHAPES[entityType]!;
+  if (!Object.hasOwn(shapes, field)) return null;
+  return shapes[field]!(value);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

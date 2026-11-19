@@ -395,6 +395,61 @@ describe('order rows (#921, from the writers #920 added)', () => {
   });
 });
 
+describe('the three renderings of one change (#933 review)', () => {
+  it('an explicitly null value still reads "none" — that word is reserved for it', () => {
+    expect(
+      fieldChanges({
+        action: 'product.update',
+        entity_type: 'product',
+        before: { subtitle: null },
+        after: { subtitle: 'Woven in Portugal' },
+      }),
+    ).toEqual([{ field: 'subtitle', kind: 'shown', before: 'none', after: 'Woven in Portugal' }]);
+  });
+
+  it('a field the AFTER body does not record keeps its old value, for a "was X" row', () => {
+    // `tax_rate.delete` writes a before and no after. The change is still a fact worth showing.
+    expect(
+      fieldChanges({
+        action: 'promotion.update',
+        entity_type: 'promotion',
+        before: { code: 'WELCOME10' },
+        after: {},
+      }),
+    ).toEqual([{ field: 'code', kind: 'shown', before: 'WELCOME10', after: null }]);
+  });
+
+  it('a quantity that arrives as a string is redacted, not coerced', () => {
+    // The renderer adds numbers. A string would make "2 lines, 12 units" out of "1" and "2".
+    expect(
+      fieldChanges({
+        action: 'order.ship',
+        entity_type: 'order',
+        after: { lines: [{ line_item_id: 'l1', quantity: '2' }] },
+      }),
+    ).toEqual([{ field: 'lines', kind: 'redacted', before: null, after: null }]);
+  });
+
+  it('an entity type or field borrowed from the prototype chain is redacted, never called', () => {
+    // `entity_type` and the field names come from the API. Before the guard,
+    // `SAFE_VALUE_FIELDS['__proto__']` was `Object.prototype` (no `.includes`) and
+    // `SHAPES['order']['toString']` was a function that would have been called as a renderer.
+    expect(isSafeField('__proto__', 'title')).toBe(false);
+    expect(isSafeField('constructor', 'title')).toBe(false);
+    expect(isSafeField('order', 'toString')).toBe(false);
+    expect(() =>
+      fieldChanges({
+        action: 'x.update',
+        entity_type: '__proto__',
+        after: { title: 'anything' },
+      }),
+    ).not.toThrow();
+    expect(
+      fieldChanges({ action: 'x.update', entity_type: '__proto__', after: { title: 'a' } }),
+    ).toEqual([{ field: 'title', kind: 'redacted', before: null, after: null }]);
+  });
+});
+
 describe('formatValue', () => {
   it('renders scalars and names the absent and the empty', () => {
     expect(formatValue('Classic Tee')).toBe('Classic Tee');

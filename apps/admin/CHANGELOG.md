@@ -1231,8 +1231,16 @@
   the old code printed "lines: none → 2 lines", asserting the order had no lines before — which
   the row never said. A field the body does not record now shows only what the row does say; an
   explicitly null value still reads "none".
-- Tests: 13 more (the nine verbs, the withheld reason, both shapes and their malformed forms, the
-  allow-list guard, and the order panel's two cases). Admin suite 1407.
+- Tests: `test/audit-redaction.test.ts` is 35 cases and `test/audit-screens.test.tsx` 18 — the nine
+  verbs, the withheld reason, both shapes and their malformed forms, the allow-list guard, the three
+  renderings of a change, the prototype-chain guard, and the order panel's two cases. Admin suite
+  **1495 / 82 files** at this branch's head, which includes #926 merged in from main.
+- #933 review (Fable): `isSafeField` and the `SHAPES` lookup use `Object.hasOwn`. Both keys come
+  from the API, and `SAFE_VALUE_FIELDS['__proto__']` is `Object.prototype` (no `.includes`) while
+  `shapes['toString']` is a function — an `entity_type` borrowed from the prototype chain would
+  have thrown inside the panel rather than being redacted. The shape lookup also requires
+  `isSafeField` first, so the allow-list stays the single gate and a shape is only presentation
+  behind it.
 
 ### Security — #903, #900: every server action and BI route refuses before the Admin API
 

@@ -1047,10 +1047,14 @@ past the allow-list.
 record shows only the value the row does carry; the word "none" is reserved for a value that is
 explicitly null.
 
-**There are two audit writers.** `apps/core/src/lib/audit.ts` (`writeAudit`, 54 call sites, 23
-entity types) and `packages/auth-sdk/src/audit/write.ts` (`audit`), which is where
-`role_assignment` and `staff_user` come from — the role grants and revokes. 25 entity types in
-total, and the first version of this screen offered 22.
+**There are two audit writers.** `apps/core/src/lib/audit.ts` (`writeAudit`, 58 call sites, 24
+entity types since #920 added `order`) and `packages/auth-sdk/src/audit/write.ts` (`audit`), which
+is where `role_assignment` and `staff_user` come from — the role grants and revokes. **26** entity
+types in total; the first version of this screen offered 22, having found only the first writer.
+
+The filter list is checked against the writers rather than remembered: grep
+`entityType: '…'` across `apps/core/src` and `packages/auth-sdk/src` (excluding tests) and the two
+sets are equal, 26 each way.
 
 ## Security headers (Phase 6 D4, #731)
 
