@@ -93,7 +93,16 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   the setting: fct_refund_line over fct_refund failed with "returned Nullable column"), admin fixtures +9 keys.
   p95 (seeded): cohorts 75 ms, CH pickers 22–34 ms, backlog 22 ms (HTTP), PG picker 17 ms (HTTP).
   GOLDEN DONE: ask/golden/wave2.test.ts — the 8 owner questions, exact answers + checkOwnerAnswer (caveat, numbers
-  backed, no alias), negative controls. Root lint + typecheck 0. NEXT: open ONE PR from integration/bi-v2-wave2.
+  backed, no alias), negative controls. Root lint + typecheck 0.
+  STATE AT STOP (2026-11-19, owner finished for the day; manager resumes me tomorrow):
+  PR #951 (https://github.com/mfx1590/Commerce-Platform/pull/951) open from integration/bi-v2-wave2 → main,
+  head 759d9dec (pushed). CI was PENDING at last read (8 pass, 0 fail, 10 pending); no CI monitor on this session and
+  I may not poll — read get_status on resume and report the result to the manager. Fable code review NOT started (it
+  starts after the 5-hour reset; it checks no operation/CSV returns a customer key and erasure clears every new view).
+  Final local live run: core reporting + access matrix 402 passed / 1 skipped (readonly live test waits on
+  ch:migrate). `ch:migrate` on the SHARED analytics DB is OWNER-TYPED after merge; then the manager may ask me to run
+  the skipped readonly live test. This memory commit is LOCAL ONLY (not pushed: a push restarts CI on #951 — push
+  only when the manager agrees). Idle: no new work until the manager writes.
   GOLDEN PLAN (done, kept for the record): golden/wave2.ts + wave2.test.ts like golden/stock.ts — a fixture reader answering by
   source table (fct_order_sales, fct_order_touch, dim_campaign, fct_order_fulfilment, fct_payment_event, cohorts),
   one scripted tool step per question, final text from the tool result, CONCRETE expected answers + checks (numbers
