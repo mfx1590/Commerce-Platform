@@ -74,6 +74,28 @@ Locks the row (`FOR UPDATE`), validates every requested field against its table,
 Test seams `hooks.afterUpdate` / `hooks.afterEvents` throw inside the transaction (compensation test: row
 unchanged, no event).
 
+**Audit (#887).** Every transition also writes ONE `audit_log` row (`entity_type: 'order'`, the order id) in the same
+transaction, by the change's actor as given — `actor_type` names it (`staff`, `customer`, `system`) and `actor_id` is
+the staff user's id, a signed-in customer's id, or NULL for a guest and for the system. The action is `change.audit.action` when the caller names one, else `order.cancel` for a cancel,
+`order.status_change` when a status field moves, `order.update` for an edit. `before` / `after` hold the status
+fields that moved (and the cancel's `reason`), `after.changed_fields` the changed field NAMES, plus the caller's extra
+fields — ids, statuses and quantities only, never an email, a name or an address. So every mutation of an order is
+audited through this one path: the automatic `confirmed` / `processing` / `completed` hops, window 7's capture and
+refund status moves (`markPayment*`, `syncOrderPaymentStatus`), window 8's fulfilment moves, the fraud hold, a cancel
+(and its void as its own `payment_status` row before it; a cancel that refunded a captured payment, #905, carries
+the refund ids in `after.refund_ids`), and the line edits (`order.line_item_update` /
+`order.line_item_cancel` with `line_item_id`, `from_quantity`, `to_quantity`).
+
+Three writes do not go through `transition()` and audit themselves, one row each: placement writes `order.place`
+(checkout module: `display_id`, `cart_id`, `currency`, `total_minor`, `line_count`, `payment_provider`); a shipment
+(`markShippedInTx`) or a received return (`markReturnedIn`) writes `order.ship` / `order.return` with the
+`lines` (`line_item_id`, `quantity`) — through its transition when a status moves, directly when only the lines'
+quantities do (a second partial shipment or return); the returns module's `linkExchange` writes
+`order.exchange_link` (`return_id`, `exchanged_order_id`) on the exchange order. `mergeOrderMetadataIn` itself writes
+none: its callers audit (the fraud flag through the transition that follows it). A mutation that rolls back —
+also one that throws AFTER its audit row was written (`hooks.afterEvents`) — or is refused writes none
+(`test/order-audit.test.ts`).
+
 ## Public functions for windows 7 and 8 (`index.ts`)
 
 Scoped client + ids, never provider objects. Each wrapper is **idempotent on its target state** (a webhook retry

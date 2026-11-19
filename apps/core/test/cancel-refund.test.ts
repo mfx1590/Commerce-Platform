@@ -232,6 +232,19 @@ describe('cancelOrder on a captured payment refunds what is still captured (#905
     expect(s.topics.indexOf('refund.issued')).toBeLessThan(s.topics.indexOf('order.cancelled'));
     expect(s.reserved).toBe(0);
     expect([...fake.refunds.values()].map((r) => r.amount)).toEqual([o.captured]);
+    // #887: the cancel's audit row links the refund it made
+    const refundId = (
+      await owner.query<{ id: string }>(`SELECT id FROM refund WHERE order_id = $1`, [o.orderId])
+    ).rows[0]!.id;
+    const cancelRow = await owner.query<{ after: Record<string, unknown> }>(
+      `SELECT after FROM audit_log WHERE entity_type = 'order' AND entity_id = $1 AND action = 'order.cancel'`,
+      [o.orderId],
+    );
+    expect(cancelRow.rows).toHaveLength(1);
+    expect(cancelRow.rows[0]!.after).toMatchObject({
+      status: 'cancelled',
+      refund_ids: [refundId],
+    });
 
     // re-cancel: 200, same order, no second refund anywhere
     const again = await storeAdminApi.post(cancelPath(A, o.orderId), { reason: 'again' });
