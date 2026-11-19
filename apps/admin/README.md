@@ -1215,3 +1215,18 @@ public endpoint: a section guard or a hidden button does nothing for a crafted P
 - **Marketing** (`(store)/[storeId]/marketing/_actions.ts`, window 17's files, landed on an integration branch):
   all nine actions refuse first through `MARKETING_PERMISSIONS` (`src/lib/marketing/permissions.ts`, pinned to
   the yaml; `previewSegment` is store_staff, the rest store_admin) since #925.
+
+## What the session gate covers (#949)
+
+`src/middleware.ts` is the session gate, and it is the CSP. Its `matcher` decides which paths it runs on,
+and each exclusion is **anchored**:
+
+- `/api/auth/…` (login, callback, logout);
+- `/health` (an optional trailing slash);
+- `/_next/static/…` and `/_next/image`;
+- `/favicon.ico`.
+
+Every other path goes through the gate, look-alikes included (`/healthx`, `/health/anything`, `/api/auth`,
+`/api/authx`). Before #949 the exclusions were prefixes, so those skipped it. `test/middleware.test.ts` pins
+the matcher with Next's own compiler (`getMiddlewareMatchers`), not a hand-built regex, and checks that a
+look-alike without a session is redirected to sign in, a `Next-Action` POST included.

@@ -1095,6 +1095,11 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   from main 84be39d0 (window 17's files → integration branch, rule E). MARKETING_PERMISSIONS in src/lib/marketing,
   9 guards, tests per action, mutation-checked (scratchpad mutate-925.cjs). Fable review. Next: #910 (active store
   losing a prerequisite) on an admin branch, Opus review.
+- **#936 (#925) MERGED; #944 (#910) re-merged with main, head 51da1ac3. #949 (middleware matcher), 2026-11-19:**
+  branch `admin/phase6-949-middleware-matcher` from main d5751d7a. Anchored exclusions; tests use Next's
+  getMiddlewareMatchers (next/dist/build/analysis/get-page-static-info). Mutation-checked (scratchpad
+  mutate-949.cjs). Fable review.
+  - Gotcha: shell-quoted regex escapes get eaten (`favicon\.ico`): write such edits as a script file.
 ## Brand D pre-flight (admin side; input for window 10's wave-3 D8 task — brand D = Japan)
 
 Written 2026-11-10 and extended 2026-11-11 for **brand D = Japan** (JPY, ja-JP, ships to JP). Read-only, on

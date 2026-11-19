@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import type { Session } from '@/lib/auth/session';
 import { REFRESH_SKEW_MS, joinChunks, openSession, sealSession } from '@/lib/auth/session';
+import { matcherFor } from './fixtures/middleware-matcher';
 
 const SECRET = 'test-session-secret-at-least-32-characters';
 
@@ -206,17 +207,78 @@ describe('a session Keycloak no longer has (#353)', () => {
   });
 });
 
+/**
+ * What Next actually runs: the matcher compiled by Next's own `getMiddlewareMatchers`, not a
+ * hand-built approximation of it. A path it does not match never reaches the gate.
+ */
+const gated = matcherFor(config.matcher);
+
 describe('the container liveness probe', () => {
   it('is outside the matcher, so it is never redirected to sign-in', () => {
     // A probe that gets a 307 to /api/auth/login never reports healthy, so the pod would never
     // become ready and the deploy would roll back (apps/admin/Dockerfile, REQUEST #68).
-    const pattern = new RegExp(`^${config.matcher[0] as string}$`);
-
-    expect(pattern.test('/health')).toBe(false);
-    expect(pattern.test('/api/auth/login')).toBe(false);
+    expect(gated('/health')).toBe(false);
+    expect(gated('/health/')).toBe(false);
+    expect(gated('/api/auth/login')).toBe(false);
     // ...while a real page still is gated.
-    expect(pattern.test('/stores')).toBe(true);
-    expect(pattern.test('/00000000-0000-4000-8000-000000000031/catalog')).toBe(true);
+    expect(gated('/stores')).toBe(true);
+    expect(gated('/00000000-0000-4000-8000-000000000031/catalog')).toBe(true);
+  });
+});
+
+describe('the matcher exclusions are anchored, not prefixes (#949)', () => {
+  it.each([
+    '/api/auth/login',
+    '/api/auth/callback',
+    '/api/auth/logout',
+    '/health',
+    '/health/',
+    '/_next/static/chunks/main.js',
+    '/_next/image',
+    '/favicon.ico',
+  ])('%s stays outside the gate', (path) => {
+    expect(gated(path)).toBe(false);
+  });
+
+  it.each([
+    '/healthx',
+    '/health/anything',
+    '/healthcheck',
+    '/api/auth',
+    '/api/authx',
+    '/api/authxyz/login',
+    '/_next/imagex',
+    '/_next/staticx/a.js',
+    '/favicon.icox',
+    '/faviconXico',
+    '/auth/error',
+    '/',
+  ])('%s is matched, so the gate runs', (path) => {
+    expect(gated(path)).toBe(true);
+  });
+
+  it.each(['/healthx', '/api/authx', '/health/anything'])(
+    '%s without a session is sent to sign in, a server-action POST included',
+    async (path) => {
+      for (const method of ['GET', 'POST']) {
+        const request = new NextRequest(new URL(`http://localhost:3000${path}`), {
+          method,
+          headers: method === 'POST' ? { 'next-action': 'a'.repeat(40) } : {},
+        });
+        const response = await middleware(request);
+        expect(response.status, method).toBe(307);
+        const location = new URL(response.headers.get('location') ?? '');
+        expect(location.pathname).toBe('/api/auth/login');
+        expect(location.searchParams.get('returnTo')).toBe(path);
+      }
+    },
+  );
+
+  it('/health still answers 200 itself (its route, with no middleware in front)', async () => {
+    const { GET } = await import('@/app/health/route');
+    const response = GET();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: 'ok' });
   });
 });
 
