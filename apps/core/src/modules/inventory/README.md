@@ -29,7 +29,12 @@ comes back as 403, an invisible item as 404, another store's variant as `unknown
 - **`on_hand` changes only through `moveStock()`**: the pool row is locked (`FOR UPDATE`, created at zero when
   missing), `on_hand += delta`, one `stock_movement` row appended, one **`stock.moved` v2** emitted, all in the
   caller's transaction. `on_hand` may go negative only through `sale` (a backorder being shipped); any other
-  reason that would cross zero → 409 `conflict`. A guard test fails on `UPDATE inventory_level` or
+  reason that would cross zero → 409 `conflict`. Since #877 a NEGATIVE delta of any reason but `sale` may not leave
+  `on_hand` below the pool row's `reserved` either (units open orders hold): 409 `conflict` with `on_hand`,
+  `reserved`, `delta`, `stock_item_id`, `warehouse_id` (+ `variant_id` when attributed), decided under the same row
+  lock, so a concurrent sale or reservation cannot slip in between; down to exactly `reserved` is allowed. This
+  covers the admin's `createStockMovement` (adjustment, transfer legs, a manual `cycle_count`) and window 11's
+  cycle-count reconcile alike. A guard test fails on `UPDATE inventory_level` or
   `INSERT INTO stock_movement` outside this module.
 - **Attribution (the ledger policy).** A movement is attributed to a store AND its variant, or to neither (the
   ledger's CHECK). A movement a store caused — a sale, a return, a shipment release — carries that store's
@@ -194,6 +199,9 @@ stock_item_id, warehouse_id }` and writes nothing. Before, it set `released_at` 
   cover both the deadlock-freedom and the last-unit race. (Order since #456: see Rules.)
 - `on_hand` below zero is reserved for `sale` — a backorder that ships owes stock; every other reason is a
   physical count and cannot go negative.
+- **2026-11-18 · Nothing but a sale may take reserved units (#877, REQUEST from window 3).** The admin's own check
+  reads then writes without a lock; only `moveStock`, under the pool row lock, can make the rule hold. `sale` stays
+  exempt (the shipment path lowers `reserved` before `on_hand`; a backorder ships against stock it never had).
 
 ## Tests
 

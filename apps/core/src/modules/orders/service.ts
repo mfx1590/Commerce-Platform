@@ -18,6 +18,7 @@ import { paymentProvider } from '../../lib/payment-seam';
 import { releaseForOrder } from '../inventory';
 import { loadOrder, loadOrderLines, renderAdminOrder } from './read-model';
 import { assertNotHeldByFraud, isHeldByFraud } from './fraud-flag';
+import { currentCancelRefunder } from './cancel-refund';
 import { allowed } from './transitions';
 import type {
   AdminOrder,
@@ -495,8 +496,14 @@ interface AuthorizedPayment {
  * `POST /admin/stores/{storeId}/orders/{orderId}/cancel` and the module call: allowed only while nothing has
  * shipped (`fulfillment_status = unfulfilled`) and from pending | confirmed | processing (409 otherwise). An
  * authorised (not captured) payment is voided through its PaymentProvider (`manual` → no-op) and marked
- * `cancelled` on the payment row; a captured payment is window 7's to refund on `order.cancelled`. Reservations
- * release in task 2.4 through the inventory public API. Idempotent: an already-cancelled order is returned as is.
+ * `cancelled` on the payment row. A CAPTURED payment (also partly refunded) is refunded for what is still captured
+ * (captured − already refunded) through the `CancelRefunder` seam (#905: window 7's `createRefundIn`, reason
+ * `cancellation`, key `<payment idempotency_key>:cancel-refund`): the refund row and `refund.issued` commit with the
+ * cancel or not at all — a provider refusal leaves the order uncancelled (402 `payment_failed`, as a refused void);
+ * an unknown outcome (outage, timeout) throws and commits nothing, and a retry sends the SAME provider key, so the
+ * PSP answers the refund it already made instead of making a second one. Nothing consumes `order.cancelled` to
+ * refund. Reservations release through the inventory public API. Idempotent: an already-cancelled order is
+ * returned as is (no second refund).
  */
 export async function cancelOrder(
   client: ScopedClient,
@@ -564,9 +571,14 @@ export async function cancelOrderInTx(
   }
   // Reservations are released here, through the orders module's own cancel — never from window 8's side.
   await releaseForOrder(tx, orderId);
+  // #905: a captured payment is refunded for what is still captured, in THIS transaction. After the release (the
+  // last step that can fail on our side before the transitions), so a provider call is not followed by work that can
+  // still throw for a reason of ours; if anything later did, the rollback leaves no row and a retry reuses the key.
+  await refundCapturedForCancel(tx, o, input.actor);
   // #466: an authorisation the cancel released reads `voided` — as its OWN transition, so `order.updated`
   // (changed_fields ['payment_status']) is written before `order.cancelled`; one combined transition would emit
-  // only `order.cancelled`. awaiting / failed have nothing to release; captured is window 7's refund to make.
+  // only `order.cancelled`. awaiting / failed have nothing to release; a captured payment was refunded above, and
+  // `createRefundIn` moved `payment_status` to `refunded` (or kept `captured` while a PSP refund is pending).
   if (o.payment_status === 'authorized') {
     await transition(tx, orderId, { payment_status: 'voided', actor: input.actor });
   }
@@ -575,6 +587,38 @@ export async function cancelOrderInTx(
     reason: input.reason,
     actor: input.actor,
   });
+}
+
+async function refundCapturedForCancel(tx: Queryable, o: OrderRow, actor: Actor): Promise<void> {
+  const captured = await tx.query<{ id: string; provider: string; idempotency_key: string }>(
+    `SELECT id, provider, idempotency_key FROM payment
+     WHERE order_id = $1 AND status = 'captured' ORDER BY created_at, id`,
+    [o.id],
+  );
+  if (captured.rows.length === 0) return;
+  const refunder = currentCancelRefunder();
+  if (!refunder) {
+    // Fail closed: never cancel a charged order without its refund.
+    throw new AppError(
+      'internal',
+      'the cancel refund is not available (no CancelRefunder registered)',
+      undefined,
+      503,
+    );
+  }
+  for (const p of captured.rows) {
+    const out = await refunder.refundRemaining(tx, {
+      orderId: o.id,
+      paymentId: p.id,
+      idempotencyKey: `${p.idempotency_key}:cancel-refund`,
+      actor,
+    });
+    if (out.status === 'failed') {
+      throw new AppError('payment_failed', out.failureReason ?? 'payment could not be refunded', {
+        provider: p.provider,
+      });
+    }
+  }
 }
 
 export type { PaymentStatus };

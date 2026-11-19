@@ -7,12 +7,26 @@
 //     else names exactly one store (`store_required` otherwise) and is charged to it — decided by the PRINCIPAL, never
 //     by how many stores happen to be in scope (#677 review; the rule in #673).
 // The tool then re-checks every call (tool.ts), so even a model that ignores its schema cannot leave the scope.
+// BI v2 (#871 e): three closed tools (query_metrics, movers, inventory_health) share one alias registry per question;
+// the final answer has its aliases replaced by names (under the caller's scope) and carries the legend. Stores with
+// BI Q&A off are out of every tool, the inventory's pooled sales rate included.
 import { AppError } from '../../../lib/errors';
 import { LIMITS } from '../metrics/catalogue';
-import type { MetricsReader } from '../metrics/execute';
+import type { StockScope } from '../metrics/compile';
+import type { MetricLabels, MetricsReader } from '../metrics/execute';
+import type { InventoryHealth, InventoryQuery } from '../metrics/inventory';
 import type { MetricId } from '../metrics/catalogue';
 import { aiErrorToAppError, type AiToolRun, type GatewayFactory } from './gateway';
-import { queryMetricsHandler, queryMetricsTool, type ExecutedQuery } from './tool';
+import {
+  Aliases,
+  biQaToolHandler,
+  inventoryTool,
+  moversTool,
+  queryMetricsTool,
+  substituteAliases,
+  type ExecutedInventory,
+  type ExecutedQuery,
+} from './tool';
 
 // v2 (#682, the first real-model run): the answer's language, ONE labelled derived figure, top-N by dimension;
 // v3 (#684, the re-run): every number not copied from a result is labelled — a count difference too (#17)
@@ -71,6 +85,12 @@ export interface AskDeps {
   /** `settings.ai.bi_qa` per store id; a store missing from the map counts as ON */
   biQaSwitches: (storeIds: readonly string[]) => Promise<ReadonlyMap<string, boolean>>;
   now?: () => Date;
+  /** BI v2 (#871): the `stock` series scope for these stores; stock series are a tool error without it */
+  stockScope?: (storeIds: readonly string[]) => Promise<StockScope>;
+  /** BI v2: getInventoryHealth over these stores only (the inventory_health tool is offered only with it) */
+  inventory?: (storeIds: readonly string[], q: InventoryQuery) => Promise<InventoryHealth>;
+  /** BI v2: names for the aliases the answer uses, under the caller's scope (aliases stay when omitted) */
+  labels?: (ids: Partial<Record<keyof MetricLabels, Set<string>>>) => Promise<MetricLabels>;
 }
 
 /** The contract's MetricAnswer (#668). */
@@ -83,6 +103,10 @@ export interface MetricAnswer {
     error?: ExecutedQuery['error'];
   }[];
   chart: { query_index: number; metric: MetricId } | null;
+  /** BI v2 (#871): the inventory_health calls the answer cites (h1, h2 …) */
+  inventory?: { ref: string; query: InventoryQuery; result?: InventoryHealth }[];
+  /** BI v2: alias → name for every alias the question issued (the answer's text already uses the names) */
+  labels?: Record<string, string>;
   excluded_store_ids: string[];
   model: string;
   template: { id: string; version: number };
@@ -157,6 +181,14 @@ export async function askMetrics(
     actorId: caller.actorId,
   });
   const executed: ExecutedQuery[] = [];
+  const inventoryCalls: ExecutedInventory[] = [];
+  const aliases = new Aliases();
+  const onIds = on.map((s) => s.id);
+  const tools = [
+    queryMetricsTool({ stores: on, finance: caller.finance, window }),
+    moversTool({ stores: on, finance: caller.finance, window }),
+    ...(deps.inventory ? [inventoryTool()] : []),
+  ];
   let run: AiToolRun;
   try {
     run = await gateway.runTools(
@@ -172,12 +204,17 @@ export async function askMetrics(
           'Amounts are integer minor units per currency; never add different currencies together.',
       },
       {
-        tools: [queryMetricsTool({ stores: on, finance: caller.finance, window })],
-        handle: queryMetricsHandler({
+        tools,
+        handle: biQaToolHandler({
           reader: deps.reader,
-          caller: { stores: on.map((s) => s.id), finance: () => caller.finance },
+          caller: { stores: onIds, finance: () => caller.finance },
           executed,
           codes: new Map(on.map((s) => [s.id, s.code])),
+          aliases,
+          ...(deps.stockScope ? { stockScope: () => deps.stockScope!(onIds) } : {}),
+          ...(deps.inventory
+            ? { inventory: (q: InventoryQuery) => deps.inventory!(onIds, q), inventoryCalls }
+            : {}),
         }),
         maxToolCalls: MAX_TOOL_CALLS,
       },
@@ -186,15 +223,18 @@ export async function askMetrics(
     throw aiErrorToAppError(err) ?? err;
   }
 
+  const named = await substituteAliases(run.text, aliases, deps.labels ?? (async () => ({})));
   return {
     conversation_id: run.conversationId,
-    answer: run.text,
+    answer: named.text,
     queries: executed.map(({ query, result, error }) => ({
       query,
       ...(result === undefined ? {} : { result }),
       ...(error === undefined ? {} : { error }),
     })),
     chart: chartHint(executed),
+    ...(inventoryCalls.length > 0 ? { inventory: inventoryCalls } : {}),
+    ...(Object.keys(named.legend).length > 0 ? { labels: named.legend } : {}),
     excluded_store_ids: excluded,
     model: run.servedModel,
     template: run.template,

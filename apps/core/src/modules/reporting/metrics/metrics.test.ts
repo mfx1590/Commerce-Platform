@@ -3,7 +3,7 @@
 // ratios, per-currency totals, ordering, truncation, fail-closed 503).
 import { describe, expect, it } from 'vitest';
 import { AppError } from '../../../lib/errors';
-import { METRIC_IDS, type MetricId } from './catalogue';
+import { METRIC_IDS, METRICS, type MetricId } from './catalogue';
 import { compileMetricQuery } from './compile';
 import { csvText, renderMetricCsv } from './csv';
 import { executeMetricQuery, scopedEverywhere, type MetricsReader } from './execute';
@@ -104,7 +104,7 @@ describe('compileMetricQuery', () => {
       [A],
     );
     expect(c.sources.map((s) => [s.source, s.metrics.sort()])).toEqual([
-      ['bookings', ['bookings_minor', 'orders']],
+      ['sales', ['bookings_minor', 'orders']],
       ['refunds', ['refunds_minor']],
     ]);
   });
@@ -142,7 +142,7 @@ describe('executeMetricQuery', () => {
 
   it('merges sources by key, computes ratios per row and per currency total, never across currencies', async () => {
     const { reader } = fakeReader({
-      mart_bookings_daily: [
+      mart_sales_daily: [
         {
           out_period: '2026-10-01',
           out_store: A,
@@ -245,7 +245,11 @@ describe('executeMetricQuery', () => {
   it('every catalogue metric compiles and executes (no metric without a source or a derivation)', async () => {
     const { reader } = fakeReader({});
     for (const m of METRIC_IDS as readonly MetricId[]) {
-      const r = await executeMetricQuery(reader, q({ metrics: [m] }), [A]);
+      // snapshot metrics (inventory now) are getInventoryHealth's: queryMetrics refuses them (#871)
+      if (METRICS[m].kind === 'snapshot') continue;
+      const r = await executeMetricQuery(reader, q({ metrics: [m] }), [A], {
+        stock: { organizationId: A },
+      });
       expect(r.rows, m).toEqual([]);
     }
   });

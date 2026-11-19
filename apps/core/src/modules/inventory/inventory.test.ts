@@ -669,3 +669,169 @@ describe("window 8's port shapes (#191): consume / release per shipment, by orde
     expect(open.rows[0]!.n).toBe('5');
   });
 });
+
+describe('#877: a movement may not leave on_hand below reserved (409), except a sale', () => {
+  const stockMovements = async (stockItemId: string) =>
+    Number(
+      (
+        await owner.query<{ n: string }>(
+          `SELECT count(*)::text AS n FROM stock_movement WHERE stock_item_id = $1`,
+          [stockItemId],
+        )
+      ).rows[0]!.n,
+    );
+  const itemOf = async (variantId: string) =>
+    (
+      await owner.query<{ id: string }>(
+        `SELECT stock_item_id AS id FROM product_variant WHERE id = $1`,
+        [variantId],
+      )
+    ).rows[0]!.id;
+
+  it('EUR order reserves 3 of 5 at EU: −3 is refused (all three paths), −2 lands on exactly reserved; a sale and a receipt are exempt', async () => {
+    const [v] = (await variantsA()).slice(-1);
+    await setStock(v!.id, 5, 0);
+    const placed = await place(await readyCart([{ variantId: v!.id, quantity: 3 }]));
+    expect(await level(v!.id, EU)).toEqual({ on_hand: 5, reserved: 3, available: 2 });
+    const item = await itemOf(v!.id);
+    const movements0 = await stockMovements(item);
+    const events0 = Number(
+      (
+        await owner.query<{ n: string }>(
+          `SELECT count(*)::text AS n FROM outbox WHERE topic = 'stock.moved'`,
+        )
+      ).rows[0]!.n,
+    );
+
+    // 1. a store-attributed adjustment (store scope)
+    await expect(
+      a.transaction((tx) =>
+        moveStock(tx, {
+          organizationId: ORG,
+          storeId: A,
+          variantId: v!.id,
+          warehouseId: EU,
+          delta: -3,
+          reason: 'adjustment',
+          actor,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: 'conflict',
+      details: {
+        variant_id: v!.id,
+        stock_item_id: item,
+        warehouse_id: EU,
+        on_hand: 5,
+        reserved: 3,
+        delta: -3,
+      },
+    });
+    // 2. a pool movement no store caused (store_id NULL, organization scope) — the admin's createStockMovement
+    await expect(
+      createStockMovement(hq, {
+        organizationId: ORG,
+        variantId: v!.id,
+        warehouseId: EU,
+        delta: -3,
+        reason: 'adjustment',
+        actor,
+      }),
+    ).rejects.toMatchObject({
+      code: 'conflict',
+      details: { stock_item_id: item, warehouse_id: EU, on_hand: 5, reserved: 3, delta: -3 },
+    });
+    // 3. a transfer leg (the out-leg of a transfer is its own movement)
+    await expect(
+      createStockMovement(hq, {
+        organizationId: ORG,
+        variantId: v!.id,
+        warehouseId: EU,
+        delta: -4,
+        reason: 'transfer_out',
+        actor,
+      }),
+    ).rejects.toMatchObject({ code: 'conflict', details: { reserved: 3, delta: -4 } });
+    // nothing was written: pool row, ledger, outbox
+    expect(await level(v!.id, EU)).toEqual({ on_hand: 5, reserved: 3, available: 2 });
+    expect(await stockMovements(item)).toBe(movements0);
+    expect(
+      Number(
+        (
+          await owner.query<{ n: string }>(
+            `SELECT count(*)::text AS n FROM outbox WHERE topic = 'stock.moved'`,
+          )
+        ).rows[0]!.n,
+      ),
+    ).toBe(events0);
+
+    // the boundary: down to exactly reserved is allowed (available 0)
+    const out = await createStockMovement(hq, {
+      organizationId: ORG,
+      variantId: v!.id,
+      warehouseId: EU,
+      delta: -2,
+      reason: 'transfer_out',
+      actor,
+    });
+    expect(out).toMatchObject({ on_hand: 3, reserved: 3, available: 0 });
+    // a receipt is never refused, whatever the balance
+    await expect(
+      createStockMovement(hq, {
+        organizationId: ORG,
+        variantId: v!.id,
+        warehouseId: EU,
+        delta: 1,
+        reason: 'transfer_in',
+        actor,
+      }),
+    ).resolves.toMatchObject({ on_hand: 4, reserved: 3 });
+
+    // the sale exception: shipping the order lowers reserved and on_hand together (consumeForShipment, reason sale)
+    await a.transaction((tx) =>
+      consumeForShipment(tx, {
+        organizationId: ORG,
+        storeId: A,
+        orderId: placed.order.id,
+        lines: [{ variantId: v!.id, quantity: 3 }],
+        actor,
+      }),
+    );
+    expect(await level(v!.id, EU)).toEqual({ on_hand: 1, reserved: 0, available: 1 });
+  });
+
+  it('a sale is exempt even below reserved (as it is from the below-zero rule)', async () => {
+    const [v] = (await variantsA()).slice(-2, -1);
+    await setStock(v!.id, 4, 0);
+    await owner.query(
+      `UPDATE inventory_level SET reserved = 4 WHERE stock_item_id = (SELECT stock_item_id FROM product_variant WHERE id = $1) AND warehouse_id = $2`,
+      [v!.id, EU],
+    );
+    const r = await a.transaction((tx) =>
+      moveStock(tx, {
+        organizationId: ORG,
+        storeId: A,
+        variantId: v!.id,
+        warehouseId: EU,
+        delta: -1,
+        reason: 'sale',
+        actor,
+      }),
+    );
+    expect(r.level).toMatchObject({ on_hand: 3, reserved: 4, available: -1 });
+    // the same delta as an adjustment is refused
+    await expect(
+      a.transaction((tx) =>
+        moveStock(tx, {
+          organizationId: ORG,
+          storeId: A,
+          variantId: v!.id,
+          warehouseId: EU,
+          delta: -1,
+          reason: 'adjustment',
+          actor,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'conflict', details: { on_hand: 3, reserved: 4, delta: -1 } });
+  });
+});
