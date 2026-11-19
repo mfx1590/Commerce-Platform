@@ -1,4 +1,6 @@
 import { MetricsDashboard } from '@/app/(hq)/bi/_components/metrics-dashboard';
+import { BiNav } from '@/app/(hq)/bi/_v2/components/shell';
+import { parseState } from '@/app/(hq)/bi/_v2/model';
 import { windowFrom, type StoreRef } from '@/app/(hq)/bi/_lib/report';
 import { expandOrganizationRelations } from '@/lib/nav/relations';
 import { loadPrincipal } from '@/lib/principal';
@@ -28,13 +30,16 @@ export default async function StoreBiPage({
     principal.ok &&
     expandOrganizationRelations(principal.data.organization_relations).has('finance');
   return (
-    <MetricsDashboard
-      window={windowFrom({ from: one(raw.from), to: one(raw.to) })}
-      currencyParam={one(raw.currency)}
-      finance={finance}
-      stores={stores}
-      storeId={storeId}
-      base={`/${storeId}/bi`}
-    />
+    <div className="space-y-6">
+      <BiNav base={`/${storeId}/bi`} current="dashboard" state={parseState(raw)} />
+      <MetricsDashboard
+        window={windowFrom({ from: one(raw.from), to: one(raw.to) })}
+        currencyParam={one(raw.currency)}
+        finance={finance}
+        stores={stores}
+        storeId={storeId}
+        base={`/${storeId}/bi`}
+      />
+    </div>
   );
 }

@@ -1183,3 +1183,39 @@
   boundary that verifies access tokens.
 - `.next/` and `next-env.d.ts` are ignored locally; the root ESLint and Prettier ignore lists do not
   cover Next build output yet (`REQUEST:` issue filed — those files belong to the main window).
+
+### Added — #869 / #871: BI v2 screens, wave 1 — Overview, Products & categories, Inventory health (window 3)
+
+Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`) and the same three on a store's BI (`/<storeId>/bi/…`, narrowed to that store). Admin API 0.4.30. The existing dashboard stays at `/bi`, with a tab bar to the new views.
+
+- **Overview:**
+  - Net sales (the headline), gross sales, discounts, shipping, tax, refunds, net bookings, orders, units, AOV and items per order, each against the previous period or the same period last year.
+  - One currency at a time (a tab; never summed). JPY has no decimals.
+  - A breakdown by store, country, sales channel or category. Clicking a row filters the page by it; a store row drills to that store's Orders for the period.
+  - **What changed**: `listMetricMovers`, risers and fallers by name, change only, never cause.
+- **Products & categories:**
+  - Best and worst products by net sales, units or return rate, **by name** from the answer's labels ("(deleted)" when gone).
+  - The category roll-up.
+  - **Stock but no sales**: inventory health status `dead`.
+- **Inventory health** answers "do we need to order anything?":
+  - Per stock item: status, available / reserved / on hand, sales per day ("may be understated" when it was out of stock), days of cover, suggested reorder.
+  - Warehouses as a breakdown. A **shared pool** is marked, and a partial suggestion says HQ's view is authoritative.
+  - Status chips that count the whole filtered set; sort, search, paging, and overrides for the sales window, lead time, cover and dead-stock days (the API's bounds).
+  - States said on screen: "incoming is not tracked yet" (#878); a degraded panel when sales rates are unavailable (positions stay live).
+  - A ledger link per warehouse for principals who may open HQ › Warehouse.
+- **Specialist bar on every view:**
+  - every filter in the URL and usable without editing it: period, comparison, breakdown, store, country and customer type from the form; channel, category and product by clicking a row; each removable as a chip;
+  - a written definition per metric from the catalogue;
+  - metrics or dimensions the catalogue doesn't offer to this principal are left out and named;
+  - truncated, empty, incomplete-period and 503 states.
+- **Export CSV** of every block, through the API's own `text/csv` with label columns. A server action checks the BI section itself (HQ `bi` = analyst; store `bi` = viewer, the same predicates as the guards) and rebuilds the query from the URL state server-side. No new `route.ts`. `ExportCsvButton` gained a `cap` prop so each block states its own cap.
+- **Not possible yet, said on screen:**
+  - drill-down from a country, channel or category to orders (the orders list has no such filters);
+  - a customer **group** filter (the API takes customer type only);
+  - "why" in What changed (by design);
+  - incoming stock (#878).
+- Tests:
+  - `test/bi-v2-model.test.ts` (17): state, filters, catalogue offer, formatting, comparison shaping, query bodies, inventory bounds, one currency at a time.
+  - `test/bi-v2-actions.test.ts` (9): HQ and store gates before any call, 401, queries rebuilt server-side, store narrowing, inventory 500 cap, errors passed on.
+  - `test/bi-v2-views.test.tsx` (17): the three views as rendered.
+  - Mutation-checked: removing the section gate, the store narrowing, or the single-currency rule fails the suite.
