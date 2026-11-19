@@ -4,6 +4,7 @@ import { listOrders, listProducts } from '@/lib/api/admin';
 import type { AdminComponents } from '@/lib/api/admin-client';
 import type { ActionResult } from '@/lib/forms/action-result';
 import { exportStoreList, type CsvExport } from '@/lib/table/export-server';
+import { DATA_KINDS, productDataGaps } from '@/lib/catalog/attributes';
 import {
   PRODUCTS_SORTABLE_COLUMNS,
   PRODUCT_FILTER_KEYS,
@@ -37,7 +38,17 @@ export async function exportProductsCsvAction(
     sort,
     sortKeys: PRODUCTS_SORTABLE_COLUMNS,
     listPage: (query) => listProducts(storeId, query),
-    header: ['id', 'title', 'handle', 'status', 'variants', 'published_at', 'updated_at'],
+    header: [
+      'id',
+      'title',
+      'handle',
+      'status',
+      'variants',
+      'published_at',
+      'updated_at',
+      // How many variants lack each kind of shipping / customs data (#870 item 5).
+      ...DATA_KINDS.map((kind) => `variants_missing_${kind.toLowerCase().replace(' ', '_')}`),
+    ],
     toRow: (product) => [
       product.id,
       product.title,
@@ -46,6 +57,10 @@ export async function exportProductsCsvAction(
       product.variants.length,
       product.published_at,
       product.updated_at,
+      ...(() => {
+        const gaps = productDataGaps(product.variants);
+        return DATA_KINDS.map((kind) => gaps[kind]);
+      })(),
     ],
   });
 }

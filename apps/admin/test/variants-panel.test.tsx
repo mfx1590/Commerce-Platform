@@ -138,7 +138,13 @@ describe('variants are created deliberately, not as a side effect of saving opti
       variant('v1', 'S / Red', { Size: 'S', Colour: 'Red' }),
       variant('v2', 'S / Blue', { Size: 'S', Colour: 'Blue' }),
     ];
-    render(<VariantsPanel storeId="s1" product={product({ variants: existing })} />);
+    render(
+      <VariantsPanel
+        storeId="s1"
+        product={product({ variants: existing })}
+        defaultPriceListIds={['pl1']}
+      />,
+    );
 
     expect(screen.getByText(/2 variants/)).toBeInTheDocument();
     expect(
@@ -153,7 +159,13 @@ describe('variants are created deliberately, not as a side effect of saving opti
       variant('v3', 'M / Red', { Size: 'M', Colour: 'Red' }),
       variant('v4', 'M / Blue', { Size: 'M', Colour: 'Blue' }),
     ];
-    render(<VariantsPanel storeId="s1" product={product({ variants: existing })} />);
+    render(
+      <VariantsPanel
+        storeId="s1"
+        product={product({ variants: existing })}
+        defaultPriceListIds={['pl1']}
+      />,
+    );
 
     expect(screen.queryByRole('button', { name: /Create all/ })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Create' })).toBeNull();
@@ -179,15 +191,27 @@ describe('editing a variant', () => {
   const existing = [variant('v1', 'S / Red', { Size: 'S', Colour: 'Red' })];
 
   it('shows the price formatted, in minor units', () => {
-    render(<VariantsPanel storeId="s1" product={product({ variants: existing })} />);
+    render(
+      <VariantsPanel
+        storeId="s1"
+        product={product({ variants: existing })}
+        defaultPriceListIds={['pl1']}
+      />,
+    );
     expect(screen.getByText(/19\.99/)).toBeInTheDocument();
   });
 
   it('saves the SKU and the price as an integer through updateVariant', async () => {
     const user = userEvent.setup();
-    render(<VariantsPanel storeId="s1" product={product({ variants: existing })} />);
+    render(
+      <VariantsPanel
+        storeId="s1"
+        product={product({ variants: existing })}
+        defaultPriceListIds={['pl1']}
+      />,
+    );
 
-    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.click(screen.getByRole('button', { name: 'Edit SKU-v1' }));
     const sku = screen.getByLabelText('SKU');
     await user.clear(sku);
     await user.type(sku, 'TEE-S-RED');
@@ -202,8 +226,15 @@ describe('editing a variant', () => {
       sku: 'TEE-S-RED',
       title: 'S / Red',
       options: { Size: 'S', Colour: 'Red' },
-      // 24.50 EUR is 2450 minor units — never 2449.9999999999995.
-      prices: [{ currency: 'EUR', amount_minor: 2450 }],
+      // #870 item 5: the editor now sends every attribute it shows, unchanged ones included.
+      barcode: null,
+      manage_inventory: true,
+      allow_backorder: false,
+      weight_g: null,
+      // Unchanged dimensions, HS code and origin are not sent (#947 review).
+      // 24.50 EUR is 2450 minor units — never 2449.9999999999995. The compare-at price travels
+      // with it (it used to be dropped on save).
+      prices: [{ currency: 'EUR', amount_minor: 2450, compare_at_minor: null }],
     });
   });
 
@@ -215,8 +246,14 @@ describe('editing a variant', () => {
       formError: 'sku already exists',
     });
 
-    render(<VariantsPanel storeId="s1" product={product({ variants: existing })} />);
-    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    render(
+      <VariantsPanel
+        storeId="s1"
+        product={product({ variants: existing })}
+        defaultPriceListIds={['pl1']}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Edit SKU-v1' }));
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('sku already exists');
