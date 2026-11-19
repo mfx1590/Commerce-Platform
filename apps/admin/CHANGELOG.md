@@ -1345,6 +1345,7 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   contains the email in **no** encoding. Other specs were grepped for `q=` and email expectations:
   the only other hits are a product handle in `catalog-core` and a staff email rendered on HQ ›
   Roles, neither of which this change touches.
+
 ### Fixed — #910: an active store that loses a prerequisite no longer reads "customers can place an order"
 
 - `canSell` requires `missing` to be empty.
