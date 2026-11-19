@@ -577,3 +577,23 @@
 - Spec tests: the Admin version pins move to 0.4.29, the operation counts to 142, the `ActivationBlocked` example pin
   includes `payment_method`, and a new block pins `getStoreReadiness` and `StoreReadiness`. The Prism walk reads
   `/readiness`. Store API (0.5.10), Accounting API and events are unchanged.
+
+## 0.4.37 — 2026-11-18 (Admin API 0.4.30; #871 revision 2 + addendum, BI v2 Phase A wave 1, manager landing)
+
+Additive. Metrics catalogue v2: `MetricId` gains 27 ids (42 in all), `MetricDimension` gains `country`,
+`sales_channel`, `category`, `customer_type`, `warehouse` (with the filters `countries`, `sales_channel_ids`,
+`category_ids`, `customer_types`, `warehouse_ids`), `MetricDefinition` gains unit `milli` and the optional `kind`,
+`additive`, `formula`, `MetricCatalogue` the optional `dimensions` and `inventory_defaults`; `MetricQuery.compare`
+(`previous_period` | `previous_year`, matched by offset), `MetricRow` requires the five new keys (null unless asked),
+`MetricResult` gains the optional `compare` and `labels`, and `queryMetrics` takes `labels=true` (CSV label columns
+appended; without it the CSV is unchanged). New: `listMetricMovers` (`POST /admin/metrics/movers`; additive series
+metrics only, ranked by absolute change inside one currency block, `change_bp` null below `min_base`; 200 / 400 /
+401 / 403 / 503) and `getInventoryHealth` (`POST /admin/metrics/inventory`; one row per stock item with its warehouse
+breakdown, `shared`, `suggestion_partial`, `rate_understated`, `incoming_tracked`, 200 with `rate_available: false`
+when the analytics store is down, JSON or CSV; 200 / 400 / 401 / 403), both tag `reports`, `viewer` on `store:*`.
+`MetricAnswer` gains the optional `inventory` (ref h1…, query, result) and `labels` (#871 addendum). Against the a3
+text, `InventoryHealthRow.status` is `oneOf [InventoryStatus, null]` (a `$ref` with a sibling `type` refuses null) and
+`InventoryHealthQuery`'s id arrays are written out instead of `$ref`s into the optional `MetricQuery.filters` (the
+generated types did not compile). Spec pins move to 0.4.30 / 144 operations / 9 filter arrays, a new block pins the
+wave, and the Prism walk posts to both operations. Store API, Accounting API, events and db unchanged; the core's
+`LIMITS` additions are apps/core's.

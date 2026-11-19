@@ -17,7 +17,10 @@ import {
 import { AppError } from '../../../lib/errors';
 import type { MetricsReader } from '../metrics/execute';
 import { sharedMetricsReader } from '../metrics/reader';
-import { metricsScope, operationGuard, type MetricsSpec } from '../metrics/routes';
+import { computeInventoryHealth, loadInventoryInputs } from '../metrics/inventory';
+import { resolveLabels } from '../metrics/labels';
+import { organizationClient } from '../../../lib/db';
+import { metricsScope, operationGuard, stockScopeFor, type MetricsSpec } from '../metrics/routes';
 import { defaultGatewayFor } from './ai';
 import { askMetrics } from './ask';
 import { createPgFeedbackStore, type FeedbackStore, type Rating } from './feedback';
@@ -89,6 +92,38 @@ export function askAdminRouter(opts: AskRouterOptions = {}): Router {
             },
             gatewayFor: opts.gatewayFor ?? defaultGatewayFor,
             biQaSwitches: (ids) => biQaSwitches(p, ids),
+            // BI v2 (#871 e): the stock series scope, the inventory over the question's stores (BI Q&A-off stores
+            // are out of its pooled rate too), and the names the answer's aliases stand for
+            stockScope: (ids) =>
+              stockScopeFor(p, ids, !hasOrganizationAccess(p) || ids.length < stores.length),
+            inventory: async (ids, q) => {
+              const organization = hasOrganizationAccess(p);
+              const now = new Date();
+              const inputs = await loadInventoryInputs(
+                {
+                  pg: visibleStoresClientFor(p),
+                  ...(organization
+                    ? {}
+                    : {
+                        orgPg: organizationClient({
+                          organizationId: p.organizationId,
+                          actorId: p.user.id,
+                        }),
+                      }),
+                  get reader() {
+                    return opts.reader ?? sharedMetricsReader();
+                  },
+                  organizationId: p.organizationId,
+                  stores: ids,
+                  rateStores: ids,
+                  organization,
+                  now,
+                },
+                { ...q, ...(ids.length < stores.length ? { store_ids: [...ids] } : {}) },
+              );
+              return computeInventoryHealth(inputs, q, { organization, now });
+            },
+            labels: (ids) => resolveLabels(visibleStoresClientFor(p), ids),
           },
           {
             organizationId: p.organizationId,

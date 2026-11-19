@@ -176,18 +176,31 @@ describe('the scope (#606 acceptance: a store-A principal asking about store B)'
 
   // #7 of the 2026-11-02 run: product, order_by and limit were offered but never explained. Pinned, and short (the
   // description goes with every step): the caller's own metrics only — no finance metric reaches an analyst.
+  // BI v2 (#871): the line groups the metrics by the dimensions they take (not every metric takes store any more)
   it.each([
-    [false, 'also refund_reason: refunds_minor; product: units, product_net_minor.'],
+    [
+      false,
+      [
+        'refunds_minor take store, refund_reason, country, sales_channel',
+        'units_received, units_adjusted take warehouse',
+      ],
+    ],
     [
       true,
-      'also refund_reason: refunds_minor; product: units, product_net_minor; provider: captured_minor, fee_minor.',
+      [
+        'captured_minor, fee_minor take store, provider',
+        'refunds_minor take store, refund_reason, country, sales_channel',
+      ],
     ],
-  ])('the tool says which metric takes which dimension (finance %s)', (finance, line) => {
+  ])('the tool says which metric takes which dimension (finance %s)', (finance, groups) => {
     const tool = queryMetricsTool({ stores: [A], finance, window: { from: 'a', to: 'b' } });
-    expect(tool.description).toContain(`Every metric takes the store dimension; ${line}`);
+    expect(tool.description).toContain('Dimensions: ');
+    for (const g of groups) expect(tool.description).toContain(g);
+    // snapshot metrics (stock now) are inventory_health's, never query_metrics'
+    expect(tool.description).not.toContain('days_of_cover');
     const props = tool.inputSchema.properties as Record<string, { description?: string }>;
     expect(props.dimensions!.description).toBe(
-      'One row per value of each: product = one row per product (the way to rank products)',
+      'One row per value of each: product = one row per product (the way to rank products); products, categories, channels and warehouses come back as aliases (p1, c1, ch1, w1) — write the alias, the server puts the name in',
     );
     expect(props.order_by!.description).toBe(
       'Sorts the rows; with a dimension, grain total and limit it gives a top or bottom N',
@@ -234,7 +247,7 @@ describe('the per-store switch and the budget scope', () => {
     await askMetrics(deps, caller([A, B], false, false), { question: 'x', store_ids: [A.id] });
     expect(runs[0]!.scope).toEqual({ organizationId: ORG, storeId: A.id, actorId: ACTOR });
     expect(runs[0]!.key).toBe('bi-qa-answer@3');
-    expect(runs[0]!.toolNames).toEqual(['query_metrics']);
+    expect(runs[0]!.toolNames).toEqual(['query_metrics', 'movers']); // inventory_health only with an inventory reader
     expect(runs[0]!.variables).toMatchObject({
       question: 'x',
       stores: `brand-a ${A.id}`,

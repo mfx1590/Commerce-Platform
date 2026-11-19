@@ -874,6 +874,77 @@ describe('Admin API mock (0.4.19 report operations, #493)', () => {
   });
 });
 
+describe('Admin API mock (0.4.30 BI v2 wave 1, #871)', () => {
+  it('listMetricMovers answers per-currency risers and fallers; a bad body is a 400', async () => {
+    const res = await fetch(`${ADMIN}/admin/metrics/movers`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({
+        metric: 'net_sales_minor',
+        dimension: 'store',
+        from: '2026-11-09',
+        to: '2026-11-16',
+      }),
+    });
+    expect(res.status).toBe(200);
+    const movers = await json(res);
+    const blocks = movers.by_currency as Array<{ currency: string | null; risers: unknown[] }>;
+    expect(blocks.length).toBeGreaterThan(0);
+    const bad = await fetch(`${ADMIN}/admin/metrics/movers`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({
+        metric: 'net_sales_minor',
+        dimension: 'warehouse',
+        from: '2026-11-09',
+        to: '2026-11-16',
+      }),
+    });
+    expect(bad.status).toBe(400);
+  });
+
+  it('getInventoryHealth answers one row per stock item with its warehouse breakdown; refusals 401 / 403', async () => {
+    const res = await fetch(`${ADMIN}/admin/metrics/inventory`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ status: ['stock_out', 'low', 'reorder'] }),
+    });
+    expect(res.status).toBe(200);
+    const health = await json(res);
+    const rows = health.rows as Array<{
+      available: number;
+      warehouses: Array<{ available: number }>;
+    }>;
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows)
+      expect(r.available).toBe(r.warehouses.reduce((sum, w) => sum + w.available, 0));
+    expect(health.incoming_tracked).toBe(false);
+    const unauth = await fetch(`${ADMIN}/admin/metrics/inventory`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(unauth.status).toBe(401);
+    const bodies = {
+      '/admin/metrics/inventory': {},
+      '/admin/metrics/movers': {
+        metric: 'units',
+        dimension: 'store',
+        from: '2026-11-09',
+        to: '2026-11-16',
+      },
+    };
+    for (const [path, b] of Object.entries(bodies)) {
+      const refused = await fetch(`${ADMIN}${path}`, {
+        method: 'POST',
+        headers: { ...adminHeaders, prefer: 'code=403' },
+        body: JSON.stringify(b),
+      });
+      expect(refused.status, path).toBe(403);
+    }
+  });
+});
+
 describe('Store + Admin API mock (0.4.23 customer exports, #498)', () => {
   const customerHeaders = { ...storeHeaders, authorization: 'Bearer customer' };
   const CUSTOMER_ID = '30000000-0000-4000-8000-000000000a01';
