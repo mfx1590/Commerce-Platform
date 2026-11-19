@@ -1189,5 +1189,6 @@ public endpoint: a section guard or a hidden button does nothing for a crafted P
   None of them reaches the API, so HQ Ask spends no AI tokens for a non-analyst. The audit export (#896)
   works the same way.
 - **Not gated on purpose:** `api/auth/{login,callback,logout}` (the sign-in flow itself) and `health`.
-- **Known gap, not window 4's:** the nine Marketing actions (`(store)/[storeId]/marketing/_actions.ts`, window
-  17). They're filed as REQUEST #925 with the same fix.
+- **Marketing** (`(store)/[storeId]/marketing/_actions.ts`, window 17's files, landed on an integration branch):
+  all nine actions refuse first through `MARKETING_PERMISSIONS` (`src/lib/marketing/permissions.ts`, pinned to
+  the yaml; `previewSegment` is store_staff, the rest store_admin) since #925.

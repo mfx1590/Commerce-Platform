@@ -18,6 +18,7 @@ import { mapServerError } from '../forms/server-errors';
 import { CATALOG_PERMISSIONS } from '../catalog/permissions';
 import { COPY_DRAFT_PERMISSIONS } from '../copy-drafts';
 import { CUSTOMER_PERMISSIONS } from '../customers/permissions';
+import { MARKETING_PERMISSIONS } from '../marketing/permissions';
 import { ORDER_PERMISSIONS } from '../orders/permissions';
 import { PRICING_PERMISSIONS } from '../pricing/permissions';
 import { PROMOTION_PERMISSIONS } from '../promotions/permissions';
@@ -42,6 +43,7 @@ const OPERATIONS = {
   ...CUSTOMER_PERMISSIONS,
   ...PRICING_PERMISSIONS,
   ...PROMOTION_PERMISSIONS,
+  ...MARKETING_PERMISSIONS,
 } satisfies Record<string, PermissionRule>;
 
 export type GuardedOperation = keyof typeof OPERATIONS;
