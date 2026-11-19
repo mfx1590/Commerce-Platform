@@ -1233,6 +1233,7 @@
   explicitly null value still reads "none".
 - Tests: 13 more (the nine verbs, the withheld reason, both shapes and their malformed forms, the
   allow-list guard, and the order panel's two cases). Admin suite 1407.
+
 ### Security — #903, #900: every server action and BI route refuses before the Admin API
 
 - **#903:** the six actions without their own check now refuse first, with the contract's 403, unless the

@@ -453,6 +453,17 @@ broken when it is only stale.** I nearly reported main as red on someone else's 
 11-19 after #926 was skipped by the merge queue. The file has no release headings, so the end of
 the file is the end of Unreleased.
 
+**The append rule paid off within the hour.** #926 merged into main while this PR was open and
+touched the same `apps/admin/CHANGELOG.md`; the merge came through **clean**, because my entry is
+at the end of `## Unreleased` and theirs is not. Merged `origin/main` (`490b48aa`) in, no rebase,
+no force-push; prettier wanted one blank line in the merged CHANGELOG, which is exactly what the
+root `format:check`-before-push rule is for. Suite after the merge: **1491 / 82 files**.
+
+Worth noting: #926 is window 4's permission-gap work, and it adds `(hq)/bi/_lib/gate.ts` and
+`test/bi-route-gate.test.ts` — the BI route handlers I flagged to the manager after the #896
+review, when the same screen-versus-handler hole turned up in my own export route. The report
+travelled.
+
 E2e: checked the order detail specs again for strict-mode collisions, since the page gained a
 table. All of them are role-scoped (`getByRole('list', { name: 'Payments' })`,
 `getByRole('table', { name: 'Order lines' })`, `getByTestId('order-status-meaning')`), and
