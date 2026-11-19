@@ -107,7 +107,12 @@ export function mergeSeo(
 /** A canonical is an absolute https URL or a path on the store (`/products/x`); nothing else. */
 export function canonicalProblem(raw: string): string | null {
   const value = raw.trim();
-  if (value === '' || value.startsWith('/')) return null;
+  if (value === '') return null;
+  // `//host` and `/\host` are protocol-relative: a browser reads them as ANOTHER site (#947 review).
+  if (value.startsWith('//') || value.startsWith('/\\')) {
+    return 'Use an https:// address or a path on this store (one leading /).';
+  }
+  if (value.startsWith('/')) return null;
   try {
     const url = new URL(value);
     return url.protocol === 'https:' ? null : 'Use an https:// address or a path starting with /.';
@@ -206,4 +211,80 @@ export function describeGaps(counts: Record<(typeof DATA_KINDS)[number], number>
     (kind) => `${counts[kind]} ${counts[kind] === 1 ? 'lacks' : 'lack'} ${kind}`,
   );
   return parts.length === 0 ? null : parts.join(' · ');
+}
+
+// ---------------------------------------------------------------------------- variant prices
+
+/** A variant price as `getProduct` returns it. */
+export interface VariantPriceRow {
+  price_list_id: string;
+  currency: string;
+  amount_minor: number;
+  compare_at_minor: number | null;
+  min_quantity: number;
+}
+
+/**
+ * Which of a variant's prices this editor may change (#947 review, MONEY). `updateVariant`'s
+ * `prices` are written to the store's DEFAULT price list at min_quantity 1, one per currency, the
+ * last one winning — so only those rows are editable. A tier (min_quantity > 1) or a price on a
+ * sale / override / group list is shown read-only with its list: sending it back would overwrite
+ * the default price. When the price lists cannot be read, nothing is editable (we cannot tell).
+ */
+export function splitPrices(
+  prices: readonly VariantPriceRow[],
+  defaultListIds: ReadonlySet<string> | null,
+): { editable: VariantPriceRow[]; readOnly: VariantPriceRow[] } {
+  const editable: VariantPriceRow[] = [];
+  const readOnly: VariantPriceRow[] = [];
+  const seen = new Set<string>();
+  for (const price of prices) {
+    const isDefault =
+      defaultListIds !== null &&
+      defaultListIds.has(price.price_list_id) &&
+      price.min_quantity === 1 &&
+      !seen.has(price.currency);
+    if (isDefault) {
+      seen.add(price.currency);
+      editable.push(price);
+    } else {
+      readOnly.push(price);
+    }
+  }
+  return { editable, readOnly };
+}
+
+/** An editable default price as the form holds it: a cleared amount is null. */
+export interface EditedPrice {
+  currency: string;
+  amount_minor: number | null;
+  compare_at_minor: number | null;
+}
+
+/**
+ * The `prices` to send, or undefined when no default price changed — a save that only touches the
+ * barcode must not send prices at all. A cleared amount is NOT a removal (the API has no way to
+ * remove a price here): it keeps the current amount (and the editor says so).
+ */
+export function pricesToSend(
+  original: readonly VariantPriceRow[],
+  edited: readonly EditedPrice[],
+): { currency: string; amount_minor: number; compare_at_minor: number | null }[] | undefined {
+  const rows = original.map((price) => {
+    const edit = edited.find((e) => e.currency === price.currency);
+    const amount = edit?.amount_minor ?? price.amount_minor;
+    const compareAt = edit === undefined ? price.compare_at_minor : edit.compare_at_minor;
+    return {
+      currency: price.currency,
+      amount_minor: amount,
+      compare_at_minor: compareAt,
+      changed: amount !== price.amount_minor || compareAt !== price.compare_at_minor,
+    };
+  });
+  if (!rows.some((row) => row.changed)) return undefined;
+  return rows.map(({ currency, amount_minor, compare_at_minor }) => ({
+    currency,
+    amount_minor,
+    compare_at_minor,
+  }));
 }

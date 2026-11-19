@@ -109,7 +109,9 @@ describe('the variant list says what is missing', () => {
 describe('the variant editor', () => {
   async function open() {
     const user = userEvent.setup();
-    render(<VariantsPanel storeId="s1" product={product([variant()])} />);
+    render(
+      <VariantsPanel storeId="s1" product={product([variant()])} defaultPriceListIds={['pl1']} />,
+    );
     await user.click(screen.getByRole('button', { name: 'Edit TOWEL-1' }));
     return { user, form: screen.getByRole('form', { name: 'Edit variant TOWEL-1' }) };
   }
@@ -241,5 +243,117 @@ describe('the product form: tags, SEO and attributes', () => {
     expect(within(seo).getByRole('alert')).toHaveTextContent(
       'Use an https:// address or a path starting with /.',
     );
+  });
+});
+
+describe('#947 review (MONEY): only the default price at quantity 1 is edited', () => {
+  const mixed = () =>
+    variant({
+      prices: [
+        {
+          price_list_id: 'pl-default',
+          currency: 'EUR',
+          amount_minor: 1999,
+          compare_at_minor: null,
+          min_quantity: 1,
+        },
+        {
+          price_list_id: 'pl-default',
+          currency: 'EUR',
+          amount_minor: 1799,
+          compare_at_minor: null,
+          min_quantity: 10,
+        },
+        {
+          price_list_id: 'pl-sale',
+          currency: 'EUR',
+          amount_minor: 1499,
+          compare_at_minor: 1999,
+          min_quantity: 1,
+        },
+      ],
+    });
+  const names = { 'pl-default': 'Default EUR', 'pl-sale': 'Summer sale' };
+
+  async function open(defaultIds: string[] | null = ['pl-default']) {
+    const user = userEvent.setup();
+    render(
+      <VariantsPanel
+        storeId="s1"
+        product={product([mixed()])}
+        defaultPriceListIds={defaultIds}
+        priceListNames={names}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Edit TOWEL-1' }));
+    return { user, form: within(screen.getByRole('form', { name: 'Edit variant TOWEL-1' })) };
+  }
+
+  it('one editable EUR price (the default, qty 1); the tier and the sale price are read-only with their list', async () => {
+    const { form } = await open();
+    expect(form.getAllByLabelText(/^Price \(EUR\)/)).toHaveLength(1);
+    expect(form.getByLabelText(/^Price \(EUR\)/)).toHaveValue('19.99');
+    const others = form.getByRole('list', { name: 'Other prices' });
+    expect(others).toHaveTextContent('€17.99 — Default EUR, from 10 units');
+    expect(others).toHaveTextContent('€14.99 (compare-at €19.99) — Summer sale');
+  });
+
+  it('a barcode-only save sends no prices at all', async () => {
+    const { user, form } = await open();
+    await user.type(form.getByLabelText('Barcode (EAN / UPC / GTIN)'), '4006381333931');
+    await user.click(form.getByRole('button', { name: 'Save' }));
+    const body = updateVariantAction.mock.calls[0]?.[2] as Record<string, unknown>;
+    expect(body).toMatchObject({ barcode: '4006381333931' });
+    expect(body).not.toHaveProperty('prices');
+  });
+
+  it('changing the default price sends only the default row, never the tier or the sale price', async () => {
+    const { user, form } = await open();
+    const price = form.getByLabelText(/^Price \(EUR\)/);
+    await user.clear(price);
+    await user.type(price, '21.00');
+    await user.click(form.getByRole('button', { name: 'Save' }));
+    expect(updateVariantAction.mock.calls[0]?.[2]).toMatchObject({
+      prices: [{ currency: 'EUR', amount_minor: 2100, compare_at_minor: null }],
+    });
+  });
+
+  it('a cleared price is said not to be removed, and nothing price-related is sent', async () => {
+    const { user, form } = await open();
+    await user.clear(form.getByLabelText(/^Price \(EUR\)/));
+    expect(form.getByText(/Clearing the price in EUR does not remove it/)).toBeInTheDocument();
+    await user.click(form.getByRole('button', { name: 'Save' }));
+    expect(updateVariantAction.mock.calls[0]?.[2]).not.toHaveProperty('prices');
+  });
+
+  it('when the price lists cannot be read, no price is editable and that is said', async () => {
+    const { user, form } = await open(null);
+    expect(form.queryByLabelText(/^Price \(EUR\)/)).not.toBeInTheDocument();
+    expect(
+      form.getByText(/The price lists could not be read, so no price can be edited here/),
+    ).toBeInTheDocument();
+    await user.click(form.getByRole('button', { name: 'Save' }));
+    expect(updateVariantAction.mock.calls[0]?.[2]).not.toHaveProperty('prices');
+  });
+});
+
+describe('#947 review: a legacy value never blocks another save', () => {
+  it('an old 4-digit HS code and a two-sided parcel, unchanged: not checked, not sent', async () => {
+    const user = userEvent.setup();
+    render(
+      <VariantsPanel
+        storeId="s1"
+        product={product([variant({ hs_code: '6302', dimensions_mm: { l: 400, w: 300 } })])}
+        defaultPriceListIds={['pl1']}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Edit TOWEL-1' }));
+    const form = within(screen.getByRole('form', { name: 'Edit variant TOWEL-1' }));
+    await user.type(form.getByLabelText('Barcode (EAN / UPC / GTIN)'), '1');
+    expect(form.getByRole('button', { name: 'Save' })).toBeEnabled();
+    await user.click(form.getByRole('button', { name: 'Save' }));
+    const body = updateVariantAction.mock.calls[0]?.[2] as Record<string, unknown>;
+    expect(body).not.toHaveProperty('hs_code');
+    expect(body).not.toHaveProperty('dimensions_mm');
   });
 });

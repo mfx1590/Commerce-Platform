@@ -219,3 +219,89 @@ describe('the server refuses what the form would', () => {
     });
   });
 });
+
+describe('#947 review', () => {
+  it('splitPrices: default list at qty 1 editable (one per currency); tiers, other lists, unknown lists read-only', async () => {
+    const { splitPrices, pricesToSend } = await import('@/lib/catalog/attributes');
+    const rows = [
+      {
+        price_list_id: 'd',
+        currency: 'EUR',
+        amount_minor: 1999,
+        compare_at_minor: null,
+        min_quantity: 1,
+      },
+      {
+        price_list_id: 'd',
+        currency: 'EUR',
+        amount_minor: 1799,
+        compare_at_minor: null,
+        min_quantity: 10,
+      },
+      {
+        price_list_id: 'sale',
+        currency: 'EUR',
+        amount_minor: 1499,
+        compare_at_minor: 1999,
+        min_quantity: 1,
+      },
+      {
+        price_list_id: 'd',
+        currency: 'JPY',
+        amount_minor: 1200,
+        compare_at_minor: null,
+        min_quantity: 1,
+      },
+    ];
+    const { editable, readOnly } = splitPrices(rows, new Set(['d']));
+    expect(editable.map((r) => `${r.currency}${r.amount_minor}`)).toEqual(['EUR1999', 'JPY1200']);
+    expect(readOnly).toHaveLength(2);
+    expect(splitPrices(rows, null).editable).toEqual([]);
+    // Whatever order the API lists them in: a sale price or a tier listed FIRST is never the
+    // editable one (the one-per-currency rule alone would pick it).
+    for (const order of [
+      [rows[2]!, rows[1]!, rows[0]!, rows[3]!],
+      [rows[1]!, rows[2]!, rows[3]!, rows[0]!],
+    ]) {
+      expect(
+        splitPrices(order, new Set(['d'])).editable.map(
+          (r) => `${r.price_list_id}:${r.min_quantity}:${r.amount_minor}`,
+        ),
+      ).toEqual(expect.arrayContaining(['d:1:1999', 'd:1:1200']));
+      expect(splitPrices(order, new Set(['d'])).editable).toHaveLength(2);
+    }
+    // Nothing changed → nothing sent; a cleared amount keeps the current one.
+    expect(
+      pricesToSend(editable, [{ currency: 'EUR', amount_minor: null, compare_at_minor: null }]),
+    ).toBeUndefined();
+    expect(
+      pricesToSend(editable, [{ currency: 'EUR', amount_minor: 2100, compare_at_minor: null }]),
+    ).toEqual([
+      { currency: 'EUR', amount_minor: 2100, compare_at_minor: null },
+      { currency: 'JPY', amount_minor: 1200, compare_at_minor: null },
+    ]);
+  });
+
+  it('a protocol-relative canonical is another site: refused, on the server too', async () => {
+    expect(canonicalProblem('//evil.example/x')).not.toBeNull();
+    expect(canonicalProblem(String.raw`/\evil.example/x`)).not.toBeNull();
+    expect(canonicalProblem('/products/towel')).toBeNull();
+    const result = await updateProductAction(STORE, PRODUCT, {
+      handle: 'towel',
+      title: 'Towel',
+      seo: { canonical: '//evil.example/x' },
+    });
+    expect(result.status).toBe('error');
+    expect(api.updateProduct).not.toHaveBeenCalled();
+  });
+
+  it('the server schema takes all three sides or none', () => {
+    expect(
+      variantCreateSchema.safeParse({ sku: 'S', title: 'T', dimensions_mm: { l: 400, w: 300 } })
+        .success,
+    ).toBe(false);
+    expect(
+      variantCreateSchema.safeParse({ sku: 'S', title: 'T', dimensions_mm: null }).success,
+    ).toBe(true);
+  });
+});

@@ -1329,3 +1329,13 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   - **attributes** as key/value rows. Values that aren't text or numbers are kept, read-only; a duplicate key is said.
 - **Catalog list**: a "Variant data" column ("2 lack weight · 1 lacks HS code" / complete), and the CSV gains one column per kind (`variants_missing_barcode`, `…_weight`, `…_dimensions`, `…_hs_code`, `…_origin`). `listProducts` can't filter on these, so there's no URL filter (#870 gap).
 - Tests: `test/catalog-attributes.test.ts` (13), `test/catalog-attributes-ui.test.tsx` (6). `variants-panel.test.tsx` now expects the fuller save body and the per-row "Edit <SKU>" button. Mutation-checked: loosening the HS code pattern or dropping the all-three-sides rule fails the suite.
+- #947 review (Opus), item 5 PR A:
+  - **MONEY.** `updateVariant` writes `prices` to the default price list at quantity 1, the last one winning, so the variant editor now edits **only the default-list price at quantity 1** (one per currency).
+    - Tiers and sale, override or group-list prices are shown **read-only with their list and minimum quantity**.
+    - `prices` is sent **only when a default price or compare-at changed**: a barcode-only save sends none.
+    - If the price lists can't be read, no price is editable, and the editor says so.
+    - Clearing a price says it isn't removed (the current price stays).
+  - A canonical starting `//` or `/\` (another site) is refused, on the server too.
+  - The server schema takes all three dimensions or none.
+  - Dimensions, HS code and origin are checked and sent **only when changed**, so a legacy value never blocks another save.
+  - Tests: default + tier + sale-list rows in one currency (in any order); prices omitted on a barcode-only save; unreadable lists; cleared price; legacy values; `//` and `/\` canonicals; partial dimensions. Mutation-checked: making every price editable fails 1 test; always sending prices fails 4.

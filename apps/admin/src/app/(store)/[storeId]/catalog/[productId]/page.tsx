@@ -4,7 +4,7 @@ import { ApiStatePanel } from '@/components/states/state-panel';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { updateProductAction } from '@/app/actions/catalog';
 import { VariantsPanel } from './variants-panel';
-import { getProduct, getStore, listCategories } from '@/lib/api/admin';
+import { getProduct, getStore, listCategories, listPriceLists } from '@/lib/api/admin';
 import { currentCopy, mayDraftCopy } from '@/lib/copy-drafts';
 import { loadPrincipal } from '@/lib/principal';
 import { CopyDraftPanel } from './copy-draft-panel';
@@ -25,12 +25,14 @@ export default async function ProductDetailPage({
 }) {
   const { storeId, productId } = await params;
   const page = activityPage((await searchParams)?.['activity']);
-  const [product, categories, store, principal, activity] = await Promise.all([
+  const [product, categories, store, principal, activity, priceLists] = await Promise.all([
     getProduct(storeId, productId),
     listCategories(storeId),
     getStore(storeId),
     loadPrincipal(),
     loadActivity({ storeId, entityType: 'product', entityId: productId, page }),
+    // Which prices the variant editor may change: the default lists only (#947 review).
+    listPriceLists(storeId),
   ]);
   const canDraft = principal.ok && mayDraftCopy(principal.data, storeId);
 
@@ -147,7 +149,22 @@ export default async function ProductDetailPage({
             description="Saving options does not create variants — each one is a sellable thing with its own SKU and price, so they are created here, deliberately."
           />
           <CardBody>
-            <VariantsPanel storeId={storeId} product={current} />
+            <VariantsPanel
+              storeId={storeId}
+              product={current}
+              defaultPriceListIds={
+                priceLists.ok
+                  ? priceLists.data.items
+                      .filter((list) => list.type === 'default')
+                      .map((list) => list.id)
+                  : null
+              }
+              priceListNames={
+                priceLists.ok
+                  ? Object.fromEntries(priceLists.data.items.map((list) => [list.id, list.name]))
+                  : {}
+              }
+            />
           </CardBody>
         </Card>
 

@@ -10,6 +10,9 @@ import { createVariantAction, updateVariantAction } from '@/app/actions/catalog'
 import type { AdminComponents } from '@/lib/api/admin-client';
 import {
   compareAtWarnings,
+  pricesToSend,
+  splitPrices,
+  type EditedPrice,
   COUNTRY,
   HS_CODE,
   missingVariantData,
@@ -42,7 +45,18 @@ type Variant = AdminComponents['Variant'];
  * every attribute the Admin API takes. A variant cannot be deleted: the API has no operation for it
  * (filed under #870).
  */
-export function VariantsPanel({ storeId, product }: { storeId: string; product: Product }) {
+export function VariantsPanel({
+  storeId,
+  product,
+  defaultPriceListIds = null,
+  priceListNames = {},
+}: {
+  storeId: string;
+  product: Product;
+  /** The store's default price lists (type default); null when they could not be read. */
+  defaultPriceListIds?: readonly string[] | null;
+  priceListNames?: Readonly<Record<string, string>>;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -116,6 +130,8 @@ export function VariantsPanel({ storeId, product }: { storeId: string; product: 
                     key={variant.id}
                     storeId={storeId}
                     variant={variant}
+                    defaultPriceListIds={defaultPriceListIds}
+                    priceListNames={priceListNames}
                     onDone={() => {
                       setEditing(null);
                       router.refresh();
@@ -264,10 +280,15 @@ function VariantEditor({
   storeId,
   variant,
   onDone,
+  defaultPriceListIds,
+  priceListNames,
 }: {
   storeId: string;
   variant: Variant;
   onDone: () => void;
+  /** The store's default price lists; null when they could not be read (no price is editable). */
+  defaultPriceListIds: readonly string[] | null;
+  priceListNames: Readonly<Record<string, string>>;
 }) {
   const [isPending, startTransition] = useTransition();
   const [sku, setSku] = useState(variant.sku);
@@ -276,42 +297,61 @@ function VariantEditor({
   const [manageInventory, setManageInventory] = useState(variant.manage_inventory);
   const [allowBackorder, setAllowBackorder] = useState(variant.allow_backorder);
   const [weight, setWeight] = useState(variant.weight_g === null ? '' : String(variant.weight_g));
-  const [dims, setDims] = useState({
+  const startDims = {
     l: variant.dimensions_mm?.l === undefined ? '' : String(variant.dimensions_mm.l),
     w: variant.dimensions_mm?.w === undefined ? '' : String(variant.dimensions_mm.w),
     h: variant.dimensions_mm?.h === undefined ? '' : String(variant.dimensions_mm.h),
-  });
+  };
+  const [dims, setDims] = useState(startDims);
   const [hsCode, setHsCode] = useState(variant.hs_code ?? '');
   const [origin, setOrigin] = useState(variant.origin_country ?? '');
-  const [prices, setPrices] = useState(
-    variant.prices.map((price) => ({
+  // MONEY (#947 review): only the default-list prices at quantity 1 are edited here; every other
+  // price (a tier, a sale or override list) is read-only, and `prices` is sent only when one of
+  // the editable ones changed.
+  const { editable, readOnly } = splitPrices(
+    variant.prices,
+    defaultPriceListIds === null ? null : new Set(defaultPriceListIds),
+  );
+  const [prices, setPrices] = useState<EditedPrice[]>(
+    editable.map((price) => ({
       currency: price.currency,
-      amount_minor: price.amount_minor as number | null,
+      amount_minor: price.amount_minor,
       compare_at_minor: price.compare_at_minor,
     })),
   );
   const [error, setError] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<ActionRefusalInfo | undefined>(undefined);
 
-  // Checked as the person types; the server action checks the same with the shared schema.
+  // Checked as the person types; the server action checks the same with the shared schema. Only a
+  // CHANGED value is checked and sent: a legacy value the rules would refuse (an old 4-digit HS code,
+  // two sides of a parcel) must not block a save that touches something else.
   const weightValue = parseWhole(weight);
   const dimValues = { l: parseWhole(dims.l), w: parseWhole(dims.w), h: parseWhole(dims.h) };
+  const dimsChanged = (['l', 'w', 'h'] as const).some((side) => dims[side] !== startDims[side]);
   const hs = normalizeHsCode(hsCode);
+  const hsChanged = hsCode !== (variant.hs_code ?? '');
   const country = normalizeCountry(origin);
+  const originChanged = origin !== (variant.origin_country ?? '');
   const problems: Record<string, string> = {};
   if (!sku.trim()) problems['sku'] = 'Enter a SKU.';
   if (!title.trim()) problems['title'] = 'Enter a title.';
   if (weightValue === 'invalid') problems['weight'] = 'Whole grams, 0 or more.';
-  for (const side of ['l', 'w', 'h'] as const) {
-    if (dimValues[side] === 'invalid') problems[`dim-${side}`] = 'Whole millimetres, 0 or more.';
+  if (dimsChanged) {
+    for (const side of ['l', 'w', 'h'] as const) {
+      if (dimValues[side] === 'invalid') problems[`dim-${side}`] = 'Whole millimetres, 0 or more.';
+    }
+    const setSides = (['l', 'w', 'h'] as const).filter((side) => dimValues[side] !== null).length;
+    if (setSides > 0 && setSides < 3) problems['dims'] = 'Give all three sides, or none.';
   }
-  const setSides = (['l', 'w', 'h'] as const).filter((side) => dimValues[side] !== null).length;
-  if (setSides > 0 && setSides < 3) problems['dims'] = 'Give all three sides, or none.';
-  if (hs !== '' && !HS_CODE.test(hs)) problems['hs'] = 'An HS code is 6, 8 or 10 digits.';
-  if (country !== '' && !COUNTRY.test(country)) {
+  if (hsChanged && hs !== '' && !HS_CODE.test(hs)) {
+    problems['hs'] = 'An HS code is 6, 8 or 10 digits.';
+  }
+  if (originChanged && country !== '' && !COUNTRY.test(country)) {
     problems['origin'] = 'Use the two-letter ISO country code, e.g. JP.';
   }
   const warnings = compareAtWarnings(prices);
+  const cleared = prices.filter((price) => price.amount_minor === null).map((p) => p.currency);
+  const sendPrices = pricesToSend(editable, prices);
 
   const save = () => {
     if (isPending || Object.keys(problems).length > 0) return;
@@ -327,27 +367,17 @@ function VariantEditor({
         manage_inventory: manageInventory,
         allow_backorder: allowBackorder,
         weight_g: weightValue === 'invalid' ? null : weightValue,
-        dimensions_mm: allDims
-          ? { l: dimValues.l as number, w: dimValues.w as number, h: dimValues.h as number }
-          : null,
-        hs_code: hs === '' ? null : hs,
-        origin_country: country === '' ? null : country,
-        // The compare-at price travels with its price: editing one no longer drops the other.
-        prices: prices
-          .filter(
-            (
-              price,
-            ): price is {
-              currency: string;
-              amount_minor: number;
-              compare_at_minor: number | null;
-            } => price.amount_minor !== null,
-          )
-          .map((price) => ({
-            currency: price.currency,
-            amount_minor: price.amount_minor,
-            compare_at_minor: price.compare_at_minor,
-          })),
+        ...(dimsChanged
+          ? {
+              dimensions_mm: allDims
+                ? { l: dimValues.l as number, w: dimValues.w as number, h: dimValues.h as number }
+                : null,
+            }
+          : {}),
+        ...(hsChanged ? { hs_code: hs === '' ? null : hs } : {}),
+        ...(originChanged ? { origin_country: country === '' ? null : country } : {}),
+        // Only when a default price changed; the compare-at travels with its price.
+        ...(sendPrices === undefined ? {} : { prices: sendPrices }),
       });
       if (result.status === 'error') {
         setRefusal(result.refusal);
@@ -488,7 +518,20 @@ function VariantEditor({
 
           <fieldset className="space-y-2">
             <legend className="text-sm font-semibold">Prices</legend>
-            {prices.length === 0 && <p className="text-muted text-sm">No price list entry yet.</p>}
+            <p className="text-muted text-xs">
+              The default price per currency (quantity 1). Tiers and sale or override lists are
+              managed in Price lists and shown below, read-only.
+            </p>
+            {defaultPriceListIds === null ? (
+              <p role="note" className="text-warning text-sm">
+                The price lists could not be read, so no price can be edited here; everything else
+                can.
+              </p>
+            ) : (
+              prices.length === 0 && (
+                <p className="text-muted text-sm">No default price for this variant yet.</p>
+              )
+            )}
             {prices.map((price, index) => (
               <div key={price.currency} className="flex flex-wrap items-end gap-3">
                 <MoneyField
@@ -522,6 +565,28 @@ function VariantEditor({
                 The compare-at price in {warnings.join(', ')} is not above the price, so the store
                 shows no saving. Saving is still allowed.
               </p>
+            )}
+            {cleared.length > 0 && (
+              <p role="note" className="text-warning text-xs">
+                Clearing the price in {cleared.join(', ')} does not remove it: the current price
+                stays. Enter a new amount to change it.
+              </p>
+            )}
+            {readOnly.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs font-medium">Other prices (read-only here)</p>
+                <ul aria-label="Other prices" className="text-muted space-y-0.5 text-xs">
+                  {readOnly.map((price) => (
+                    <li key={`${price.price_list_id}:${price.currency}:${price.min_quantity}`}>
+                      {formatMoney(price.amount_minor, price.currency)}
+                      {price.compare_at_minor !== null &&
+                        ` (compare-at ${formatMoney(price.compare_at_minor, price.currency)})`}{' '}
+                      — {priceListNames[price.price_list_id] ?? 'another price list'}
+                      {price.min_quantity > 1 ? `, from ${price.min_quantity} units` : ''}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </fieldset>
 

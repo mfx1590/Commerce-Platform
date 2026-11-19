@@ -186,11 +186,12 @@ export const variantCreateSchema = z.object({
   allow_backorder: z.boolean().optional(),
   weight_g: z.number().int('Whole grams').min(0, 'Cannot be negative').nullable().optional(),
   // Not constrained by the contract; the admin checks the formats (lib/catalog/attributes.ts).
+  // All three sides or none (#947 review): a parcel with one side is not a parcel.
   dimensions_mm: z
     .object({
-      l: z.number().int('Whole millimetres').min(0).optional(),
-      w: z.number().int('Whole millimetres').min(0).optional(),
-      h: z.number().int('Whole millimetres').min(0).optional(),
+      l: z.number().int('Whole millimetres').min(0),
+      w: z.number().int('Whole millimetres').min(0),
+      h: z.number().int('Whole millimetres').min(0),
     })
     .nullable()
     .optional(),
