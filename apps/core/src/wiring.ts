@@ -16,7 +16,8 @@ import {
 import { registerFraudCheck } from './modules/fraud';
 import { stockAwareAllocationPolicy } from './modules/hq-warehouse';
 import { setAllocationPolicy } from './modules/inventory';
-import { registerPaymentProviders } from './modules/payments';
+import { setCancelRefunder, type CancelRefunder } from './modules/orders';
+import { createRefundIn, refundedMinor, registerPaymentProviders } from './modules/payments';
 import {
   eligibleLines,
   evaluatePromotions,
@@ -260,6 +261,42 @@ export function mulDivRound(a: number, b: number, c: number): number {
   return Number((x * y * BigInt(2) + z) / (z * BigInt(2)));
 }
 
+/**
+ * #905: what an order cancel refunds — what is still captured on the payment (captured − already refunded, pending
+ * refunds included, so a refund the PSP has only accepted is never refunded twice) — through window 7's
+ * `createRefundIn` on the cancel's transaction: refund row, `refund.issued` (reason `cancellation`) and the order's
+ * `payment_status` (`refunded`), or `pending` until the PSP's webhook settles it. A definitive refusal comes back as
+ * `failed` (the cancel then throws, so the failed row does not commit either); an outage throws.
+ */
+export const paymentsCancelRefunder: CancelRefunder = {
+  async refundRemaining(tx, req) {
+    const payment = await tx.query<{ amount_minor: string }>(
+      `SELECT amount_minor::text FROM payment WHERE id = $1 AND status = 'captured' FOR UPDATE`,
+      [req.paymentId],
+    );
+    const capturedMinor = Number(payment.rows[0]?.amount_minor ?? 0);
+    const remaining = capturedMinor - (await refundedMinor(tx, req.paymentId));
+    if (remaining <= 0) {
+      return { status: 'nothing', refundId: null, amountMinor: 0, failureReason: null };
+    }
+    const out = await createRefundIn(tx, {
+      orderId: req.orderId,
+      paymentId: req.paymentId,
+      amountMinor: remaining,
+      reason: 'cancellation',
+      idempotencyKey: req.idempotencyKey,
+      actor: req.actor,
+      requestedBy: req.actor.type === 'staff' ? req.actor.id : null,
+    });
+    return {
+      status: out.refund.status,
+      refundId: out.refund.id,
+      amountMinor: remaining,
+      failureReason: out.failureReason,
+    };
+  },
+};
+
 let registered = false;
 
 /**
@@ -286,4 +323,6 @@ export function registerModuleSeams(): void {
   // country → store default → same country → same region → priority), one warehouse per line when one covers it.
   // The inventory module still locks the pool rows first and validates every decision against them.
   setAllocationPolicy(stockAwareAllocationPolicy);
+  // #905: an order cancel refunds a captured payment through window 7's refund (fail closed without this)
+  setCancelRefunder(paymentsCancelRefunder);
 }
