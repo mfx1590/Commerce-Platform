@@ -1338,6 +1338,7 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
 - Tests: `test/customers-list.test.tsx` (9) — the picker's options and the parameter sent, the group
   name and both fallbacks, the refused read, the absent CSV, and the privacy assertion that **no
   href on the customer page contains the address** in any encoding.
+
 ### Security — #925: the Marketing server actions refuse before the Admin API
 
 - The nine actions in `(store)/[storeId]/marketing/_actions.ts` (campaigns create / launch / end, segments
