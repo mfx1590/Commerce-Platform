@@ -34,6 +34,12 @@ vi.mock('@/app/(hq)/bi/_v2/actions', () => ({ exportBiCsvAction: vi.fn() }));
 const { OverviewView } = await import('@/app/(hq)/bi/_v2/components/overview');
 const { ProductsView } = await import('@/app/(hq)/bi/_v2/components/products');
 const { InventoryView } = await import('@/app/(hq)/bi/_v2/components/inventory');
+// Loaded once here, not inside the copy-link tests: a module load inside a test counts against its
+// 5 s timeout, and under a loaded full run that alone ran past it.
+const { BiNav } = await import('@/app/(hq)/bi/_v2/components/shell');
+const { CopyLink } = await import('@/app/(hq)/bi/_v2/components/copy-link');
+const { parseState } = await import('@/app/(hq)/bi/_v2/model');
+const { default: userEvent } = await import('@testing-library/user-event');
 
 const ok = <T,>(data: T) => ({ ok: true as const, status: 200, data });
 const RAW = { from: '2026-11-01', to: '2026-11-15' };
@@ -330,15 +336,11 @@ describe('manager notes: the landing tab, the answer, the link', () => {
   // The button on its own (#947 follow-up): rendering the whole Overview for one click timed out
   // under a loaded full run. No fixed wait: the copy and the status are awaited.
   it('the BI nav carries "Copy link to this view"', async () => {
-    const { BiNav } = await import('@/app/(hq)/bi/_v2/components/shell');
-    const { parseState } = await import('@/app/(hq)/bi/_v2/model');
     render(<BiNav base="/bi" current="overview" state={parseState(RAW)} />);
     expect(screen.getByRole('button', { name: 'Copy link to this view' })).toBeInTheDocument();
   });
 
   it('"Copy link to this view" copies the URL, which holds every filter', async () => {
-    const { default: userEvent } = await import('@testing-library/user-event');
-    const { CopyLink } = await import('@/app/(hq)/bi/_v2/components/copy-link');
     const user = userEvent.setup();
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
@@ -351,8 +353,6 @@ describe('manager notes: the landing tab, the answer, the link', () => {
   });
 
   it('a refused copy says to use the address bar', async () => {
-    const { default: userEvent } = await import('@testing-library/user-event');
-    const { CopyLink } = await import('@/app/(hq)/bi/_v2/components/copy-link');
     const user = userEvent.setup();
     const writeText = vi.fn().mockRejectedValue(new Error('denied'));
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
