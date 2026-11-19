@@ -52,6 +52,21 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- BI v2 PHASE A WAVE 2 (2026-11-19, Manager session FOURTEEN local_66534535…). #935 rev 2 ACCEPTED (design +
+  ledger in the issue body; linked #937 reason_code, #938 listOrders filters, #939 saved views, #940–#943 list
+  REQUESTs). GO: branch `integration/bi-v2-wave2` (from origin/main 84be39d0, --no-track; push explicitly), build
+  ORDER: (1) models: stg_customer_v1 → dim_customer (store_id + email_hash, current group; named system.columns
+  exception dim_customer.customer_key; identity_id/customer_id NOT staged), mart_customer_orders (cohort month),
+  stg_attribution_v1 → fct_attribution (utm normalised), stg_campaign_v1 → dim_campaign, stg_cart_abandoned_v1,
+  fct_shipment + fct_order_fulfilment, fct_payment_event (normalised failure code); (2) core: catalogue v3 (a1),
+  compiler (distribution kind = quantileTDigest per group + separate overall query; small-cell < 5 + complementary
+  suppression), getCustomerCohorts, getOperationsBacklog (Postgres, unassigned bucket), listMetricDimensionValues
+  (RLS, 403 foreign store, utm top 50 + PII → other, promotion names only), promotions from Postgres
+  order.metadata.promotions, queryMetrics CSV ≤ 10 000 + X-Truncated (JSON 1 000), Ask alias inputs (same question
+  only) + cohorts/backlog tools; local yaml overlay for route tests (as wave 1); access-matrix + contract tests.
+  (3) live blocks (reconcile / leak / PII) before the PR. Send the manager the exact yaml text when final; he lands
+  the contracts commit on the branch. Push after each green step, `pnpm format:check` first. Shared-stack writes →
+  stop and tell the manager.
 - BI v2 PHASE A (2026-11-13, Manager session THIRTEEN local_a8e32bd9…; replaces eleven; owner rule: everything to the
   manager, never the owner; paused messages → "FOR THE MANAGER:" in the reply). Issues #869 (BI v2) + #870 (admin
   standard). Node 22 required (v22.23.5 ok). Main 71b0c625: contracts release 0.4.35 = admin-api.yaml 0.4.28.
