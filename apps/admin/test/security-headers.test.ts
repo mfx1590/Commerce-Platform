@@ -12,6 +12,7 @@ import {
   staticSecurityHeaders,
 } from '@/lib/security';
 import nextConfig from '../next.config.mjs';
+import { matcherFor } from './fixtures/middleware-matcher';
 
 vi.mock('@/lib/auth/oidc', () => ({
   refreshTokens: vi.fn(),
@@ -208,10 +209,13 @@ describe('the middleware sets the CSP', () => {
   });
 
   it('matches the error page, while the probe and the auth endpoints stay outside', () => {
-    const pattern = new RegExp(`^${config.matcher[0] as string}$`);
+    // Next's own matcher compiler (#949), so the CSP check is on what Next runs.
+    const matched = matcherFor(config.matcher);
 
-    expect(pattern.test('/auth/error')).toBe(true);
-    expect(pattern.test('/health')).toBe(false);
-    expect(pattern.test('/api/auth/logout')).toBe(false);
+    expect(matched('/auth/error')).toBe(true);
+    expect(matched('/health')).toBe(false);
+    expect(matched('/api/auth/logout')).toBe(false);
+    // An error page under a look-alike prefix is gated AND gets the CSP (the middleware runs).
+    expect(matched('/healthx')).toBe(true);
   });
 });

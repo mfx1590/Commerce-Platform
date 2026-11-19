@@ -1380,6 +1380,23 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
 - Mutation-checked: removing any one of the nine guards fails its tests.
 - Window 17's files, landed on `integration/admin-marketing-guards`.
 
+### Security — #949: the middleware matcher's exclusions are anchored
+
+- **Before:** `/((?!api/auth|health|_next/static|_next/image|favicon.ico).*)` excluded by prefix, so
+  `/healthx`, `/health/anything` and `/api/authxyz` skipped the session gate.
+- **Now:** `/((?!api/auth/|health/?$|_next/static/|_next/image$|favicon\\.ico$).*)`. Only `/api/auth/…`,
+  `/health`, the static assets and the favicon stay outside.
+- **Tests**, compiled with Next's `getMiddlewareMatchers`:
+  - every exclusion stays open;
+  - twelve look-alikes are matched;
+  - `/healthx`, `/api/authx` and `/health/anything` without a session get a 307 to sign-in, for GET and
+    for a `Next-Action` POST;
+  - `/health` still answers 200.
+- The security-headers test checks the error page through the same compiler, and that a look-alike is matched
+  (so it gets the CSP).
+- **Mutation-checked:** the old matcher, an unanchored `health`, and `api/auth` without its slash each
+  fail tests.
+
 ### Added — #870 wave 1 item 5 (PR A): variant and product attributes (window 3)
 
 - **Variant editor**: every attribute `updateVariant` takes.
