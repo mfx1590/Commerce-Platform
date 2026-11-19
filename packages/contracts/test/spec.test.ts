@@ -245,7 +245,7 @@ describe('admin-api.yaml', () => {
   const ops = operations(text);
 
   it('covers the nine areas from the Phase 0 brief plus marketing (0.3.0) and search (0.4.0)', () => {
-    expect(text).toMatch(/version: 0\.4\.30/);
+    expect(text).toMatch(/version: 0\.4\.31/);
     for (const tag of [
       'registry',
       'catalog',
@@ -976,7 +976,7 @@ describe('report operations (contracts 0.4.22, Admin API 0.4.19, #493)', () => {
 
   it('the four reads exist under the reports tag with their x-permission, responses and examples', () => {
     expect(text).toMatch(/\n {2}- name: search\n {2}- name: reports\n/);
-    expect(ops.length).toBe(144); // +listMetricMovers / getInventoryHealth at 0.4.30 (#871); +getStoreReadiness at 0.4.29 (#839); +updateShippingOption at 0.4.28 (#811); +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); 128 at 0.4.19; +listCustomerExports / getCustomerExport at 0.4.20 (#498); +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +listMetrics / queryMetrics at 0.4.25 (#603)
+    expect(ops.length).toBe(147); // +getCustomerCohorts / getOperationsBacklog / listMetricDimensionValues at 0.4.31 (#935); +listMetricMovers / getInventoryHealth at 0.4.30 (#871); +getStoreReadiness at 0.4.29 (#839); +updateShippingOption at 0.4.28 (#811); +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); 128 at 0.4.19; +listCustomerExports / getCustomerExport at 0.4.20 (#498); +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +listMetrics / queryMetrics at 0.4.25 (#603)
     const expected: Record<string, { path: string; perm: [string, string]; codes: string[] }> = {
       getStoreSalesReport: {
         path: '/admin/stores/{storeId}/reports/sales',
@@ -1110,7 +1110,7 @@ describe('customer exports (contracts 0.4.23, Store API 0.5.8, Admin API 0.4.20,
   });
 
   it('listCustomerExports / getCustomerExport at store_admin; listCustomerConsents documents 400 (#496)', () => {
-    expect(adminOps.length).toBe(144); // +listMetricMovers / getInventoryHealth at 0.4.30 (#871); +getStoreReadiness at 0.4.29 (#839); +updateShippingOption at 0.4.28 (#811); +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +listMetrics / queryMetrics at 0.4.25 (#603)
+    expect(adminOps.length).toBe(147); // +getCustomerCohorts / getOperationsBacklog / listMetricDimensionValues at 0.4.31 (#935); +listMetricMovers / getInventoryHealth at 0.4.30 (#871); +getStoreReadiness at 0.4.29 (#839); +updateShippingOption at 0.4.28 (#811); +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +listMetrics / queryMetrics at 0.4.25 (#603)
     expect(admin).toMatch(
       /\n {2}\/admin\/stores\/\{storeId\}\/customers\/\{customerId\}\/exports:\n/,
     );
@@ -1159,9 +1159,9 @@ describe('customer identity (contracts 0.4.24, Admin API 0.4.21, #504)', () => {
       .slice(1);
 
   it('getCustomerIdentity: HQ-only (support on organization:hq), ids only, 401 / 403 / 404', () => {
-    expect(admin).toMatch(/^ {2}version: 0\.4\.30$/m);
+    expect(admin).toMatch(/^ {2}version: 0\.4\.31$/m);
     expect(store).toMatch(/^ {2}version: 0\.5\.10$/m); // 0.5.10 (#744) changed no customer-identity path
-    expect(adminOps.length).toBe(144); // +listMetricMovers / getInventoryHealth at 0.4.30 (#871); +getStoreReadiness at 0.4.29 (#839); +updateShippingOption at 0.4.28 (#811); +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); 130 at 0.4.20; +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +2 metrics operations at 0.4.25 (#603)
+    expect(adminOps.length).toBe(147); // +getCustomerCohorts / getOperationsBacklog / listMetricDimensionValues at 0.4.31 (#935); +listMetricMovers / getInventoryHealth at 0.4.30 (#871); +getStoreReadiness at 0.4.29 (#839); +updateShippingOption at 0.4.28 (#811); +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); 130 at 0.4.20; +getCustomerIdentity at 0.4.21 (#504); +4 tax-rate operations at 0.4.23 (#522); +2 metrics operations at 0.4.25 (#603)
     const start = admin.indexOf('\n  /admin/customer-identities/{identityId}:\n');
     expect(start).toBeGreaterThan(0);
     // next to /admin/users
@@ -1202,7 +1202,7 @@ describe('customer identity (contracts 0.4.24, Admin API 0.4.21, #504)', () => {
 describe('segment consent never_asked (contracts 0.4.25, Admin API 0.4.22, #508 / #491)', () => {
   const admin = readFileSync(resolve(here, '../openapi/admin-api.yaml'), 'utf8');
   it('the SegmentPredicate consent op gains never_asked; granted and not_granted stay', () => {
-    expect(admin).toMatch(/^ {2}version: 0\.4\.30$/m);
+    expect(admin).toMatch(/^ {2}version: 0\.4\.31$/m);
     expect(admin).toMatch(/op: \{ type: string, enum: \[granted, not_granted, never_asked\] \}/);
   });
 });
@@ -1220,9 +1220,9 @@ describe('store tax rates (contracts 0.4.26, Admin API 0.4.23, #522 / #520)', ()
     admin.slice(admin.indexOf(`\n  ${path}:\n`), admin.indexOf(`\n  ${next}:\n`));
 
   it('the four operations on their paths, after the sales channels, with their x-permission and codes', () => {
-    expect(admin).toMatch(/^ {2}version: 0\.4\.30$/m);
+    expect(admin).toMatch(/^ {2}version: 0\.4\.31$/m);
     expect(store).toMatch(/^ {2}version: 0\.5\.10$/m); // 0.5.10 (#744) changed no tax-rate path
-    expect(adminOps.length).toBe(144); // +listMetricMovers / getInventoryHealth at 0.4.30 (#871); +getStoreReadiness at 0.4.29 (#839); +updateShippingOption at 0.4.28 (#811); +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); 131 at 0.4.22; +listTaxRates / createTaxRate / updateTaxRate / deleteTaxRate; +listMetrics / queryMetrics at 0.4.25 (#603)
+    expect(adminOps.length).toBe(147); // +getCustomerCohorts / getOperationsBacklog / listMetricDimensionValues at 0.4.31 (#935); +listMetricMovers / getInventoryHealth at 0.4.30 (#871); +getStoreReadiness at 0.4.29 (#839); +updateShippingOption at 0.4.28 (#811); +askMetrics / askMetricsFeedback at 0.4.27 (#668); +draftProductCopy at 0.4.26 (#664); 131 at 0.4.22; +listTaxRates / createTaxRate / updateTaxRate / deleteTaxRate; +listMetrics / queryMetrics at 0.4.25 (#603)
     const list = admin.indexOf('\n  /admin/stores/{storeId}/tax-rates:\n');
     expect(list).toBeGreaterThan(admin.indexOf('\n  /admin/stores/{storeId}/sales-channels:\n'));
     expect(list).toBeLessThan(admin.indexOf('\n  /admin/stores/{storeId}/api-keys:\n'));
@@ -1308,7 +1308,7 @@ describe('store readiness (contracts 0.4.36, Admin API 0.4.29, #839)', () => {
   const admin = read('admin-api.yaml');
   const ops = operations(admin);
   it('activateStore names payment_method; getStoreReadiness (viewer) returns the closed StoreReadiness', () => {
-    expect(admin).toMatch(/^ {2}version: 0\.4\.30$/m);
+    expect(admin).toMatch(/^ {2}version: 0\.4\.31$/m);
     const activate = ops.find((o) => o.id === 'activateStore')!.body;
     expect(activate).toMatch(
       /\(`payment_method`: `card` when the store has its Stripe key, `invoice` when\s+`settings\.payment\.invoice_allowed`/,
@@ -1620,8 +1620,8 @@ describe('product copy drafts (contracts 0.4.31, Admin API 0.4.26, #664 / #608)'
     const s = schema('MetricQuery');
     const filters = s.slice(s.indexOf('\n        filters:\n'));
     const arrays = filters.split('type: array\n').length - 1;
-    expect(arrays).toBe(9); // +countries, sales_channel_ids, category_ids, customer_types, warehouse_ids at 0.4.30 (#871)
-    expect(filters.split('type: array\n              minItems: 1\n').length - 1).toBe(9);
+    expect(arrays).toBe(17); // +customer_group_ids, campaign_ids, promotion_ids, utm_sources, utm_mediums, utm_campaigns, carriers, providers at 0.4.31 (#935); +countries, sales_channel_ids, category_ids, customer_types, warehouse_ids at 0.4.30 (#871)
+    expect(filters.split('type: array\n              minItems: 1\n').length - 1).toBe(17);
   });
 });
 
@@ -1743,11 +1743,6 @@ describe('BI v2 Phase A wave 1 (contracts 0.4.37, Admin API 0.4.30, #871)', () =
   };
   const parsed = (name: string) => doc.components.schemas[name]!;
 
-  it('versions: Admin API 0.4.30, CONTRACTS_VERSION 0.4.37', () => {
-    expect(admin).toMatch(/^ {2}version: 0\.4\.30$/m);
-    expect(CONTRACTS_VERSION).toBe('0.4.37');
-  });
-
   it('listMetricMovers and getInventoryHealth are POST after queryMetrics and before askMetrics, tag reports, viewer on store:*', () => {
     const query = admin.indexOf('\n  /admin/metrics/query:\n');
     const ask = admin.indexOf('\n  /admin/metrics/ask:\n');
@@ -1785,9 +1780,10 @@ describe('BI v2 Phase A wave 1 (contracts 0.4.37, Admin API 0.4.30, #871)', () =
     expect(body('queryMetrics')).toMatch(/byte-for-byte what 0\.4\.28 documents/);
   });
 
+  // Wave 2 (0.4.31, #935) appends to these enums; the wave 1 values stay first.
   it('catalogue v2: 42 metric ids, 9 dimensions, unit milli, kind / additive / formula', () => {
-    expect((parsed('MetricId').enum as string[]).length).toBe(42);
-    expect(parsed('MetricDimension').enum).toEqual([
+    expect((parsed('MetricId').enum as string[]).indexOf('customers')).toBe(42);
+    expect((parsed('MetricDimension').enum as string[]).slice(0, 9)).toEqual([
       'store',
       'product',
       'refund_reason',
@@ -1799,8 +1795,13 @@ describe('BI v2 Phase A wave 1 (contracts 0.4.37, Admin API 0.4.30, #871)', () =
       'warehouse',
     ]);
     const def = parsed('MetricDefinition');
-    expect(def.properties!.unit!.enum).toEqual(['minor', 'count', 'bp', 'milli']);
-    expect(def.properties!.kind!.enum).toEqual(['series', 'snapshot']);
+    expect((def.properties!.unit!.enum as string[]).slice(0, 4)).toEqual([
+      'minor',
+      'count',
+      'bp',
+      'milli',
+    ]);
+    expect((def.properties!.kind!.enum as string[]).slice(0, 2)).toEqual(['series', 'snapshot']);
     expect(def.properties!.additive!.type).toBe('boolean');
     // The new catalogue fields are optional: a 0.4.29 catalogue still validates.
     expect(def.required).toEqual([
@@ -1883,6 +1884,93 @@ describe('BI v2 Phase A wave 1 (contracts 0.4.37, Admin API 0.4.30, #871)', () =
     expect(s).toMatch(
       /required:\s*\[conversation_id, answer, queries, chart, excluded_store_ids, model, template, created_at\]/,
     );
+  });
+});
+
+describe('BI v2 Phase A wave 2 (contracts 0.4.38, Admin API 0.4.31, #935)', () => {
+  const admin = read('admin-api.yaml');
+  const ops = operations(admin);
+  const body = (id: string) => ops.find((o) => o.id === id)!.body;
+  type Node = Record<string, unknown> & { properties?: Record<string, Node> };
+  const doc = parseYaml(admin) as { components: { schemas: Record<string, Node> } };
+  const parsed = (name: string) => doc.components.schemas[name]!;
+
+  it('versions: Admin API 0.4.31, CONTRACTS_VERSION 0.4.38', () => {
+    expect(admin).toMatch(/^ {2}version: 0\.4\.31$/m);
+    expect(CONTRACTS_VERSION).toBe('0.4.38');
+  });
+
+  it('getCustomerCohorts, getOperationsBacklog, listMetricDimensionValues: tag reports, viewer on store:*', () => {
+    const query = admin.indexOf('\n  /admin/metrics/query:\n');
+    const ask = admin.indexOf('\n  /admin/metrics/ask:\n');
+    for (const [path, method, id] of [
+      ['/admin/metrics/cohorts', 'post', 'getCustomerCohorts'],
+      ['/admin/metrics/operations/backlog', 'post', 'getOperationsBacklog'],
+      ['/admin/metrics/dimension-values', 'get', 'listMetricDimensionValues'],
+    ] as const) {
+      const start = admin.indexOf(`\n  ${path}:\n`);
+      expect(start, path).toBeGreaterThan(query);
+      expect(start, path).toBeLessThan(ask);
+      expect(admin.slice(start, start + 140), path).toMatch(
+        new RegExp(`${method}:\\n {6}tags: \\[reports\\]\\n {6}operationId: ${id}\\n`),
+      );
+      expect(body(id)).toMatch(/x-permission: \{ relation: viewer, object: 'store:\*' \}/);
+      for (const code of ['400', '401', '403']) expect(body(id)).toContain(`'${code}': { $ref:`);
+    }
+    expect(body('getCustomerCohorts')).toContain("'503'");
+    expect(body('listMetricDimensionValues')).toContain("'503'");
+    // Postgres only: no analytics-store dependency.
+    expect(body('getOperationsBacklog')).not.toContain("'503'");
+  });
+
+  it('catalogue v3: 74 metric ids, 17 dimensions, unit hours, kind distribution', () => {
+    expect((parsed('MetricId').enum as string[]).length).toBe(74);
+    expect(new Set(parsed('MetricId').enum as string[]).size).toBe(74);
+    expect((parsed('MetricDimension').enum as string[]).slice(9)).toEqual([
+      'customer_group',
+      'utm_source',
+      'utm_medium',
+      'utm_campaign',
+      'campaign',
+      'promotion',
+      'carrier',
+      'failure_reason',
+    ]);
+    const def = parsed('MetricDefinition');
+    expect(def.properties!.unit!.enum).toEqual(['minor', 'count', 'bp', 'milli', 'hours']);
+    expect(def.properties!.kind!.enum).toEqual(['series', 'snapshot', 'distribution']);
+  });
+
+  it('MetricRow: eight new dimension keys + suppressed required; values widen to number', () => {
+    const row = parsed('MetricRow');
+    for (const k of [
+      'customer_group_id',
+      'utm_source',
+      'utm_medium',
+      'utm_campaign',
+      'campaign_id',
+      'promotion_id',
+      'carrier',
+      'failure_reason',
+    ]) {
+      expect(row.required, k).toContain(k);
+      expect(row.properties![k]!.type, k).toContain('null');
+    }
+    expect(row.required).toContain('suppressed');
+    expect(row.properties!.values!.additionalProperties).toEqual({ type: ['number', 'null'] });
+  });
+
+  it('CustomerCohorts, OperationsBacklog and MetricDimensionValues are closed', () => {
+    for (const name of [
+      'CustomerCohortQuery',
+      'CustomerCohorts',
+      'OperationsBacklogQuery',
+      'OperationsBacklog',
+      'MetricDimensionValues',
+    ])
+      expect(parsed(name).additionalProperties, name).toBe(false);
+    expect(parsed('CustomerCohortQuery').required).toEqual(['from_month', 'to_month', 'currency']);
+    expect(parsed('MetricDimensionValues').properties!.values!.maxItems).toBe(50);
   });
 });
 

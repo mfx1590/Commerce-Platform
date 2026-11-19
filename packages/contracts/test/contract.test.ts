@@ -945,6 +945,36 @@ describe('Admin API mock (0.4.30 BI v2 wave 1, #871)', () => {
   });
 });
 
+describe('Admin API mock (0.4.31 BI v2 wave 2, #935)', () => {
+  it('listMetricDimensionValues answers 200; all three new operations answer 401 without a token', async () => {
+    // getCustomerCohorts and getOperationsBacklog carry no response example: Prism's generated bodies break their
+    // month / currency patterns and the uuid-keyed labels (a 500 under --errors), so only their 401 is walked.
+    const res = await fetch(`${ADMIN}/admin/metrics/dimension-values?dimension=store`, {
+      headers: adminHeaders,
+    });
+    expect(res.status).toBe(200);
+    expect(Array.isArray((await json(res)).values)).toBe(true);
+    const calls: Array<[string, RequestInit]> = [
+      [
+        '/admin/metrics/cohorts',
+        {
+          method: 'POST',
+          body: JSON.stringify({ from_month: '2026-01', to_month: '2026-03', currency: 'EUR' }),
+        },
+      ],
+      ['/admin/metrics/operations/backlog', { method: 'POST', body: '{}' }],
+      ['/admin/metrics/dimension-values?dimension=store', { method: 'GET' }],
+    ];
+    for (const [path, init] of calls) {
+      const unauth = await fetch(`${ADMIN}${path}`, {
+        ...init,
+        headers: { 'content-type': 'application/json' },
+      });
+      expect(unauth.status, path).toBe(401);
+    }
+  });
+});
+
 describe('Store + Admin API mock (0.4.23 customer exports, #498)', () => {
   const customerHeaders = { ...storeHeaders, authorization: 'Bearer customer' };
   const CUSTOMER_ID = '30000000-0000-4000-8000-000000000a01';

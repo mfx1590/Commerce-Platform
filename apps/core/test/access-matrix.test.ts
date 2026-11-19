@@ -337,6 +337,42 @@ const ROWS: Row[] = [
     leak: true,
     call: (who) => staff(who as Staff, request(app).post('/admin/metrics/inventory')).send({}),
   },
+  // BI v2 wave 2 (#935 a3, Admin API 0.4.31)
+  {
+    operationId: 'getCustomerCohorts',
+    method: 'post',
+    path: '/admin/metrics/cohorts',
+    rule: `${ANY_STORE.replace(' → 200', '')}; ${NEEDS_CLICKHOUSE}`,
+    expect: passes(MOVERS_STATUS),
+    call: (who) =>
+      staff(who as Staff, request(app).post('/admin/metrics/cohorts')).send({
+        from_month: '2026-01',
+        to_month: '2026-03',
+        currency: 'EUR',
+      }),
+  },
+  {
+    operationId: 'getOperationsBacklog',
+    method: 'post',
+    path: '/admin/metrics/operations/backlog',
+    rule: `${ANY_STORE}; Postgres only (RLS): unassigned paid orders, shipments not shipped, returns not received`,
+    expect: anyStore,
+    leak: true,
+    call: (who) =>
+      staff(who as Staff, request(app).post('/admin/metrics/operations/backlog')).send({}),
+  },
+  {
+    operationId: 'listMetricDimensionValues',
+    method: 'get',
+    path: '/admin/metrics/dimension-values',
+    rule: `${ANY_STORE}; the store picker is Postgres (RLS); countries, carriers and utm values need ClickHouse`,
+    expect: anyStore,
+    leak: true,
+    call: (who) =>
+      staff(who as Staff, request(app).get('/admin/metrics/dimension-values')).query({
+        dimension: 'store',
+      }),
+  },
   {
     operationId: 'askMetrics',
     method: 'post',
