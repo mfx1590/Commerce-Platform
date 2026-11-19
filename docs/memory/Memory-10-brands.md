@@ -410,6 +410,33 @@ branch), dropping versions from the manifest (`--check`'s drift report needs the
 `bump-starter-dep.mjs` as the primary path — **a script of mine cannot make a starter edit legal**;
 bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
+## In progress — #870 item 4 PR A, customers list (2026-11-19)
+
+Branch `integration/admin-customers-list` from main `38bfa8c3`; plan approved A → B → C. PR number
+in the push below. Admin suite **1543 / 86 files**; lint, format:check, typecheck 30/30 and
+ownership green. #933 (order history) is approved and queued, so this branch does not carry it —
+Memory-10 here is main's copy and the #921 entry arrives when #933 merges.
+
+**The privacy defect was already in the code, and reading the yaml is what found it.** "Orders by
+this customer" linked `/orders?q=<email>`: a customer's email address in a URL, so in browser
+history, in the referrer of whatever the orders page loads next, and in any log that records paths.
+`listOrders` has taken an exact `customer_id` since 0.4.24 and nobody had switched to it.
+
+**And the obvious fix was a trap.** `ORDER_FILTER_KEYS` did not include `customer_id`, and
+`parseTableQuery` drops a key the page does not list — so the new link would have shown **every
+order while looking filtered**, which is worse than the email it replaced. I caught it by checking
+the filter keys before trusting my own link. **A URL parameter is only real if the page parses it.**
+The orders list now also says when it is showing one customer, because a filtered list that looks
+unfiltered is the same trap wearing a different hat.
+
+**Said no to the CSV.** The manager's note and my own reading agree: a customer-list export is a
+bulk extraction of emails, phones and addresses. PR A ships none, a test asserts none, and the
+docstring says why — cheaper than arguing about it after somebody adds a button.
+
+**A flake to pass on, not to fix:** `test/bi-v2-views.test.tsx` → "Copy link to this view" timed
+out at 5 s in the full parallel run and passes 19/19 alone. Window 12's file, and nothing in my diff
+touches BI. Re-ran the suite green and reported it rather than touching another window's test.
+
 ## In progress — #870 wave 1 item 3, admin history (2026-11-13)
 
 ### The e2e my own panel broke, and why unit gates could not see it (2026-11-17)
