@@ -1206,6 +1206,30 @@
   - `finance-payouts-screens` (JPY payout and lines, verdicts, ERP gaps, parked links; 7).
   - `finance` grew to 22: every operation gated, the payouts query never carries a currency.
 
+### Security — #903, #900: every server action and BI route refuses before the Admin API
+
+- **#903:** the six actions without their own check now refuse first, with the contract's 403, unless the
+  principal holds the operation's `x-permission` on the URL's store:
+  - `eraseCustomerAction` (store_admin; irreversible, privacy).
+  - `updateCustomerAction` (support).
+  - `createPriceListAction` and `upsertPricesAction` (store_admin).
+  - `createPromotionAction` and `updatePromotionAction` (store_admin).
+
+  The new tables `CUSTOMER_PERMISSIONS`, `PRICING_PERMISSIONS` and `PROMOTION_PERMISSIONS` are pinned to
+  the yaml and added to the guard.
+
+- **#900:** the ten BI route handlers (HQ and store: export, query, ask, ask feedback, live) check the principal and
+  the `bi` section predicate before any API call (`refuseUnlessBi`): 401 / forwarded status, 403, 404 for a
+  store id that is not a uuid. The store feedback route now reads the URL's store to check it.
+- **Re-sweep** of every server action and `route.ts`: everything else is guarded, or is the sign-in flow /
+  health. The Marketing section's nine actions (window 17) are not, so I filed REQUEST #925.
+- Tests:
+  - `action-permissions`: per action, refused before the API, 401, allowed; the other store; a non-uuid store;
+    the yaml pin.
+  - `bi-route-gate`: per route, 401, 503 forwarded, 403 per role or store, allowed.
+  - Mutation-checked: removing any one of the 16 guards fails its tests.
+  - `pricing` and `bi/handlers` mock the principal now.
+
 ### Added — #869 / #871: BI v2 screens, wave 1 — Overview, Products & categories, Inventory health (window 3)
 
 Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`) and the same three on a store's BI (`/<storeId>/bi/…`, narrowed to that store). Admin API 0.4.30. The existing dashboard stays at `/bi`, with a tab bar to the new views.
@@ -1252,26 +1276,3 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   - **Inventory defaults to most urgent first**: out of stock, then low by days of cover, then the rest by cover; items without a cover last (`byUrgency`, tested).
   - Where an item's parameters came from is in words ("the platform default", "the store's setting", "set on this page").
   - An id the API didn't label reads "unknown" (the API itself says "(deleted)"), never an id prefix.
-### Security — #903, #900: every server action and BI route refuses before the Admin API
-
-- **#903:** the six actions without their own check now refuse first, with the contract's 403, unless the
-  principal holds the operation's `x-permission` on the URL's store:
-  - `eraseCustomerAction` (store_admin; irreversible, privacy).
-  - `updateCustomerAction` (support).
-  - `createPriceListAction` and `upsertPricesAction` (store_admin).
-  - `createPromotionAction` and `updatePromotionAction` (store_admin).
-
-  The new tables `CUSTOMER_PERMISSIONS`, `PRICING_PERMISSIONS` and `PROMOTION_PERMISSIONS` are pinned to
-  the yaml and added to the guard.
-
-- **#900:** the ten BI route handlers (HQ and store: export, query, ask, ask feedback, live) check the principal and
-  the `bi` section predicate before any API call (`refuseUnlessBi`): 401 / forwarded status, 403, 404 for a
-  store id that is not a uuid. The store feedback route now reads the URL's store to check it.
-- **Re-sweep** of every server action and `route.ts`: everything else is guarded, or is the sign-in flow /
-  health. The Marketing section's nine actions (window 17) are not, so I filed REQUEST #925.
-- Tests:
-  - `action-permissions`: per action, refused before the API, 401, allowed; the other store; a non-uuid store;
-    the yaml pin.
-  - `bi-route-gate`: per route, 401, 503 forwarded, 403 per role or store, allowed.
-  - Mutation-checked: removing any one of the 16 guards fails its tests.
-  - `pricing` and `bi/handlers` mock the principal now.
