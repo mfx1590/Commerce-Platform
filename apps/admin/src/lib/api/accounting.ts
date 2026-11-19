@@ -81,3 +81,40 @@ export function listJournalLines(
     q<'listJournalLines'>(query),
   );
 }
+
+export function listPayouts(legalEntityId: string, query: AccountingQuery<'listPayouts'>) {
+  return financeCall<'listPayouts'>(
+    buildPath('/accounting/v1/legal-entities/{legalEntityId}/payouts', { legalEntityId }),
+    q<'listPayouts'>(query),
+  );
+}
+
+export function getPayout(
+  legalEntityId: string,
+  payoutId: string,
+  query: AccountingQuery<'getPayout'>,
+) {
+  return financeCall<'getPayout'>(
+    buildPath('/accounting/v1/legal-entities/{legalEntityId}/payouts/{payoutId}', {
+      legalEntityId,
+      payoutId,
+    }),
+    q<'getPayout'>(query),
+  );
+}
+
+export function listParkedEvents(
+  legalEntityId: string,
+  query: AccountingQuery<'listParkedEvents'>,
+) {
+  return financeCall<'listParkedEvents'>(
+    buildPath('/accounting/v1/legal-entities/{legalEntityId}/parked-events', { legalEntityId }),
+    q<'listParkedEvents'>(query),
+  );
+}
+
+export function getErpSyncStatus(legalEntityId: string) {
+  return financeCall<'getErpSyncStatus'>(
+    buildPath('/accounting/v1/legal-entities/{legalEntityId}/erp-status', { legalEntityId }),
+  );
+}

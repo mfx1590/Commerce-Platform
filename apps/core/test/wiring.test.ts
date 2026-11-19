@@ -38,7 +38,13 @@ import {
   manualRefundRequester,
   setRefundRequester,
 } from '../src/modules/returns';
-import { priceListResolver, promotionsDiscountEvaluator, registerModuleSeams } from '../src/wiring';
+import { currentCancelRefunder } from '../src/modules/orders';
+import {
+  paymentsCancelRefunder,
+  priceListResolver,
+  promotionsDiscountEvaluator,
+  registerModuleSeams,
+} from '../src/wiring';
 
 afterAll(() => {
   setPriceResolver(defaultListPriceResolver);
@@ -87,6 +93,7 @@ describe('registerModuleSeams()', () => {
     expect(registeredPaymentProviders()).toEqual([manualPaymentProvider.name]);
     expect(currentFraudCheck()).toBeNull();
     expect(currentAllocationPolicy()).toBe(priorityGreedyPolicy);
+    expect(currentCancelRefunder()).toBeNull(); // #905: fail closed until window 7's refund is registered
     // the built-in policy knows nothing of the destination: the priority warehouse serves the line
     expect(currentAllocationPolicy()(toGermany, [line(2, [US, DE])])[0]?.allocations).toEqual([
       { warehouseId: US.warehouseId, quantity: 2, rule: 'priority' },
@@ -104,6 +111,8 @@ describe('registerModuleSeams()', () => {
     // the fraud check reaches the seam completeCart actually reads — the same object the fraud module registered
     expect(currentFraudCheck()).not.toBeNull();
     expect(currentFraudCheck()).toBe(fraudModuleCheck());
+    // #905: an order cancel refunds a captured payment through window 7's createRefundIn
+    expect(currentCancelRefunder()).toBe(paymentsCancelRefunder);
   });
 
   it("registers window 11's stock-aware engine behind the allocation seam (#435)", () => {
