@@ -2012,8 +2012,67 @@ export interface paths {
          *     integers (money in minor units), an empty cell for null. RFC 4180: CRLF line ends, every text cell quoted,
          *     `"` doubled. CSV injection: a text cell starting with `=`, `+`, `-`, `@`, a tab or a CR gets a leading `'`.
          *     At most `limit` (≤ 1000) rows: there is no export-everything path; `X-Truncated: true` says more rows matched.
+         *     The 0.4.30 dimensions map to the columns `country`, `sales_channel_id`, `category_id`, `customer_type` and
+         *     `warehouse_id` (in request order, like the others).
+         *
+         *     `compare` answers the previous range too (see MetricQuery.compare). With `Accept: text/csv`, `labels=true`
+         *     (query parameter) appends one `<dimension>_label` column per dimension AFTER the documented columns; without
+         *     it the CSV is byte-for-byte what 0.4.28 documents.
          */
         post: operations["queryMetrics"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/metrics/movers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * What changed — the largest risers and fallers of one additive metric, per currency
+         * @description One ADDITIVE series metric (unit `minor` or `count`, not derived, not snapshot, not live) by one
+         *     dimension (store, country, sales_channel, product or category), over [from, to) and the comparison range
+         *     (MetricQuery.compare's rules). A metric × dimension pair the catalogue does not list is a 400. Ranked BY
+         *     ABSOLUTE CHANGE INSIDE ONE CURRENCY BLOCK; money is never ranked or summed across currencies (counts form
+         *     one block with currency null). Percentages are reported, never used for ranking, and are null below
+         *     `min_base`. Movers report what changed, never why. Same scope, finance and bi_qa rules as `queryMetrics`.
+         */
+        post: operations["listMetricMovers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/metrics/inventory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Per stock item — position by warehouse, sales rate, days of cover, status and a suggested reorder
+         * @description One row per STOCK ITEM; its warehouses are a breakdown (cover, status and the suggestion are the item's,
+         *     over the included warehouses). The position is read NOW from the inventory tables under the caller's
+         *     scope; the sales rate from the analytics store. An organization principal (any organization relation,
+         *     as `organizationScope` in the metrics routes) sees every warehouse and the rate of every store. A store
+         *     principal sees the stock items its variants map; on a `shared` item (another store also sells from it)
+         *     the position is the pool's, the rate is its own stores' only, and the suggestion is marked
+         *     `suggestion_partial` (HQ's view is authoritative for a shared pool). When the analytics store is
+         *     unavailable the answer is still 200 from the position alone: `rate_available: false`, rate-derived fields
+         *     null, `stock_out` still set.
+         */
+        post: operations["getInventoryHealth"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3643,9 +3702,9 @@ export interface components {
             })[];
         };
         /** @enum {string} */
-        MetricId: "orders" | "bookings_minor" | "net_bookings_minor" | "aov_minor" | "refunds_minor" | "refund_rate_bp" | "units" | "product_net_minor" | "new_customers" | "returning_customers" | "captured_minor" | "fee_minor" | "recognised_minor" | "live_orders" | "live_placed_minor";
+        MetricId: "orders" | "bookings_minor" | "net_bookings_minor" | "aov_minor" | "refunds_minor" | "refund_rate_bp" | "units" | "product_net_minor" | "new_customers" | "returning_customers" | "captured_minor" | "fee_minor" | "recognised_minor" | "live_orders" | "live_placed_minor" | "net_sales_minor" | "gross_sales_minor" | "discounts_minor" | "shipping_minor" | "tax_minor" | "items_per_order_bp" | "placed_orders" | "cancelled_orders" | "cancellation_rate_bp" | "returned_units" | "return_rate_bp" | "product_net_ex_tax_minor" | "product_gross_minor" | "product_discount_minor" | "product_orders" | "product_returned_units" | "product_return_rate_bp" | "stock_on_hand" | "stock_reserved" | "stock_available" | "stock_incoming" | "units_sold_per_day_milli" | "days_of_cover" | "suggested_reorder_units" | "stockout_events" | "units_received" | "units_adjusted";
         /** @enum {string} */
-        MetricDimension: "store" | "product" | "refund_reason" | "provider";
+        MetricDimension: "store" | "product" | "refund_reason" | "provider" | "country" | "sales_channel" | "category" | "customer_type" | "warehouse";
         /**
          * @description UTC calendar days; weeks are ISO (Monday); `total` = one period for the whole range.
          * @enum {string}
@@ -3656,10 +3715,10 @@ export interface components {
             label: string;
             description: string;
             /**
-             * @description `minor` = integer minor units of the row currency; `bp` = basis points (1/10 000).
+             * @description `minor` = integer minor units of the row currency; `bp` = basis points (1/10 000); `milli` = × 1 000.
              * @enum {string}
              */
-            unit: "minor" | "count" | "bp";
+            unit: "minor" | "count" | "bp" | "milli";
             /** @description true for money metrics; their rows always carry `currency`. */
             currency_bound: boolean;
             /** @description true when `finance` on `organization:hq` is required. */
@@ -3667,6 +3726,16 @@ export interface components {
             /** @description false while the metric's source is not built yet (recognised_minor until */
             available: boolean;
             dimensions: components["schemas"]["MetricDimension"][];
+            /**
+             * @description `snapshot` metrics describe now (inventory) and are served by getInventoryHealth, not queryMetrics.
+             * @default series
+             * @enum {string}
+             */
+            kind: "series" | "snapshot";
+            /** @description true when the metric is a sum (unit minor or count, not derived); only these accept listMetricMovers. */
+            additive?: boolean;
+            /** @description The calculation in plain words, shown with the definition. */
+            formula?: string | null;
         };
         MetricCatalogue: {
             version: number;
@@ -3682,6 +3751,21 @@ export interface components {
                 code: string;
             }[];
             metrics: components["schemas"]["MetricDefinition"][];
+            dimensions?: {
+                id: components["schemas"]["MetricDimension"];
+                label: string;
+                description: string;
+                /** @description The MetricQuery.filters key that narrows it. */
+                filter: string | null;
+                max_filter_values: number | null;
+            }[];
+            /** @description The platform defaults (a store's settings override them, a request overrides both). */
+            inventory_defaults?: {
+                velocity_days: number;
+                lead_time_days: number;
+                cover_days: number;
+                dead_days: number;
+            };
         };
         MetricQuery: {
             metrics: components["schemas"]["MetricId"][];
@@ -3707,7 +3791,24 @@ export interface components {
                 currencies?: string[];
                 product_ids?: string[];
                 refund_reasons?: ("return" | "cancellation" | "goodwill" | "chargeback")[];
+                countries?: string[];
+                sales_channel_ids?: string[];
+                category_ids?: string[];
+                customer_types?: ("new" | "returning" | "unknown")[];
+                warehouse_ids?: string[];
             };
+            /**
+             * @description Also answers the comparison range, matched by OFFSET (never by key):
+             *     * previous_period: [from − L, to − L) with L = to − from in days; grain `month` requires whole
+             *       calendar months (else 400) and then shifts by whole months;
+             *     * previous_year: the same dates one year earlier; 29 February maps to 28 February; weekdays are not
+             *       aligned (a Saturday may compare with a Friday).
+             *     Row i of the comparison answers period(row) + offset of the current range. `max_rows` applies to each
+             *     range. `current_incomplete` is true when `to` is after the latest data (`data_as_of`): the current
+             *     range may be partly in the future and its figures low.
+             * @enum {string}
+             */
+            compare?: "previous_period" | "previous_year";
             order_by?: {
                 metric: components["schemas"]["MetricId"];
                 /**
@@ -3734,6 +3835,15 @@ export interface components {
             /** @enum {string|null} */
             refund_reason: "return" | "cancellation" | "goodwill" | "chargeback" | null;
             provider: string | null;
+            country: string | null;
+            /** Format: uuid */
+            sales_channel_id: string | null;
+            /** Format: uuid */
+            category_id: string | null;
+            /** @enum {string|null} */
+            customer_type: "new" | "returning" | "unknown" | null;
+            /** Format: uuid */
+            warehouse_id: string | null;
             /** @description One entry per requested metric; integers (minor units, counts or basis points); null when undefined (e.g. aov with 0 orders). */
             values: {
                 [key: string]: number | null;
@@ -3758,6 +3868,234 @@ export interface components {
                     [key: string]: number | null;
                 };
             }[];
+            compare?: {
+                /** @enum {string} */
+                mode: "previous_period" | "previous_year";
+                /** Format: date */
+                from: string;
+                /** Format: date */
+                to: string;
+                /** @description The shift applied, e.g. "-28d", "-1M", "-1Y". */
+                offset: string;
+                current_incomplete: boolean;
+                truncated: boolean;
+                rows: components["schemas"]["MetricRow"][];
+                currency_totals: components["schemas"]["MetricResult"]["currency_totals"];
+                /** @description Per currency, per metric — current − previous and the % (null when previous is 0 or null). */
+                changes: {
+                    currency: string | null;
+                    metric: components["schemas"]["MetricId"];
+                    current: number | null;
+                    previous: number | null;
+                    change: number | null;
+                    change_bp: number | null;
+                }[];
+            } | null;
+            labels?: components["schemas"]["MetricLabels"];
+        };
+        /**
+         * @description Display names for every id the answer holds, resolved at answer time in ONE batched query per entity
+         *     type under the caller's scope (stores: name; products: current title; categories and sales channels:
+         *     name; warehouses: code). A record that no longer exists is `(deleted)`; one the caller may not read is
+         *     never labelled.
+         */
+        MetricLabels: {
+            store?: components["schemas"]["LabelMap"];
+            product?: components["schemas"]["LabelMap"];
+            category?: components["schemas"]["LabelMap"];
+            sales_channel?: components["schemas"]["LabelMap"];
+            warehouse?: components["schemas"]["LabelMap"];
+        };
+        LabelMap: {
+            [key: string]: string;
+        };
+        MetricMoversQuery: {
+            /** @description Additive series metrics only (catalogue `additive`); else 400. */
+            metric: components["schemas"]["MetricId"];
+            /** @enum {string} */
+            dimension: "store" | "country" | "sales_channel" | "product" | "category";
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            /**
+             * @default previous_period
+             * @enum {string}
+             */
+            compare: "previous_period" | "previous_year";
+            filters?: components["schemas"]["MetricQuery"]["filters"];
+            /**
+             * @description Below this previous value a mover's % is null (it still ranks by its absolute change). Default: 10
+             *     for counts; for money 10 MAJOR units in the block's currency (1000 minor for EUR/USD, 10 for JPY).
+             */
+            min_base?: number;
+            /** @default 5 */
+            limit: number;
+        };
+        MetricMovers: {
+            query: components["schemas"]["MetricMoversQuery"];
+            /** Format: date-time */
+            generated_at: string;
+            /** Format: date-time */
+            data_as_of: string | null;
+            current: components["schemas"]["DateRange"];
+            previous: components["schemas"]["DateRange"];
+            current_incomplete: boolean;
+            by_currency: {
+                currency: string | null;
+                total_current: number | null;
+                total_previous: number | null;
+                risers: components["schemas"]["MetricMover"][];
+                fallers: components["schemas"]["MetricMover"][];
+            }[];
+            labels: components["schemas"]["MetricLabels"];
+        };
+        MetricMover: {
+            /** @description The dimension value: a uuid, or an ISO country code. */
+            key: string;
+            current: number;
+            previous: number;
+            /** @description current − previous; the ranking key. */
+            change: number;
+            /** @description change ÷ previous × 10 000; null when previous < min_base (0 included). */
+            change_bp: number | null;
+            /** @description previous = 0 and current > 0. */
+            is_new: boolean;
+            /** @description previous > 0 and current = 0. */
+            is_gone: boolean;
+            /** @description this change ÷ the block's total change × 10 000; null when the total change is 0. */
+            share_bp: number | null;
+        };
+        DateRange: {
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+        };
+        InventoryHealthQuery: {
+            /** @description Narrows the scope; an id outside the caller's scope is a 403 (as MetricQuery.filters.store_ids). */
+            store_ids?: string[];
+            /** @description Only these warehouses' stock counts toward the item's available (the rate is the item's). */
+            warehouse_ids?: string[];
+            category_ids?: string[];
+            product_ids?: string[];
+            status?: components["schemas"]["InventoryStatus"][];
+            /** @description Text search on sku or name. */
+            q?: string;
+            /** @description Omitted = per row from the store settings (a4), else 28. */
+            velocity_days?: number;
+            /** @description Omitted = per row from a4, else 14. */
+            lead_time_days?: number;
+            /** @description Omitted = per row from a4, else 28. */
+            cover_days?: number;
+            /** @description Omitted = per row from a4, else 60. */
+            dead_days?: number;
+            /**
+             * @default days_of_cover
+             * @enum {string}
+             */
+            sort: "days_of_cover" | "suggested_reorder_units" | "available" | "units_sold_per_day_milli" | "sku";
+            /**
+             * @default asc
+             * @enum {string}
+             */
+            direction: "asc" | "desc";
+            /** @default 1 */
+            page: number;
+            /** @default 100 */
+            limit: number;
+        };
+        /** @enum {string} */
+        InventoryStatus: "stock_out" | "low" | "reorder" | "dead" | "overstock" | "ok";
+        InventoryHealth: {
+            query: components["schemas"]["InventoryHealthQuery"];
+            /** Format: date-time */
+            generated_at: string;
+            /** Format: date-time */
+            position_as_of: string;
+            /**
+             * Format: date-time
+             * @description The latest sale the rate includes.
+             */
+            data_as_of: string | null;
+            /** @description false when the analytics store could not be read; the rate, cover and suggestion are then null and only `stock_out` is set as a status. */
+            rate_available: boolean;
+            /** @description false until purchase orders exist (#878) — incoming is then 0 because nothing records supplier orders, NOT because nothing is on order. */
+            incoming_tracked: boolean;
+            /** @description The values the REQUEST fixed; null where each row took its store setting or the default. */
+            parameters: {
+                velocity_days: number | null;
+                lead_time_days: number | null;
+                cover_days: number | null;
+                dead_days: number | null;
+            };
+            /** @description Items per status over the whole filtered set (not only this page). */
+            summary: {
+                [key: string]: number;
+            };
+            total: number;
+            rows: components["schemas"]["InventoryHealthRow"][];
+        };
+        InventoryHealthRow: {
+            /** Format: uuid */
+            stock_item_id: string;
+            sku: string;
+            name: string;
+            /** @description The caller-visible stores whose variants sell from it. */
+            store_ids: string[];
+            /**
+             * @description true when a store outside the caller's scope also sells from this stock item. The row says: "Other
+             *     brands sell from this stock: on hand and available are shared; the sales rate is yours only." Which
+             *     brands is not disclosed to a store caller.
+             */
+            shared: boolean;
+            /** @description The breakdown (included warehouses only). */
+            warehouses: {
+                /** Format: uuid */
+                warehouse_id: string;
+                warehouse_code: string;
+                on_hand: number;
+                reserved: number;
+                available: number;
+                incoming: number;
+                /** Format: date-time */
+                last_receipt_at: string | null;
+            }[];
+            /** @description Sum over the included warehouses. */
+            on_hand: number;
+            reserved: number;
+            /** @description Sum; can be negative (oversold). */
+            available: number;
+            /** @description Always 0 while incoming_tracked is false (#878): not "nothing on order". */
+            incoming: number;
+            /** @description Units in the velocity window (caller-visible stores). */
+            units_sold: number | null;
+            units_sold_per_day_milli: number | null;
+            /** @description The item was out of stock in the window; real demand is likely higher. */
+            rate_understated: boolean | null;
+            /** @description 0 when available ≤ 0; null when the rate is 0 or unavailable. */
+            days_of_cover: number | null;
+            /** Format: date-time */
+            last_sale_at: string | null;
+            /** Format: date-time */
+            last_receipt_at: string | null;
+            /** @description null only when rate_available is false and the item is not stock_out. */
+            status: components["schemas"]["InventoryStatus"] | null;
+            suggested_reorder_units: number | null;
+            /** @description true on a shared item for a store caller — the suggestion counts only its own stores' sales and under-orders for the pool; HQ's view is authoritative. */
+            suggestion_partial: boolean;
+            parameters: {
+                velocity_days: number;
+                lead_time_days: number;
+                cover_days: number;
+                dead_days: number;
+            };
+            /**
+             * @description request, the store's settings, or the platform default. An item visible through several
+             *     CALLER-VISIBLE stores takes the largest setting among those stores (never another store's).
+             * @enum {string}
+             */
+            parameters_source: "request" | "store" | "default";
         };
         MetricAnswer: {
             /**
@@ -3775,6 +4113,23 @@ export interface components {
                 /** @description Present when the query was refused (validation_error, forbidden) or failed. */
                 error?: components["schemas"]["Error"];
             }[];
+            /**
+             * @description The inventory_health calls the answer cites (h1, h2 …), each with its query and the InventoryHealth it
+             *     returned (BI v2, #871 e). Absent when the question made none.
+             */
+            inventory?: {
+                ref: string;
+                query: components["schemas"]["InventoryHealthQuery"];
+                result?: components["schemas"]["InventoryHealth"];
+            }[];
+            /**
+             * @description alias → name for every alias the question issued (p1 products, c1 categories, ch1 sales channels,
+             *     w1 warehouses, i1 stock items). The `answer` text already carries the names: the server replaced
+             *     each alias after the model answered, so no product or category title ever reached the model.
+             */
+            labels?: {
+                [key: string]: string;
+            };
             /** @description Which query and metric the admin draws (one currency, day grain); null when nothing is chartable. */
             chart: {
                 query_index: number;
@@ -10093,7 +10448,10 @@ export interface operations {
     };
     queryMetrics: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description CSV only: append label columns. */
+                labels?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -10151,6 +10509,11 @@ export interface operations {
                      *           "product_id": null,
                      *           "refund_reason": null,
                      *           "provider": null,
+                     *           "country": null,
+                     *           "sales_channel_id": null,
+                     *           "category_id": null,
+                     *           "customer_type": null,
+                     *           "warehouse_id": null,
                      *           "values": {
                      *             "bookings_minor": 12200,
                      *             "orders": 2
@@ -10163,6 +10526,11 @@ export interface operations {
                      *           "product_id": null,
                      *           "refund_reason": null,
                      *           "provider": null,
+                     *           "country": null,
+                     *           "sales_channel_id": null,
+                     *           "category_id": null,
+                     *           "customer_type": null,
+                     *           "warehouse_id": null,
                      *           "values": {
                      *             "bookings_minor": 6000,
                      *             "orders": 1
@@ -10193,6 +10561,209 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listMetricMovers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "metric": "net_sales_minor",
+                 *       "dimension": "store",
+                 *       "from": "2026-11-09",
+                 *       "to": "2026-11-16",
+                 *       "compare": "previous_period"
+                 *     }
+                 */
+                "application/json": components["schemas"]["MetricMoversQuery"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "query": {
+                     *         "metric": "net_sales_minor",
+                     *         "dimension": "store",
+                     *         "from": "2026-11-09",
+                     *         "to": "2026-11-16",
+                     *         "compare": "previous_period"
+                     *       },
+                     *       "generated_at": "2026-11-16T09:00:00Z",
+                     *       "data_as_of": "2026-11-16T08:59:50Z",
+                     *       "current": {
+                     *         "from": "2026-11-09",
+                     *         "to": "2026-11-16"
+                     *       },
+                     *       "previous": {
+                     *         "from": "2026-11-02",
+                     *         "to": "2026-11-09"
+                     *       },
+                     *       "current_incomplete": false,
+                     *       "by_currency": [
+                     *         {
+                     *           "currency": "EUR",
+                     *           "total_current": 182000,
+                     *           "total_previous": 150000,
+                     *           "risers": [
+                     *             {
+                     *               "key": "00000000-0000-4000-8000-000000000031",
+                     *               "current": 120000,
+                     *               "previous": 90000,
+                     *               "change": 30000,
+                     *               "change_bp": 3333,
+                     *               "is_new": false,
+                     *               "is_gone": false,
+                     *               "share_bp": 9375
+                     *             },
+                     *             {
+                     *               "key": "00000000-0000-4000-8000-000000000032",
+                     *               "current": 62000,
+                     *               "previous": 60000,
+                     *               "change": 2000,
+                     *               "change_bp": 333,
+                     *               "is_new": false,
+                     *               "is_gone": false,
+                     *               "share_bp": 625
+                     *             }
+                     *           ],
+                     *           "fallers": []
+                     *         }
+                     *       ],
+                     *       "labels": {
+                     *         "store": {
+                     *           "00000000-0000-4000-8000-000000000031": "Brand A",
+                     *           "00000000-0000-4000-8000-000000000032": "Brand B"
+                     *         }
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["MetricMovers"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    getInventoryHealth: {
+        parameters: {
+            query?: {
+                /** @description CSV only: append label columns. */
+                labels?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "status": [
+                 *         "stock_out",
+                 *         "low",
+                 *         "reorder"
+                 *       ]
+                 *     }
+                 */
+                "application/json": components["schemas"]["InventoryHealthQuery"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "query": {
+                     *         "status": [
+                     *           "stock_out",
+                     *           "low",
+                     *           "reorder"
+                     *         ]
+                     *       },
+                     *       "generated_at": "2026-11-16T09:00:00Z",
+                     *       "position_as_of": "2026-11-16T09:00:00Z",
+                     *       "data_as_of": "2026-11-16T08:59:50Z",
+                     *       "rate_available": true,
+                     *       "incoming_tracked": false,
+                     *       "parameters": {
+                     *         "velocity_days": null,
+                     *         "lead_time_days": null,
+                     *         "cover_days": null,
+                     *         "dead_days": null
+                     *       },
+                     *       "summary": {
+                     *         "reorder": 1
+                     *       },
+                     *       "total": 1,
+                     *       "rows": [
+                     *         {
+                     *           "stock_item_id": "71000000-0000-4000-8000-000000000001",
+                     *           "sku": "TEE-M-RED",
+                     *           "name": "Classic Tee M / Red",
+                     *           "store_ids": [
+                     *             "00000000-0000-4000-8000-000000000031"
+                     *           ],
+                     *           "shared": false,
+                     *           "warehouses": [
+                     *             {
+                     *               "warehouse_id": "00000000-0000-4000-8000-000000000021",
+                     *               "warehouse_code": "wh-eu",
+                     *               "on_hand": 12,
+                     *               "reserved": 1,
+                     *               "available": 11,
+                     *               "incoming": 0,
+                     *               "last_receipt_at": "2026-11-02T10:00:00Z"
+                     *             }
+                     *           ],
+                     *           "on_hand": 12,
+                     *           "reserved": 1,
+                     *           "available": 11,
+                     *           "incoming": 0,
+                     *           "units_sold": 14,
+                     *           "units_sold_per_day_milli": 500,
+                     *           "rate_understated": false,
+                     *           "days_of_cover": 22,
+                     *           "last_sale_at": "2026-11-15T18:20:00Z",
+                     *           "last_receipt_at": "2026-11-02T10:00:00Z",
+                     *           "status": "reorder",
+                     *           "suggested_reorder_units": 10,
+                     *           "suggestion_partial": false,
+                     *           "parameters": {
+                     *             "velocity_days": 28,
+                     *             "lead_time_days": 14,
+                     *             "cover_days": 28,
+                     *             "dead_days": 60
+                     *           },
+                     *           "parameters_source": "default"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["InventoryHealth"];
+                    "text/csv": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     askMetrics: {
@@ -10266,6 +10837,11 @@ export interface operations {
                      *                 "product_id": null,
                      *                 "refund_reason": null,
                      *                 "provider": null,
+                     *                 "country": null,
+                     *                 "sales_channel_id": null,
+                     *                 "category_id": null,
+                     *                 "customer_type": null,
+                     *                 "warehouse_id": null,
                      *                 "values": {
                      *                   "bookings_minor": 1234500
                      *                 }
@@ -10314,6 +10890,11 @@ export interface operations {
                      *                 "product_id": null,
                      *                 "refund_reason": null,
                      *                 "provider": null,
+                     *                 "country": null,
+                     *                 "sales_channel_id": null,
+                     *                 "category_id": null,
+                     *                 "customer_type": null,
+                     *                 "warehouse_id": null,
                      *                 "values": {
                      *                   "refunds_minor": 41000
                      *                 }

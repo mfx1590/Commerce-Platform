@@ -24,6 +24,7 @@ import { migrate, MigrationLockedError, readSqlFiles } from './migrations.js';
 import { classify, type RawEventRow } from './rows.js';
 import { clickHouseSkipReason, throwawayDatabase } from './testing/clickhouse-gate.js';
 import { toWire } from './testing/fakes.js';
+import { generateMonth as generateEveryTopic } from './testing/month.js';
 
 const cfg = loadConfig(process.env, []).clickhouse;
 const skip = await clickHouseSkipReason(cfg);
@@ -44,9 +45,12 @@ const placed = month.events.filter((e) => e.topic === 'order.placed') as unknown
 /** Two of every three orders' variants are published (one product per order); the rest stay unpublished. */
 const catalogue: EventEnvelopeV1Base[] = [];
 const expectedProduct = new Map<string, string>(); // order_line_item_id → product_id
+const CATEGORY = '00000000-0000-4000-8000-0000000ca7e0';
+const expectedCategory = new Map<string, string | null>(); // product_id → category_id
 placed.forEach((o, i) => {
   if (i % 3 === 2) return;
   const productId = `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`;
+  expectedCategory.set(productId, i % 2 === 0 ? CATEGORY : null);
   const variants = o.payload.line_items
     .filter((l) => l.variant_id)
     .map((l) => ({ variant_id: l.variant_id!, sku: l.sku, title: 'Fixture variant' }));
@@ -62,7 +66,7 @@ placed.forEach((o, i) => {
         product_id: productId,
         handle: `fixture-${i}`,
         title: 'Fixture product',
-        category_id: null,
+        category_id: expectedCategory.get(productId) ?? null,
         variants,
         published_at: '2026-09-20T00:00:00.000Z',
       },
@@ -97,7 +101,28 @@ catalogue.push(
 );
 for (const l of moved.payload.line_items) expectedProduct.set(l.order_line_item_id, movedTo);
 
-const allEvents = [...catalogue, ...month.events];
+// BI v2 (#871): returns of the second order's lines, one unit each (fct_return_line attributes them to the sale)
+const returned = placed[1]!;
+const returnEvents: EventEnvelopeV1Base[] = returned.payload.line_items.map(
+  (l, i) =>
+    makeEvent({
+      topic: 'return.received',
+      organizationId: ORG,
+      storeId: returned.store_id,
+      aggregateType: 'return',
+      aggregateId: `00000000-0000-4000-8000-0000000e70${String(i).padStart(2, '0')}`,
+      occurredAt: new Date('2026-10-28T10:00:00.000Z'),
+      payload: {
+        return_id: `00000000-0000-4000-8000-0000000e70${String(i).padStart(2, '0')}`,
+        order_id: returned.payload.order_id,
+        warehouse_id: '00000000-0000-4000-8000-0000000000a1',
+        items: [{ order_line_item_id: l.order_line_item_id, quantity: 1, condition: 'resellable' }],
+        received_at: '2026-10-28T10:00:00.000Z',
+      },
+    }) as unknown as EventEnvelopeV1Base,
+);
+
+const allEvents = [...catalogue, ...returnEvents, ...month.events];
 for (const e of allEvents) {
   const check = validator.validateEnvelope(e);
   if (!check.ok) throw new Error(`fixture ${e.topic} invalid: ${check.errors.join('; ')}`);
@@ -270,6 +295,142 @@ describe.runIf(skip === null)('ClickHouse models on the generated month', () => 
     expect(new Set(placed.map((o) => o.payload.currency))).toEqual(new Set(['EUR', 'GBP', 'USD']));
   });
 
+  // ---- BI v2 (#871): staging and fact columns -----------------------------------------------------------------
+
+  it('BI v2 staging: every order carries its channel, countries and locale; every line is staged once', async () => {
+    const got = await q(
+      a,
+      `SELECT toString(order_id) o, toString(sales_channel_id) ch, shipping_country sc, billing_country bc, locale l
+       FROM stg_order_placed ORDER BY o`,
+    );
+    const want = placed
+      .map((o) => ({
+        o: o.payload.order_id,
+        ch: o.payload.sales_channel_id,
+        sc: o.payload.shipping_country,
+        bc: o.payload.billing_country,
+        l: o.payload.locale,
+      }))
+      .sort((x, y) => (x.o < y.o ? -1 : 1));
+    expect(got).toEqual(want);
+    const lines = placed.flatMap((o) => o.payload.line_items);
+    const [l] = await q(
+      a,
+      `SELECT count() n, uniqExact(order_line_item_id) u, sum(quantity) qty, sum(total_minor) t,
+              countIf(sales_channel_id IS NULL OR shipping_country = '') missing
+       FROM stg_order_line`,
+    );
+    expect(numeric([l!])[0]).toEqual({
+      n: lines.length,
+      u: lines.length,
+      qty: lines.reduce((n, x) => n + x.quantity, 0),
+      t: lines.reduce((n, x) => n + x.total_minor, 0),
+      missing: 0,
+    });
+  });
+
+  it('BI v2 fct_order.customer_type: new = the first order of a key in its store, unknown = no key; = mart_customers_daily', async () => {
+    // the rule, computed here from the payloads: per store and email_hash, the first order by (placed_at, event id)
+    const firsts = new Map<string, { at: string; id: string }>();
+    for (const o of placed) {
+      const h = o.payload.email_hash;
+      if (h === null) continue;
+      const k = `${o.store_id}:${h}`;
+      const cur = firsts.get(k);
+      const me = { at: o.payload.placed_at, id: o.event_id };
+      if (!cur || Date.parse(me.at) < Date.parse(cur.at) || (me.at === cur.at && me.id < cur.id))
+        firsts.set(k, me);
+    }
+    const want: Record<string, string> = {};
+    for (const o of placed) {
+      const h = o.payload.email_hash;
+      want[o.payload.order_id] =
+        h === null
+          ? 'unknown'
+          : firsts.get(`${o.store_id}:${h}`)!.id === o.event_id
+            ? 'new'
+            : 'returning';
+    }
+    for (const c of [a, b]) {
+      const rows = await q(c, 'SELECT toString(order_id) o, customer_type t FROM fct_order');
+      expect(Object.fromEntries(rows.map((r) => [r.o, r.t]))).toEqual(want);
+    }
+    // the month must exercise both kinds, or the test proves nothing
+    expect(Object.values(want)).toContain('new');
+    expect(Object.values(want)).toContain('returning');
+    // and it is the mart's own rule: new orders = new customers
+    const [m] = await q(a, 'SELECT sum(new_customers) n FROM mart_customers_daily');
+    expect(Number(m!.n)).toBe(Object.values(want).filter((t) => t === 'new').length);
+  });
+
+  it("BI v2 fct_order_line: the order's channel, country and customer type, and the product's published category", async () => {
+    const rows = await q(
+      a,
+      `SELECT toString(l.order_line_item_id) li, toString(l.sales_channel_id) ch, l.country c, l.customer_type t,
+              toString(l.category_id) cat, toString(o.customer_type) ot
+       FROM fct_order_line AS l INNER JOIN fct_order AS o ON o.order_id = l.order_id`,
+    );
+    const byLine = new Map(
+      placed.flatMap((o) => o.payload.line_items.map((x) => [x.order_line_item_id, o] as const)),
+    );
+    let categorised = 0;
+    for (const r of rows) {
+      const o = byLine.get(String(r.li))!;
+      expect(r.ch).toBe(o.payload.sales_channel_id);
+      expect(r.c).toBe(o.payload.shipping_country);
+      expect(r.t).toBe(r.ot);
+      const product = expectedProduct.get(String(r.li));
+      const cat = product === undefined ? null : (expectedCategory.get(product) ?? null);
+      expect(r.cat === null || r.cat === '' ? null : r.cat, String(r.li)).toBe(cat);
+      if (cat) categorised += 1;
+    }
+    expect(rows.length).toBe(byLine.size);
+    expect(categorised).toBeGreaterThan(0);
+  });
+
+  it('BI v2 mart_sales_daily: summed over country, channel and customer type it IS mart_bookings_daily; cancelled counted apart', async () => {
+    for (const c of [a, b]) {
+      const keyed = await q(
+        c,
+        `SELECT toString(store_id) s, toString(day) d, currency, sum(orders) orders, sum(gross_minor) g,
+                sum(discount_minor) dis, sum(shipping_minor) sh, sum(tax_minor) t, sum(total_minor) tot,
+                sum(refunded_minor) r, sum(net_minor) net
+         FROM mart_sales_daily GROUP BY s, d, currency HAVING orders > 0 ORDER BY s, d, currency`,
+      );
+      const plain = await q(
+        c,
+        `SELECT toString(store_id) s, toString(day) d, currency, orders, gross_minor g, discount_minor dis,
+                shipping_minor sh, tax_minor t, total_minor tot, refunded_minor r, net_minor net
+         FROM mart_bookings_daily ORDER BY s, d, currency`,
+      );
+      expect(numeric(keyed)).toEqual(numeric(plain));
+    }
+    const [x] = await q(
+      a,
+      'SELECT sum(cancelled_orders) c, sum(placed_orders) p, sum(orders) o FROM mart_sales_daily',
+    );
+    expect(Number(x!.c)).toBe(cancelled.size);
+    expect(Number(x!.p)).toBe(Number(x!.o) + Number(x!.c));
+  });
+
+  it('BI v2 fct_return_line: every returned line attributed to its sale (product, category, country, channel)', async () => {
+    const rows = await q(
+      a,
+      `SELECT toString(r.order_line_item_id) li, r.quantity q, toString(r.product_id) p, r.country c,
+              toString(r.sales_channel_id) ch, r.currency cur
+       FROM fct_return_line AS r ORDER BY li`,
+    );
+    expect(rows.length).toBe(returned.payload.line_items.length);
+    for (const r of rows) {
+      expect(Number(r.q)).toBe(1);
+      expect(r.c).toBe(returned.payload.shipping_country);
+      expect(r.ch).toBe(returned.payload.sales_channel_id);
+      expect(r.cur).toBe(returned.payload.currency);
+      const product = expectedProduct.get(String(r.li));
+      expect(r.p === null || r.p === '' ? undefined : r.p).toBe(product);
+    }
+  });
+
   it('facts: one row per key, no NULL keys', async () => {
     const [o] = await q(a, 'SELECT count() n, uniqExact(order_id) u FROM fct_order');
     expect(numeric([o!])[0]).toMatchObject({ n: placed.length, u: placed.length });
@@ -394,6 +555,11 @@ describe.runIf(skip === null)('ClickHouse models on the generated month', () => 
       'stg_order_placed_v1.customer_key',
       'stg_order_placed_v2.customer_key', // #696
       'stg_order_placed.customer_key', // v1 UNION ALL v2
+      // BI v2 (#871): a class computed inside the models (new / returning / unknown), never the key
+      'fct_order.customer_type',
+      'fct_order_line.customer_type',
+      'fct_return_line.customer_type',
+      'mart_sales_daily.customer_type',
       'fct_order.customer_key',
       // counts, not identifiers (#603 new vs returning)
       'mart_customers_daily.new_customers',
@@ -402,6 +568,89 @@ describe.runIf(skip === null)('ClickHouse models on the generated month', () => 
     expect(rows.filter((r) => !allowed.has(`${r.table}.${r.name}`))).toEqual([]);
   });
 });
+
+describe.runIf(skip === null)(
+  'BI v2 staging of stock, returns and stock-item mappings (#871)',
+  () => {
+    const db = throwawayDatabase();
+    let admin: ChClient;
+    let c: ChClient;
+    const every = generateEveryTopic({ perKey: 12, seed: 871 });
+    const q = async (query: string): Promise<Row[]> =>
+      (await c.query({ query, format: 'JSONEachRow' })).json<Row>();
+
+    beforeAll(async () => {
+      admin = createChClient(cfg, 'default');
+      c = createChClient(cfg, db);
+      await migrate(admin, c, db, readSqlFiles());
+      await createRawEventsSink(c).insert(rowsOf(every.events, '2026-11-01T00:00:00.000Z'));
+    });
+
+    afterAll(async () => {
+      await admin?.command({ query: `DROP DATABASE IF EXISTS ${db}` }).catch(() => undefined);
+      await Promise.allSettled([admin?.close(), c?.close()]);
+    });
+
+    const of = (topic: string) =>
+      every.events
+        .filter((e) => e.topic === topic)
+        .map((e) => e.payload as Record<string, unknown>);
+
+    it('stock.moved v1 and v2: one row per movement, the delta and the on-hand after it; only v2 has a stock item', async () => {
+      const moves = of('stock.moved');
+      const v2 = every.events.filter((e) => e.topic === 'stock.moved' && e.version === 2).length;
+      const [r] = await q(
+        `SELECT count() n, uniqExact(stock_movement_id) u, sum(delta) d, sum(on_hand_after) oh FROM stg_stock_moved`,
+      );
+      const [k] = await q('SELECT countIf(stock_item_id IS NOT NULL) n FROM stg_stock_moved');
+      expect(Number(k!.n)).toBe(v2);
+      expect(v2).toBeGreaterThan(0);
+      expect(numeric([r!])[0]).toEqual({
+        n: moves.length,
+        u: moves.length,
+        d: moves.reduce((n, m) => n + Number(m.delta), 0),
+        oh: moves.reduce((n, m) => n + Number(m.on_hand_after), 0),
+      });
+      expect(moves.length).toBeGreaterThan(0);
+    });
+
+    it('mart_stock_daily: stock-out transitions, receipts and adjustments per warehouse × item × day = the movements', async () => {
+      const moves = every.events
+        .filter((e) => e.topic === 'stock.moved')
+        .map((e) => e.payload as { delta: number; on_hand_after: number; reason: string });
+      const [r] = await q(
+        `SELECT sum(stockout_events) so, sum(units_received) rec, sum(units_adjusted) adj, sum(movements) m
+       FROM mart_stock_daily`,
+      );
+      expect(numeric([r!])[0]).toEqual({
+        so: moves.filter((m) => m.on_hand_after <= 0 && m.on_hand_after - m.delta > 0).length,
+        rec: moves
+          .filter((m) => ['receipt', 'transfer_in'].includes(m.reason) && m.delta > 0)
+          .reduce((n, m) => n + m.delta, 0),
+        adj: moves
+          .filter((m) => ['adjustment', 'cycle_count'].includes(m.reason))
+          .reduce((n, m) => n + m.delta, 0),
+        m: moves.length,
+      });
+    });
+
+    it('return.received v1: one row per returned line, quantities kept', async () => {
+      const items = of('return.received').flatMap((p) => p.items as { quantity: number }[]);
+      const [r] = await q('SELECT count() n, sum(quantity) qty FROM stg_return_received_v1');
+      expect(numeric([r!])[0]).toEqual({
+        n: items.length,
+        qty: items.reduce((n, x) => n + x.quantity, 0),
+      });
+    });
+
+    it('stock_item.mapped v1: one row per mapping', async () => {
+      const [r] = await q(
+        'SELECT count() n, countIf(previous_stock_item_id IS NULL) np FROM stg_stock_item_mapped_v1',
+      );
+      expect(Number(r!.n)).toBe(of('stock_item.mapped').length);
+    });
+  },
+);
 
 describe.runIf(skip === null)('ClickHouse runner under concurrency', () => {
   const made: string[] = [];

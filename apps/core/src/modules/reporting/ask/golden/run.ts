@@ -85,7 +85,7 @@ export function scriptFor(c: GoldenCase, env: GoldenEnv, finalText?: string): Fa
 }
 
 /** The production gateway with only the provider replaced: memory limiter and audit, AI switched on. */
-function realGateway(transport: FakeTransport): GatewayFactory {
+export function realGateway(transport: FakeTransport): GatewayFactory {
   const limiter = createMemoryLimiter();
   const audit = createMemoryAuditSink();
   return (scope) =>

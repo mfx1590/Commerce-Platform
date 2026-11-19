@@ -161,6 +161,7 @@ const STORE_KEY =
 
 // what the real routes answer once the guard has passed, in the unit job (no ClickHouse, AI off) — see the header
 const QUERY_STATUS = 503;
+const MOVERS_STATUS = 503;
 const ASK_STATUS = 503;
 const FEEDBACK_STATUS = 404;
 
@@ -310,6 +311,31 @@ const ROWS: Row[] = [
     expect: passes(QUERY_STATUS),
     call: (who) =>
       staff(who as Staff, request(app).post('/admin/metrics/query')).send(metricQuery()),
+  },
+  {
+    operationId: 'listMetricMovers',
+    method: 'post',
+    path: '/admin/metrics/movers',
+    rule: `${ANY_STORE.replace(' → 200', '')}; ${NEEDS_CLICKHOUSE}`,
+    expect: passes(MOVERS_STATUS),
+    call: (who) =>
+      staff(who as Staff, request(app).post('/admin/metrics/movers')).send({
+        metric: 'net_sales_minor',
+        dimension: 'store',
+        from: '2026-03-01',
+        to: '2026-04-01',
+      }),
+  },
+  {
+    operationId: 'getInventoryHealth',
+    method: 'post',
+    path: '/admin/metrics/inventory',
+    rule:
+      `${ANY_STORE}; the position is Postgres (RLS: a store admin sees the stock items its stores map), the sales ` +
+      'rate is ClickHouse — with ClickHouse down the answer is still 200 (rate_available false, #871 review 12)',
+    expect: anyStore,
+    leak: true,
+    call: (who) => staff(who as Staff, request(app).post('/admin/metrics/inventory')).send({}),
   },
   {
     operationId: 'askMetrics',
