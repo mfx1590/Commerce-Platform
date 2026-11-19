@@ -122,7 +122,11 @@ const SOURCES: Readonly<Record<SourceId, SourceSpec>> = {
       sales_channel: 'sales_channel_id',
       customer_group: 'customer_group_id',
     },
-    perKey: { key: 'customer_key', inner: { k_orders: 'count()', k_net: 'sum(net_minor)' } },
+    // a key is PER STORE (a customer of two brands is two customers); NULL when the customer was erased
+    perKey: {
+      key: "concat(toString(store_id), ':', customer_key)",
+      inner: { k_orders: 'count()', k_net: 'sum(net_minor)' },
+    },
   },
   attribution: {
     from: 'fct_order_touch',

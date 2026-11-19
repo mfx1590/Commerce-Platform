@@ -19,6 +19,7 @@ import {
   METRIC_IDS,
   METRICS,
   REFUND_REASONS,
+  TOUCHES,
   type MetricId,
 } from '../metrics/catalogue';
 import type { StockScope } from '../metrics/compile';
@@ -41,6 +42,12 @@ import {
   moversMetricQuery,
   parseMoversQuery,
 } from '../metrics/movers';
+import {
+  parseCohortQuery,
+  type CohortQuery,
+  type CustomerCohorts,
+  type OperationsBacklog,
+} from '../metrics/operations';
 import { COMPARE_MODES, parseMetricQuery, type MetricQuery } from '../metrics/query';
 import { scopeForQuery, type MetricsCaller } from '../metrics/scope';
 import type { AiTool, AiToolCall, AiToolResult, JsonSchemaObject } from './gateway';
@@ -48,6 +55,9 @@ import type { AiTool, AiToolCall, AiToolResult, JsonSchemaObject } from './gatew
 export const QUERY_METRICS_TOOL = 'query_metrics';
 export const MOVERS_TOOL = 'movers';
 export const INVENTORY_TOOL = 'inventory_health';
+// BI v2 wave 2 (#935 e): two closed tools over the new operations
+export const COHORTS_TOOL = 'customer_cohorts';
+export const BACKLOG_TOOL = 'operations_backlog';
 
 /** The id → alias registry of ONE question (every tool call shares it, so an alias means one thing in the answer). */
 export class Aliases {
@@ -144,7 +154,7 @@ export function queryMetricsTool(scope: ToolScope): AiTool {
         uniqueItems: true,
         items: { type: 'string', enum: [...DIMENSIONS] },
         description:
-          'One row per value of each: product = one row per product (the way to rank products); products, categories, channels and warehouses come back as aliases (p1, c1, ch1, w1) — write the alias, the server puts the name in',
+          'One row per value of each: product = one row per product (the way to rank products); products, categories, channels, warehouses, customer groups, campaigns, promotions and utm values come back as aliases (p1, c1, ch1, w1, g1, cp1, pr1, u1) — write the alias, the server puts the name in; a filter may name an alias an earlier result of this question returned',
       },
       grain: { type: 'string', enum: [...GRAINS] },
       from: { type: 'string', format: 'date', description: 'UTC date, inclusive' },
@@ -169,11 +179,23 @@ export function queryMetricsTool(scope: ToolScope): AiTool {
             uniqueItems: true,
             items: { type: 'string', pattern: '^[A-Z]{3}$' },
           },
-          product_ids: {
-            type: 'array',
-            minItems: 1,
-            uniqueItems: true,
-            items: { type: 'string', format: 'uuid' },
+          // #935 e (the #924 gap "aliases are output-only"): id filters take the aliases a result of THIS question
+          // returned; the server maps them back to ids (resolveAliasInputs)
+          ...aliasFilter('product_ids', 'p', 'products'),
+          ...aliasFilter('category_ids', 'c', 'categories'),
+          ...aliasFilter('sales_channel_ids', 'ch', 'sales channels'),
+          ...aliasFilter('warehouse_ids', 'w', 'warehouses'),
+          ...aliasFilter('customer_group_ids', 'g', 'customer groups'),
+          ...aliasFilter('campaign_ids', 'cp', 'campaigns'),
+          ...aliasFilter('promotion_ids', 'pr', 'promotions'),
+          ...aliasFilter('utm_sources', 'u', 'utm sources'),
+          ...aliasFilter('utm_mediums', 'u', 'utm mediums'),
+          ...aliasFilter('utm_campaigns', 'u', 'utm campaigns'),
+          touch: {
+            type: 'string',
+            enum: [...TOUCHES],
+            description:
+              'Attribution metrics: the first or the last touch of the order (last by default)',
           },
           refund_reasons: {
             type: 'array',
@@ -276,6 +298,69 @@ export interface ToolDeps {
   /** getInventoryHealth for this caller, restricted to the question's stores (BI Q&A-off stores excluded) */
   inventory?: (q: InventoryQuery) => Promise<InventoryHealth>;
   inventoryCalls?: ExecutedInventory[];
+  /** getCustomerCohorts over the question's stores (#935; the tool is offered only with it) */
+  cohorts?: (q: CohortQuery) => Promise<CustomerCohorts>;
+  /** getOperationsBacklog over the question's stores (#935; the tool is offered only with it) */
+  backlog?: () => Promise<OperationsBacklog>;
+}
+
+/** An id filter of the tool schema that takes aliases of one kind (p1, c2 …), never a uuid the model cannot see. */
+function aliasFilter(name: string, prefix: string, what: string): Record<string, object> {
+  return {
+    [name]: {
+      type: 'array',
+      minItems: 1,
+      uniqueItems: true,
+      // an alias, or an id the question itself gave
+      items: { type: 'string', pattern: `^(${prefix}\\d+|[0-9a-fA-F-]{36})$` },
+      description: `Aliases of ${what} an earlier result of this question returned (${prefix}1, ${prefix}2 …)`,
+    },
+  };
+}
+
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The filter → the alias kind its values are (#935 e). */
+const ALIAS_FILTERS: Readonly<Record<string, AliasKind>> = {
+  product_ids: 'product',
+  category_ids: 'category',
+  sales_channel_ids: 'sales_channel',
+  warehouse_ids: 'warehouse',
+  customer_group_ids: 'customer_group',
+  campaign_ids: 'campaign',
+  promotion_ids: 'promotion',
+  utm_sources: 'utm',
+  utm_mediums: 'utm',
+  utm_campaigns: 'utm',
+};
+
+/**
+ * The aliases a tool call names in its filters, mapped back to the ids (or utm text) they stand for. Only an alias
+ * THIS question issued, of the filter's kind, resolves: anything else is a tool error (a 400 the model can read),
+ * never a guess. Returns the input with the ids in place.
+ */
+export function resolveAliasInputs(input: unknown, aliases: Aliases): unknown {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
+  const i = input as Record<string, unknown>;
+  const filters = i.filters;
+  if (!filters || typeof filters !== 'object' || Array.isArray(filters)) return input;
+  const out: Record<string, unknown> = { ...(filters as Record<string, unknown>) };
+  for (const [name, kind] of Object.entries(ALIAS_FILTERS)) {
+    const values = out[name];
+    if (!Array.isArray(values)) continue;
+    out[name] = values.map((v) => {
+      if (typeof v === 'string' && UUID_SHAPE.test(v)) return v; // an id, not an alias
+      const hit = typeof v === 'string' ? aliases.reverse.get(v) : undefined;
+      if (!hit || hit.kind !== kind)
+        throw new AppError(
+          'validation_error',
+          `filters.${name}: ${String(v)} is not an alias this question returned`,
+          { field: `filters.${name}`, item: v, reason: 'alias_unknown' },
+        );
+      return hit.id;
+    });
+  }
+  return { ...i, filters: out };
 }
 
 /** A utm value as an alias (u1 …): its text is the legend's, the model never reads it. */
@@ -328,6 +413,8 @@ export function biQaToolHandler(deps: ToolDeps): (call: AiToolCall) => Promise<A
   return async (call) => {
     if (call.name === MOVERS_TOOL) return moversHandler({ ...deps, aliases })(call);
     if (call.name === INVENTORY_TOOL) return inventoryHandler({ ...deps, aliases })(call);
+    if (call.name === COHORTS_TOOL) return cohortsHandler(deps)(call);
+    if (call.name === BACKLOG_TOOL) return backlogHandler({ ...deps, aliases })();
     return metrics(call);
   };
 }
@@ -337,7 +424,7 @@ export function queryMetricsHandler(deps: ToolDeps): (call: AiToolCall) => Promi
   return async (call) => {
     let query: MetricQuery;
     try {
-      query = parseMetricQuery(call.input);
+      query = parseMetricQuery(resolveAliasInputs(call.input, aliases));
     } catch (e) {
       if (!(e instanceof AppError)) throw e;
       return { isError: true, content: JSON.stringify({ error: errorOf(e) }) };
@@ -632,4 +719,83 @@ export async function substituteAliases(
     if (name !== undefined) legend[alias] = name;
   }
   return { text: text.replace(ALIAS, (m) => legend[m] ?? m), legend };
+}
+
+// ---- BI v2 wave 2 (#935 e): cohorts and the operations backlog -----------------------------------------------------
+
+export function cohortsTool(): AiTool {
+  return {
+    name: COHORTS_TOOL,
+    description:
+      'Customer cohorts in ONE currency: customers grouped by the month of their first order in a store (a customer ' +
+      'of two brands is two customers), and per month since then the active customers, the retention (active ÷ ' +
+      'cohort size, basis points) and the net sales per customer to date (LTV to date, minor units). Cells of fewer ' +
+      'than 5 customers are suppressed (null): say so, never guess them. Months are YYYY-MM.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['from_month', 'to_month', 'currency'],
+      properties: {
+        from_month: { type: 'string', pattern: '^\\d{4}-\\d{2}$' },
+        to_month: { type: 'string', pattern: '^\\d{4}-\\d{2}$' },
+        months: { type: 'integer', minimum: 1, maximum: 24 },
+        currency: { type: 'string', pattern: '^[A-Z]{3}$' },
+      },
+    },
+  };
+}
+
+function cohortsHandler(deps: ToolDeps) {
+  return async (call: AiToolCall): Promise<AiToolResult> => {
+    try {
+      if (!deps.cohorts)
+        throw new AppError('validation_error', 'cohorts are not available here', {
+          reason: 'cohorts_unavailable',
+        });
+      // the stores are the question's: the tool takes no store ids
+      const q = parseCohortQuery(call.input ?? {});
+      const r = await deps.cohorts(q);
+      return { content: JSON.stringify({ currency: r.currency, cohorts: r.cohorts }) };
+    } catch (e) {
+      if (!(e instanceof AppError) || e.code === 'unavailable') throw e;
+      return { isError: true, content: JSON.stringify({ error: errorOf(e) }) };
+    }
+  };
+}
+
+export function backlogTool(): AiTool {
+  return {
+    name: BACKLOG_TOOL,
+    description:
+      'What is stuck NOW, by age (lt_1d, d1_2 = 1–2 days, d3_7, gt_7d) per store and warehouse: `unassigned` (paid ' +
+      'orders with no shipment and no warehouse), `shipment_not_shipped` (shipments created, not shipped) and ' +
+      '`return_not_received` (returns requested, not received). Warehouses come back as aliases (w1).',
+    inputSchema: { type: 'object', additionalProperties: false, properties: {} },
+  };
+}
+
+function backlogHandler(deps: ToolDeps & { aliases: Aliases }) {
+  return async (): Promise<AiToolResult> => {
+    if (!deps.backlog)
+      return {
+        isError: true,
+        content: JSON.stringify({
+          error: { code: 'validation_error', message: 'the backlog is not available here' },
+        }),
+      };
+    const r = await deps.backlog();
+    return {
+      content: JSON.stringify({
+        buckets: r.buckets,
+        rows: r.rows.map((x) => ({
+          kind: x.kind,
+          store: deps.codes?.get(x.store_id) ?? x.store_id,
+          warehouse: deps.aliases.of('warehouse', x.warehouse_id),
+          bucket: x.bucket,
+          count: x.count,
+        })),
+        totals: r.totals,
+      }),
+    };
+  };
 }
