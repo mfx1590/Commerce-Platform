@@ -37,10 +37,13 @@ interface Exported {
 export function ExportCsvButton({
   what,
   run,
+  cap = EXPORT_CAP,
 }: {
   /** The file name's stem: `orders`, `catalog`. */
   what: string;
   run: () => Promise<ActionResult<Exported>>;
+  /** The most rows the file can hold, said on the button (default the lists' 1,000). */
+  cap?: number;
 }) {
   const [pending, startTransition] = useTransition();
   const [said, setSaid] = useState<string | null>(null);
@@ -77,13 +80,13 @@ export function ExportCsvButton({
             downloadCsv(csvFileName(what), csv);
             setSaid(
               truncated
-                ? `Exported the first ${exported} of ${total} rows in this order (the cap is ${EXPORT_CAP.toLocaleString('en')}). Narrow the filter for the rest.`
+                ? `Exported the first ${exported} of ${total} rows in this order (the cap is ${cap.toLocaleString('en')}). Narrow the filter for the rest.`
                 : `Exported ${exported} ${exported === 1 ? 'row' : 'rows'}.`,
             );
           });
         }}
       >
-        {pending ? 'Exporting…' : `Export CSV (up to ${EXPORT_CAP.toLocaleString('en')} rows)`}
+        {pending ? 'Exporting…' : `Export CSV (up to ${cap.toLocaleString('en')} rows)`}
       </Button>
       {said !== null && (
         <p role="status" className="text-muted text-xs">

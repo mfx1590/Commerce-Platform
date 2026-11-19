@@ -26,6 +26,25 @@ Issue #480 (reporting v1, 12.3): HQ sales, finance and stock from the Admin API 
   error stays the API's JSON error with its status.
 - **503 `unavailable`** (the analytics store down): a state panel, nothing partial; the v1 reports still render.
 
+## BI v2 views, wave 1 (#869 / #871; window 3 on an integration branch)
+
+`/bi/overview`, `/bi/products` and `/bi/inventory`, plus the same views under `/<storeId>/bi/` (narrowed to that store). The code is in `_v2/`:
+
+- `model.ts` (pure: URL state, filters, catalogue offer, formatting, comparison shaping);
+- `queries.ts` (the query bodies);
+- `api.ts` (`listMetricMovers`, `getInventoryHealth`, and `metricsCsv`, the API's CSV with labels);
+- `actions.ts` (CSV server actions, gated by the BI section);
+- `components/` (shell, overview, products, inventory, export).
+
+Rules:
+
+- one currency at a time;
+- UTC days with the end day excluded;
+- a comparison says what changed, never why;
+- what the catalogue doesn't offer is left out and named;
+- every filter is in the URL;
+- every block exports its CSV.
+
 ## What the page shows
 
 - **Who:** the section requires `analyst` on organization:hq (`src/lib/nav/sections.ts`); owner implies it. Everyone
