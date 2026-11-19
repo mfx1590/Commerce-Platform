@@ -7,6 +7,14 @@ const upsertPrices = vi.hoisted(() => vi.fn());
 vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('@/lib/api/admin', () => ({ upsertPrices, createPriceList: vi.fn() }));
+// #903: the action now refuses first without store_admin; this suite is about re-validation.
+vi.mock('@/lib/principal', () => ({
+  loadPrincipal: async () => ({
+    ok: true,
+    status: 200,
+    data: (await import('./fixtures/principals')).principals.storeAdmin,
+  }),
+}));
 const { upsertPricesAction } = await import('@/app/actions/pricing');
 
 type Product = AdminComponents['Product'];
