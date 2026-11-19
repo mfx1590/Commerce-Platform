@@ -25,7 +25,11 @@ try {
   const validator = createValidator();
   await createRawEventsSink(ch).insert(
     month.events.map((e, i) => {
-      const c = classify(toWire(e as never, i), { topic: e.topic, partition: 0 }, { groupId: 'g', validator, now: new Date() });
+      const c = classify(
+        toWire(e as never, i),
+        { topic: e.topic, partition: 0 },
+        { groupId: 'g', validator, now: new Date() },
+      );
       if (c.kind !== 'row') throw new Error('dead');
       return c.row;
     }),
@@ -58,19 +62,30 @@ try {
     try {
       const id = `ro-probe-${tag}-${v}`;
       const [r] = await (
-        await reader.query({ query: `SELECT count() AS n FROM ${v}`, format: 'JSONEachRow', query_id: id } as never)
+        await reader.query({
+          query: `SELECT count() AS n FROM ${v}`,
+          format: 'JSONEachRow',
+          query_id: id,
+        } as never)
       ).json<{ n: string }>();
       await admin.command({ query: 'SYSTEM FLUSH LOGS' });
       const [m] = await (
         await admin.query({
-          query: "SELECT formatReadableSize(memory_usage) AS mem FROM system.query_log WHERE query_id = {id:String} AND type = 'QueryFinish'",
+          query:
+            "SELECT formatReadableSize(memory_usage) AS mem FROM system.query_log WHERE query_id = {id:String} AND type = 'QueryFinish'",
           format: 'JSONEachRow',
           query_params: { id },
         })
       ).json<{ mem: string }>();
       console.info(JSON.stringify({ view: v, ok: true, rows: Number(r!.n), peak_memory: m?.mem }));
     } catch (e) {
-      console.info(JSON.stringify({ view: v, ok: false, error: (e as Error).message.split('\n')[0]!.slice(0, 220) }));
+      console.info(
+        JSON.stringify({
+          view: v,
+          ok: false,
+          error: (e as Error).message.split('\n')[0]!.slice(0, 220),
+        }),
+      );
     }
   }
   await reader.close();
@@ -81,6 +96,8 @@ try {
     `DROP SETTINGS PROFILE IF EXISTS ${user}_profile`,
     `DROP DATABASE IF EXISTS ${db}`,
   ])
-    await admin.command({ query: q }).catch((e) => console.error(`cleanup: ${q}: ${(e as Error).message}`));
+    await admin
+      .command({ query: q })
+      .catch((e) => console.error(`cleanup: ${q}: ${(e as Error).message}`));
   await Promise.allSettled([admin.close(), ch.close()]);
 }
