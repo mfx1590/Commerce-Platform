@@ -11,7 +11,7 @@
 // latest `markShippedInTx`), `completed` when every shipment is delivered (`markDeliveredInTx`). Only
 // `cancelled` is an explicit call. Each move happens in the transaction of its trigger, with its outbox row.
 import type { Queryable, ScopedClient } from '@platform/db';
-import type { Actor } from '../../lib/audit';
+import { writeAudit, type Actor } from '../../lib/audit';
 import { AppError, conflict, validationError } from '../../lib/errors';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
 import { paymentProvider } from '../../lib/payment-seam';
@@ -152,6 +152,31 @@ export async function transition(
     });
   }
   await withEvents(tx, [event]);
+  // #887: one audit row per order mutation, in this transaction (a rollback leaves none). Who: the actor as given —
+  // `staff` with its id, `customer` / `system` named as such. What: the status fields that moved (before → after),
+  // the changed field NAMES, and what the caller adds (line ids and quantities). Never PII.
+  const moved = FIELDS.filter((f) => changed.includes(f));
+  await writeAudit(tx, {
+    organizationId: after.organization_id,
+    storeId: after.store_id,
+    actor: change.actor,
+    action:
+      change.audit?.action ??
+      (change.status === 'cancelled'
+        ? 'order.cancel'
+        : moved.length > 0
+          ? 'order.status_change'
+          : 'order.update'),
+    entityType: 'order',
+    entityId: after.id,
+    before: Object.fromEntries(moved.map((f) => [f, before[f]])),
+    after: {
+      ...Object.fromEntries(moved.map((f) => [f, after[f]])),
+      ...(change.status === 'cancelled' ? { reason: after.cancel_reason } : {}),
+      changed_fields: [...new Set([...changed, ...extra])].sort(),
+      ...(change.audit?.after ?? {}),
+    },
+  });
   if (change.hooks?.afterEvents) await change.hooks.afterEvents(tx);
   return after;
 }
@@ -342,14 +367,48 @@ export async function markShippedInTx(
   // in the same transition (one event) when shipping did not report the pick itself (#350). A held (pending)
   // order keeps its status — the fulfilment facts are recorded all the same.
   const startsProcessing = current.status === 'confirmed';
+  // #887: one audit row per shipment, whether or not a status moves (a second partial shipment changes only the
+  // lines' fulfilled quantities) — through the transition when there is one, directly otherwise.
+  const audit = { action: 'order.ship', after: { lines: quantitiesOf(shipped) } };
   if (current.fulfillment_status !== next || startsProcessing) {
     await transition(tx, orderId, {
       ...(startsProcessing ? { status: 'processing' as const } : {}),
       ...(current.fulfillment_status !== next ? { fulfillment_status: next } : {}),
       actor,
       changed_fields: ['line_items'],
+      audit,
+    });
+  } else {
+    await auditOrder(tx, current, actor, audit.action, {
+      ...audit.after,
+      changed_fields: ['line_items'],
     });
   }
+}
+
+/** Ids and quantities of a shipment or a return, for its audit row (#887). */
+function quantitiesOf(lines: readonly LineQuantity[]) {
+  return lines.map((l) => ({ line_item_id: l.lineItemId, quantity: l.quantity }));
+}
+
+/** An order audit row for a mutation that moves no status (#887; `transition()` writes its own). */
+async function auditOrder(
+  tx: Queryable,
+  order: OrderRow,
+  actor: Actor,
+  action: string,
+  after: Record<string, unknown>,
+): Promise<void> {
+  await writeAudit(tx, {
+    organizationId: order.organization_id,
+    storeId: order.store_id,
+    actor,
+    action,
+    entityType: 'order',
+    entityId: order.id,
+    before: {},
+    after,
+  });
 }
 
 /**
@@ -423,10 +482,18 @@ export async function markReturnedIn(
   const lines = await loadOrderLines(tx, orderId);
   const next = fulfillmentFrom(lines, 'returned');
   const current = await loadOrder(tx, orderId, false);
+  // #887: one audit row per received return, whether or not the fulfilment status moves
+  const audit = { action: 'order.return', after: { lines: quantitiesOf(returned) } };
   if (current.fulfillment_status !== next) {
     await transition(tx, orderId, {
       fulfillment_status: next,
       actor,
+      changed_fields: ['line_items'],
+      audit,
+    });
+  } else {
+    await auditOrder(tx, current, actor, audit.action, {
+      ...audit.after,
       changed_fields: ['line_items'],
     });
   }
@@ -459,7 +526,11 @@ export async function setFulfillmentStatus(input: {
   return setFulfillmentStatusIn(input.tx, input.orderId, input.status, input.actor);
 }
 
-/** Merges keys into `order.metadata` on the caller's transaction (the returns module's exchange link). No event: metadata is storefront/ops-owned. */
+/**
+ * Merges keys into `order.metadata` on the caller's transaction (the returns module's exchange link, the fraud flag).
+ * No event: metadata is storefront/ops-owned. No audit row either (#887): its callers audit — the fraud flag through
+ * the `transition()` that follows it, the exchange link with its own `order.exchange_link` row.
+ */
 export async function mergeOrderMetadataIn(
   tx: Queryable,
   orderId: string,
@@ -574,7 +645,7 @@ export async function cancelOrderInTx(
   // #905: a captured payment is refunded for what is still captured, in THIS transaction. After the release (the
   // last step that can fail on our side before the transitions), so a provider call is not followed by work that can
   // still throw for a reason of ours; if anything later did, the rollback leaves no row and a retry reuses the key.
-  await refundCapturedForCancel(tx, o, input.actor);
+  const refundIds = await refundCapturedForCancel(tx, o, input.actor);
   // #466: an authorisation the cancel released reads `voided` — as its OWN transition, so `order.updated`
   // (changed_fields ['payment_status']) is written before `order.cancelled`; one combined transition would emit
   // only `order.cancelled`. awaiting / failed have nothing to release; a captured payment was refunded above, and
@@ -586,16 +657,22 @@ export async function cancelOrderInTx(
     status: 'cancelled',
     reason: input.reason,
     actor: input.actor,
+    // #887: the cancel's audit row links the refund(s) the cancel made (#905)
+    ...(refundIds.length > 0 ? { audit: { after: { refund_ids: refundIds } } } : {}),
   });
 }
 
-async function refundCapturedForCancel(tx: Queryable, o: OrderRow, actor: Actor): Promise<void> {
+async function refundCapturedForCancel(
+  tx: Queryable,
+  o: OrderRow,
+  actor: Actor,
+): Promise<string[]> {
   const captured = await tx.query<{ id: string; provider: string; idempotency_key: string }>(
     `SELECT id, provider, idempotency_key FROM payment
      WHERE order_id = $1 AND status = 'captured' ORDER BY created_at, id`,
     [o.id],
   );
-  if (captured.rows.length === 0) return;
+  if (captured.rows.length === 0) return [];
   const refunder = currentCancelRefunder();
   if (!refunder) {
     // Fail closed: never cancel a charged order without its refund.
@@ -606,6 +683,7 @@ async function refundCapturedForCancel(tx: Queryable, o: OrderRow, actor: Actor)
       503,
     );
   }
+  const refundIds: string[] = [];
   for (const p of captured.rows) {
     const out = await refunder.refundRemaining(tx, {
       orderId: o.id,
@@ -618,7 +696,9 @@ async function refundCapturedForCancel(tx: Queryable, o: OrderRow, actor: Actor)
         provider: p.provider,
       });
     }
+    if (out.refundId) refundIds.push(out.refundId);
   }
+  return refundIds;
 }
 
 export type { PaymentStatus };
