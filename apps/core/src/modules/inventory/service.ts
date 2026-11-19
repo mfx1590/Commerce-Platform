@@ -199,6 +199,24 @@ export async function moveStock(tx: Queryable, input: MoveStockInput): Promise<M
       delta: input.delta,
     });
   }
+  // #877: a movement may not take away units open orders have reserved. Under the pool row lock `ensureLevel` took
+  // above, so a concurrent sale or reservation cannot slip between this check and the write. `sale` is exempt: the
+  // shipment path lowers `reserved` first and then `on_hand` by the same quantity (consumeForShipment), exactly as it
+  // is exempt from the below-zero rule. Only a NEGATIVE delta is checked: a receipt never makes it worse.
+  if (input.delta < 0 && input.reason !== 'sale' && onHandAfter < before.reserved) {
+    throw new AppError(
+      'conflict',
+      `on_hand would go below reserved (${before.on_hand} ${input.delta} < ${before.reserved})`,
+      {
+        ...(variantId !== null ? { variant_id: variantId } : {}),
+        stock_item_id: stockItemId,
+        warehouse_id: input.warehouseId,
+        on_hand: before.on_hand,
+        reserved: before.reserved,
+        delta: input.delta,
+      },
+    );
+  }
   await tx.query(`UPDATE inventory_level SET on_hand = $2, updated_at = now() WHERE id = $1`, [
     before.id,
     onHandAfter,

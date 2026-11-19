@@ -489,6 +489,16 @@
 - Not in this PR (by the manager): `capturePayment` (#355, window 7), `buyShipmentLabel` (#356, window 8), the
   `provider_unsupported` 422 mapping (contracts 0.4.12).
 
+### 2026-11-18 · a stock movement may not take reserved units (#877)
+
+- `moveStock` refuses a negative delta that would leave the pool row's `on_hand` below its `reserved` with 409
+  `conflict` (`on_hand`, `reserved`, `delta`, `stock_item_id`, `warehouse_id`, plus `variant_id` when attributed),
+  under the row lock it already holds; `sale` is exempt, a receipt never checked. So `createStockMovement`
+  (adjustment, transfer_out, cycle_count) and the cycle-count reconcile can no longer drive `available` negative
+  behind open orders' backs. Tests (`inventory.test.ts`): a EUR order's reservation against a store-attributed
+  adjustment, a store-less pool movement and a transfer leg (nothing written on refusal), the boundary at exactly
+  `reserved`, a receipt, the shipment (sale) path, and `sale` below reserved. Mutation-checked.
+
 ## Phase 2 (window 1, contracts-v0.3)
 
 ### 2026-10-03 · the customer on carts and orders — review fixes (#325)
