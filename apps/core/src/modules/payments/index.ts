@@ -76,6 +76,12 @@ export {
   type RefundStatus,
 } from './refunds';
 export { paymentsRefundRequester } from './refund-requester';
+// #918: refund reconciliation — a refused cancel attempt recorded after the rollback, orphan PSP refunds
+export {
+  reconcilePaymentRefunds,
+  recordFailedRefundAttempt,
+  type FailedRefundAttempt,
+} from './reconcile';
 export {
   paymentsAdminRouter,
   REFUNDS_PATH,

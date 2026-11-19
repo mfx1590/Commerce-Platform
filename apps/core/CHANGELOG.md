@@ -538,6 +538,39 @@
 - The cancel's refund link: a cancel that refunded a captured payment (#905) puts the refund ids on its `order.cancel`
   row (`after.refund_ids`); `cancel-refund.test.ts` asserts it.
 
+### 2026-11-19 · cancel-refund reconciliation (#918)
+
+- **Refused cancel refund, recorded (#918).** The provider key of a cancel's refund is per ATTEMPT:
+  `cancel_refund_<sha256(<payment key>:cancel-refund:<n>)>`, n = the payment's recorded failed cancellation attempts + 1
+  (hashed: Stripe's 255-character limit). A definitive refusal rolls the cancel back (402, the order stays
+  uncancelled) and `cancelOrder` then records the attempt in its own transaction (`recordFailedRefundAttempt`: a
+  `failed` refund row under that key + `refund.failed`, idempotent on the key). The next cancel is attempt n + 1 — a
+  NEW request, not Stripe's saved refusal replayed for ~24 h. An unknown outcome (outage, timeout) records nothing:
+  the next cancel is the same attempt and key, so the PSP returns the refund it may already have made. Two concurrent
+  cancels never race for n: both lock the order row first, the second finds it cancelled (tested). The refund now
+  happens BEFORE the reservations are released (the provider call holds fewer locks). `cancelOrderInTx` callers own
+  their transaction: a refusal there rolls back with nothing recorded.
+- **Orphan PSP refunds (#918).** Our Stripe refunds carry `metadata { reason, order_id }`. `charge.refunded` lists the
+  intent's refunds (`StripeApi.listRefunds`) after its commit and `reconcilePaymentRefunds` records every SUCCEEDED
+  refund with no row of ours: refund row + `refund.issued` + the order's `payment_status`, amount and currency FROM
+  STRIPE, the reason from the metadata (else `goodwill` — a Dashboard refund). A row of ours is found by
+  `provider_refund_id` whatever its status: a `pending` row is never duplicated. Idempotent. Missed webhooks:
+  `pnpm --filter @platform/core refunds:reconcile -- --store <code> [--since <ISO>]` (a WRITE: on a shared database the
+  owner runs it).
+- **A refund that fails at the PSP on a cancelled order (#918).** The `refund.updated` / `refund.failed` webhook sets
+  `order.metadata.refund_attention { refund_id, reason, at }` (orders `setRefundAttentionInTx`: one `order.updated`,
+  one audit row `order.refund_attention`); `payment_status` stays `captured`. A later refund of that order that
+  SUCCEEDS (Admin `createRefund`, the webhook, the reconcile) clears it (`clearRefundAttentionInTx`, audit
+  `order.refund_attention_cleared`). Listing such orders needs CONTRACT CHANGE #930 (a `listOrders` filter).
+- **Stripe client timeout (#918).** `StripeClient` aborts a request after `timeoutMs` (default `STRIPE_TIMEOUT_MS`,
+  else 10 s) with a plain `TimeoutError` — never a `StripeError` — so every caller treats it as an UNKNOWN outcome
+  (nothing written, the key reused), never as a definitive failure.
+- Tests: `test/refund-reconcile.test.ts` (6: a Dashboard refund reconciled once with Stripe's amount, our lost refund
+  reconciled with its metadata reason, a pending row never duplicated, `charge.refunded` through the signed webhook,
+  the attention flag set and cleared with its audit rows, the timeout), `test/cancel-refund.test.ts` (the refusal
+  recorded and attempt 2 a new key; two concurrent cancels → one refund), `webhooks.test.ts` (charge.refunded no
+  longer informational). Mutation-checked: dedupe, clearing, attempt numbering.
+
 ## Phase 2 (window 1, contracts-v0.3)
 
 ### 2026-10-03 · the customer on carts and orders — review fixes (#325)

@@ -13,7 +13,7 @@ import { buildEvent, eventActor, withEvents } from '../../outbox';
 import type { Actor } from '../../lib/audit';
 import { AppError, conflict, notFound } from '../../lib/errors';
 import { paymentProvider } from '../checkout';
-import { loadOrder, transition, type PaymentStatus } from '../orders';
+import { clearRefundAttentionInTx, loadOrder, transition, type PaymentStatus } from '../orders';
 import { refundPendingAtProvider } from './provider';
 
 export type RefundReason = 'return' | 'cancellation' | 'goodwill' | 'chargeback';
@@ -343,6 +343,8 @@ export async function createRefundIn(
     if (input.transitionOrder !== false) {
       await syncOrderPaymentStatus(tx, order.id, payment.id, captured, input.actor);
     }
+    // #918: a refund that settles the order's money clears a `refund_attention` flag (audited); no flag, no-op
+    await clearRefundAttentionInTx(tx, order.id, { refundId: row.id }, input.actor);
     const reloaded = await tx.query<RefundRow>(`SELECT ${REFUND_COLS} FROM refund WHERE id = $1`, [
       row.id,
     ]);

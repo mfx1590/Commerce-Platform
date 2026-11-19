@@ -5,4 +5,9 @@
 //
 // Semantics we rely on (window 1 owns them): scoped client + ids, own transaction, idempotent on the target
 // state, exactly one `order.updated` event, illegal transition → 409 with `{ field, from, to }`.
-export { markPaymentCaptured, markPaymentFailed } from '../orders';
+export {
+  clearRefundAttentionInTx,
+  markPaymentCaptured,
+  markPaymentFailed,
+  setRefundAttentionInTx,
+} from '../orders';

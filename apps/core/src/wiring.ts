@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 // Boot-time registrations that connect modules through their seams (the hq-rbac lesson: a module is not done
 // until something calls it). createServer() runs registerModuleSeams() once, before Medusa loads. Every call here
 // is a plain registry write: no I/O, no configuration read — credentials are resolved lazily per store on first
@@ -17,7 +18,12 @@ import { registerFraudCheck } from './modules/fraud';
 import { stockAwareAllocationPolicy } from './modules/hq-warehouse';
 import { setAllocationPolicy } from './modules/inventory';
 import { setCancelRefunder, type CancelRefunder } from './modules/orders';
-import { createRefundIn, refundedMinor, registerPaymentProviders } from './modules/payments';
+import {
+  createRefundIn,
+  recordFailedRefundAttempt,
+  refundedMinor,
+  registerPaymentProviders,
+} from './modules/payments';
 import {
   eligibleLines,
   evaluatePromotions,
@@ -262,11 +268,18 @@ export function mulDivRound(a: number, b: number, c: number): number {
 }
 
 /**
- * #905: what an order cancel refunds — what is still captured on the payment (captured − already refunded, pending
- * refunds included, so a refund the PSP has only accepted is never refunded twice) — through window 7's
+ * #905 / #918: what an order cancel refunds — what is still captured on the payment (captured − already refunded,
+ * pending refunds included, so a refund the PSP has only accepted is never refunded twice) — through window 7's
  * `createRefundIn` on the cancel's transaction: refund row, `refund.issued` (reason `cancellation`) and the order's
- * `payment_status` (`refunded`), or `pending` until the PSP's webhook settles it. A definitive refusal comes back as
- * `failed` (the cancel then throws, so the failed row does not commit either); an outage throws.
+ * `payment_status` (`refunded`), or `pending` until the PSP's webhook settles it.
+ *
+ * The provider key is per ATTEMPT (#918): `cancel_refund_<sha256(<payment key>:cancel-refund:<n>)>`, n = the payment's
+ * RECORDED failed cancellation attempts + 1 (hashed: Stripe's 255-character limit, like the void key). A definitive
+ * refusal comes back as `failed` — the cancel rolls back and `cancelOrder` records the attempt through
+ * `recordFailedAttempt`, so the next cancel is attempt n + 1: a NEW request, not Stripe's saved refusal replayed for
+ * ~24 h. An unknown outcome (outage, timeout) records nothing: the next cancel is the same attempt, the same key, and
+ * the PSP returns the refund it may already have made. Two concurrent cancels never race for n: both lock the order
+ * row first, and the second finds it cancelled.
  */
 export const paymentsCancelRefunder: CancelRefunder = {
   async refundRemaining(tx, req) {
@@ -277,14 +290,27 @@ export const paymentsCancelRefunder: CancelRefunder = {
     const capturedMinor = Number(payment.rows[0]?.amount_minor ?? 0);
     const remaining = capturedMinor - (await refundedMinor(tx, req.paymentId));
     if (remaining <= 0) {
-      return { status: 'nothing', refundId: null, amountMinor: 0, failureReason: null };
+      return {
+        status: 'nothing',
+        refundId: null,
+        amountMinor: 0,
+        failureReason: null,
+        idempotencyKey: null,
+      };
     }
+    const attempts = await tx.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM refund
+       WHERE payment_id = $1 AND reason = 'cancellation' AND status = 'failed'`,
+      [req.paymentId],
+    );
+    const attempt = (attempts.rows[0]?.n ?? 0) + 1;
+    const idempotencyKey = cancelRefundKey(req.paymentKey, attempt);
     const out = await createRefundIn(tx, {
       orderId: req.orderId,
       paymentId: req.paymentId,
       amountMinor: remaining,
       reason: 'cancellation',
-      idempotencyKey: req.idempotencyKey,
+      idempotencyKey,
       actor: req.actor,
       requestedBy: req.actor.type === 'staff' ? req.actor.id : null,
     });
@@ -293,9 +319,18 @@ export const paymentsCancelRefunder: CancelRefunder = {
       refundId: out.refund.id,
       amountMinor: remaining,
       failureReason: out.failureReason,
+      idempotencyKey,
     };
   },
+  async recordFailedAttempt(client, attempt) {
+    await recordFailedRefundAttempt(client, { ...attempt, reason: 'cancellation' });
+  },
 };
+
+/** The provider key of a cancel's n-th refund attempt (#918; hashed like `voidIdempotencyKey`). */
+export function cancelRefundKey(paymentKey: string, attempt: number): string {
+  return `cancel_refund_${createHash('sha256').update(`${paymentKey}:cancel-refund:${attempt}`).digest('hex')}`;
+}
 
 let registered = false;
 

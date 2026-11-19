@@ -214,8 +214,7 @@ export class StripeClient implements StripeApi {
     this.baseUrl = opts.baseUrl ?? BASE_URL;
     this.apiVersion = opts.apiVersion ?? STRIPE_API_VERSION;
     const fromEnv = Number(process.env.STRIPE_TIMEOUT_MS);
-    this.timeoutMs =
-      opts.timeoutMs ?? (Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 10_000);
+    this.timeoutMs = opts.timeoutMs ?? (Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 10_000);
   }
 
   private async request<T>(

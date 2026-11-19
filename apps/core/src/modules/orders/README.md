@@ -128,7 +128,11 @@ REAL Stripe replays the saved refusal for ~24 h on that key, so the cancel keeps
 not record failures; the test's successful retry shows the order is untouched, not Stripe's behaviour). Today's
 workaround: refund through the Admin API `createRefund` with a fresh `Idempotency-Key`, then cancel (nothing is left
 to refund, so the cancel only cancels). The real fix is #918 (sticky refusal key, orphan PSP refunds, pending → failed
-on a cancelled order). An unknown outcome (outage,
+on a cancelled order). **Since #918** the attempt key is per attempt (`cancel_refund_<sha256(<payment key>:cancel-refund:<n>)>`): a
+refused attempt is recorded after the rollback by `cancelOrder` (`CancelRefundRefused` carries it to the
+`CancelRefunder`'s `recordFailedAttempt`), so the next cancel is a new request; the refund runs before the reservations
+are released. A refund that later fails at the PSP on a cancelled order sets `metadata.refund_attention`
+(`setRefundAttentionInTx`, audited) until a later refund of the order succeeds (`clearRefundAttentionInTx`, audited). An unknown outcome (outage,
 timeout) throws and commits nothing — never retried by us; a later cancel sends the SAME provider key, so the PSP
 returns the refund it already made. A refund the PSP only accepted stays `pending` (the order is cancelled;
 `refund.issued` and `refunded` follow the webhook, window 7's rule). No refunder registered → 503, nothing changes

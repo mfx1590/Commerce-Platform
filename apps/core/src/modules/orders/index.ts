@@ -4,6 +4,8 @@
 export {
   cancelOrder,
   cancelOrderInTx,
+  clearRefundAttentionInTx,
+  setRefundAttentionInTx,
   confirmOnAuthorizationInTx,
   confirmOrder,
   confirmOrderInTx,
@@ -37,8 +39,13 @@ export {
 export { cancelLine, decreaseLineQuantity, orderLineEditsEnabled } from './edits';
 export type { OrderEdit } from './edits';
 // #905: cancel refunds a captured payment through this seam (registered by src/wiring.ts with window 7's refund)
-export { currentCancelRefunder, setCancelRefunder } from './cancel-refund';
-export type { CancelRefunder, CancelRefundOutcome, CancelRefundRequest } from './cancel-refund';
+export { CancelRefundRefused, currentCancelRefunder, setCancelRefunder } from './cancel-refund';
+export type {
+  CancelRefunder,
+  CancelRefundOutcome,
+  CancelRefundRequest,
+  FailedCancelRefund,
+} from './cancel-refund';
 export {
   getAdminOrder,
   getStoreOrder,

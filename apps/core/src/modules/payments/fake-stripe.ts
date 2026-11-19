@@ -311,7 +311,11 @@ export class FakeStripe implements StripeApi {
   }
 
   /** Test seam (#918): a refund made at Stripe by someone else (the Dashboard), with no idempotency key of ours. */
-  refundOutsideUs(intentId: string, amount: number, metadata: Record<string, string> = {}): StripeRefund {
+  refundOutsideUs(
+    intentId: string,
+    amount: number,
+    metadata: Record<string, string> = {},
+  ): StripeRefund {
     const intent = this.intent(intentId);
     const refund: StripeRefund = {
       id: `re_${randomUUID().replace(/-/g, '').slice(0, 24)}`,

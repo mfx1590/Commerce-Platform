@@ -26,7 +26,7 @@ import {
   type StripeRequestOptions,
 } from '../src/modules/payments';
 import { mountCoreMiddleware } from '../src/server';
-import { paymentsCancelRefunder } from '../src/wiring';
+import { cancelRefundKey, paymentsCancelRefunder } from '../src/wiring';
 import { specValidator } from './helpers/openapi';
 
 const ORG = SEED_IDS.organization;
@@ -216,7 +216,7 @@ describe('cancelOrder on a captured payment refunds what is still captured (#905
         amount_minor: o.captured,
         reason: 'cancellation',
         status: 'succeeded',
-        idempotency_key: `${A}:${o.paymentKey}:cancel-refund`,
+        idempotency_key: `${A}:${cancelRefundKey(o.paymentKey, 1)}`, // attempt 1 (#918)
       }),
     ]);
     expect(s.refundIssued).toEqual([
@@ -298,7 +298,7 @@ describe('cancelOrder on a captured payment refunds what is still captured (#905
     expect(s.refundIssued.map((p) => p.amount_minor)).toEqual([part, o.captured - part]);
   });
 
-  it('a provider refusal leaves the order uncancelled: 402, no refund row or event, reservations held; a later cancel succeeds', async () => {
+  it('a provider refusal leaves the order uncancelled (402) and RECORDS the attempt; the next cancel is attempt 2 — a new key, a new request (#918)', async () => {
     const o = await capturedOrder(A, 'EUR', NL);
     const before = await state(o.orderId);
     fake.failNextRefund = 'charge_disputed';
@@ -307,16 +307,47 @@ describe('cancelOrder on a captured payment refunds what is still captured (#905
     spec.assertSchema('Error', res.body);
     expect(res.body.code).toBe('payment_failed');
     const after = await state(o.orderId);
-    expect(after).toEqual(before); // status, payment_status, refunds, every event, reservations
-    expect(after.topics).not.toContain('refund.failed');
-    // FakeStripe does NOT record a failed request under its key, so the next attempt can succeed here. Real Stripe
-    // replays the saved refusal for ~24 h on the same key (`<payment key>:cancel-refund`): the cancel keeps failing for
-    // that day. Today's workaround: Admin `createRefund` with a fresh Idempotency-Key, then cancel. Real fix: #918.
-    // What this asserts is only that the refusal left the order untouched and a later success refunds once.
+    // the order is untouched (status, payment, reservations); the refused attempt is recorded on its own
+    expect(after).toMatchObject({
+      status: before.status,
+      payment_status: before.payment_status,
+      reserved: before.reserved,
+      refundIssued: [],
+    });
+    expect(after.refunds).toEqual([
+      expect.objectContaining({
+        reason: 'cancellation',
+        status: 'failed',
+        amount_minor: o.captured,
+        idempotency_key: `${A}:${cancelRefundKey(o.paymentKey, 1)}`,
+      }),
+    ]);
+    expect(after.topics.filter((t) => t === 'refund.failed')).toHaveLength(1);
+    expect(after.topics).not.toContain('order.cancelled');
+    // Real Stripe replays a saved refusal on the SAME key for ~24 h — the retry must not use it: attempt 2
     const retry = await storeAdminApi.post(cancelPath(A, o.orderId), {
       reason: 'customer request',
     });
     expect(retry.status).toBe(200);
+    const keys = fake.calls.filter((c) => c.method === 'createRefund').map((c) => c.idempotencyKey);
+    expect(keys).toEqual([
+      `refund_${A}:${cancelRefundKey(o.paymentKey, 1)}`,
+      `refund_${A}:${cancelRefundKey(o.paymentKey, 2)}`,
+    ]);
+    const s = await state(o.orderId);
+    expect(s.refunds.map((r) => r.status)).toEqual(['failed', 'succeeded']);
+    expect(s.refundIssued).toHaveLength(1);
+    expect(s).toMatchObject({ status: 'cancelled', payment_status: 'refunded' });
+  });
+
+  it('two concurrent cancels: the order row lock serializes them — one refund at the PSP, both answer 200', async () => {
+    const o = await capturedOrder(A, 'EUR', NL);
+    const [r1, r2] = await Promise.all([
+      storeAdminApi.post(cancelPath(A, o.orderId), { reason: 'first' }),
+      storeAdminApi.post(cancelPath(A, o.orderId), { reason: 'second' }),
+    ]);
+    expect([r1.status, r2.status]).toEqual([200, 200]);
+    expect(fake.refunds.size).toBe(1);
     expect((await state(o.orderId)).refundIssued).toHaveLength(1);
   });
 

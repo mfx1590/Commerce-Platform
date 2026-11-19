@@ -18,7 +18,7 @@ import { paymentProvider } from '../../lib/payment-seam';
 import { releaseForOrder } from '../inventory';
 import { loadOrder, loadOrderLines, renderAdminOrder } from './read-model';
 import { assertNotHeldByFraud, isHeldByFraud } from './fraud-flag';
-import { currentCancelRefunder } from './cancel-refund';
+import { CancelRefundRefused, currentCancelRefunder } from './cancel-refund';
 import { allowed } from './transitions';
 import type {
   AdminOrder,
@@ -581,10 +581,20 @@ export async function cancelOrder(
   orderId: string,
   input: { reason: string; actor: Actor },
 ): Promise<AdminOrder> {
-  return client.transaction(async (tx) => {
-    await cancelOrderInTx(tx, orderId, input);
-    return renderAdminOrder(tx, orderId);
-  });
+  try {
+    return await client.transaction(async (tx) => {
+      await cancelOrderInTx(tx, orderId, input);
+      return renderAdminOrder(tx, orderId);
+    });
+  } catch (err) {
+    // #918: the cancel rolled back; the provider's refusal is recorded in its OWN transaction (a failed refund row +
+    // `refund.failed`), so the next cancel derives a NEW provider key instead of replaying the saved refusal. An
+    // unknown outcome (anything but this) records nothing: the next cancel reuses its key.
+    if (err instanceof CancelRefundRefused) {
+      await currentCancelRefunder()?.recordFailedAttempt(client, err.attempt);
+    }
+    throw err;
+  }
 }
 
 /** `cancelOrder` on the caller's transaction (window 8, #191). */
@@ -640,12 +650,13 @@ export async function cancelOrderInTx(
       p.id,
     ]);
   }
+  // #905: a captured payment is refunded for what is still captured, in THIS transaction — BEFORE the reservations
+  // are released (#918, as the void above): the provider call happens while this transaction holds as few locks as
+  // possible (the order row, not every pool row of the order's stock). If anything later throws, the rollback leaves
+  // no row; a retry derives the same attempt key (nothing was recorded), so the PSP returns the refund it made.
+  const refundIds = await refundCapturedForCancel(tx, o, input.actor);
   // Reservations are released here, through the orders module's own cancel — never from window 8's side.
   await releaseForOrder(tx, orderId);
-  // #905: a captured payment is refunded for what is still captured, in THIS transaction. After the release (the
-  // last step that can fail on our side before the transitions), so a provider call is not followed by work that can
-  // still throw for a reason of ours; if anything later did, the rollback leaves no row and a retry reuses the key.
-  const refundIds = await refundCapturedForCancel(tx, o, input.actor);
   // #466: an authorisation the cancel released reads `voided` — as its OWN transition, so `order.updated`
   // (changed_fields ['payment_status']) is written before `order.cancelled`; one combined transition would emit
   // only `order.cancelled`. awaiting / failed have nothing to release; a captured payment was refunded above, and
@@ -688,17 +699,85 @@ async function refundCapturedForCancel(
     const out = await refunder.refundRemaining(tx, {
       orderId: o.id,
       paymentId: p.id,
-      idempotencyKey: `${p.idempotency_key}:cancel-refund`,
+      paymentKey: p.idempotency_key,
       actor,
     });
     if (out.status === 'failed') {
-      throw new AppError('payment_failed', out.failureReason ?? 'payment could not be refunded', {
-        provider: p.provider,
-      });
+      throw new CancelRefundRefused(
+        {
+          orderId: o.id,
+          paymentId: p.id,
+          amountMinor: out.amountMinor,
+          idempotencyKey: out.idempotencyKey ?? '',
+          failureReason: out.failureReason ?? 'payment could not be refunded',
+          actor,
+        },
+        p.provider,
+      );
     }
     if (out.refundId) refundIds.push(out.refundId);
   }
   return refundIds;
+}
+
+/**
+ * #918: a refund the PSP accepted, then FAILED, on an order that is already cancelled — the order keeps the customer's
+ * money and nobody would notice. `order.metadata.refund_attention = { refund_id, reason, at }`, one `order.updated`
+ * (`changed_fields: ['metadata']`) and one audit row (`order.refund_attention`), on the caller's transaction.
+ * Idempotent per refund. Window 7's webhook calls it.
+ */
+export async function setRefundAttentionInTx(
+  tx: Queryable,
+  orderId: string,
+  attention: { refundId: string; reason: string },
+  actor: Actor,
+): Promise<void> {
+  const o = await loadOrder(tx, orderId, true);
+  const current = o.metadata.refund_attention as { refund_id?: string } | undefined;
+  if (current?.refund_id === attention.refundId) return;
+  const flag = {
+    refund_id: attention.refundId,
+    reason: attention.reason,
+    at: new Date().toISOString(),
+  };
+  await mergeOrderMetadataIn(tx, orderId, { refund_attention: flag });
+  await transition(tx, orderId, {
+    changed_fields: ['metadata'],
+    actor,
+    audit: { action: 'order.refund_attention', after: { refund_attention: flag } },
+  });
+}
+
+/**
+ * #918: clears `refund_attention` when a later refund of the order succeeds (else the flag lies) — one
+ * `order.updated` + one audit row (`order.refund_attention_cleared`, the refund that settled it). A no-op without
+ * a flag. Window 7 calls it wherever a refund becomes `succeeded`.
+ */
+export async function clearRefundAttentionInTx(
+  tx: Queryable,
+  orderId: string,
+  settledBy: { refundId: string },
+  actor: Actor,
+): Promise<void> {
+  const o = await loadOrder(tx, orderId, true);
+  const current = o.metadata.refund_attention as { refund_id?: string } | undefined;
+  if (!current) return;
+  const { refund_attention: _cleared, ...rest } = o.metadata;
+  await tx.query(`UPDATE "order" SET metadata = $2::jsonb, updated_at = now() WHERE id = $1`, [
+    orderId,
+    JSON.stringify(rest),
+  ]);
+  await transition(tx, orderId, {
+    changed_fields: ['metadata'],
+    actor,
+    audit: {
+      action: 'order.refund_attention_cleared',
+      after: {
+        failed_refund_id: current.refund_id ?? null,
+        settled_by_refund_id: settledBy.refundId,
+      },
+    },
+  });
 }
 
 export type { PaymentStatus };

@@ -16,7 +16,8 @@
     "clean": "rm -rf .medusa dist .turbo",
     "lint": "eslint . --max-warnings 0",
     "bootstrap": "tsx scripts/bootstrap.ts",
-    "catalog:republish": "tsx scripts/catalog-republish.ts"
+    "catalog:republish": "tsx scripts/catalog-republish.ts",
+    "refunds:reconcile": "tsx scripts/refunds-reconcile.ts"
   },
   "dependencies": {
     "@clickhouse/client": "1.25.0",
