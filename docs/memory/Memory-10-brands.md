@@ -413,8 +413,9 @@ bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
 ## In progress — #921, the order's own history (2026-11-19)
 
-Branch `integration/admin-order-history` from main `74d8c474`; #896 merged 11-17 and **#920**
-(order audit rows, the REQUEST this screen filed as #887) merged 11-19. PR number in the push below.
+**PR #933**, branch `integration/admin-order-history` from main `74d8c474` (code commit
+`db236ec7`; head = this memory commit). #896 merged 11-17 and **#920** (order audit rows, the
+REQUEST this screen filed as #887) merged 11-19.
 Admin suite **1409 / 80 files**; lint, format:check, typecheck 30/30, ownership all green.
 
 **Read the four writers, not the issue — and this time it mattered twice.** The issue and its
