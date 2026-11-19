@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.28
+  version: 0.4.29
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -232,7 +232,10 @@ paths:
         countries (`tax_rates`) — the market countries are `default_country` plus every country of the store's
         active shipping options; a country is covered by any row for it (any region, any category) — and an
         active shipping option in the store's `default_currency` for each market country (`shipping_options`;
-        without one a cart to that country cannot check out). Missing ones are listed in the 409's
+        without one a cart to that country cannot check out) — and at least one payment method the checkout
+        can offer (`payment_method`: `card` when the store has its Stripe key, `invoice` when
+        `settings.payment.invoice_allowed`; the same rule as the Store API's `payment.methods`). Missing ones
+        are listed in the 409's
         `details.missing`; with `tax_rates`, `details.missing_tax_countries` lists the uncovered countries, and
         with `shipping_options`, `details.missing_shipping_countries` lists the countries without a sellable
         option, both sorted. An active store answers 200 unchanged; an archived store answers 409 with
@@ -250,6 +253,41 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/ActivationBlocked' }
+
+  /admin/stores/{storeId}/readiness:
+    parameters:
+      - { $ref: '#/components/parameters/StoreId' }
+    get:
+      tags: [registry]
+      operationId: getStoreReadiness
+      summary: What activation would refuse now, and whether the store can sell
+      description: >-
+        The same check `activateStore` runs, without changing anything: `missing` is exactly the list its
+        409 would carry (with `missing_tax_countries` / `missing_shipping_countries`). `payment_methods` is
+        what the checkout can offer (the Store API rule). `purchasable_products` counts published products
+        with at least one variant priced in the store's `default_currency` (its default price list) and
+        available stock (on hand minus reserved, any warehouse); `warnings` names what does not block
+        activation but stops selling (`no_purchasable_product`). An active store answers the same shape.
+      x-permission: { relation: viewer, object: 'store:{storeId}' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StoreReadiness' }
+              example:
+                {
+                  status: draft,
+                  missing: [payment_method],
+                  missing_tax_countries: [],
+                  missing_shipping_countries: [],
+                  payment_methods: [],
+                  purchasable_products: 0,
+                  warnings: [no_purchasable_product],
+                }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /admin/stores/{storeId}/domains:
     parameters:
@@ -5394,7 +5432,8 @@ components:
               message: store is not ready to activate,
               details:
                 {
-                  missing: [primary_domain, publishable_key, tax_rates, shipping_options],
+                  missing:
+                    [primary_domain, publishable_key, tax_rates, shipping_options, payment_method],
                   missing_tax_countries: [BE, DE],
                   missing_shipping_countries: [JP],
                 },
@@ -5580,6 +5619,27 @@ components:
         settings: { type: object, additionalProperties: true }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    StoreReadiness:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          status,
+          missing,
+          missing_tax_countries,
+          missing_shipping_countries,
+          payment_methods,
+          purchasable_products,
+          warnings,
+        ]
+      properties:
+        status: { type: string, enum: [draft, active, paused, archived] }
+        missing: { type: array, items: { type: string } }
+        missing_tax_countries: { type: array, items: { type: string } }
+        missing_shipping_countries: { type: array, items: { type: string } }
+        payment_methods: { type: array, items: { type: string, enum: [card, invoice] } }
+        purchasable_products: { type: integer, minimum: 0 }
+        warnings: { type: array, items: { type: string, enum: [no_purchasable_product] } }
     Domain:
       type: object
       required: [id, hostname, is_primary, verified_at]

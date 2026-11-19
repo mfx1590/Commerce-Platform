@@ -2,27 +2,49 @@
 
 ## Unreleased
 
-### Added — #851 (part 2): HQ › Finance payouts, payout reconciliation, parked events and ERP sync, e2e
+### Added — #870 wave 1 item 2: bulk capture on Orders (window 3; money, Fable review)
 
-- Payouts tab (`listPayouts`, status and provider filters, paging) and a payout page (`getPayout`): line verdicts in
-  words, amount, fee and net in the payout's currency, the PSP − ledger difference.
-- Parked events & ERP tab (`getErpSyncStatus`, `listParkedEvents`): mapping gaps as an alert; parked events link
-  to their order.
-- All seven accounting operations are behind the finance gate. Only the chosen tab's operations are called.
-- Merged with #853's review fixes: the payouts, ops and payout-page failures render `AccountingStatePanel` too.
-  `finance-page` covers the payouts tab (only `listPayouts` called, currency never sent), the ops tab and the payout
-  page (no request without a valid entity; not configured named).
-- `e2e/finance.spec.ts` (#859 review: it had skipped everywhere):
-  - Both runs use Prism's accounting mock. Core mode starts `prism mock openapi/accounting.yaml` on :4013 itself.
-  - The store-admin refusal runs in both runs; the finance journey runs in core mode, asserting the contract's
-    examples.
-  - A `FINANCE-E2E` line is printed on pass and on skip. The real-service waiver is on #851 (REQUEST #852).
-- A discrepant payout says plainly that **why it is discrepant is not available yet**, and that no reason shown
-  doesn't mean there is none. The accounting service doesn't report payout-level reasons yet (payout total ≠ Σ net,
-  ledger payments or refunds the payout doesn't carry): CONTRACT CHANGE #865. Merged with main 2026-11-18.
+- **Capture…** in the orders bulk bar, for principals with `capturePayment` (store_admin on the store; checked server-side once per action, then per row with the pure rule, as in #904).
+  - **Ticked orders only, at most 100.** "All matching" is never offered for money.
+  - **Preview first** (reads only): what each order would capture, why any will not, and the **totals per currency**. Totals are minor units formatted with each currency's own decimals (JPY has none) in the store's locale, and never summed across currencies.
+  - Then the **capturable count typed**, then exactly the previewed amounts are sent.
+- **Amount** = the order's **current total, capped at its authorisation**. An order edited down captures what it now costs. The amount is **always sent as `amount_minor`**, so what was previewed and confirmed is exactly what is asked for. There is no amount override.
+- **Not captured here, and said per row:**
+  - already captured;
+  - no authorised payment;
+  - two authorised payments;
+  - a payment in another currency than the order;
+  - a zero total;
+  - **an amount that changed since the preview**: each row is re-read and re-planned just before its call.
+- **Per-row results from the API's answer:**
+  - "Captured ¥1,200." (or the partial wording);
+  - a 409 in the API's words, e.g. "payment is already captured";
+  - a 422 "Not capturable: …" (manual provider);
+  - **outcome unknown** (status 0 / 5xx), **never retried**;
+  - a run that throws is "outcome unknown — reload and check".
+
+  The report downloads as CSV.
+
+- **The core's capture is idempotent** (`apps/core/src/modules/payments/capture.ts`):
+  - the payment row is locked `FOR UPDATE`;
+  - a second capture of a captured payment is a replay that the route answers **409 "payment is already captured"**, with **no Stripe call and nothing written**;
+  - Stripe's idempotency key is `capture_<payment_id>`, so a retry after an outage cannot capture twice, and one with a different amount is refused (409);
+  - a fraud hold is a 409; the manual provider is a 422.
+
+  The admin still never retries an unknown outcome.
+
+- `BulkReportPanel` and `OutcomeUnknownPanel` were extracted from `BulkAction` so capture reports exactly like the other bulk actions.
 - Tests:
-  - `finance-payouts-screens` (JPY payout and lines, verdicts, ERP gaps, parked links; 7).
-  - `finance` grew to 22: every operation gated, the payouts query never carries a currency.
+  - `test/bulk-capture.test.ts` (20): the plan, totals, both actions, refusal before any read, the cap, invalid confirmed amounts, full vs partial body, the changed-amount refusal, already captured, 409 / 422 wording, unknown never retried, and the principal loaded once.
+  - `test/bulk-capture-ui.test.tsx` (8): ticked only, the cap, the preview, the typed count, exact amounts sent, the report, nothing capturable, a lost run, and a refused preview.
+  - **Mutation-checked:** removing the 100 cap, summing totals across currencies, or retrying an unknown outcome each fails the suite.
+- #913 review (Fable):
+  - **The preview is for exactly the ticked orders.** Tick or untick after previewing and it is dropped ("The selection changed since the preview. Nothing was captured — preview again"); the send also keeps only rows still ticked.
+  - **Only a Stripe authorisation is captured.** Any other provider is "nothing to capture here" and is left out of the totals.
+  - **A throw inside any bulk row is `unknown`, not `failed`** (`runBulk`), because it may come after the write went through.
+  - **`amount_minor` is always sent**, the full amount included.
+  - The results CSV gains **`amount_minor`, `currency`, `payment_id`** for every planned capture row (`BulkRowResult.extra`).
+  - Tests: `bulk-capture` 23, `bulk-capture-ui` 9. Mutation-checked: dropping the selection guard, the provider check, the throw → unknown rule or the always-amount rule each fails the suite.
 
 ### Added — #870 wave 1 item 2 (part 1): bulk actions, page size and filters on Orders and Catalog (window 3)
 
@@ -205,6 +227,21 @@
   `/onboarding/{storeId}` until the readiness panel loads. The key still never survives "Done".
 - Test: `onboarding-screens` (the 201 case asserts no Review step and the status after Done; it fails
   without the fix).
+
+### Added — #830 / #839: readiness before Activate, a payment step and "can this store sell?" (Admin API 0.4.29)
+
+- `getStoreReadiness` and the generated `StoreReadiness` (contracts 0.4.36). The zod parse is pinned to the type with
+  `satisfies`, and a warning the contract doesn't declare reads as a malformed answer.
+- The readiness page reads `getStoreReadiness`: a draft store's panel lists what is missing before Activate
+  is pressed, with the tax/shipping countries pre-filled.
+- `payment_method` gets a label, a link to Settings › Payment and an inline "Turn on pay on invoice"
+  (store_admin; the relation is named below it).
+- `CanSellBox`: payment methods, purchasable products and warnings (`no_purchasable_product` → the catalogue).
+- The body is parsed with zod: another shape is a 502 failure, never a wrong "ready".
+- `e2e/hq-onboarding.spec.ts`: the third Activate is refused for the payment method; pay on invoice is
+  turned on from the panel and the fourth Activate goes through; can-sell shows the no-product warning.
+  Runs only once the core half of #839 is in.
+- Tests: `readiness` (parse, can-sell, wrapper, 11), `onboarding-screens` (+9).
 
 ### Added — #825: Store › Settings › Payment ("Pay on invoice")
 
@@ -1146,3 +1183,25 @@
   boundary that verifies access tokens.
 - `.next/` and `next-env.d.ts` are ignored locally; the root ESLint and Prettier ignore lists do not
   cover Next build output yet (`REQUEST:` issue filed — those files belong to the main window).
+
+### Added — #851 (part 2): HQ › Finance payouts, payout reconciliation, parked events and ERP sync, e2e
+
+- Payouts tab (`listPayouts`, status and provider filters, paging) and a payout page (`getPayout`): line verdicts in
+  words, amount, fee and net in the payout's currency, the PSP − ledger difference.
+- Parked events & ERP tab (`getErpSyncStatus`, `listParkedEvents`): mapping gaps as an alert; parked events link
+  to their order.
+- All seven accounting operations are behind the finance gate. Only the chosen tab's operations are called.
+- Merged with #853's review fixes: the payouts, ops and payout-page failures render `AccountingStatePanel` too.
+  `finance-page` covers the payouts tab (only `listPayouts` called, currency never sent), the ops tab and the payout
+  page (no request without a valid entity; not configured named).
+- `e2e/finance.spec.ts` (#859 review: it had skipped everywhere):
+  - Both runs use Prism's accounting mock. Core mode starts `prism mock openapi/accounting.yaml` on :4013 itself.
+  - The store-admin refusal runs in both runs; the finance journey runs in core mode, asserting the contract's
+    examples.
+  - A `FINANCE-E2E` line is printed on pass and on skip. The real-service waiver is on #851 (REQUEST #852).
+- A discrepant payout says plainly that **why it is discrepant is not available yet**, and that no reason shown
+  doesn't mean there is none. The accounting service doesn't report payout-level reasons yet (payout total ≠ Σ net,
+  ledger payments or refunds the payout doesn't carry): CONTRACT CHANGE #865. Merged with main 2026-11-18 and 2026-11-19.
+- Tests:
+  - `finance-payouts-screens` (JPY payout and lines, verdicts, ERP gaps, parked links; 7).
+  - `finance` grew to 22: every operation gated, the payouts query never carries a currency.

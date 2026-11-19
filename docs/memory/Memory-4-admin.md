@@ -557,6 +557,16 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#839 admin half: ONE commit on `integration/readiness-payment-admin`, cut from 4ecc9354** (contracts
+  f4b538cf + window 1's core). Built in a temp worktree (scratchpad/wt-839, removed after) so the demo core's
+  tsx watch never saw the integration core. Generated StoreReadiness + getStoreReadiness; parse pinned with
+  `satisfies`; warnings = contract enum. hq-onboarding.spec turns invoice on from the panel before the last
+  Activate (a PATCH with invoice_allowed + status active together is refused). The manager fast-forwards and
+  opens the one PR. Admin 66 files / 1131 tests; test:contract 133.
+- **#859, 2026-11-19 (Manager session fourteen, after the owner STOP/CONTINUE):** merged origin/main again
+  (#909/#913 etc.; picomatch audit fixed on main by #912). CHANGELOG + Memory-4 conflicts resolved main-first,
+  my entries LAST (the #851 part 2 CHANGELOG section moved to the end of Unreleased) so the next merge does not
+  collide. Hermetic gates only (Docker down). Follow-ups not now (manager).
 - **#859 (Finance part 2), 2026-11-18 (Manager session fourteen):** merged origin/main (f313c8c6; CHANGELOG +
   Memory-4 conflicts additive, both kept). Every 11-13 Fable BLOCK item answered in the PR body: (1) e2e runs in
   the advisory core job on Prism accounting :4013 (proof run 43457259820: two FINANCE-E2E passed lines, 38

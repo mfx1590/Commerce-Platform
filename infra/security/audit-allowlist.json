@@ -1,5 +1,14 @@
 {
   "$comment": "Allowed production-dependency advisories for infra/ci/audit-gate.mjs (#730). threshold: the lowest severity that fails. Every entry expires; an expired one fails the gate. Delete an entry when its bump lands (the gate reports it as stale).",
   "threshold": "high",
-  "entries": []
+  "entries": [
+    {
+      "id": "GHSA-fc5q-39xc-vjpf",
+      "package": "picomatch",
+      "owner": "window 5",
+      "expires": "2026-12-02",
+      "issue": "#911",
+      "reason": "No patched release exists (patched <0.0.0). Not request-reachable: in apps/core only @mikro-orm/core (via globby/fast-glob/micromatch) globs, and only its own config paths at bootstrap/cache clear; vite/chokidar/fdir/tinyglobby are build tooling; our code imports no glob matcher (#911)."
+    }
+  ]
 }

@@ -26,6 +26,11 @@ const exportLists = vi.hoisted(() => ({
   exportProductsCsvAction: vi.fn(),
 }));
 vi.mock('@/app/actions/export-lists', () => exportLists);
+const bulkCapture = vi.hoisted(() => ({
+  previewBulkCaptureAction: vi.fn(),
+  bulkCaptureAction: vi.fn(),
+}));
+vi.mock('@/app/actions/bulk-capture', () => bulkCapture);
 
 const { OrdersTable } = await import('@/app/(store)/[storeId]/orders/orders-table');
 

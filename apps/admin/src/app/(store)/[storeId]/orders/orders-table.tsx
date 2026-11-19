@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { BulkAction } from '@/components/table/bulk-action';
 import { DataTable } from '@/components/table/data-table';
 import { bulkCancelOrdersAction } from '@/app/actions/bulk-orders';
+import { BulkCapture } from './bulk-capture';
 import { exportOrdersCsvAction } from '@/app/actions/export-lists';
 import { ExportCsvButton } from '@/components/table/export-csv';
 import type { FilterNames } from '@/lib/table/bulk';
@@ -46,10 +47,13 @@ export function OrdersTable({
   emptyState,
   error,
   canCancel = false,
+  canCapture = false,
 }: {
   storeId: string;
   /** Offer bulk Cancel (store_admin). A convenience: the server decides, per row. */
   canCancel?: boolean;
+  /** Offer bulk Capture (store_admin): ticked orders only, at most 100. The server decides. */
+  canCapture?: boolean;
   /** The store's `default_locale`, for money and dates. */
   locale: string;
   /** `OrderRow` projections — the columns shown, without the `customer_id` the table never renders. */
@@ -161,26 +165,38 @@ export function OrdersTable({
         searchPlaceholder="Order number or email"
         emptyState={emptyState}
         error={error}
-        {...(canCancel
+        {...(canCancel || canCapture
           ? {
               bulkActions: (selection, { clear }) => (
-                <BulkAction
-                  label="Cancel…"
-                  noun={{ one: 'order', many: 'orders' }}
-                  selection={selection}
-                  filters={query.filters}
-                  filterNames={filterNames}
-                  run={(sent, reason) => bulkCancelOrdersAction(storeId, sent, reason)}
-                  onClose={clear}
-                  destructive
-                  reason={{
-                    label: 'Reason (sent with every order)',
-                    placeholder: 'e.g. out of stock',
-                  }}
-                  question={(_, words) =>
-                    `Cancel ${words}? An authorised payment is voided. A payment already CAPTURED is NOT refunded by cancelling: those orders are marked "refund needed" in the results — download them as your refund list. Orders already cancelled are left as they are; the API refuses orders it can no longer cancel.`
-                  }
-                />
+                <>
+                  {canCapture && (
+                    <BulkCapture
+                      storeId={storeId}
+                      locale={locale}
+                      selection={selection}
+                      onClose={clear}
+                    />
+                  )}
+                  {canCancel && (
+                    <BulkAction
+                      label="Cancel…"
+                      noun={{ one: 'order', many: 'orders' }}
+                      selection={selection}
+                      filters={query.filters}
+                      filterNames={filterNames}
+                      run={(sent, reason) => bulkCancelOrdersAction(storeId, sent, reason)}
+                      onClose={clear}
+                      destructive
+                      reason={{
+                        label: 'Reason (sent with every order)',
+                        placeholder: 'e.g. out of stock',
+                      }}
+                      question={(_, words) =>
+                        `Cancel ${words}? An authorised payment is voided. A payment already CAPTURED is NOT refunded by cancelling: those orders are marked "refund needed" in the results — download them as your refund list. Orders already cancelled are left as they are; the API refuses orders it can no longer cancel.`
+                      }
+                    />
+                  )}
+                </>
               ),
             }
           : {})}

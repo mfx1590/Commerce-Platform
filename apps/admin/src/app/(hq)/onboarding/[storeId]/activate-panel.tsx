@@ -6,8 +6,10 @@ import { useState, useTransition } from 'react';
 import { Button } from '@/components/ui/button';
 import { ActionRefusal } from '@/components/states/action-refusal';
 import { activateStoreAction } from '@/app/actions/stores';
+import { updatePaymentSettingsAction } from '@/app/actions/store-payment';
 import type { ActionRefusalInfo } from '@/lib/forms/action-result';
 import { MISSING_LABELS } from '@/lib/onboarding';
+import type { StoreReadiness } from '@/lib/readiness';
 import { TaxRateQuickCreate } from '@/components/tax-rates/tax-rate-forms';
 import { ShippingOptionQuickCreate } from '@/components/shipping-options/shipping-option-forms';
 
@@ -30,6 +32,11 @@ function Needs({ storeId, to }: { storeId: string; to: string }) {
  * an inline create, ticked off once created; Activate is then pressed again and the core re-checks.
  * The inline creates are offered only with `store_admin` on the store (`canCreateTax` /
  * `canCreateShipping`, decided on the server); their actions refuse below it regardless.
+ *
+ * #830/#839: the page passes `readiness` (`getStoreReadiness`, the same check without activating),
+ * so a draft store lists what is missing before Activate is pressed. Missing `payment_method` comes
+ * with an inline "Pay on invoice" (`updatePaymentSettingsAction`, store_admin; `canEditPayment`)
+ * and a link to Settings › Payment. Activate stays the gate: the core re-checks every time.
  */
 export function ActivatePanel({
   storeId,
@@ -37,18 +44,30 @@ export function ActivatePanel({
   defaultCurrency,
   canCreateTax,
   canCreateShipping,
+  canEditPayment = false,
+  updatedAt = '',
+  readiness = null,
 }: {
   storeId: string;
   status: string;
   defaultCurrency: string;
   canCreateTax: boolean;
   canCreateShipping: boolean;
+  canEditPayment?: boolean;
+  /** The store's `updated_at` as rendered: the stale check for the inline "Pay on invoice". */
+  updatedAt?: string;
+  readiness?: StoreReadiness | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [missing, setMissing] = useState<string[] | null>(null);
-  const [taxCountries, setTaxCountries] = useState<string[]>([]);
-  const [shippingCountries, setShippingCountries] = useState<string[]>([]);
+  // Seeded from the readiness read when it found something missing; null = not known yet.
+  const known = readiness !== null && readiness.missing.length > 0 ? readiness : null;
+  const [missing, setMissing] = useState<string[] | null>(known?.missing ?? null);
+  const [taxCountries, setTaxCountries] = useState<string[]>(known?.missing_tax_countries ?? []);
+  const [shippingCountries, setShippingCountries] = useState<string[]>(
+    known?.missing_shipping_countries ?? [],
+  );
+  const [paid, setPaid] = useState(false);
   const [covered, setCovered] = useState<ReadonlySet<string>>(new Set());
   const [shipped, setShipped] = useState<ReadonlyMap<string, string>>(new Map());
   const [failure, setFailure] = useState<{
@@ -157,6 +176,35 @@ export function ActivatePanel({
           )}
         </section>
       )}
+      {missing !== null && missing.includes('payment_method') && (
+        <section aria-label="Payment method to turn on" className="space-y-3">
+          <h3 className="text-sm font-semibold">Payment</h3>
+          <p className="text-muted text-sm">
+            Customers need a way to pay before the store can go live: card (when the store has its
+            payment provider key) or pay on invoice. Both are on the store&apos;s{' '}
+            <Link href={`/${storeId}/settings#payment`} className="text-accent hover:underline">
+              Settings › Payment
+            </Link>
+            .
+          </p>
+          {!canEditPayment ? (
+            <Needs storeId={storeId} to="Turning on pay on invoice" />
+          ) : paid ? (
+            <p role="status" className="text-success text-sm">
+              Pay on invoice is on — activate again.
+            </p>
+          ) : (
+            <PayOnInvoiceQuickEnable
+              storeId={storeId}
+              updatedAt={updatedAt}
+              onDone={() => {
+                setPaid(true);
+                router.refresh();
+              }}
+            />
+          )}
+        </section>
+      )}
       <ActionRefusal
         refusal={failure?.refusal}
         message={missing === null ? (failure?.message ?? null) : null}
@@ -177,12 +225,56 @@ export function ActivatePanel({
             setShippingCountries(result.missingShippingCountries ?? []);
             setCovered(new Set());
             setShipped(new Map());
+            setPaid(false);
             setFailure({ message: result.formError, refusal: result.refusal });
           });
         }}
       >
         {pending ? 'Activating…' : 'Activate'}
       </Button>
+    </div>
+  );
+}
+
+/** One button: turn on pay on invoice for this store (the Settings › Payment action, unchanged). */
+function PayOnInvoiceQuickEnable({
+  storeId,
+  updatedAt,
+  onDone,
+}: {
+  storeId: string;
+  updatedAt: string;
+  onDone: () => void;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [failure, setFailure] = useState<{
+    message: string | null;
+    refusal?: ActionRefusalInfo | undefined;
+  } | null>(null);
+  return (
+    <div className="space-y-2">
+      <Button
+        size="sm"
+        variant="secondary"
+        disabled={pending}
+        onClick={() => {
+          setFailure(null);
+          startTransition(async () => {
+            const result = await updatePaymentSettingsAction(storeId, {
+              invoice_allowed: true,
+              loaded_updated_at: updatedAt,
+            });
+            if (result.status === 'success') {
+              onDone();
+              return;
+            }
+            setFailure({ message: result.formError, refusal: result.refusal });
+          });
+        }}
+      >
+        {pending ? 'Turning on…' : 'Turn on pay on invoice'}
+      </Button>
+      <ActionRefusal refusal={failure?.refusal} message={failure?.message ?? null} />
     </div>
   );
 }
