@@ -564,6 +564,19 @@ describe.runIf(skip === null)('ClickHouse models on the generated month', () => 
       // counts, not identifiers (#603 new vs returning)
       'mart_customers_daily.new_customers',
       'mart_customers_daily.returning_customers',
+      // BI v2 wave 2 (#935 b): the same pseudonymous key, staged from customer.* events and joined to orders on
+      // store_id + key (customer_id and identity_id are NOT staged); counted inside the models, never returned
+      'stg_customer_v1.customer_key',
+      'dim_customer.customer_key',
+      'fct_order_sales.customer_key',
+      'fct_order_sales.customer_type',
+      // a group id (a class the merchant defines: "VIP", "Wholesale"), the customer's CURRENT group, not a person
+      'stg_customer_v1.customer_group_id',
+      'dim_customer.customer_group_id',
+      'fct_order.customer_group_id',
+      'fct_order_line.customer_group_id',
+      'fct_order_sales.customer_group_id',
+      'mart_sales_daily.customer_group_id',
     ]);
     expect(rows.filter((r) => !allowed.has(`${r.table}.${r.name}`))).toEqual([]);
   });

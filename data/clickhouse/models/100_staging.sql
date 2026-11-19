@@ -292,3 +292,146 @@ SELECT
     toUUID(JSONExtractString(payload, 'variant_id'))                       AS variant_id,
     toUUIDOrNull(JSONExtractString(payload, 'store_id'))                   AS mapped_store_id
 FROM (SELECT * FROM raw_events FINAL WHERE topic = 'stock_item.mapped' AND version = 1);
+
+-- ---- BI v2 wave 2 (#935): customers, marketing, operations -------------------------------------------------------
+-- stg_customer_v1: customer.created and customer.updated, for the customer's CURRENT group only (dim_customer).
+-- customer_id and identity_id (the cross-brand key) are NOT staged: orders and customers join on store_id + the
+-- pseudonymous email_hash (= fct_order.customer_key, #623); cross-brand identity is Phase B. The key never leaves the
+-- models (the system.columns test names it).
+CREATE OR REPLACE VIEW stg_customer_v1 AS
+SELECT
+    event_id,
+    organization_id,
+    assumeNotNull(store_id)                                                AS store_id,
+    occurred_at,
+    nullIf(JSONExtractString(payload, 'email_hash'), '')                   AS customer_key,
+    toUUIDOrNull(JSONExtract(payload, 'customer_group_id', 'Nullable(String)')) AS customer_group_id,
+    CAST(JSONExtractString(payload, 'status') AS LowCardinality(String))   AS status
+FROM (SELECT * FROM raw_events FINAL
+      WHERE topic IN ('customer.created', 'customer.updated') AND version = 1 AND store_id IS NOT NULL);
+
+-- stg_attribution_v1: one row per (order, touch). utm values are links customers clicked: lower-cased, trimmed and
+-- cut to 64 characters here; the service maps anything PII-shaped, and anything past a store's top 50, to `other`.
+-- referrer, landing_path, utm_term and utm_content are not staged.
+CREATE OR REPLACE VIEW stg_attribution_v1 AS
+SELECT
+    event_id,
+    organization_id,
+    assumeNotNull(store_id)                                                AS store_id,
+    occurred_at,
+    toUUID(JSONExtractString(payload, 'order_id'))                         AS order_id,
+    CAST(JSONExtractString(payload, 'touch') AS LowCardinality(String))    AS touch,
+    nullIf(left(lower(trimBoth(JSONExtractString(payload, 'utm_source'))), 64), '')   AS utm_source,
+    nullIf(left(lower(trimBoth(JSONExtractString(payload, 'utm_medium'))), 64), '')   AS utm_medium,
+    nullIf(left(lower(trimBoth(JSONExtractString(payload, 'utm_campaign'))), 64), '') AS utm_campaign,
+    toUUIDOrNull(JSONExtract(payload, 'campaign_id', 'Nullable(String)'))  AS campaign_id
+FROM (SELECT * FROM raw_events FINAL WHERE topic = 'attribution.recorded' AND version = 1 AND store_id IS NOT NULL);
+
+-- stg_campaign_v1: campaign.launched and campaign.ended. budget is the PLANNED budget (spend is #873), nullable.
+CREATE OR REPLACE VIEW stg_campaign_v1 AS
+SELECT
+    event_id,
+    organization_id,
+    assumeNotNull(store_id)                                                AS store_id,
+    occurred_at,
+    toUUID(JSONExtractString(payload, 'campaign_id'))                      AS campaign_id,
+    JSONExtractString(payload, 'name')                                     AS name,
+    CAST(JSONExtractString(payload, 'type') AS LowCardinality(String))     AS type,
+    JSONExtract(payload, 'budget', 'amount_minor', 'Nullable(Int64)')      AS budget_minor,
+    nullIf(JSONExtractString(payload, 'budget', 'currency'), '')           AS budget_currency,
+    parseDateTime64BestEffortOrNull(JSONExtractString(payload, 'starts_at'), 3, 'UTC') AS starts_at,
+    parseDateTime64BestEffortOrNull(JSONExtractString(payload, 'ends_at'), 3, 'UTC')   AS ends_at
+FROM (SELECT * FROM raw_events FINAL
+      WHERE topic IN ('campaign.launched', 'campaign.ended') AND version = 1 AND store_id IS NOT NULL);
+
+-- stg_cart_abandoned_v1: no customer column (customer_id and email_hash are not staged).
+CREATE OR REPLACE VIEW stg_cart_abandoned_v1 AS
+SELECT
+    event_id,
+    organization_id,
+    assumeNotNull(store_id)                                                AS store_id,
+    occurred_at,
+    toUUID(JSONExtractString(payload, 'cart_id'))                          AS cart_id,
+    JSONExtractString(payload, 'currency')                                 AS currency,
+    JSONExtractInt(payload, 'total_minor')                                 AS total_minor,
+    toUInt32(JSONExtractInt(payload, 'line_item_count'))                   AS line_item_count,
+    parseDateTime64BestEffort(JSONExtractString(payload, 'abandoned_at'), 3, 'UTC') AS abandoned_at
+FROM (SELECT * FROM raw_events FINAL WHERE topic = 'cart.abandoned' AND version = 1 AND store_id IS NOT NULL);
+
+-- shipment.created carries destination_country (only there); shipment.delivered only shipment_id, order_id, delivered_at.
+CREATE OR REPLACE VIEW stg_shipment_created_v1 AS
+SELECT
+    event_id,
+    organization_id,
+    assumeNotNull(store_id)                                                AS store_id,
+    occurred_at,
+    toUUID(JSONExtractString(payload, 'shipment_id'))                      AS shipment_id,
+    toUUID(JSONExtractString(payload, 'order_id'))                         AS order_id,
+    toUUID(JSONExtractString(payload, 'warehouse_id'))                     AS warehouse_id,
+    CAST(lower(JSONExtractString(payload, 'carrier')) AS LowCardinality(String)) AS carrier,
+    JSONExtractString(payload, 'destination_country')                      AS destination_country
+FROM (SELECT * FROM raw_events FINAL WHERE topic = 'shipment.created' AND version = 1 AND store_id IS NOT NULL);
+
+CREATE OR REPLACE VIEW stg_shipment_delivered_v1 AS
+SELECT
+    event_id,
+    organization_id,
+    assumeNotNull(store_id)                                                AS store_id,
+    occurred_at,
+    toUUID(JSONExtractString(payload, 'shipment_id'))                      AS shipment_id,
+    toUUID(JSONExtractString(payload, 'order_id'))                         AS order_id,
+    parseDateTime64BestEffort(JSONExtractString(payload, 'delivered_at'), 3, 'UTC') AS delivered_at
+FROM (SELECT * FROM raw_events FINAL WHERE topic = 'shipment.delivered' AND version = 1 AND store_id IS NOT NULL);
+
+CREATE OR REPLACE VIEW stg_payment_authorized_v1 AS
+SELECT
+    event_id,
+    organization_id,
+    assumeNotNull(store_id)                                                AS store_id,
+    occurred_at,
+    toUUID(JSONExtractString(payload, 'payment_id'))                       AS payment_id,
+    toUUID(JSONExtractString(payload, 'order_id'))                         AS order_id,
+    JSONExtractString(payload, 'provider')                                 AS provider,
+    parseDateTime64BestEffort(JSONExtractString(payload, 'authorized_at'), 3, 'UTC') AS authorized_at
+FROM (SELECT * FROM raw_events FINAL WHERE topic = 'payment.authorized' AND version = 1 AND store_id IS NOT NULL);
+
+-- stg_payment_failure_v1: payment.failed with a normalised failure_code. failure_reason is unconstrained text: only a
+-- code-shaped value (lower-cased, ^[a-z0-9_]{1,40}$) is kept, anything else (free text, NULL) is `other`. The raw
+-- reason is not staged. (stg_payment_failed_v1 stays as it is: it is #601's.)
+CREATE OR REPLACE VIEW stg_payment_failure_v1 AS
+SELECT
+    event_id,
+    organization_id,
+    assumeNotNull(store_id)                                                AS store_id,
+    occurred_at,
+    toUUID(JSONExtractString(payload, 'payment_id'))                       AS payment_id,
+    toUUID(JSONExtractString(payload, 'order_id'))                         AS order_id,
+    JSONExtractString(payload, 'provider')                                 AS provider,
+    CAST(if(match(lower(JSONExtractString(payload, 'failure_reason')), '^[a-z0-9_]{1,40}$'),
+            lower(JSONExtractString(payload, 'failure_reason')), 'other') AS LowCardinality(String)) AS failure_code,
+    parseDateTime64BestEffort(JSONExtractString(payload, 'failed_at'), 3, 'UTC') AS failed_at
+FROM (SELECT * FROM raw_events FINAL WHERE topic = 'payment.failed' AND version = 1 AND store_id IS NOT NULL);
+
+CREATE OR REPLACE VIEW stg_refund_failed_v1 AS
+SELECT
+    event_id,
+    organization_id,
+    assumeNotNull(store_id)                                                AS store_id,
+    occurred_at,
+    toUUID(JSONExtractString(payload, 'refund_id'))                        AS refund_id,
+    toUUID(JSONExtractString(payload, 'order_id'))                         AS order_id,
+    JSONExtractString(payload, 'currency')                                 AS currency,
+    parseDateTime64BestEffort(JSONExtractString(payload, 'failed_at'), 3, 'UTC') AS failed_at
+FROM (SELECT * FROM raw_events FINAL WHERE topic = 'refund.failed' AND version = 1 AND store_id IS NOT NULL);
+
+-- stg_return_requested_v1: the free-text reason is NOT staged (#937 brings a reason_code).
+CREATE OR REPLACE VIEW stg_return_requested_v1 AS
+SELECT
+    event_id,
+    organization_id,
+    assumeNotNull(store_id)                                                AS store_id,
+    occurred_at,
+    toUUID(JSONExtractString(payload, 'return_id'))                        AS return_id,
+    toUUID(JSONExtractString(payload, 'order_id'))                         AS order_id,
+    parseDateTime64BestEffort(JSONExtractString(payload, 'requested_at'), 3, 'UTC') AS requested_at
+FROM (SELECT * FROM raw_events FINAL WHERE topic = 'return.requested' AND version = 1 AND store_id IS NOT NULL);
