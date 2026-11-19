@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+### Added — #870 wave 1 item 2: bulk capture on Orders (window 3; money, Fable review)
+
+- **Capture…** in the orders bulk bar, for principals with `capturePayment` (store_admin on the store; checked server-side once per action, then per row with the pure rule, as in #904).
+  - **Ticked orders only, at most 100.** "All matching" is never offered for money.
+  - **Preview first** (reads only): what each order would capture, why any will not, and the **totals per currency**. Totals are minor units formatted with each currency's own decimals (JPY has none) in the store's locale, and never summed across currencies.
+  - Then the **capturable count typed**, then exactly the previewed amounts are sent.
+- **Amount** = the order's **current total, capped at its authorisation**. An order edited down captures what it now costs. The amount is **always sent as `amount_minor`**, so what was previewed and confirmed is exactly what is asked for. There is no amount override.
+- **Not captured here, and said per row:**
+  - already captured;
+  - no authorised payment;
+  - two authorised payments;
+  - a payment in another currency than the order;
+  - a zero total;
+  - **an amount that changed since the preview**: each row is re-read and re-planned just before its call.
+- **Per-row results from the API's answer:**
+  - "Captured ¥1,200." (or the partial wording);
+  - a 409 in the API's words, e.g. "payment is already captured";
+  - a 422 "Not capturable: …" (manual provider);
+  - **outcome unknown** (status 0 / 5xx), **never retried**;
+  - a run that throws is "outcome unknown — reload and check".
+
+  The report downloads as CSV.
+
+- **The core's capture is idempotent** (`apps/core/src/modules/payments/capture.ts`):
+  - the payment row is locked `FOR UPDATE`;
+  - a second capture of a captured payment is a replay that the route answers **409 "payment is already captured"**, with **no Stripe call and nothing written**;
+  - Stripe's idempotency key is `capture_<payment_id>`, so a retry after an outage cannot capture twice, and one with a different amount is refused (409);
+  - a fraud hold is a 409; the manual provider is a 422.
+
+  The admin still never retries an unknown outcome.
+
+- `BulkReportPanel` and `OutcomeUnknownPanel` were extracted from `BulkAction` so capture reports exactly like the other bulk actions.
+- Tests:
+  - `test/bulk-capture.test.ts` (20): the plan, totals, both actions, refusal before any read, the cap, invalid confirmed amounts, full vs partial body, the changed-amount refusal, already captured, 409 / 422 wording, unknown never retried, and the principal loaded once.
+  - `test/bulk-capture-ui.test.tsx` (8): ticked only, the cap, the preview, the typed count, exact amounts sent, the report, nothing capturable, a lost run, and a refused preview.
+  - **Mutation-checked:** removing the 100 cap, summing totals across currencies, or retrying an unknown outcome each fails the suite.
+- #913 review (Fable):
+  - **The preview is for exactly the ticked orders.** Tick or untick after previewing and it is dropped ("The selection changed since the preview. Nothing was captured — preview again"); the send also keeps only rows still ticked.
+  - **Only a Stripe authorisation is captured.** Any other provider is "nothing to capture here" and is left out of the totals.
+  - **A throw inside any bulk row is `unknown`, not `failed`** (`runBulk`), because it may come after the write went through.
+  - **`amount_minor` is always sent**, the full amount included.
+  - The results CSV gains **`amount_minor`, `currency`, `payment_id`** for every planned capture row (`BulkRowResult.extra`).
+  - Tests: `bulk-capture` 23, `bulk-capture-ui` 9. Mutation-checked: dropping the selection guard, the provider check, the throw → unknown rule or the always-amount rule each fails the suite.
+
 ### Added — #870 wave 1 item 2 (part 1): bulk actions, page size and filters on Orders and Catalog (window 3)
 
 - **Bulk actions on the shared table.** The DataTable already had selection, including "select all N matching", but no page used it. Now:
