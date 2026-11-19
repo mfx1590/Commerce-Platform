@@ -412,8 +412,8 @@ bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
 ## In progress — #870 item 4 PR A, customers list (2026-11-19)
 
-Branch `integration/admin-customers-list` from main `38bfa8c3`; plan approved A → B → C. PR number
-in the push below. Admin suite **1543 / 86 files**; lint, format:check, typecheck 30/30 and
+**PR #945**, branch `integration/admin-customers-list` from main `38bfa8c3` (code commit
+`62f9e6cc`; head = this memory commit). Plan approved A → B → C. Admin suite **1543 / 86 files**; lint, format:check, typecheck 30/30 and
 ownership green. #933 (order history) is approved and queued, so this branch does not carry it —
 Memory-10 here is main's copy and the #921 entry arrives when #933 merges.
 
