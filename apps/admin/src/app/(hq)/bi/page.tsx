@@ -1,5 +1,7 @@
 import { HqSectionGuard } from '@/components/shell/section-guard';
 import { BiReport, type BiParams } from './_components/bi-report';
+import { BiNav } from './_v2/components/shell';
+import { parseState } from './_v2/model';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,7 +15,10 @@ export default async function BiPage({ searchParams }: { searchParams: Promise<B
   const raw = await searchParams;
   return (
     <HqSectionGuard id="bi">
-      <BiReport params={raw} />
+      <div className="space-y-6">
+        <BiNav base="/bi" current="dashboard" copyLink={false} state={parseState(raw)} />
+        <BiReport params={raw} />
+      </div>
     </HqSectionGuard>
   );
 }
