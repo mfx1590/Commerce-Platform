@@ -34,7 +34,7 @@ for spec in "$@"; do
     pnpm install --frozen-lockfile >/dev/null 2>&1 || { echo "frozen-lockfile check failed"; exit 1; }
     # CHANGELOGs merged with the union driver (.gitattributes, #929) can lose the blank line between two joined
     # entries, which fails `prettier --check` in CI: format every CHANGELOG the merge changed, as its own commit.
-    changed="$(git diff --name-only "origin/$BR" HEAD -- '*CHANGELOG.md')"
+    changed="$(git diff --name-only --diff-filter=d "origin/$BR" HEAD -- '*CHANGELOG.md')"
     if [ -n "$changed" ]; then
       # shellcheck disable=SC2086 # one path per line, no spaces in repo paths
       pnpm exec prettier --write $changed >/dev/null 2>&1 || { echo "prettier failed on $changed"; exit 1; }
