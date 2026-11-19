@@ -87,7 +87,14 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   WORKING TREE (uncommitted when written): fct_refund_line (refund split over returned lines by paid value, remainder
   on heaviest; no return → one order-level row; refunds source + refunds_minor dims product/category), staging +
   fct_refund return_id appended, operations.ts picker alias vid, p95 blocks in metrics-wave2-live + routes-wave2.
-  GOLDEN PLAN (not started): golden/wave2.ts + wave2.test.ts like golden/stock.ts — a fixture reader answering by
+  11-19 later: manager's contracts commit f131713b (Admin API 0.4.31 / contracts 0.4.38) merged (head 30c2b2e8 →
+  my 0f38e770 merge). Then 0bf30f1e: yaml follow-up (movers enum, cohorts/backlog examples, Prism walks them 200,
+  CHANGELOG paragraph under 0.4.38), NO view sets join_use_nulls (a view reading another joining view must share
+  the setting: fct_refund_line over fct_refund failed with "returned Nullable column"), admin fixtures +9 keys.
+  p95 (seeded): cohorts 75 ms, CH pickers 22–34 ms, backlog 22 ms (HTTP), PG picker 17 ms (HTTP).
+  GOLDEN DONE: ask/golden/wave2.test.ts — the 8 owner questions, exact answers + checkOwnerAnswer (caveat, numbers
+  backed, no alias), negative controls. Root lint + typecheck 0. NEXT: open ONE PR from integration/bi-v2-wave2.
+  GOLDEN PLAN (done, kept for the record): golden/wave2.ts + wave2.test.ts like golden/stock.ts — a fixture reader answering by
   source table (fct_order_sales, fct_order_touch, dim_campaign, fct_order_fulfilment, fct_payment_event, cohorts),
   one scripted tool step per question, final text from the tool result, CONCRETE expected answers + checks (numbers
   only from results, no alias left, the caveat per question: planned budget not spend; default-currency carts;

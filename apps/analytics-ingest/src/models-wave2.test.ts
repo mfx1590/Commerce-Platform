@@ -392,7 +392,7 @@ describe.runIf(skip === null)(
       ],
       placed_at: '2026-10-01T10:00:00.000Z',
     });
-    const [l1, l2] = o.payload.line_items as [
+    const [l1, l2] = o.payload.line_items as unknown as [
       { order_line_item_id: string },
       { order_line_item_id: string },
     ];
