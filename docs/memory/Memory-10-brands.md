@@ -433,6 +433,19 @@ unfiltered is the same trap wearing a different hat.
 bulk extraction of emails, phones and addresses. PR A ships none, a test asserts none, and the
 docstring says why — cheaper than arguing about it after somebody adds a button.
 
+**CI caught what I should have: the e2e asserted the old href.** `store-admin.spec.ts:268` pinned
+`?q=jane%40example.com`, so both e2e jobs failed on that single line (I read both logs: identical
+spec, identical assertion, every unit suite green, and the kafkajs errors in the live-auth log are
+an intentional consumer test). The spec now derives the customer id from the address it is on and
+asserts the email appears in no encoding.
+
+**This is the second time an e2e locator broke on my change** — #896 was a strict-mode text
+collision from the Activity panel, this one an href assertion. The rule is therefore wider than I
+first wrote it: **when a change alters anything a spec can assert — rendered text, an href, a role
+name, a testid — grep `apps/*/e2e` before pushing.** Unit tests cannot see any of it. I grepped the
+other specs this time: the only `q=` hits left are a product handle and a staff email rendered on
+HQ › Roles, neither affected.
+
 **A flake to pass on, not to fix:** `test/bi-v2-views.test.tsx` → "Copy link to this view" timed
 out at 5 s in the full parallel run and passes 19/19 alone. Window 12's file, and nothing in my diff
 touches BI. Re-ran the suite green and reported it rather than touching another window's test.

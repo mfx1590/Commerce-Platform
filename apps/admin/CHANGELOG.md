@@ -1302,3 +1302,10 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
 - Tests: `test/customers-list.test.tsx` (9) — the picker's options and the parameter sent, the group
   name and both fallbacks, the refused read, the absent CSV, and the privacy assertion that **no
   href on the customer page contains the address** in any encoding.
+- **The e2e asserted the old link, and I had not grepped for it.** `e2e/store-admin.spec.ts:268`
+  pinned the `?q=jane%40example.com` href, so both e2e jobs on this PR failed on that one line —
+  the same single cause in each, with every unit suite green. The spec now takes the customer id
+  from the address it is already on, asserts the real `?customer_id=` link, and asserts the href
+  contains the email in **no** encoding. Other specs were grepped for `q=` and email expectations:
+  the only other hits are a product handle in `catalog-core` and a staff email rendered on HQ ›
+  Roles, neither of which this change touches.
