@@ -437,6 +437,90 @@ docstring says why — cheaper than arguing about it after somebody adds a butto
 out at 5 s in the full parallel run and passes 19/19 alone. Window 12's file, and nothing in my diff
 touches BI. Re-ran the suite green and reported it rather than touching another window's test.
 
+## In progress — #921, the order's own history (2026-11-19)
+
+**PR #933**, branch `integration/admin-order-history` from main `74d8c474` (code commit
+`db236ec7`; head = this memory commit). #896 merged 11-17 and **#920** (order audit rows, the
+REQUEST this screen filed as #887) merged 11-19.
+Admin suite **1409 / 80 files**; lint, format:check, typecheck 30/30, ownership all green.
+
+**Read the four writers, not the issue — and this time it mattered twice.** The issue and its
+comment listed the fields; grepping `entityType: 'order'` gave the truth: `checkout/service.ts`
+(`order.place`), `orders/service.ts` (`transition` for status_change / update / cancel, plus
+`auditOrder` for ship / return), `orders/edits.ts` (the two line edits) and `returns/service.ts`
+(`order.exchange_link`). Nine actions. Two things the field list could not have told me:
+
+- **`lines` and `refund_ids` are ARRAYS.** `formatValue` refuses every object and array by design,
+  so allow-listing them as asked would have printed nothing — the same dead-entry failure as
+  `stock_movement.quantity` in #896, which is exactly the mistake I had already recorded. New
+  `SHAPES` table: a reviewed `(entity_type, field)` may declare a summary written against the
+  shape the core writes (`lines` → "2 lines, 3 units", `refund_ids` → "2 refunds"). Each renderer
+  fails closed itself, prints no free text, and cannot put a field past the allow-list — a test
+  walks `SHAPES` and asserts every field in it is also allow-listed.
+- **`order.ship` writes `before: {}`.** The old code read that as "the value was none" and printed
+  "lines: none → 2 lines", asserting the order had no lines before — which the row never said.
+  "Absent from the body" and "recorded as null" are different facts and now render differently.
+  This was only visible because a test asserted the exact `FieldChange`; a looser assertion would
+  have shipped it.
+
+**`reason` is withheld deliberately.** It is `order.cancel_reason`, free text somebody typed, and
+the one field on an order where a customer's name or a complaint lands. Name-only until #922
+decides; the manager set that and I pinned it with a test that plants a name in the reason and
+asserts it reaches neither the change nor the row.
+
+**The stale-dist trap cost me a detour.** `pnpm --filter @platform/admin typecheck` reported three
+errors in `test/bi/**` about a `country` dimension, which looked like main being red. It is the
+trap `apps/admin/CLAUDE.md` documents: running a package script directly needs the workspace
+packages built first. The root `pnpm typecheck` goes through turbo, builds `@platform/contracts`
+and passes 30/30. **Use the root gate; a filtered typecheck can report another window's code as
+broken when it is only stale.** I nearly reported main as red on someone else's work.
+
+**CHANGELOG appended at the END of `## Unreleased`,** not inserted at the top — the rule recorded
+11-19 after #926 was skipped by the merge queue. The file has no release headings, so the end of
+the file is the end of Unreleased.
+
+### #933 Fable review: MERGE on the code, one prototype guard and four stale numbers (2026-11-19)
+
+**The real finding: `Object.hasOwn`.** Both keys into my lookup tables come from the API. A row
+with `entity_type: '__proto__'` made `SAFE_VALUE_FIELDS['__proto__']` return `Object.prototype`,
+which has no `.includes` — so the panel would have **thrown** instead of redacting. And
+`SHAPES['order']['toString']` is a function, so a field name borrowed from the prototype chain
+would have been **called as a renderer**. Both lookups are now `Object.hasOwn`-guarded, and the
+shape path requires `isSafeField` first so the allow-list stays the single gate. The lesson:
+**a plain object literal used as a lookup is attacker-reachable the moment its key comes from
+data** — every one of these tables takes `entity_type` and a field name straight off an audit row.
+
+**And four statements that were false again** — the same failure mode as the #896 review, which I
+had already written a lesson about: a CHANGELOG suite total (1407 vs 1409), the README's entity-type
+counts (still 23/25 after #920 made them 24/26), `load.ts`'s docstring still saying nothing writes
+an `entity_type: 'order'` row, and the panel's empty state telling an ORDER reader about "a
+product's variants or its media". Three of the four were prose I wrote while describing work that
+was itself correct.
+
+So the numbers are no longer written by hand: the README now says how to check the filter against
+the writers (grep both writer trees, compare the sets — 26 each way, verified), and the CHANGELOG
+quotes the counts the test run printed rather than arithmetic. **If a number in prose cannot be
+re-derived by a command, it will be wrong within two PRs.**
+
+Suite after the fixes: **1495 / 82 files**.
+
+**The append rule paid off within the hour.** #926 merged into main while this PR was open and
+touched the same `apps/admin/CHANGELOG.md`; the merge came through **clean**, because my entry is
+at the end of `## Unreleased` and theirs is not. Merged `origin/main` (`490b48aa`) in, no rebase,
+no force-push; prettier wanted one blank line in the merged CHANGELOG, which is exactly what the
+root `format:check`-before-push rule is for. Suite after the merge: **1491 / 82 files**.
+
+Worth noting: #926 is window 4's permission-gap work, and it adds `(hq)/bi/_lib/gate.ts` and
+`test/bi-route-gate.test.ts` — the BI route handlers I flagged to the manager after the #896
+review, when the same screen-versus-handler hole turned up in my own export route. The report
+travelled.
+
+E2e: checked the order detail specs again for strict-mode collisions, since the page gained a
+table. All of them are role-scoped (`getByRole('list', { name: 'Payments' })`,
+`getByRole('table', { name: 'Order lines' })`, `getByTestId('order-status-meaning')`), and
+"Order lines" is not a substring of "Activity on this order" — `getByRole`'s `name` matches a
+substring by default, which is the trap #896 hit.
+
 ## In progress — #870 wave 1 item 3, admin history (2026-11-13)
 
 ### The e2e my own panel broke, and why unit gates could not see it (2026-11-17)
