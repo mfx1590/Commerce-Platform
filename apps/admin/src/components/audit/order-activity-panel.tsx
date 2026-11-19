@@ -6,16 +6,15 @@ import { ActivityRows } from './activity-panel';
 /**
  * "Payment activity" on an order (#870 wave 1 item 3).
  *
- * **The order itself has no audit rows.** Nothing in the core calls `writeAudit` with
- * `entity_type: 'order'` — not placement, not the status machine, not cancel, not the line-item
- * edits. The only audited facts about an order are its payments (`payment.capture`,
- * `payment.capture_failed`, written with "ids and amounts only — no PII"), so that is what this
- * panel shows and that is what it is called. A panel labelled "History" querying
- * `entity_type=order` would be permanently empty, which is worse than absent: an owner reads an
- * empty history as "nobody changed it".
+ * This panel shows the order's **payments'** audit rows — `payment.capture`,
+ * `payment.capture_failed`, written with "ids and amounts only — no PII". The order's own rows
+ * arrived with #920, the REQUEST this screen filed (#887), and are rendered by the ordinary
+ * `ActivityPanel` beside this one. Nothing here had to move, which is what naming the panel after
+ * what it could actually show bought.
  *
- * The missing rows are a core change, filed as a REQUEST. When they land, this page gets the
- * ordinary `ActivityPanel` beside this one and nothing here has to move.
+ * It stays separate rather than merged: a merge would have to invent an ordering across two paged
+ * queries, and "who took the money" and "who changed the order" are the two questions people
+ * arrive with anyway.
  */
 export function OrderActivityPanel({
   activity,
@@ -28,7 +27,7 @@ export function OrderActivityPanel({
     <Card>
       <CardHeader
         title="Payment activity"
-        description="Who captured or tried to capture money on this order, and when. Changes to the order itself are not recorded in the audit log yet."
+        description="Who captured or tried to capture money on this order, and when. Changes to the order itself are in Activity, above."
       />
       <CardBody>
         {!hasPayments ? (
