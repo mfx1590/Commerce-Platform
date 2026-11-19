@@ -4,7 +4,10 @@ import { ApiStatePanel } from '@/components/states/state-panel';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { updateProductAction } from '@/app/actions/catalog';
 import { VariantsPanel } from './variants-panel';
-import { getProduct, getStore, listCategories } from '@/lib/api/admin';
+import { getProduct, getStore, listCategories, listProductMedia } from '@/lib/api/admin';
+import { CATALOG_PERMISSIONS } from '@/lib/catalog/permissions';
+import { holds } from '@/lib/permissions/rules';
+import { MediaPanel } from './media-panel';
 import { currentCopy, mayDraftCopy } from '@/lib/copy-drafts';
 import { loadPrincipal } from '@/lib/principal';
 import { CopyDraftPanel } from './copy-draft-panel';
@@ -25,13 +28,17 @@ export default async function ProductDetailPage({
 }) {
   const { storeId, productId } = await params;
   const page = activityPage((await searchParams)?.['activity']);
-  const [product, categories, store, principal, activity] = await Promise.all([
+  const [product, categories, store, principal, activity, media] = await Promise.all([
     getProduct(storeId, productId),
     listCategories(storeId),
     getStore(storeId),
     loadPrincipal(),
     loadActivity({ storeId, entityType: 'product', entityId: productId, page }),
+    // #870 item 5 (PR B): the media panel reads the images itself (viewer).
+    listProductMedia(storeId, productId),
   ]);
+  const canEditMedia =
+    principal.ok && holds(principal.data, CATALOG_PERMISSIONS.addProductMedia, storeId);
   const canDraft = principal.ok && mayDraftCopy(principal.data, storeId);
 
   if (!product.ok) {
@@ -59,12 +66,8 @@ export default async function ProductDetailPage({
     brand_name: current.brand_name,
     tags: current.tags,
     options: current.options.map((option) => ({ name: option.name, values: option.values })),
-    media: current.media.map((item) => ({
-      url: item.url,
-      alt: item.alt,
-      position: item.position,
-      ...(item.variant_id === undefined ? {} : { variant_id: item.variant_id }),
-    })),
+    // No `media`: on this page the media panel owns the images. `updateProduct` REPLACES the whole
+    // set when `media` is sent, so a stale list from this form would undo the panel's uploads.
   };
 
   return (
@@ -102,6 +105,7 @@ export default async function ProductDetailPage({
               defaultValues={defaultValues}
               categories={categories.ok ? categories.data.items : []}
               submitLabel="Save changes"
+              mediaInPanel
             />
           </CardBody>
         </Card>
@@ -146,6 +150,26 @@ export default async function ProductDetailPage({
           />
           <CardBody>
             <VariantsPanel storeId={storeId} product={current} />
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="Images"
+            description="Uploaded straight to the image host. The first image is the product thumbnail; every image needs alt text."
+          />
+          <CardBody>
+            <MediaPanel
+              storeId={storeId}
+              productId={productId}
+              media={media.ok ? media.data.items : []}
+              error={media.ok ? null : media.error.message}
+              variants={current.variants.map((variant) => ({
+                id: variant.id,
+                title: variant.title,
+              }))}
+              canEdit={canEditMedia}
+            />
           </CardBody>
         </Card>
 

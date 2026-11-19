@@ -45,7 +45,7 @@ describe('the Content-Security-Policy, in production', () => {
         "default-src 'self'",
         `script-src 'nonce-${NONCE}' 'strict-dynamic'`,
         "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' data: blob:",
+        "img-src 'self' data: blob: https://res.cloudinary.com",
         "font-src 'self'",
         "connect-src 'self'",
         "frame-src 'none'",

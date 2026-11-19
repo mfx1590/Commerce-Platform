@@ -327,14 +327,39 @@ describe('manager notes: the landing tab, the answer, the link', () => {
     );
   });
 
+  // The button on its own (#947 follow-up): rendering the whole Overview for one click timed out
+  // under a loaded full run. No fixed wait: the copy and the status are awaited.
+  it('the BI nav carries "Copy link to this view"', async () => {
+    const { BiNav } = await import('@/app/(hq)/bi/_v2/components/shell');
+    const { parseState } = await import('@/app/(hq)/bi/_v2/model');
+    render(<BiNav base="/bi" current="overview" state={parseState(RAW)} />);
+    expect(screen.getByRole('button', { name: 'Copy link to this view' })).toBeInTheDocument();
+  });
+
   it('"Copy link to this view" copies the URL, which holds every filter', async () => {
     const { default: userEvent } = await import('@testing-library/user-event');
+    const { CopyLink } = await import('@/app/(hq)/bi/_v2/components/copy-link');
     const user = userEvent.setup();
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
-    await show(OverviewView({ raw: RAW, base: '/bi' }));
+    render(<CopyLink />);
     await user.click(screen.getByRole('button', { name: 'Copy link to this view' }));
     expect(writeText).toHaveBeenCalledWith(window.location.href);
-    expect(await screen.findByText('Link copied: it opens this exact view.')).toBeInTheDocument();
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Link copied: it opens this exact view.',
+    );
+  });
+
+  it('a refused copy says to use the address bar', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event');
+    const { CopyLink } = await import('@/app/(hq)/bi/_v2/components/copy-link');
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockRejectedValue(new Error('denied'));
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    render(<CopyLink />);
+    await user.click(screen.getByRole('button', { name: 'Copy link to this view' }));
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Could not copy: copy the address bar instead',
+    );
   });
 });
