@@ -4,7 +4,13 @@ import { ApiStatePanel } from '@/components/states/state-panel';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { updateProductAction } from '@/app/actions/catalog';
 import { VariantsPanel } from './variants-panel';
-import { getProduct, getStore, listCategories, listProductMedia } from '@/lib/api/admin';
+import {
+  getProduct,
+  getStore,
+  listCategories,
+  listPriceLists,
+  listProductMedia,
+} from '@/lib/api/admin';
 import { CATALOG_PERMISSIONS } from '@/lib/catalog/permissions';
 import { holds } from '@/lib/permissions/rules';
 import { MediaPanel } from './media-panel';
@@ -28,12 +34,14 @@ export default async function ProductDetailPage({
 }) {
   const { storeId, productId } = await params;
   const page = activityPage((await searchParams)?.['activity']);
-  const [product, categories, store, principal, activity, media] = await Promise.all([
+  const [product, categories, store, principal, activity, priceLists, media] = await Promise.all([
     getProduct(storeId, productId),
     listCategories(storeId),
     getStore(storeId),
     loadPrincipal(),
     loadActivity({ storeId, entityType: 'product', entityId: productId, page }),
+    // Which prices the variant editor may change: the default lists only (#947 review).
+    listPriceLists(storeId),
     // #870 item 5 (PR B): the media panel reads the images itself (viewer).
     listProductMedia(storeId, productId),
   ]);
@@ -65,6 +73,8 @@ export default async function ProductDetailPage({
     category_id: current.category_id,
     brand_name: current.brand_name,
     tags: current.tags,
+    seo: (current.seo as Record<string, unknown> | undefined) ?? {},
+    attributes: (current.attributes as Record<string, unknown> | undefined) ?? {},
     options: current.options.map((option) => ({ name: option.name, values: option.values })),
     // No `media`: on this page the media panel owns the images. `updateProduct` REPLACES the whole
     // set when `media` is sent, so a stale list from this form would undo the panel's uploads.
@@ -149,7 +159,22 @@ export default async function ProductDetailPage({
             description="Saving options does not create variants — each one is a sellable thing with its own SKU and price, so they are created here, deliberately."
           />
           <CardBody>
-            <VariantsPanel storeId={storeId} product={current} />
+            <VariantsPanel
+              storeId={storeId}
+              product={current}
+              defaultPriceListIds={
+                priceLists.ok
+                  ? priceLists.data.items
+                      .filter((list) => list.type === 'default')
+                      .map((list) => list.id)
+                  : null
+              }
+              priceListNames={
+                priceLists.ok
+                  ? Object.fromEntries(priceLists.data.items.map((list) => [list.id, list.name]))
+                  : {}
+              }
+            />
           </CardBody>
         </Card>
 

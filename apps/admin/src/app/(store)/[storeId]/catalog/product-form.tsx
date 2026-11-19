@@ -10,6 +10,7 @@ import type { AdminComponents } from '@/lib/api/admin-client';
 import type { ActionResult } from '@/lib/forms/action-result';
 import { productCreateSchema, type ProductCreateValues } from '@/lib/forms/schemas';
 import { variantMatrix, variantTitle, suggestSku } from '@/lib/forms/variant-matrix';
+import { ProductDetailsFields } from './product-details-fields';
 
 type Product = AdminComponents['Product'];
 type Category = AdminComponents['Category'];
@@ -125,6 +126,8 @@ export function ProductForm({
           {...form.register('description')}
         />
       </div>
+
+      <ProductDetailsFields form={form} />
 
       <section className="space-y-3">
         <div className="flex items-center gap-3">

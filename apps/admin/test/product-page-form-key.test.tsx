@@ -42,6 +42,8 @@ const api = vi.hoisted(() => ({
   // #870 item 3: the detail page now carries an Activity panel.
   listAuditLog: vi.fn(),
   listUsers: vi.fn(),
+  // #870 item 5 (#947 review): the variant editor needs the store's default price lists.
+  listPriceLists: vi.fn(async () => ({ ok: true, status: 200, data: { items: [] } })),
   // #870 item 5 (PR B): the page reads the product's images for the media panel.
   listProductMedia: vi.fn(async () => ({ ok: true, status: 200, data: { items: [] } })),
 }));

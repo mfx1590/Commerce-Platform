@@ -12,9 +12,13 @@ import {
  * read: the payment methods the checkout offers, how many products can be bought (published, priced
  * in the store currency, in stock — counted by the core), and each warning with where to fix it.
  * Warnings do not block activation; they say why an active store still takes no orders.
+ *
+ * #910: an active store that is missing a prerequisite is not selling either (`canSell` reads `missing`),
+ * and a warning the contract does not declare yet is listed generically, not dropped.
  */
 export function CanSellBox({ storeId, readiness }: { storeId: string; readiness: StoreReadiness }) {
   const sells = canSell(readiness);
+  const other = readiness.other_warnings ?? [];
   return (
     <section
       aria-label="Can this store sell"
@@ -38,7 +42,7 @@ export function CanSellBox({ storeId, readiness }: { storeId: string; readiness:
         <dt className="text-muted">Products customers can buy</dt>
         <dd>{productCount(readiness.purchasable_products)}</dd>
       </dl>
-      {readiness.warnings.length > 0 && (
+      {(readiness.warnings.length > 0 || other.length > 0) && (
         <ul role="alert" aria-label="Warnings" className="text-warning list-disc space-y-1 pl-5">
           {readiness.warnings.map((warning) => (
             <li key={warning}>
@@ -50,14 +54,22 @@ export function CanSellBox({ storeId, readiness }: { storeId: string; readiness:
               )}
             </li>
           ))}
+          {other.map((warning) => (
+            <li key={`other-${warning}`}>
+              The core reported a warning this admin cannot describe yet:{' '}
+              <span className="font-mono">{warning}</span>.
+            </li>
+          ))}
         </ul>
       )}
       <p role="status" className={sells ? 'text-success' : 'text-muted'}>
         {sells
           ? 'Yes — customers can place an order.'
-          : readiness.status === 'active'
-            ? 'Not yet — the store is active, but a customer cannot complete an order.'
-            : 'Not yet — the store is not active.'}
+          : readiness.status === 'active' && readiness.missing.length > 0
+            ? 'No — the store is active, but customers cannot currently order: something it needs is missing (listed above).'
+            : readiness.status === 'active'
+              ? 'Not yet — the store is active, but a customer cannot complete an order.'
+              : 'Not yet — the store is not active.'}
       </p>
     </section>
   );

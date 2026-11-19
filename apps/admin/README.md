@@ -1219,3 +1219,27 @@ public endpoint: a section guard or a hidden button does nothing for a crafted P
 - **Marketing** (`(store)/[storeId]/marketing/_actions.ts`, window 17's files, landed on an integration branch):
   all nine actions refuse first through `MARKETING_PERMISSIONS` (`src/lib/marketing/permissions.ts`, pinned to
   the yaml; `previewSegment` is store_staff, the rest store_admin) since #925.
+
+## Readiness for an ACTIVE store (#910)
+
+ACTIVE is not "fine". A store can go live and later lose a prerequisite: its tax rate, its shipping option or
+its payment method. The readiness page (`/onboarding/<storeId>`) reads `getStoreReadiness` for every
+status, not only for drafts.
+
+- **`canSell` honours `missing`.** An active store with anything missing is not selling, however many
+  products it has.
+- **The panel says so.** An active store with something missing reads "Customers cannot currently order:
+  … missing", in words and with countries where the core gave them (`missingLabels`), with a link to where
+  each gap is fixed. It does not say "the store is live", and it changes nothing: the store stays active.
+- **A failed readiness read is said.** "Could not check whether this store can sell (status)": unknown, not
+  fine. Before, the box just disappeared.
+- **Unknown warnings are tolerated.** A warning the contract does not declare yet goes to `other_warnings`
+  and is listed generically. Before, it was a 502 that hid the whole box, including what is missing.
+  Everything else in the body is still parsed strictly, and the contract shape stays pinned with
+  `satisfies`.
+- **Not done here** (the specialist version in #910, for later):
+  - a readiness column and filter on the stores list;
+  - an alert when an active store loses a prerequisite;
+  - card and key status;
+  - drill-down from "0 purchasable";
+  - readiness history.

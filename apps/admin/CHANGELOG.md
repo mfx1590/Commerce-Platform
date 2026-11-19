@@ -1313,6 +1313,23 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   - Where an item's parameters came from is in words ("the platform default", "the store's setting", "set on this page").
   - An id the API didn't label reads "unknown" (the API itself says "(deleted)"), never an id prefix.
 
+### Fixed — #910: an active store that loses a prerequisite no longer reads "customers can place an order"
+
+- `canSell` requires `missing` to be empty.
+- The readiness panel shows, for an ACTIVE store too, "Customers cannot currently order: … missing" with
+  links to fix each gap, instead of "Active — the store is live".
+- The can-sell box answers "No — the store is active, but customers cannot currently order".
+- A failed readiness read says "Could not check whether this store can sell (status)" instead of hiding the
+  box silently.
+- `parseReadiness` keeps a warning the contract does not declare yet in `other_warnings`, listed
+  generically, instead of a 502 that hid the box. The rest of the body is still strict, and the contract
+  shape is still pinned with `satisfies`.
+- Tests:
+  - `readiness-active`: the panel, the box and the page's failed read.
+  - `readiness`: `canSell` with `missing`, `missingLabels`, the tolerant warnings and the wrapper.
+- Mutation-checked: dropping the `missing` check, the active branch, or the tolerant warnings each fails
+  tests.
+
 ### Security — #925: the Marketing server actions refuse before the Admin API
 
 - The nine actions in `(store)/[storeId]/marketing/_actions.ts` (campaigns create / launch / end, segments
@@ -1329,6 +1346,33 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   - the yaml pin.
 - Mutation-checked: removing any one of the nine guards fails its tests.
 - Window 17's files, landed on `integration/admin-marketing-guards`.
+
+### Added — #870 wave 1 item 5 (PR A): variant and product attributes (window 3)
+
+- **Variant editor**: every attribute `updateVariant` takes.
+  - Title, SKU, barcode; tracking stock and selling when out of stock (backorder).
+  - Weight (g) and dimensions (mm, all three sides or none).
+  - HS code (6, 8 or 10 digits; dots and spaces typed are stripped) and country of origin (ISO alpha-2, upper-cased).
+  - Per currency, the price **and its compare-at price**. Editing a price used to drop the compare-at; now it travels with it.
+  - A compare-at that shows no saving is a **warning, not a block**.
+  - The contract declares no format for these fields, so the admin checks them as typed and again in the server action, through the shared schema. The core itself checks only the origin and a non-negative weight.
+- **The variant list** says per variant what shipping and customs data is missing ("missing: barcode, weight, …"), and that a variant can't be deleted (there is no API operation; #870 gap).
+- **Product form**:
+  - **tags** as chips;
+  - **SEO**: title and description with length hints, and a canonical that must be https or a store path (refused on the server too). These are the keys the storefront's product page reads, and every other `seo` key already present is kept;
+  - **attributes** as key/value rows. Values that aren't text or numbers are kept, read-only; a duplicate key is said.
+- **Catalog list**: a "Variant data" column ("2 lack weight · 1 lacks HS code" / complete), and the CSV gains one column per kind (`variants_missing_barcode`, `…_weight`, `…_dimensions`, `…_hs_code`, `…_origin`). `listProducts` can't filter on these, so there's no URL filter (#870 gap).
+- Tests: `test/catalog-attributes.test.ts` (13), `test/catalog-attributes-ui.test.tsx` (6). `variants-panel.test.tsx` now expects the fuller save body and the per-row "Edit <SKU>" button. Mutation-checked: loosening the HS code pattern or dropping the all-three-sides rule fails the suite.
+- #947 review (Opus), item 5 PR A:
+  - **MONEY.** `updateVariant` writes `prices` to the default price list at quantity 1, the last one winning, so the variant editor now edits **only the default-list price at quantity 1** (one per currency).
+    - Tiers and sale, override or group-list prices are shown **read-only with their list and minimum quantity**.
+    - `prices` is sent **only when a default price or compare-at changed**: a barcode-only save sends none.
+    - If the price lists can't be read, no price is editable, and the editor says so.
+    - Clearing a price says it isn't removed (the current price stays).
+  - A canonical starting `//` or `/\` (another site) is refused, on the server too.
+  - The server schema takes all three dimensions or none.
+  - Dimensions, HS code and origin are checked and sent **only when changed**, so a legacy value never blocks another save.
+  - Tests: default + tier + sale-list rows in one currency (in any order); prices omitted on a barcode-only save; unreadable lists; cleared price; legacy values; `//` and `/\` canonicals; partial dimensions. Mutation-checked: making every price editable fails 1 test; always sending prices fails 4.
 
 ### Added — #870 wave 1 item 5: product images (window 3; security, Fable review)
 
