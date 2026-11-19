@@ -6,7 +6,8 @@
  * reach too, whatever the page offered. So each action loads the principal (`GET /admin/me`, the
  * Admin API's own answer from OpenFGA) and refuses — before calling the operation — unless it holds
  * the operation's `x-permission` (`REGISTRY_PERMISSIONS`, `ORDER_PERMISSIONS`,
- * `ROLES_PERMISSIONS`, `WAREHOUSE_PERMISSIONS`). The Admin API checks again; this check means a refused request never
+ * `ROLES_PERMISSIONS`, `WAREHOUSE_PERMISSIONS`, `CATALOG_PERMISSIONS`, `CUSTOMER_PERMISSIONS`,
+ * `PRICING_PERMISSIONS`, `PROMOTION_PERMISSIONS`, …). The Admin API checks again; this check means a refused request never
  * reaches it, and the refusal has the contract's own 403 shape.
  */
 
@@ -16,7 +17,10 @@ import { actionError, type ActionResult } from '../forms/action-result';
 import { mapServerError } from '../forms/server-errors';
 import { CATALOG_PERMISSIONS } from '../catalog/permissions';
 import { COPY_DRAFT_PERMISSIONS } from '../copy-drafts';
+import { CUSTOMER_PERMISSIONS } from '../customers/permissions';
 import { ORDER_PERMISSIONS } from '../orders/permissions';
+import { PRICING_PERMISSIONS } from '../pricing/permissions';
+import { PROMOTION_PERMISSIONS } from '../promotions/permissions';
 import type { Principal } from '../nav/navigation';
 import { loadPrincipal } from '../principal';
 import { ROLES_PERMISSIONS } from '../roles/permissions';
@@ -35,6 +39,9 @@ const OPERATIONS = {
   ...SHIPPING_PERMISSIONS,
   ...COPY_DRAFT_PERMISSIONS,
   ...CATALOG_PERMISSIONS,
+  ...CUSTOMER_PERMISSIONS,
+  ...PRICING_PERMISSIONS,
+  ...PROMOTION_PERMISSIONS,
 } satisfies Record<string, PermissionRule>;
 
 export type GuardedOperation = keyof typeof OPERATIONS;

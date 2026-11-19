@@ -11,6 +11,7 @@ import {
   priceUpsertBatchSchema,
   type PriceListCreateValues,
 } from '@/lib/forms/schemas';
+import { refuseUnlessPermitted } from '@/lib/permissions/guard';
 import { toIsoOrNull } from '@/lib/promotions/form';
 
 type PriceList = AdminComponents['PriceList'];
@@ -23,6 +24,8 @@ export async function createPriceListAction(
   storeId: string,
   values: PriceListCreateValues,
 ): Promise<ActionResult<PriceList>> {
+  const refused = await refuseUnlessPermitted('createPriceList', storeId);
+  if (refused) return refused;
   const parsed = priceListCreateSchema.safeParse(values);
   if (!parsed.success) return invalid('Some fields are not valid.');
   const { customer_group_id, sales_channel_id, starts_at, ends_at, ...rest } = parsed.data;
@@ -51,6 +54,8 @@ export async function upsertPricesAction(
   priceListId: string,
   prices: unknown,
 ): Promise<ActionResult<AdminResponse<'upsertPrices'>>> {
+  const refused = await refuseUnlessPermitted('upsertPrices', storeId);
+  if (refused) return refused;
   const parsed = priceUpsertBatchSchema.safeParse({ prices });
   if (!parsed.success) {
     const issue = parsed.error.issues[0];

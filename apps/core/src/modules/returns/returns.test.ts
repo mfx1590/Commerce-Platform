@@ -722,10 +722,10 @@ describe('RLS and exchange', () => {
     ).rejects.toMatchObject({ code: 'not_found' });
 
     const replacement = await shippedOrder(1, 'none');
-    await expect(linkExchange(a, ret.id, order.id)).rejects.toMatchObject({
+    await expect(linkExchange(a, ret.id, order.id, actor)).rejects.toMatchObject({
       code: 'validation_error',
     });
-    await linkExchange(a, ret.id, replacement.id);
+    await linkExchange(a, ret.id, replacement.id, actor);
     const rr = await owner.query<{ metadata: Record<string, unknown> }>(
       `SELECT metadata FROM "return" WHERE id = $1`,
       [ret.id],
@@ -738,5 +738,18 @@ describe('RLS and exchange', () => {
     expect(oo.rows[0]!.metadata).toMatchObject({
       exchange_for: { return_id: ret.id, order_id: order.id },
     });
+    // #887: the exchange order's one audit row, by the given actor, ids only (the refused link wrote none)
+    const audit = await owner.query<{ action: string; actor_type: string; after: unknown }>(
+      `SELECT action, actor_type, after FROM audit_log
+       WHERE entity_type = 'order' AND entity_id = $1 AND action = 'order.exchange_link'`,
+      [replacement.id],
+    );
+    expect(audit.rows).toEqual([
+      {
+        action: 'order.exchange_link',
+        actor_type: 'system',
+        after: { return_id: ret.id, exchanged_order_id: order.id, changed_fields: ['metadata'] },
+      },
+    ]);
   });
 });

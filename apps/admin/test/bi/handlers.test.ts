@@ -13,6 +13,15 @@ const api = vi.hoisted(() => ({
   askMetricsFeedback: vi.fn(),
 }));
 vi.mock('@/app/(hq)/bi/_api', () => api);
+// #900: every BI route checks the principal and the section first; the owner holds both (the gate's
+// own 401/403 cases are in test/bi-route-gate.test.ts).
+vi.mock('@/lib/principal', () => ({
+  loadPrincipal: async () => ({
+    ok: true,
+    status: 200,
+    data: (await import('../fixtures/principals')).principals.owner,
+  }),
+}));
 
 const { exportFileName, exportResponse, liveResponse } =
   await import('@/app/(hq)/bi/_lib/handlers');

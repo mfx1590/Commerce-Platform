@@ -1084,6 +1084,13 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     only collection reads with no id segment after the store id, or prefer the core's marker.
   - (Still open from #338) `apps/admin/CLAUDE.md:8` "Admin API 0.4.0" / "Phase 1" — owner's call.
 
+- **#903 + #900 (security), 2026-11-19 (Manager session fourteen):** branch `admin/phase6-903-permission-gaps`
+  from main fb98d56f. The six #903 actions guarded through CUSTOMER/PRICING/PROMOTION_PERMISSIONS (pinned to the yaml;
+  erase first). Ten BI routes gated by `refuseUnlessBi` in `(hq)/bi/_lib/gate.ts` (same predicate as the pages, like
+  #896's audit export). Every guard is mutation-checked (scratchpad mutate-903.cjs / mutate-900.cjs). Re-sweep: only
+  Marketing (window 17, 9 actions) is unguarded, filed as REQUEST #925. BI paths are window 12's in ownership.md;
+  edited on the manager's assignment (#900 names window 4), noted in the PR. #859 approved, in the merge queue
+  (no pushes there). Follow-ups parked.
 ## Brand D pre-flight (admin side; input for window 10's wave-3 D8 task — brand D = Japan)
 
 Written 2026-11-10 and extended 2026-11-11 for **brand D = Japan** (JPY, ja-JP, ships to JP). Read-only, on
@@ -1451,6 +1458,8 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **Run the root `pnpm format:check` before every push** (manager, 2026-11-19): #926 failed CI lint+typecheck only on
+  prettier for a CHANGELOG I appended with a node script; lint and typecheck do not run prettier on markdown.
 - (#468, 2026-10-16) A core-only e2e that cannot run locally still has to be read against the
   core's data: `getByLabel('Variant')` is a substring match (it also hit "Or a variant id"), and one
   shared item means no pick list. Use `{ exact: true }` labels.
