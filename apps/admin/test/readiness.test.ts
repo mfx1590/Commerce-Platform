@@ -4,7 +4,13 @@
  * "can sell" needs ACTIVE, a payment method and a purchasable product together.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { canSell, parseReadiness, productCount, type StoreReadiness } from '@/lib/readiness';
+import {
+  canSell,
+  missingLabels,
+  parseReadiness,
+  productCount,
+  type StoreReadiness,
+} from '@/lib/readiness';
 
 vi.mock('server-only', () => ({}));
 vi.mock('@/lib/auth/current-session', () => ({ getSession: async () => ({ accessToken: 'tok' }) }));
@@ -44,9 +50,45 @@ describe('parseReadiness', () => {
     ['a negative count', { ...body, purchasable_products: -1 }],
     ['an unknown payment method', { ...body, payment_methods: ['crypto'] }],
     ['an unknown status', { ...body, status: 'live' }],
-    ['a warning the contract does not declare', { ...body, warnings: ['later_warning'] }],
+    ['a warning that is not a string', { ...body, warnings: [42] }],
   ])('refuses %s', (_name, value) => {
     expect(parseReadiness(value)).toBeNull();
+  });
+
+  it('#910: a warning the contract does not declare yet is kept aside, not a 502 that hides the box', () => {
+    expect(
+      parseReadiness({ ...body, warnings: ['no_purchasable_product', 'later_warning'] }),
+    ).toEqual({ ...body, warnings: ['no_purchasable_product'], other_warnings: ['later_warning'] });
+  });
+
+  it('#910: the wrapper answers such a body as data, not as a failure', async () => {
+    client.adminRequest.mockResolvedValue({
+      ok: true,
+      status: 200,
+      data: { ...body, warnings: ['later_warning'] },
+    });
+    expect(await getStoreReadiness(STORE)).toMatchObject({
+      ok: true,
+      data: { warnings: [], other_warnings: ['later_warning'] },
+    });
+  });
+});
+
+describe('missingLabels', () => {
+  it('words each item, with the countries the core named; an unknown item is kept', () => {
+    expect(
+      missingLabels({
+        ...body,
+        missing: ['tax_rates', 'shipping_options', 'payment_method', 'something_new'],
+        missing_tax_countries: ['DE', 'AT'],
+        missing_shipping_countries: ['FR'],
+      }),
+    ).toEqual([
+      'a tax rate for DE, AT',
+      'a shipping option for FR',
+      'a payment method customers can pay with (card or pay on invoice)',
+      'something_new',
+    ]);
   });
 });
 
@@ -61,6 +103,13 @@ describe('canSell', () => {
     expect(
       canSell({ ...active, status: 'draft', payment_methods: ['card'], purchasable_products: 3 }),
     ).toBe(false);
+  });
+  it('#910: an ACTIVE store that lost a prerequisite cannot sell, whatever else it has', () => {
+    const selling = { ...active, payment_methods: ['card' as const], purchasable_products: 5 };
+    expect(canSell(selling)).toBe(true);
+    for (const item of ['tax_rates', 'shipping_options', 'payment_method', 'something_new']) {
+      expect(canSell({ ...selling, missing: [item] }), item).toBe(false);
+    }
   });
   it('counts in words', () => {
     expect(productCount(1)).toBe('1 product');

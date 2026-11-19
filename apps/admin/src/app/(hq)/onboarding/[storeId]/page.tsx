@@ -22,7 +22,7 @@ export default async function ReadinessPage({ params }: { params: Promise<{ stor
   const [store, readiness, principal] = await Promise.all([
     valid ? getStore(storeId) : Promise.resolve(null),
     // #830/#839: what activation would refuse now, and whether the store can sell. A failed read
-    // only hides the box and the pre-filled list; Activate still asks the core.
+    // hides the box and the pre-filled list, and says so (#910); Activate still asks the core.
     valid ? getStoreReadiness(storeId) : Promise.resolve(null),
     loadPrincipal(),
   ]);
@@ -69,7 +69,16 @@ export default async function ReadinessPage({ params }: { params: Promise<{ stor
                 updatedAt={store.data.updated_at}
                 readiness={ready}
               />
-              {ready !== null && <CanSellBox storeId={store.data.id} readiness={ready} />}
+              {ready !== null ? (
+                <CanSellBox storeId={store.data.id} readiness={ready} />
+              ) : readiness !== null && !readiness.ok ? (
+                <p role="status" aria-label="Readiness check" className="text-warning text-sm">
+                  Could not check whether this store can sell
+                  {readiness.status > 0 ? ` (${readiness.status})` : ''}. What is missing and
+                  whether customers can order are unknown, not fine: reload to try again.
+                  {store.data.status !== 'active' && ' Activate still asks the core.'}
+                </p>
+              ) : null}
             </>
           )}
         </CardBody>

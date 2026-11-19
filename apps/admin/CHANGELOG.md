@@ -1276,3 +1276,20 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   - **Inventory defaults to most urgent first**: out of stock, then low by days of cover, then the rest by cover; items without a cover last (`byUrgency`, tested).
   - Where an item's parameters came from is in words ("the platform default", "the store's setting", "set on this page").
   - An id the API didn't label reads "unknown" (the API itself says "(deleted)"), never an id prefix.
+
+### Fixed — #910: an active store that loses a prerequisite no longer reads "customers can place an order"
+
+- `canSell` requires `missing` to be empty.
+- The readiness panel shows, for an ACTIVE store too, "Customers cannot currently order: … missing" with
+  links to fix each gap, instead of "Active — the store is live".
+- The can-sell box answers "No — the store is active, but customers cannot currently order".
+- A failed readiness read says "Could not check whether this store can sell (status)" instead of hiding the
+  box silently.
+- `parseReadiness` keeps a warning the contract does not declare yet in `other_warnings`, listed
+  generically, instead of a 502 that hid the box. The rest of the body is still strict, and the contract
+  shape is still pinned with `satisfies`.
+- Tests:
+  - `readiness-active`: the panel, the box and the page's failed read.
+  - `readiness`: `canSell` with `missing`, `missingLabels`, the tolerant warnings and the wrapper.
+- Mutation-checked: dropping the `missing` check, the active branch, or the tolerant warnings each fails
+  tests.
