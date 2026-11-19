@@ -597,3 +597,33 @@ text, `InventoryHealthRow.status` is `oneOf [InventoryStatus, null]` (a `$ref` w
 generated types did not compile). Spec pins move to 0.4.30 / 144 operations / 9 filter arrays, a new block pins the
 wave, and the Prism walk posts to both operations. Store API, Accounting API, events and db unchanged; the core's
 `LIMITS` additions are apps/core's.
+
+## 0.4.38 — 2026-11-19 (Admin API 0.4.31; #935 revision 2, BI v2 Phase A wave 2, manager landing)
+
+Metrics catalogue v3 (#935, window 12's yaml from the issue comment, version renumbered from its 0.4.31 placeholder
+to the next free numbers). `MetricId` gains 32 ids (74 in all: customers, marketing, operations), `MetricDimension`
+gains `customer_group`, `utm_source`, `utm_medium`, `utm_campaign`, `campaign`, `promotion`, `carrier`,
+`failure_reason` (with the filters `customer_group_ids`, `campaign_ids`, `promotion_ids`, `utm_sources`,
+`utm_mediums`, `utm_campaigns`, `carriers`, `providers`, all `minItems: 1`, and `touch` `first` | `last`),
+`MetricDefinition` gains unit `hours` and kind `distribution`, `MetricRow` requires the eight new keys and
+`suppressed`, `currency_totals` items gain the optional `suppressed`, and `MetricLabels` gains `customer_group`,
+`campaign` and `promotion` (a name, never a code). Non-additive: `MetricRow.values`, `currency_totals.values` and
+`compare.changes` (`current`, `previous`, `change`) widen from `integer` to `number` for the distribution metrics
+(hours with one decimal); this is the only non-additive change, and `change_bp` stays an integer. `MetricQuery.limit`
+and `InventoryHealthQuery.limit` accept up to 10 000 for `text/csv` (JSON stays at 1 000 / 500, 400 above). New, tag
+`reports`, `viewer` on `store:*`: `getCustomerCohorts` (`POST /admin/metrics/cohorts`; 200 / 400 / 401 / 403 / 503),
+`getOperationsBacklog` (`POST /admin/metrics/operations/backlog`, Postgres only; 200 / 400 / 401 / 403) and
+`listMetricDimensionValues` (`GET /admin/metrics/dimension-values`; 200 / 400 / 401 / 403 / 503), with the schemas
+`CustomerCohortQuery`, `CustomerCohorts`, `OperationsBacklogQuery`, `OperationsBacklog`, `MetricDimensionValues`.
+Spec pins move to 0.4.31 / 147 operations / 17 filter arrays, the wave 1 block checks its enums as a prefix, and a
+new block pins the wave. The Prism walk reads listMetricDimensionValues (200) and checks the 401 of all three;
+getCustomerCohorts and getOperationsBacklog have no response example, so their generated mock body fails its own
+patterns and only their 401 is walked. apps/core's access matrix gains the three rows in the same change. Store API,
+Accounting API, events and db unchanged.
+
+Window 12 follow-up on the integration branch (same version): `MetricMoversQuery.dimension` gains `customer_type`,
+`customer_group` and `warehouse` (#935 a2; the wave 1 spec pin now checks the eight values, and the Prism walk's
+bad-body movers call uses `refund_reason`, which is not a mover dimension); `getCustomerCohorts` and
+`getOperationsBacklog` gain a realistic response example each (a suppressed cell and a suppressed cohort; one row per
+backlog kind), so Prism answers them 200. The admin `hours` display unit and the row fixtures with the nine new
+`MetricRow` keys are in apps/admin.

@@ -521,5 +521,5 @@ describe.runIf(skip === null)('customer.erased in ClickHouse (#623)', () => {
       for (const v of [emailHash, customer])
         expect(await sweep(ch, db, v), `seed ${seed}: ${v}`).toEqual([]);
     }
-  });
+  }, 120_000); // 15 seeds × a sweep of EVERY table and view (#935 added 17 views: 43 s measured locally)
 });

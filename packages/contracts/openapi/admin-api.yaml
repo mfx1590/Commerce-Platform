@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Admin API
-  version: 0.4.30
+  version: 0.4.31
   description: |
     API behind the admin application (Store view + HQ view). Every request carries a Keycloak staff-realm JWT.
     Store-scoped resources live under `/admin/stores/{storeId}/...`; the server checks the OpenFGA relation named
@@ -5052,9 +5052,19 @@ paths:
         then the requested metrics in request order. One header line, one line per row, no totals line; integers as
         integers (money in minor units), an empty cell for null. RFC 4180: CRLF line ends, every text cell quoted,
         `"` doubled. CSV injection: a text cell starting with `=`, `+`, `-`, `@`, a tab or a CR gets a leading `'`.
-        At most `limit` (≤ 1000) rows: there is no export-everything path; `X-Truncated: true` says more rows matched.
+        At most `limit` rows: JSON at most 1 000, `text/csv` up to 10 000 (0.4.31); `X-Truncated: true` says more
+        rows matched.
         The 0.4.30 dimensions map to the columns `country`, `sales_channel_id`, `category_id`, `customer_type` and
-        `warehouse_id` (in request order, like the others).
+        `warehouse_id` (in request order, like the others); the 0.4.31 ones to `customer_group_id`, `utm_source`,
+        `utm_medium`, `utm_campaign`, `campaign_id`, `promotion_id`, `carrier` and `failure_reason`.
+
+        0.4.31 (catalogue version 3, #935): customers, marketing and operations metrics. Customer figures are per
+        store (a customer of two brands is two customers); a customer group is the customer's CURRENT group. Any
+        value computed from fewer than 5 customers is null with `suppressed: true` on its row, and so is a
+        complementary cell. Promotion metrics come from the orders' frozen promotion allocation (automatic and
+        code promotions alike) and are labelled by name, never by code. Attribution metrics read one touch model
+        (`filters.touch`, `last` by default). utm values past the answer's top 50, or shaped like personal data,
+        are `other`.
 
         `compare` answers the previous range too (see MetricQuery.compare). With `Accept: text/csv`, `labels=true`
         (query parameter) appends one `<dimension>_label` column per dimension AFTER the documented columns; without
@@ -5290,6 +5300,180 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/metrics/cohorts:
+    post:
+      tags: [reports]
+      operationId: getCustomerCohorts
+      summary: Customer cohorts — retention and net sales per customer to date, by first-order month (0.4.31)
+      description: |
+        A cohort = the UTC month of a customer's FIRST order in a store (a customer of two brands is two customers;
+        no customer id or key ever leaves the server). Per cohort × months since: the active customers (with an
+        order counted in sales that month), the retention (active ÷ cohort size) and the LTV to date (the cohort's
+        cumulative net sales ÷ its size), in ONE currency per answer. A cohort under 5 customers is suppressed whole
+        (`size` null); a cell with 1–4 active customers is suppressed. Scope as queryMetrics: `store_ids` outside the
+        caller's stores is a 403.
+      x-permission: { relation: viewer, object: 'store:*' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomerCohortQuery' }
+            example: { from_month: '2026-01', to_month: '2026-06', months: 6, currency: EUR }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerCohorts' }
+              example:
+                query: { from_month: '2026-01', to_month: '2026-02', months: 3, currency: EUR }
+                generated_at: '2026-11-19T09:00:00Z'
+                currency: EUR
+                cohorts:
+                  - cohort_month: '2026-01'
+                    size: 120
+                    suppressed: false
+                    cells:
+                      - {
+                          month_offset: 0,
+                          active: 120,
+                          retention_bp: 10000,
+                          ltv_to_date_minor: 6450,
+                          suppressed: false,
+                        }
+                      - {
+                          month_offset: 1,
+                          active: 31,
+                          retention_bp: 2583,
+                          ltv_to_date_minor: 8120,
+                          suppressed: false,
+                        }
+                      - {
+                          month_offset: 2,
+                          active: 4,
+                          retention_bp: null,
+                          ltv_to_date_minor: null,
+                          suppressed: true,
+                        }
+                  - cohort_month: '2026-02'
+                    size: null
+                    suppressed: true
+                    cells: []
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /admin/metrics/operations/backlog:
+    post:
+      tags: [reports]
+      operationId: getOperationsBacklog
+      summary: What is stuck now, by age — unassigned paid orders, shipments not shipped, returns not received (0.4.31)
+      description: |
+        Read NOW from the order, shipment and return tables under the caller's scope (`store_ids` outside it is a
+        403). Kinds: `unassigned` (paid orders — authorised or captured, not cancelled — with no shipment and so no
+        warehouse), `shipment_not_shipped` (pending, picking, packed or label created) and `return_not_received`
+        (requested or approved). Age buckets from placement / creation / request: `lt_1d`, `d1_2` (1–2 days),
+        `d3_7` and `gt_7d`. The drill to the records needs the list operations of #940 and #941.
+      x-permission: { relation: viewer, object: 'store:*' }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OperationsBacklogQuery' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OperationsBacklog' }
+              example:
+                generated_at: '2026-11-19T09:00:00Z'
+                buckets: [lt_1d, d1_2, d3_7, gt_7d]
+                rows:
+                  - {
+                      kind: unassigned,
+                      store_id: 00000000-0000-4000-8000-000000000031,
+                      warehouse_id: null,
+                      bucket: d1_2,
+                      count: 4,
+                    }
+                  - {
+                      kind: shipment_not_shipped,
+                      store_id: 00000000-0000-4000-8000-000000000031,
+                      warehouse_id: 00000000-0000-4000-8000-0000000000a1,
+                      bucket: d3_7,
+                      count: 2,
+                    }
+                  - {
+                      kind: return_not_received,
+                      store_id: 00000000-0000-4000-8000-000000000031,
+                      warehouse_id: null,
+                      bucket: gt_7d,
+                      count: 1,
+                    }
+                totals:
+                  - { kind: unassigned, bucket: d1_2, count: 4 }
+                  - { kind: shipment_not_shipped, bucket: d3_7, count: 2 }
+                  - { kind: return_not_received, bucket: gt_7d, count: 1 }
+                labels: { warehouse: { 00000000-0000-4000-8000-0000000000a1: BER } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/metrics/dimension-values:
+    get:
+      tags: [reports]
+      operationId: listMetricDimensionValues
+      summary: The values a caller may filter a dimension by — the BI pickers (0.4.31)
+      description: |
+        Ids and labels from the caller's stores only (Postgres under the caller's scope for stores, sales channels,
+        categories, products, warehouses, customer groups, campaigns and promotions; the analytics store, scoped
+        the same, for countries, carriers and utm values). `store_ids` outside the caller's scope is a 403. A
+        promotion is matched by `q` and labelled by its NAME only, never its code. utm values are a store's top 50,
+        and a value shaped like personal data is never offered.
+      x-permission: { relation: viewer, object: 'store:*' }
+      parameters:
+        - in: query
+          name: dimension
+          required: true
+          schema:
+            type: string
+            enum:
+              [
+                store,
+                country,
+                sales_channel,
+                category,
+                product,
+                warehouse,
+                customer_group,
+                campaign,
+                promotion,
+                carrier,
+                utm_source,
+                utm_medium,
+                utm_campaign,
+              ]
+        - { in: query, name: q, schema: { type: string, maxLength: 80 } }
+        - in: query
+          name: store_ids
+          style: form
+          explode: false
+          schema: { type: array, maxItems: 50, items: { type: string, format: uuid } }
+        - {
+            in: query,
+            name: limit,
+            schema: { type: integer, minimum: 1, maximum: 50, default: 20 },
+          }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MetricDimensionValues' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /admin/metrics/ask:
     post:
       tags: [reports]
@@ -7780,6 +7964,38 @@ components:
           stockout_events,
           units_received,
           units_adjusted,
+          customers,
+          repeat_customers,
+          customer_orders,
+          customer_net_sales_minor,
+          repeat_rate_bp,
+          orders_per_customer_bp,
+          revenue_per_customer_minor,
+          unknown_customer_orders,
+          attributed_orders,
+          attributed_net_sales_minor,
+          unattributed_orders,
+          campaign_net_sales_minor,
+          campaign_budget_minor,
+          promotion_orders,
+          promotion_discount_minor,
+          abandoned_carts,
+          abandoned_value_minor,
+          orders_shipped,
+          hours_to_ship_p50,
+          hours_to_ship_p90,
+          orders_delivered,
+          hours_to_deliver_p50,
+          hours_to_deliver_p90,
+          shipping_cost_minor,
+          shipping_cost_unknown,
+          return_requests,
+          payments_authorized,
+          payments_captured,
+          payments_failed,
+          payments_with_outcome,
+          payment_failure_rate_bp,
+          refunds_failed,
         ]
     MetricDimension:
       type: string
@@ -7794,6 +8010,14 @@ components:
           category,
           customer_type,
           warehouse,
+          customer_group,
+          utm_source,
+          utm_medium,
+          utm_campaign,
+          campaign,
+          promotion,
+          carrier,
+          failure_reason,
         ]
     MetricGrain:
       type: string
@@ -7809,8 +8033,8 @@ components:
         description: { type: string }
         unit:
           type: string
-          enum: [minor, count, bp, milli]
-          description: '`minor` = integer minor units of the row currency; `bp` = basis points (1/10 000); `milli` = × 1 000.'
+          enum: [minor, count, bp, milli, hours]
+          description: '`minor` = integer minor units of the row currency; `bp` = basis points (1/10 000); `milli` = × 1 000; `hours` = hours with one decimal (distribution metrics, no currency).'
         currency_bound:
           type: boolean
           description: true for money metrics; their rows always carry `currency`.
@@ -7825,9 +8049,13 @@ components:
           items: { $ref: '#/components/schemas/MetricDimension' }
         kind:
           type: string
-          enum: [series, snapshot]
+          enum: [series, snapshot, distribution]
           default: series
-          description: '`snapshot` metrics describe now (inventory) and are served by getInventoryHealth, not queryMetrics.'
+          description: |
+            `snapshot` metrics describe now (inventory) and are served by getInventoryHealth, not queryMetrics.
+            `distribution` metrics (0.4.31) are a quantile over each row's group, in hours with one decimal and no
+            currency; their total is its own quantile over every row in scope, never a sum or an average of rows;
+            `compare` gives the difference in hours and no % (`change_bp` null); listMetricMovers refuses them.
         additive:
           type: boolean
           description: true when the metric is a sum (unit minor or count, not derived); only these accept listMetricMovers.
@@ -7971,6 +8199,60 @@ components:
               maxItems: 50
               uniqueItems: true
               items: { type: string, format: uuid }
+            customer_group_ids:
+              type: array
+              minItems: 1
+              maxItems: 50
+              uniqueItems: true
+              description: The customer's CURRENT group (no group history).
+              items: { type: string, format: uuid }
+            campaign_ids:
+              type: array
+              minItems: 1
+              maxItems: 50
+              uniqueItems: true
+              items: { type: string, format: uuid }
+            promotion_ids:
+              type: array
+              minItems: 1
+              maxItems: 50
+              uniqueItems: true
+              items: { type: string, format: uuid }
+            utm_sources:
+              type: array
+              minItems: 1
+              maxItems: 50
+              uniqueItems: true
+              description: As stored (lower-case, trimmed, at most 64 characters).
+              items: { type: string, minLength: 1, maxLength: 64 }
+            utm_mediums:
+              type: array
+              minItems: 1
+              maxItems: 50
+              uniqueItems: true
+              items: { type: string, minLength: 1, maxLength: 64 }
+            utm_campaigns:
+              type: array
+              minItems: 1
+              maxItems: 50
+              uniqueItems: true
+              items: { type: string, minLength: 1, maxLength: 64 }
+            carriers:
+              type: array
+              minItems: 1
+              maxItems: 20
+              uniqueItems: true
+              items: { type: string, pattern: '^[a-z0-9_-]{1,40}$' }
+            providers:
+              type: array
+              minItems: 1
+              maxItems: 10
+              uniqueItems: true
+              items: { type: string, pattern: '^[a-z0-9_-]{1,40}$' }
+            touch:
+              type: string
+              enum: [first, last]
+              description: The attribution touch model; attribution metrics only (400 otherwise); `last` when omitted.
         compare:
           type: string
           enum: [previous_period, previous_year]
@@ -7990,7 +8272,12 @@ components:
           properties:
             metric: { $ref: '#/components/schemas/MetricId' }
             direction: { type: string, enum: [desc, asc], default: desc }
-        limit: { type: integer, minimum: 1, maximum: 1000, default: 1000 }
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          default: 1000
+          description: 'At most 1 000 for a JSON answer (400 above); up to 10 000 with `Accept: text/csv`.'
     MetricRow:
       type: object
       additionalProperties: false
@@ -8007,6 +8294,15 @@ components:
           category_id,
           customer_type,
           warehouse_id,
+          customer_group_id,
+          utm_source,
+          utm_medium,
+          utm_campaign,
+          campaign_id,
+          promotion_id,
+          carrier,
+          failure_reason,
+          suppressed,
           values,
         ]
       properties:
@@ -8029,10 +8325,28 @@ components:
         category_id: { type: [string, 'null'], format: uuid }
         customer_type: { type: [string, 'null'], enum: [new, returning, unknown, null] }
         warehouse_id: { type: [string, 'null'], format: uuid }
+        customer_group_id:
+          { type: [string, 'null'], format: uuid, description: "The customer's CURRENT group." }
+        utm_source:
+          {
+            type: [string, 'null'],
+            description: "Normalised; `other` = past the answer's top 50, or looked like personal data.",
+          }
+        utm_medium: { type: [string, 'null'] }
+        utm_campaign: { type: [string, 'null'] }
+        campaign_id: { type: [string, 'null'], format: uuid }
+        promotion_id: { type: [string, 'null'], format: uuid }
+        carrier: { type: [string, 'null'] }
+        failure_reason: { type: [string, 'null'], description: 'A PSP failure code, or `other`.' }
+        suppressed:
+          type: boolean
+          description: |
+            true when the row's per-customer values are null: fewer than 5 customers, or the complementary cell of
+            one that is (so a hidden value cannot be worked out from the total).
         values:
           type: object
-          description: One entry per requested metric; integers (minor units, counts or basis points); null when undefined (e.g. aov with 0 orders).
-          additionalProperties: { type: [integer, 'null'] }
+          description: One entry per requested metric; integers (minor units, counts or basis points), and hours with one decimal for distribution metrics; null when undefined (e.g. aov with 0 orders) or suppressed.
+          additionalProperties: { type: [number, 'null'] }
     MetricResult:
       type: object
       additionalProperties: false
@@ -8061,7 +8375,10 @@ components:
               currency: { type: [string, 'null'], pattern: '^[A-Z]{3}$' }
               values:
                 type: object
-                additionalProperties: { type: [integer, 'null'] }
+                additionalProperties: { type: [number, 'null'] }
+              suppressed:
+                type: boolean
+                description: true when the per-customer totals are null (fewer than 5 customers in all).
         compare:
           type: [object, 'null']
           additionalProperties: false
@@ -8087,9 +8404,9 @@ components:
                 properties:
                   currency: { type: [string, 'null'], pattern: '^[A-Z]{3}$' }
                   metric: { $ref: '#/components/schemas/MetricId' }
-                  current: { type: [integer, 'null'] }
-                  previous: { type: [integer, 'null'] }
-                  change: { type: [integer, 'null'] }
+                  current: { type: [number, 'null'] }
+                  previous: { type: [number, 'null'] }
+                  change: { type: [number, 'null'] }
                   change_bp: { type: [integer, 'null'] }
         labels: { $ref: '#/components/schemas/MetricLabels' }
     MetricLabels:
@@ -8106,10 +8423,131 @@ components:
         category: { $ref: '#/components/schemas/LabelMap' }
         sales_channel: { $ref: '#/components/schemas/LabelMap' }
         warehouse: { $ref: '#/components/schemas/LabelMap' }
+        customer_group: { $ref: '#/components/schemas/LabelMap' }
+        campaign: { $ref: '#/components/schemas/LabelMap' }
+        promotion:
+          allOf: [{ $ref: '#/components/schemas/LabelMap' }]
+          description: A promotion's NAME, never its code.
     LabelMap:
       type: object
       propertyNames: { format: uuid }
       additionalProperties: { type: string }
+    CustomerCohortQuery:
+      type: object
+      additionalProperties: false
+      required: [from_month, to_month, currency]
+      properties:
+        store_ids:
+          type: array
+          minItems: 1
+          maxItems: 50
+          uniqueItems: true
+          items: { type: string, format: uuid }
+        from_month: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$' }
+        to_month:
+          type: string
+          pattern: '^\d{4}-(0[1-9]|1[0-2])$'
+          description: Inclusive; at most 24 cohorts.
+        months: { type: integer, minimum: 1, maximum: 24, default: 12 }
+        customer_group_ids:
+          type: array
+          minItems: 1
+          maxItems: 50
+          uniqueItems: true
+          items: { type: string, format: uuid }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+    CustomerCohorts:
+      type: object
+      additionalProperties: false
+      required: [query, generated_at, currency, cohorts]
+      properties:
+        query: { $ref: '#/components/schemas/CustomerCohortQuery' }
+        generated_at: { type: string, format: date-time }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        cohorts:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [cohort_month, size, suppressed, cells]
+            properties:
+              cohort_month: { type: string, pattern: '^\d{4}-\d{2}$' }
+              size: { type: [integer, 'null'] }
+              suppressed: { type: boolean }
+              cells:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [month_offset, active, retention_bp, ltv_to_date_minor, suppressed]
+                  properties:
+                    month_offset: { type: integer, minimum: 0 }
+                    active: { type: [integer, 'null'] }
+                    retention_bp: { type: [integer, 'null'] }
+                    ltv_to_date_minor: { type: [integer, 'null'] }
+                    suppressed: { type: boolean }
+    OperationsBacklogQuery:
+      type: object
+      additionalProperties: false
+      properties:
+        store_ids:
+          type: array
+          minItems: 1
+          maxItems: 50
+          uniqueItems: true
+          items: { type: string, format: uuid }
+    OperationsBacklog:
+      type: object
+      additionalProperties: false
+      required: [generated_at, buckets, rows, totals]
+      properties:
+        generated_at: { type: string, format: date-time }
+        buckets:
+          type: array
+          items: { type: string, enum: [lt_1d, d1_2, d3_7, gt_7d] }
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [kind, store_id, warehouse_id, bucket, count]
+            properties:
+              kind: { type: string, enum: [unassigned, shipment_not_shipped, return_not_received] }
+              store_id: { type: string, format: uuid }
+              warehouse_id: { type: [string, 'null'], format: uuid }
+              bucket: { type: string, enum: [lt_1d, d1_2, d3_7, gt_7d] }
+              count: { type: integer, minimum: 1 }
+        totals:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [kind, bucket, count]
+            properties:
+              kind: { type: string }
+              bucket: { type: string }
+              count: { type: integer }
+        labels: { $ref: '#/components/schemas/MetricLabels' }
+    MetricDimensionValues:
+      type: object
+      additionalProperties: false
+      required: [dimension, values]
+      properties:
+        dimension: { type: string }
+        values:
+          type: array
+          maxItems: 50
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, label]
+            properties:
+              id:
+                {
+                  type: string,
+                  description: 'A uuid, or the value itself (country, carrier, utm).',
+                }
+              label: { type: string }
     MetricMoversQuery:
       type: object
       additionalProperties: false
@@ -8120,7 +8558,20 @@ components:
             $ref: '#/components/schemas/MetricId',
             description: 'Additive series metrics only (catalogue `additive`); else 400.',
           }
-        dimension: { type: string, enum: [store, country, sales_channel, product, category] }
+        dimension:
+          type: string
+          enum:
+            [
+              store,
+              country,
+              sales_channel,
+              product,
+              category,
+              customer_type,
+              customer_group,
+              warehouse,
+            ]
+          description: '0.4.31 (#935): customer_type, customer_group (the CURRENT group) and warehouse.'
         from: { type: string, format: date }
         to: { type: string, format: date }
         compare: { type: string, enum: [previous_period, previous_year], default: previous_period }
@@ -8269,7 +8720,12 @@ components:
           }
         direction: { type: string, enum: [asc, desc], default: asc }
         page: { type: integer, minimum: 1, default: 1 }
-        limit: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          default: 100
+          description: 'At most 500 for a JSON answer (400 above); up to 10 000 with `Accept: text/csv` (0.4.31).'
     InventoryStatus:
       type: string
       enum: [stock_out, low, reorder, dead, overstock, ok]

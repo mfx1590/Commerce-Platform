@@ -184,13 +184,14 @@ export function chunk<T>(items: readonly T[], size: number): T[][] {
  * `product_return_rate_bp`: 1 250 = 12.5 %) but a plain ratio for anything else
  * (`items_per_order_bp`: 21 429 = 2.14 items per order, never "214.3 %").
  */
-export type DisplayUnit = 'minor' | 'count' | 'milli' | 'percent' | 'ratio';
+// `hours` (Admin API 0.4.31, #935): distribution metrics, hours with one decimal (10.5 h), no currency.
+export type DisplayUnit = 'minor' | 'count' | 'milli' | 'percent' | 'ratio' | 'hours';
 
 export function displayUnitOf(
   definition: Pick<MetricDefinition, 'unit'> | undefined,
   metric: string,
 ): DisplayUnit {
-  const unit = definition?.unit ?? 'count';
+  const unit = (definition?.unit ?? 'count') as MetricDefinition['unit'] | 'hours';
   if (unit !== 'bp') return unit;
   return metric.endsWith('_rate_bp') ? 'percent' : 'ratio';
 }
@@ -221,6 +222,8 @@ export function formatValue(
       });
     case 'milli':
       return (value / 1000).toLocaleString(locale, { maximumFractionDigits: 1 });
+    case 'hours':
+      return `${value.toLocaleString(locale, { maximumFractionDigits: 1 })} h`;
     default:
       return value.toLocaleString(locale);
   }

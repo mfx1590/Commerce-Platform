@@ -41,7 +41,16 @@ import {
   type InventoryQuery,
 } from './inventory';
 import { idsOf, resolveLabels } from './labels';
-import { listMetricMovers, parseMoversQuery } from './movers';
+import { listMetricMovers, MOVER_ROW_KEY, parseMoversQuery } from './movers';
+import {
+  getCustomerCohorts,
+  getOperationsBacklog,
+  listMetricDimensionValues,
+  parseBacklogQuery,
+  parseCohortQuery,
+  parseDimensionValuesQuery,
+} from './operations';
+import { promotionsLoader } from './promotions';
 import { parseMetricQuery, type MetricQuery } from './query';
 import { sharedMetricsReader } from './reader';
 import { scopeForQuery } from './scope';
@@ -50,8 +59,19 @@ export const METRICS_PATH = '/admin/metrics';
 export const METRICS_QUERY_PATH = '/admin/metrics/query';
 export const METRICS_MOVERS_PATH = '/admin/metrics/movers';
 export const METRICS_INVENTORY_PATH = '/admin/metrics/inventory';
+// BI v2 wave 2 (#935 a3)
+export const METRICS_COHORTS_PATH = '/admin/metrics/cohorts';
+export const METRICS_BACKLOG_PATH = '/admin/metrics/operations/backlog';
+export const METRICS_DIMENSION_VALUES_PATH = '/admin/metrics/dimension-values';
 
-type Operation = 'listMetrics' | 'queryMetrics' | 'listMetricMovers' | 'getInventoryHealth';
+type Operation =
+  | 'listMetrics'
+  | 'queryMetrics'
+  | 'listMetricMovers'
+  | 'getInventoryHealth'
+  | 'getCustomerCohorts'
+  | 'getOperationsBacklog'
+  | 'listMetricDimensionValues';
 type PermissionSpec = { relation: string; object: string };
 
 /** The slice of the loaded spec the router uses (tests replace it to prove the fail-closed path). */
@@ -88,6 +108,23 @@ export async function metricsScope(p: StaffPrincipal): Promise<{ id: string; cod
 
 const forbidden = (message: string, details: Record<string, unknown>) =>
   new AppError('forbidden', message, details);
+
+/**
+ * The stores an operation reads (#935): the caller's visible stores, narrowed to `store_ids` when given. No visible
+ * store is a 403, and so is any requested store outside them (never a silent narrowing).
+ */
+async function storesFor(p: StaffPrincipal, requested?: readonly string[]): Promise<string[]> {
+  const visible = (await metricsScope(p)).map((s) => s.id);
+  if (visible.length === 0)
+    throw forbidden('no visible store', { relation: 'viewer', object: 'store:*' });
+  for (const id of requested ?? [])
+    if (!visible.includes(id))
+      throw forbidden(`requires viewer on store:${id}`, {
+        relation: 'viewer',
+        object: `store:${id}`,
+      });
+  return requested ? [...requested] : visible;
+}
 
 /** Stock items a store-scoped series can carry (#908: one ClickHouse parameter holds ~128 KB, about 3 000 ids). */
 export const MAX_STOCK_SCOPE_ITEMS = 2500;
@@ -174,7 +211,9 @@ export function metricsAdminRouter(opts: MetricsRouterOptions = {}): Router {
     handle(async (req, res) => {
       const p = requirePrincipal(req);
       spec.validateBody('queryMetrics', req.body);
-      const q = parseMetricQuery(req.body);
+      // #935 (manager decision): JSON answers at most LIMITS.max_rows rows; text/csv up to LIMITS.max_csv_rows
+      const csv = wantsCsv(req);
+      const q = parseMetricQuery(req.body, { csv });
       // the same rules BI Q&A's tool applies (scope.ts): 403 outside the scope, never empty rows
       const scope = await scopeForQuery(q, {
         stores: (await metricsScope(p)).map((s) => s.id),
@@ -183,13 +222,16 @@ export function metricsAdminRouter(opts: MetricsRouterOptions = {}): Router {
       const stock = usesStock(q)
         ? await stockScopeFor(p, scope, q.filters.store_ids !== undefined)
         : undefined;
-      const result = await executeMetricQuery(reader(), q, scope, stock ? { stock } : {});
+      const result = await executeMetricQuery(reader(), q, scope, {
+        ...(stock ? { stock } : {}),
+        promotions: promotionsLoader(visibleStoresClientFor(p)),
+      });
       result.labels = await resolveLabels(
         visibleStoresClientFor(p),
         idsOf([...result.rows, ...(result.compare?.rows ?? [])]),
       );
       // text/csv only when the client prefers it over JSON (the default stays JSON); errors stay JSON either way
-      if (wantsCsv(req)) {
+      if (csv) {
         res
           .status(200)
           .type('text/csv; charset=utf-8')
@@ -226,13 +268,7 @@ export function metricsAdminRouter(opts: MetricsRouterOptions = {}): Router {
       );
       const result = await listMetricMovers(reader(), mq, scope);
       const keys = result.by_currency.flatMap((b) => [...b.risers, ...b.fallers]).map((m) => m.key);
-      const column = {
-        store: 'store_id',
-        country: 'country',
-        sales_channel: 'sales_channel_id',
-        product: 'product_id',
-        category: 'category_id',
-      }[mq.dimension];
+      const column = MOVER_ROW_KEY[mq.dimension];
       res.json({
         ...result,
         labels: await resolveLabels(
@@ -249,7 +285,7 @@ export function metricsAdminRouter(opts: MetricsRouterOptions = {}): Router {
     handle(async (req, res) => {
       const p = requirePrincipal(req);
       spec.validateBody('getInventoryHealth', req.body ?? {});
-      const q: InventoryQuery = parseInventoryQuery(req.body ?? {});
+      const q: InventoryQuery = parseInventoryQuery(req.body ?? {}, { csv: wantsCsv(req) });
       const visible = (await metricsScope(p)).map((s) => s.id);
       if (visible.length === 0)
         throw forbidden('no visible store', { relation: 'viewer', object: 'store:*' });
@@ -309,6 +345,53 @@ export function metricsAdminRouter(opts: MetricsRouterOptions = {}): Router {
         return;
       }
       res.json(result);
+    }),
+  );
+
+  // ---- BI v2 wave 2 (#935 a3) ----
+
+  r.post(
+    METRICS_COHORTS_PATH,
+    guard('getCustomerCohorts'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      spec.validateBody('getCustomerCohorts', req.body);
+      const q = parseCohortQuery(req.body);
+      const stores = await storesFor(p, q.store_ids);
+      res.json(await getCustomerCohorts(reader(), q, stores));
+    }),
+  );
+
+  r.post(
+    METRICS_BACKLOG_PATH,
+    guard('getOperationsBacklog'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      spec.validateBody('getOperationsBacklog', req.body ?? {});
+      const q = parseBacklogQuery(req.body ?? {});
+      const stores = await storesFor(p, q.store_ids);
+      const result = await getOperationsBacklog(visibleStoresClientFor(p), stores);
+      res.json({
+        ...result,
+        labels: await resolveLabels(visibleStoresClientFor(p), idsOf(result.rows)),
+      });
+    }),
+  );
+
+  r.get(
+    METRICS_DIMENSION_VALUES_PATH,
+    guard('listMetricDimensionValues'),
+    handle(async (req, res) => {
+      const p = requirePrincipal(req);
+      const q = parseDimensionValuesQuery(req.query as Record<string, unknown>);
+      const stores = await storesFor(p, q.store_ids);
+      res.json(
+        await listMetricDimensionValues(
+          { pg: visibleStoresClientFor(p), reader: reader() },
+          q,
+          stores,
+        ),
+      );
     }),
   );
 

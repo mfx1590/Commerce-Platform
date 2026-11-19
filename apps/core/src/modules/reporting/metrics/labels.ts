@@ -18,6 +18,11 @@ const SQL: Readonly<Record<LabelKind, string>> = {
   sales_channel:
     'SELECT id::text AS id, name AS label FROM sales_channel WHERE id = ANY($1::uuid[])',
   warehouse: 'SELECT id::text AS id, code AS label FROM warehouse WHERE id = ANY($1::uuid[])',
+  // BI v2 wave 2 (#935): a promotion is labelled by its NAME, never its code (a single-use code can be personal)
+  customer_group:
+    'SELECT id::text AS id, name AS label FROM customer_group WHERE id = ANY($1::uuid[])',
+  campaign: 'SELECT id::text AS id, name AS label FROM campaign WHERE id = ANY($1::uuid[])',
+  promotion: 'SELECT id::text AS id, name AS label FROM promotion WHERE id = ANY($1::uuid[])',
 };
 
 const COLUMN: Readonly<Record<LabelKind, keyof MetricRow>> = {
@@ -26,6 +31,9 @@ const COLUMN: Readonly<Record<LabelKind, keyof MetricRow>> = {
   category: 'category_id',
   sales_channel: 'sales_channel_id',
   warehouse: 'warehouse_id',
+  customer_group: 'customer_group_id',
+  campaign: 'campaign_id',
+  promotion: 'promotion_id',
 };
 
 /** The ids of each kind a set of rows holds. */

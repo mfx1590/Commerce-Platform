@@ -51,6 +51,13 @@
   refuses with a message naming `CLICKHOUSE_USER`, instead of silently connecting as `default` (`resolveAdminEnv`).
 - data/clickhouse README: the users.d handover is pull, then `ch:migrate` at once (the file share propagates the
   deletion to the running container).
+- BI v2 wave 2 (#935): the customers, marketing and operations models. Staging for customer.*, attribution,
+  campaigns, abandoned carts, shipment created / delivered, payment outcomes, failed refunds and return requests
+  (no customer id, identity id, free-text reason or utm term is staged); `dim_customer` (the CURRENT group) and
+  `dim_campaign`; `fct_order_sales`, `fct_order_touch`, `fct_shipment`, `fct_order_fulfilment`, `fct_payment_event`.
+  `fct_order`, `fct_order_line` and `mart_sales_daily` gain `customer_group_id` (appended). Tests:
+  `models-wave2.test.ts` on a hand-built history with every figure known; the `system.columns` test names each new
+  key and group column; the erasure convergence sweep (every table and view, 15 seeds) gets a 120 s budget.
 
 ## 0.8.0 — unreleased (#648, the ClickHouse re-review: items 1, 4, 5)
 
