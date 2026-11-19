@@ -168,7 +168,7 @@ describe('outcomes, concurrency and the report', () => {
     }
   });
 
-  it('runBulk: at most N in flight, results in order, a throw fails only its row', async () => {
+  it('runBulk: at most N in flight, results in order, a throw makes only its row unknown (#913 review)', async () => {
     let inFlight = 0;
     let most = 0;
     const rows = Array.from({ length: 10 }, (_, i) => ({ id: id(i + 1) }));
@@ -186,8 +186,11 @@ describe('outcomes, concurrency and the report', () => {
     );
     expect(most).toBe(3);
     expect(report.results.map((r) => r.id)).toEqual(rows.map((r) => r.id));
-    expect(report.results[2]).toMatchObject({ outcome: 'failed', message: 'boom' });
-    expect(report.counts).toMatchObject({ done: 9, failed: 1 });
+    expect(report.results[2]).toMatchObject({
+      outcome: 'unknown',
+      message: 'Outcome unknown (boom): check this row before running it again.',
+    });
+    expect(report.counts).toMatchObject({ done: 9, unknown: 1, failed: 0 });
   });
 
   it('describeReport leaves zero counts out; sortForReport puts what needs attention first', () => {

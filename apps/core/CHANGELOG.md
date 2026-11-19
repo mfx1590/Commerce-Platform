@@ -2,27 +2,26 @@
 
 ## Unreleased — Phase 3 (window 1, contracts-v0.4.11)
 
-### 2026-11-18 · audit rows for order mutations (#887)
+### 2026-11-18 · a capture retried after Stripe's key window converges to captured (#914)
 
-- `transition()` — the one mutation path of an order — writes one `audit_log` row per call (`entity_type: 'order'`),
-  in its transaction, by the change's actor (`actor_type` staff / customer / system; `actor_id` the staff id, a
-  signed-in customer's id, NULL for a guest or the system). Actions:
-  `order.cancel`, `order.status_change`, `order.update`, or the caller's (`order.line_item_update` /
-  `order.line_item_cancel` with the line and quantities); `before` / `after` = the status fields that moved + the
-  changed field names; no PII. So placement's confirm, captures and refunds (window 7's status moves), fulfilment
-  moves, the fraud hold, cancel (+ its void) and line edits are all audited on the order. Placement writes
-  `order.place` (ids, currency, total, line count, provider); shipments and received returns write `order.ship` /
-  `order.return` with the lines' ids and quantities (one row per call, also when no status moves); `linkExchange`
-  (returns module, now with an `actor`) writes `order.exchange_link`. Nothing wrote `entity_type 'order'` before.
-- `writeAudit` stamps `created_at` with `clock_timestamp()` (the write time), so several rows of one transaction keep
-  their order in a history sorted by time.
-- `test/order-audit.test.ts` (8): placement by a guest (NULL) and by a signed-in customer (its id), capture (system),
-  cancel by a store admin (void row, then one `order.cancel` with staff id, previous status, reason; re-cancel writes
-  nothing), both line edits, three shipments and two returns (one row each, status-preserving ones included), none
-  for a rolled-back, a refused, or a transition that throws after its audit write; no email or address in any row.
-  `returns.test.ts` asserts the exchange row. Mutation-checked.
-- Not yet: the cancel's refund link (`refund_ids` on `order.cancel`) — the cancel refund is #905 / PR #917, not on main;
-  it lands with whichever of the two merges second.
+- In window 7's payments module (integration branch): `capturePayment` re-reads the PaymentIntent before recording a
+  definitive refusal; captured at Stripe → the row converges to `captured` (Stripe's amount), never `failed`. See
+  `src/modules/payments/CHANGELOG.md`.
+
+### 2026-11-13 · payment_method as an activation prerequisite; getStoreReadiness (#839, Admin API 0.4.29)
+
+- `READINESS_PREREQUISITES` gains `payment_method` (last): activation needs a method the checkout can offer — `card`
+  with the store's Stripe key, `invoice` with `settings.payment.invoice_allowed`. The rule moved from
+  `src/http/store-routes.ts` to the registry (`paymentMethodsOf`, `payment-methods.ts`) so `GET /store` and the gate
+  share it; `src/http` re-exports it. Only a move to `active` is gated: active stores are not re-checked or
+  deactivated. The seed's stores A–D allow invoice and still activate.
+- `GET /admin/stores/{storeId}/readiness` (`getStoreReadiness`, viewer): the activation check without a change, plus
+  `payment_methods`, `purchasable_products` (one query: published, priced for one unit on the active default list
+  in the store currency, stock available) and `warnings` (`no_purchasable_product`). p95 ≈ 25 ms on a seeded store.
+- Tests: `test/store-readiness.test.ts` (6: A–D exact against an independent count, five ways a product stops being
+  purchasable, `missing` equal to the 409's, payment_method alone blocking then cleared, an active store that loses
+  its method stays active, `card` with a key); activation fixtures that expect success set `invoice_allowed`
+  (`onboarding.test.ts`, `auth-live.test.ts`); the bare-store 409 lists gain `payment_method`. Mutation-checked.
 
 ### 2026-11-13 · contract coverage test (#858)
 
@@ -489,6 +488,55 @@
   Store / Admin API placement reads, the lifecycle replay, `paymentMethodsOf` and the route.
 - Not in this PR (by the manager): `capturePayment` (#355, window 7), `buyShipmentLabel` (#356, window 8), the
   `provider_unsupported` 422 mapping (contracts 0.4.12).
+
+### 2026-11-18 · a stock movement may not take reserved units (#877)
+
+- `moveStock` refuses a negative delta that would leave the pool row's `on_hand` below its `reserved` with 409
+  `conflict` (`on_hand`, `reserved`, `delta`, `stock_item_id`, `warehouse_id`, plus `variant_id` when attributed),
+  under the row lock it already holds; `sale` is exempt, a receipt never checked. So `createStockMovement`
+  (adjustment, transfer_out, cycle_count) and the cycle-count reconcile can no longer drive `available` negative
+  behind open orders' backs. Tests (`inventory.test.ts`): a EUR order's reservation against a store-attributed
+  adjustment, a store-less pool movement and a transfer leg (nothing written on refusal), the boundary at exactly
+  `reserved`, a receipt, the shipment (sale) path, and `sale` below reserved. Mutation-checked.
+
+### 2026-11-18 · cancelling a captured order refunds it (#905)
+
+- `cancelOrder` / `cancelOrderInTx`: a CAPTURED payment (also partly refunded) is refunded for what is still captured
+  (captured − refunded) in the cancel's transaction, through the new orders seam `CancelRefunder`
+  (`setCancelRefunder`), registered by `registerModuleSeams()` as `paymentsCancelRefunder` over window 7's
+  `createRefundIn` (reason `cancellation`, provider key `<payment idempotency_key>:cancel-refund`): refund row,
+  `refund.issued` and `payment_status → refunded` commit with the cancel. A provider refusal → 402 `payment_failed`,
+  the order stays uncancelled — and real Stripe replays that refusal for ~24 h on the same key (workaround: Admin
+  `createRefund` with a fresh key, then cancel; fix #918); an unknown outcome commits nothing and a later cancel reuses the key (the PSP returns
+  the same refund); a pending PSP refund cancels with the row `pending` (`refund.issued` at the webhook). No refunder
+  → 503. Ledger: no double VAT reversal for a fully captured order; after an earlier partial (goodwill) refund the
+  cancel over-reverses VAT (pre-existing accounting, #919). Before: a cancelled captured order stayed charged — the doc comment's "window 7's to refund on
+  `order.cancelled`" was never true (no consumer); corrected.
+- `test/cancel-refund.test.ts` (7, Admin API route, Stripe provider over FakeStripe with real captures): EUR and JPY,
+  partly refunded, provider refusal, a lost provider answer then a retry (one refund at the PSP), pending, re-cancel,
+  fail closed. `test/wiring.test.ts` checks the registration. Mutation-checked.
+
+### 2026-11-18 · audit rows for order mutations (#887)
+
+- `transition()` — the one mutation path of an order — writes one `audit_log` row per call (`entity_type: 'order'`),
+  in its transaction, by the change's actor (`actor_type` staff / customer / system; `actor_id` the staff id, a
+  signed-in customer's id, NULL for a guest or the system). Actions:
+  `order.cancel`, `order.status_change`, `order.update`, or the caller's (`order.line_item_update` /
+  `order.line_item_cancel` with the line and quantities); `before` / `after` = the status fields that moved + the
+  changed field names; no PII. So placement's confirm, captures and refunds (window 7's status moves), fulfilment
+  moves, the fraud hold, cancel (+ its void) and line edits are all audited on the order. Placement writes
+  `order.place` (ids, currency, total, line count, provider); shipments and received returns write `order.ship` /
+  `order.return` with the lines' ids and quantities (one row per call, also when no status moves); `linkExchange`
+  (returns module, now with an `actor`) writes `order.exchange_link`. Nothing wrote `entity_type 'order'` before.
+- `writeAudit` stamps `created_at` with `clock_timestamp()` (the write time), so several rows of one transaction keep
+  their order in a history sorted by time.
+- `test/order-audit.test.ts` (8): placement by a guest (NULL) and by a signed-in customer (its id), capture (system),
+  cancel by a store admin (void row, then one `order.cancel` with staff id, previous status, reason; re-cancel writes
+  nothing), both line edits, three shipments and two returns (one row each, status-preserving ones included), none
+  for a rolled-back, a refused, or a transition that throws after its audit write; no email or address in any row.
+  `returns.test.ts` asserts the exchange row. Mutation-checked.
+- The cancel's refund link: a cancel that refunded a captured payment (#905) puts the refund ids on its `order.cancel`
+  row (`after.refund_ids`); `cancel-refund.test.ts` asserts it.
 
 ## Phase 2 (window 1, contracts-v0.3)
 

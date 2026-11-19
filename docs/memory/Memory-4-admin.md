@@ -557,6 +557,12 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
     the `redirect_uri` matched the registered one — the only simulated hop is the browser itself.
 
 ## In progress
+- **#839 admin half: ONE commit on `integration/readiness-payment-admin`, cut from 4ecc9354** (contracts
+  f4b538cf + window 1's core). Built in a temp worktree (scratchpad/wt-839, removed after) so the demo core's
+  tsx watch never saw the integration core. Generated StoreReadiness + getStoreReadiness; parse pinned with
+  `satisfies`; warnings = contract enum. hq-onboarding.spec turns invoice on from the panel before the last
+  Activate (a PATCH with invoice_allowed + status active together is refused). The manager fast-forwards and
+  opens the one PR. Admin 66 files / 1131 tests; test:contract 133.
 - **PR #862 — #860 roles defect (code 1e48a2ac; head = this memory commit).** Branch
   `admin/phase6-860-roles-guard` from main f431249a. Owner saw "you need the owner relation" on HQ › Roles ›
   Manage …0061 (crm-sync service account). Cause in the admin: HqSectionGuard showed that panel whenever

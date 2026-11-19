@@ -246,6 +246,8 @@ describe.runIf(live)(
           default_locale: 'en-GB',
           default_country: 'NL',
           domain: { hostname: 'brand-live.localhost' },
+          // #839: payment_method is an activation prerequisite — invoice, as the seed's stores have it
+          settings: { payment: { invoice_allowed: true } },
         });
       expect(created.status).toBe(201);
       spec.assertSchema('StoreOnboarded', created.body);

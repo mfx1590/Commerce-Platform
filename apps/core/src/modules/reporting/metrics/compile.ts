@@ -6,6 +6,10 @@
 //     catalogue below (column names, aggregates, period functions). No request string is ever concatenated.
 //   * Output columns are `out_*` / `m_*`: never a column's own name (a ClickHouse alias shadows the column of the same
 //     name in WHERE and GROUP BY; data/clickhouse README).
+//   * The `stock` source (BI v2, #871 c) is scoped differently: pool movements (receipts, transfers, cycle counts)
+//     carry no store, so a store predicate would hide them from everyone. An organization caller reads it by
+//     `organization_id`; a store caller by the stock items its stores' variants map (read from Postgres under RLS),
+//     plus pre-pool rows (no stock item) its own stores caused.
 import { validationError } from '../../../lib/errors';
 import { METRICS, type Dimension, type Grain, type MetricId, type SourceId } from './catalogue';
 import type { MetricQuery } from './query';
@@ -16,24 +20,65 @@ interface SourceSpec {
   day: string;
   where?: string;
   columns: Partial<Record<Dimension | 'currency', string>>;
+  /** `store` (the default): `store_id IN {scope}`; `stock`: the stock scope (see the header). */
+  scope?: 'store' | 'stock';
 }
 
+/** Who may read the `stock` series: the organization, or the stock items the caller's stores map. */
+export type StockScope = { organizationId: string } | { stockItemIds: readonly string[] };
+
+const ORDER_DIMS = {
+  country: 'country',
+  sales_channel: 'sales_channel_id',
+  customer_type: 'customer_type',
+} as const;
+
 const SOURCES: Readonly<Record<SourceId, SourceSpec>> = {
-  bookings: {
-    from: 'mart_bookings_daily',
+  // mart_sales_daily = mart_bookings_daily's figures keyed also by country, channel and customer type (#871 b)
+  sales: {
+    from: 'mart_sales_daily',
     day: 'day',
-    columns: { store: 'store_id', currency: 'currency' },
+    columns: { store: 'store_id', currency: 'currency', ...ORDER_DIMS },
   },
   refunds: {
     from: 'fct_refund',
     day: "toDate(issued_at, 'UTC')",
-    columns: { store: 'store_id', currency: 'currency', refund_reason: 'reason' },
+    columns: {
+      store: 'store_id',
+      currency: 'currency',
+      refund_reason: 'reason',
+      country: 'country',
+      sales_channel: 'sales_channel_id',
+    },
   },
   lines: {
     from: 'fct_order_line',
     day: "toDate(placed_at, 'UTC')",
     where: "order_status != 'cancelled'",
-    columns: { store: 'store_id', currency: 'currency', product: 'product_id' },
+    columns: {
+      store: 'store_id',
+      currency: 'currency',
+      product: 'product_id',
+      category: 'category_id',
+      ...ORDER_DIMS,
+    },
+  },
+  returns: {
+    from: 'fct_return_line',
+    day: "toDate(received_at, 'UTC')",
+    columns: {
+      store: 'store_id',
+      currency: 'currency',
+      product: 'product_id',
+      category: 'category_id',
+      ...ORDER_DIMS,
+    },
+  },
+  stock: {
+    from: 'mart_stock_daily',
+    day: 'day',
+    columns: { warehouse: 'warehouse_id' },
+    scope: 'stock',
   },
   customers: { from: 'mart_customers_daily', day: 'day', columns: { store: 'store_id' } },
   cash: {
@@ -68,7 +113,21 @@ const OUT: Readonly<Record<Dimension | 'currency', string>> = {
   product: 'out_product',
   refund_reason: 'out_reason',
   provider: 'out_provider',
+  country: 'out_country',
+  sales_channel: 'out_channel',
+  category: 'out_category',
+  customer_type: 'out_ctype',
+  warehouse: 'out_warehouse',
 };
+
+/** A filter → the dimension whose column it narrows, its parameter name and type. */
+const FILTERS = [
+  ['countries', 'country', 'countries', 'Array(String)'],
+  ['sales_channel_ids', 'sales_channel', 'channels', 'Array(UUID)'],
+  ['category_ids', 'category', 'categories', 'Array(UUID)'],
+  ['customer_types', 'customer_type', 'ctypes', 'Array(String)'],
+  ['warehouse_ids', 'warehouse', 'warehouses', 'Array(UUID)'],
+] as const;
 
 export interface CompiledSource {
   source: SourceId;
@@ -95,7 +154,11 @@ export function additiveMetrics(metrics: readonly MetricId[]): MetricId[] {
   return [...out];
 }
 
-export function compileMetricQuery(q: MetricQuery, scope: readonly string[]): Compiled {
+export function compileMetricQuery(
+  q: MetricQuery,
+  scope: readonly string[],
+  opts: { stock?: StockScope } = {},
+): Compiled {
   if (scope.length === 0)
     throw new Error('compileMetricQuery: an empty scope never reaches the compiler');
   const currencyKey = q.metrics.some((m) => METRICS[m].currency_bound);
@@ -122,14 +185,36 @@ export function compileMetricQuery(q: MetricQuery, scope: readonly string[]): Co
     }
     for (const m of metrics) select.push(`${METRICS[m].source!.sql} AS m_${m}`);
 
-    const where = [
-      `${s.day} >= {from:Date}`,
-      `${s.day} < {to:Date}`,
-      'store_id IN {scope:Array(UUID)}',
-    ];
-    if (s.where) where.push(s.where);
+    const where = [`${s.day} >= {from:Date}`, `${s.day} < {to:Date}`];
     const params: Record<string, unknown> = { from: q.from, to: q.to, scope: [...scope] };
+    if ((s.scope ?? 'store') === 'store') where.push('store_id IN {scope:Array(UUID)}');
+    else {
+      const st = opts.stock;
+      if (!st) throw new Error('compileMetricQuery: the stock source needs a stock scope');
+      if ('organizationId' in st) {
+        where.push('organization_id = {org:UUID}');
+        params.org = st.organizationId;
+      } else {
+        // the mapped stock items, and pre-pool movements (no stock item) the caller's own stores caused
+        where.push(
+          '(stock_item_id IN {items:Array(UUID)} OR (stock_item_id IS NULL AND store_id IN {scope:Array(UUID)}))',
+        );
+        params.items = [...st.stockItemIds];
+      }
+    }
+    if (s.where) where.push(s.where);
     const f = q.filters;
+    for (const [filter, dim, param, type] of FILTERS) {
+      const values = f[filter];
+      if (!values) continue;
+      const col = s.columns[dim];
+      if (!col)
+        throw validationError(`filters.${filter} needs metrics that accept the ${dim} dimension`, {
+          field: `filters.${filter}`,
+        });
+      where.push(`${col} IN {${param}:${type}}`);
+      params[param] = values;
+    }
     if (f.currencies) {
       if (!s.columns.currency)
         throw validationError('filters.currencies applies to money metrics only', {

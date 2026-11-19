@@ -89,80 +89,28 @@ export function BulkAction({
 
   if (unknown) {
     return (
-      <div
-        role="alert"
-        className="border-warning/30 bg-warning/5 w-full space-y-2 rounded-md border px-3 py-2"
-      >
-        <p className="font-medium">
-          {label.replace(/…$/, '')}: outcome unknown — the request did not come back.
-        </p>
-        <p className="text-sm">
-          Some {noun.many} may have been changed. Reload the list and check them before running it
-          again; nothing is retried automatically.
-        </p>
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={() => {
-            setUnknown(false);
-            onClose();
-          }}
-        >
-          Close
-        </Button>
-      </div>
+      <OutcomeUnknownPanel
+        label={label}
+        noun={noun}
+        onClose={() => {
+          setUnknown(false);
+          onClose();
+        }}
+      />
     );
   }
 
   if (report !== null) {
-    const rows = sortForReport(report.results);
     return (
-      <div
-        role="region"
-        aria-label={`${label.replace(/…$/, '')} results`}
-        className="border-line bg-surface w-full space-y-2 rounded-md border px-3 py-2"
-      >
-        <p className="font-medium" role="status">
-          {label.replace(/…$/, '')}: {describeReport(report.counts)}
-        </p>
-        <ul className="max-h-64 space-y-1 overflow-y-auto text-xs">
-          {rows.map((row) => (
-            <li key={row.id} className="flex gap-2">
-              <span className={cn('w-28 shrink-0 font-medium', OUTCOME_TONE[row.outcome])}>
-                {OUTCOME_LABEL[row.outcome]}
-              </span>
-              <span className="w-48 shrink-0 truncate" title={row.id}>
-                {row.label}
-              </span>
-              <span className="text-muted">{row.message}</span>
-            </li>
-          ))}
-        </ul>
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() =>
-              downloadCsv(
-                csvFileName(`${noun.many}-${label.replace(/…$/, '').toLowerCase()}-results`),
-                reportCsv(report.results),
-              )
-            }
-          >
-            Download results (CSV)
-          </Button>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => {
-              setReport(null);
-              onClose();
-            }}
-          >
-            Close
-          </Button>
-        </div>
-      </div>
+      <BulkReportPanel
+        label={label}
+        noun={noun}
+        report={report}
+        onClose={() => {
+          setReport(null);
+          onClose();
+        }}
+      />
     );
   }
 
@@ -276,6 +224,95 @@ export function BulkAction({
         </Button>
       </div>
       <ActionRefusal refusal={failure?.refusal} message={failure?.message ?? null} />
+    </div>
+  );
+}
+
+/**
+ * A bulk run that never came back (network, a crashed action): some rows may have been done.
+ * Nothing is retried — no Admin API mutation takes an idempotency key; the person checks first.
+ */
+export function OutcomeUnknownPanel({
+  label,
+  noun,
+  onClose,
+}: {
+  label: string;
+  noun: { one: string; many: string };
+  onClose: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      className="border-warning/30 bg-warning/5 w-full space-y-2 rounded-md border px-3 py-2"
+    >
+      <p className="font-medium">
+        {label.replace(/…$/, '')}: outcome unknown — the request did not come back.
+      </p>
+      <p className="text-sm">
+        Some {noun.many} may have been changed. Reload the list and check them before running it
+        again; nothing is retried automatically.
+      </p>
+      <Button size="sm" variant="secondary" onClick={onClose}>
+        Close
+      </Button>
+    </div>
+  );
+}
+
+/** Every row's result, what needs attention first, downloadable as CSV for the follow-up. */
+export function BulkReportPanel({
+  label,
+  noun,
+  report,
+  onClose,
+}: {
+  label: string;
+  noun: { one: string; many: string };
+  report: BulkReport;
+  onClose: () => void;
+}) {
+  const name = label.replace(/…$/, '');
+  const rows = sortForReport(report.results);
+  return (
+    <div
+      role="region"
+      aria-label={`${name} results`}
+      className="border-line bg-surface w-full space-y-2 rounded-md border px-3 py-2"
+    >
+      <p className="font-medium" role="status">
+        {name}: {describeReport(report.counts)}
+      </p>
+      <ul className="max-h-64 space-y-1 overflow-y-auto text-xs">
+        {rows.map((row) => (
+          <li key={row.id} className="flex gap-2">
+            <span className={cn('w-28 shrink-0 font-medium', OUTCOME_TONE[row.outcome])}>
+              {OUTCOME_LABEL[row.outcome]}
+            </span>
+            <span className="w-48 shrink-0 truncate" title={row.id}>
+              {row.label}
+            </span>
+            <span className="text-muted">{row.message}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() =>
+            downloadCsv(
+              csvFileName(`${noun.many}-${name.toLowerCase()}-results`),
+              reportCsv(report.results),
+            )
+          }
+        >
+          Download results (CSV)
+        </Button>
+        <Button size="sm" variant="secondary" onClick={onClose}>
+          Close
+        </Button>
+      </div>
     </div>
   );
 }

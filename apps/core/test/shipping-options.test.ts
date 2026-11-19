@@ -298,11 +298,13 @@ describe('activation readiness with shipping options (#809)', () => {
       hq.transaction(async (tx) => {
         const s = await tx.query<{
           id: string;
+          code: string;
+          settings: Record<string, unknown>;
           legal_entity_id: string;
           default_country: string;
           default_currency: string;
         }>(
-          `SELECT id, legal_entity_id, default_country, default_currency FROM store WHERE id = $1`,
+          `SELECT id, code, settings, legal_entity_id, default_country, default_currency FROM store WHERE id = $1`,
           [jp.id],
         );
         return storeReadiness(tx, s.rows[0]!, registered);

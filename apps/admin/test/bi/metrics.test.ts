@@ -46,6 +46,11 @@ const row = (
   product_id: null,
   refund_reason: null,
   provider: null,
+  country: null,
+  sales_channel_id: null,
+  category_id: null,
+  customer_type: null,
+  warehouse_id: null,
   values,
 });
 

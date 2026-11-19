@@ -561,3 +561,39 @@
 - Spec tests: the Admin version pins move to 0.4.28, the operation counts to 141, and the `ActivationBlocked`
   example pin includes `shipping_options`. `ShippingOptionInput`, `ShippingOption`, `listShippingOptions`, Store API
   (0.5.10), Accounting API and events are unchanged (`store.updated` already takes free `changed_fields` values).
+
+## 0.4.36 — 2026-11-13 (Admin API 0.4.29; CONTRACT CHANGE #839 (#830), manager landing)
+
+- Admin API: a new activation prerequisite `payment_method`, after `shipping_options` in `details.missing` (the same
+  409 `ActivationBlocked`, `code: conflict`). It is missing when the checkout can offer no payment method: `card` needs
+  the store's Stripe key, `invoice` needs `settings.payment.invoice_allowed` (the Store API's `payment.methods` rule).
+  `activateStore`'s description says so; the `ActivationBlocked` example gains `payment_method`. Already-active stores
+  are not deactivated.
+- Admin API: `getStoreReadiness` (`GET /admin/stores/{storeId}/readiness`, tag `registry`, `viewer` on the store;
+  200 / 401 / 403 / 404) returns the new closed `StoreReadiness`: `status`, `missing` (exactly what `activateStore`
+  would list), `missing_tax_countries`, `missing_shipping_countries`, `payment_methods` (`card` | `invoice`),
+  `purchasable_products` (published products with a variant priced in the default currency and available stock) and
+  `warnings` (`no_purchasable_product`: does not block activation). Nothing is changed by the read.
+- Spec tests: the Admin version pins move to 0.4.29, the operation counts to 142, the `ActivationBlocked` example pin
+  includes `payment_method`, and a new block pins `getStoreReadiness` and `StoreReadiness`. The Prism walk reads
+  `/readiness`. Store API (0.5.10), Accounting API and events are unchanged.
+
+## 0.4.37 — 2026-11-18 (Admin API 0.4.30; #871 revision 2 + addendum, BI v2 Phase A wave 1, manager landing)
+
+Additive. Metrics catalogue v2: `MetricId` gains 27 ids (42 in all), `MetricDimension` gains `country`,
+`sales_channel`, `category`, `customer_type`, `warehouse` (with the filters `countries`, `sales_channel_ids`,
+`category_ids`, `customer_types`, `warehouse_ids`), `MetricDefinition` gains unit `milli` and the optional `kind`,
+`additive`, `formula`, `MetricCatalogue` the optional `dimensions` and `inventory_defaults`; `MetricQuery.compare`
+(`previous_period` | `previous_year`, matched by offset), `MetricRow` requires the five new keys (null unless asked),
+`MetricResult` gains the optional `compare` and `labels`, and `queryMetrics` takes `labels=true` (CSV label columns
+appended; without it the CSV is unchanged). New: `listMetricMovers` (`POST /admin/metrics/movers`; additive series
+metrics only, ranked by absolute change inside one currency block, `change_bp` null below `min_base`; 200 / 400 /
+401 / 403 / 503) and `getInventoryHealth` (`POST /admin/metrics/inventory`; one row per stock item with its warehouse
+breakdown, `shared`, `suggestion_partial`, `rate_understated`, `incoming_tracked`, 200 with `rate_available: false`
+when the analytics store is down, JSON or CSV; 200 / 400 / 401 / 403), both tag `reports`, `viewer` on `store:*`.
+`MetricAnswer` gains the optional `inventory` (ref h1…, query, result) and `labels` (#871 addendum). Against the a3
+text, `InventoryHealthRow.status` is `oneOf [InventoryStatus, null]` (a `$ref` with a sibling `type` refuses null) and
+`InventoryHealthQuery`'s id arrays are written out instead of `$ref`s into the optional `MetricQuery.filters` (the
+generated types did not compile). Spec pins move to 0.4.30 / 144 operations / 9 filter arrays, a new block pins the
+wave, and the Prism walk posts to both operations. Store API, Accounting API, events and db unchanged; the core's
+`LIMITS` additions are apps/core's.

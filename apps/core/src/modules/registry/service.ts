@@ -15,7 +15,7 @@ import {
 } from '../../lib/errors';
 import { storeKeyCache } from '../../lib/store-key-cache';
 import { buildEvent, eventActor, withEvents } from '../../outbox';
-import { storeReadiness } from './readiness';
+import { purchasableProductCount, storeReadiness, type StoreReadinessReport } from './readiness';
 import { validateStoreSettings } from './settings-schema';
 import type {
   ApiKey,
@@ -482,6 +482,30 @@ export async function refuseUnlessReady(
       ...(missing_shipping_countries.length ? { missing_shipping_countries } : {}),
     });
   }
+}
+
+/**
+ * `getStoreReadiness` (#839): the check `activateStore` runs — same `missing` list, same country lists — without
+ * changing anything, plus what the checkout can offer and how many products a customer can buy now. Viewer on the
+ * store; an active store answers the same shape (it is never re-checked or deactivated by this).
+ */
+export async function getStoreReadiness(
+  client: ScopedClient,
+  storeId: string,
+  registrar: StoreRegistrar | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<StoreReadinessReport> {
+  return client.transaction(async (tx) => {
+    const store = await loadStore(tx, storeId);
+    const readiness = await storeReadiness(tx, store, registrar ?? UNKNOWN_REGISTRAR, env);
+    const purchasable = await purchasableProductCount(tx, store);
+    return {
+      status: store.status,
+      ...readiness,
+      purchasable_products: purchasable,
+      warnings: purchasable === 0 ? ['no_purchasable_product'] : [],
+    };
+  });
 }
 
 /** No registrar given: the OpenFGA object is unknown, so it is reported missing and never written. */

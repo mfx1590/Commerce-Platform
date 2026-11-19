@@ -52,6 +52,108 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- BI v2 PHASE A (2026-11-13, Manager session THIRTEEN local_a8e32bd9…; replaces eleven; owner rule: everything to the
+  manager, never the owner; paused messages → "FOR THE MANAGER:" in the reply). Issues #869 (BI v2) + #870 (admin
+  standard). Node 22 required (v22.23.5 ok). Main 71b0c625: contracts release 0.4.35 = admin-api.yaml 0.4.28.
+  TASK: CONTRACT CHANGE issue for wave 1 = Overview + Products/categories + Inventory health (a–g), Phase B issues,
+  then staging models on LOCAL branch integration/bi-v2-data (no PR until the contract lands).
+  VERIFIED: 38 topics, ingest takes EVENT_TOPICS (ingest.ts:285); catalogue 15 metrics / 4 dims, no compare; mart has
+  gross/discount/shipping/tax unused. FOUND: product.updated has NO title/category (stale after publish); no event for
+  category/sales channel/warehouse names (Postgres only); stock.moved@2 has on_hand_after/reserved_after but a
+  reservation is not a movement → current position from Postgres (inventory_level per stock_item × warehouse, RLS);
+  inventory_level.incoming exists but nothing writes it (always 0, no POs).
+  DESIGN: labels decorated from Postgres at response time (group by ids in CH); inventory health = Postgres position +
+  CH velocity; reorder = ceil(rate × (lead + cover)) − available − incoming, lead/cover as bounded request params.
+  FILED: #871 CONTRACT CHANGE (Admin API 0.4.29, catalogue v2: 24 metrics, 5 dims, compare, labels,
+  listMetricMovers, getInventoryHealth; 5 decisions to the manager); Phase B #872 funnel, #873 ad spend, #874 FX,
+  #875 targets, #876 CONTRACT CHANGE product.updated@2 (title + category_id); #559 unit cost referenced.
+  LOCAL branch integration/bi-v2-data (from origin/main 71b0c625, NOT pushed): staging (order.placed + channel,
+  countries, locale; stg_order_line; product.published category_id; stg_stock_moved_v2, stg_return_received_v1,
+  stg_stock_item_mapped_v1), dim_product, fct_order + sales_channel_id/country/customer_type (window fn,
+  mart_customers_daily rule), fct_order_line + those + category_id. Model tests written (fixtures: half the
+  products categorised; every-topic generator for stock/returns). SQL lint 48/48, typecheck/lint clean.
+  DECIDED (thirteen): 1 Postgres labels; 2 hybrid; 3 pooled item shown, shared:true, own rate, row SAYS other brands
+  draw on it (not which); 4 params 14/28/28/60 editable + per-STORE defaults as store settings
+  analytics.inventory.{velocity,lead_time,cover,dead}_days (REQUEST window 1 for the shape check when it lands);
+  per-item = Phase B #878 (purchase orders / incoming, filed); 5 billing_country staged only. VERSION: 0.4.30 /
+  contracts 0.4.37 (#839 holds 0.4.29/0.4.36 on integration/readiness-payment) — do NOT start the yaml edit until
+  the manager says #839 is on main. #871 updated: incoming_tracked + "0 ≠ nothing on order" on view + formula, row
+  parameters + parameters_source, a5 specialist controls per view. Manager + Fable review #871, lands contracts.
+  LIVE models 22/22 (OK'd: throwaway CH DBs of that size need no machine — run, then tell the manager). stock.moved
+  v1 staged too (pre-pool, no stock item) + union stg_stock_moved. Leftover analytics_test_nucddp (created 11-02,
+  not today's) reported, NOT dropped. MARTS built locally: mart_bookings_daily UNCHANGED (reconcile identity 1 reads
+  it row for row); NEW mart_sales_daily (+country, sales_channel_id, customer_type, cancelled/placed; Σ over keys =
+  mart_bookings_daily, tested A and B), fct_return_line, mart_stock_daily (stock-out = transition >0 → ≤0; v1 rows by
+  legacy_variant_id). #871 §b updated to match. Live models+erasure+live 42/42, unit 154. NEXT: wait for the #871
+  verdict + #839 on main; then catalogue v2 / compiler / ops / Ask tools in apps/core reporting (all local).
+  REVIEW of #871 (Fable, via thirteen): ACCEPT WITH CHANGES, 12 required + 5 rec. #871 body REWRITTEN as revision 2
+  (single source, review ledger at the end): stock series scope (org by organization_id; store by mapped stock
+  items as Array(UUID) from Postgres); inventory per STOCK ITEM with a warehouses breakdown; stock_out = available ≤ 0
+  regardless of sales, rate_understated, rate = non-cancelled by placement day, full UTC days before today, returns
+  not netted; two tax bases + NEW net_sales_minor / product_net_ex_tax_minor = Σ line (total − tax) (27 metrics);
+  source `sales` = mart_sales_daily; caller-visible stores only + suggestion_partial; drill-downs HQ-only (#890
+  filed); movers additive-only, per currency, min_base (10 major units by exponent), is_new/is_gone, share_bp,
+  "change never cause"; compare by OFFSET (29 Feb, weekdays, current_incomplete, changes[]); CSV labels opt-in;
+  LIMITS; Ask aliases with server-side substitution, bi_qa excludes stores from pooled rate, 200 rows; degraded
+  rate_available:false. Verified: NO bundle multiplier (variant.stock_item_id single FK); free shipping = shipping 0,
+  NOT in discount_minor (waived value unrecorded). Local marts need no change for the review.
+  #871 rev 2 ACCEPTED (thirteen). TASK NOW: core side locally on integration/bi-v2-data, separate commits per layer
+  (models / core), NO packages/contracts edits (tests overlay the spec, like ask's specWith). Plan: catalogue v2
+  (+27 metrics, 5 dims, kind/additive/formula, LIMITS, catalogue dimensions + inventory_defaults); query.ts (filters,
+  compare); compile.ts (sources sales/returns/stock, dim columns, stock scope org vs mapped items Array(UUID),
+  snapshot refused); execute (compare by offset + changes, null keys); labels resolver (Postgres batched);
+  movers.ts; inventory.ts (Postgres position per item + CH rate + understated + settings precedence + degraded);
+  routes (2 ops, CSV labels opt-in); Ask tools movers + inventory_health + server-side alias substitution;
+  golden owner question with CONCRETE expected items/cover/suggestion/"incoming not tracked" sentence; tests
+  (unit, metrics-live p95 incl. new ops, access-matrix = window 1's file → flag). Report cost of the 2 ops on seed.
+  STOPPED 2026-11-13 ~19:25 (owner: usage limit 83%; manager resumes after 22:40). Local commits on
+  integration/bi-v2-data: models 550ec144 (fct_refund + country/channel); CORE WIP commit after it (see git log).
+  CORE DONE (typecheck + lint clean): catalogue v2 (27 metrics, 5 dims, kind/additive/formula/total, LIMITS,
+  DIMENSION_INFO, INVENTORY_DEFAULTS, catalogueFor v2), query.ts (filters, compare + comparisonRange, snapshot 400),
+  compile.ts (sources sales/returns/stock, ORDER_DIMS, FILTERS, StockScope org|items), execute.ts (new keys, derived
+  ratios, total none, compare + changes, scopedEverywhere), csv.ts (labels opt-in, renderInventoryCsv), labels.ts,
+  movers.ts (parse, rankMovers, moversMetricQuery, moversFromResult, listMetricMovers), inventory.ts (parse, pure
+  computeInventoryHealth, loadInventoryInputs), metrics/routes.ts (labels, stockScopeFor, movers + inventory ops),
+  ask/tool.ts (Aliases, biQaToolHandler, moversTool, inventoryTool, substituteAliases, dimensionsLine grouped),
+  ask/ask.ts (3 tools, aliases, substitution, answer.inventory + answer.labels), ask/routes.ts (stockScope,
+  inventory, labels deps). metrics-v2.test.ts 20/20 passed; metrics.test.ts 30/30 passed (before ask changes).
+  NOT RUN since the ask changes: the full reporting suite (ask.test.ts dimensionsLine expectations will need
+  updating: the line is now "Dimensions: … take …"). NEXT: run reporting unit suites + fix ask tests; golden case for
+  the owner question with concrete items/cover/suggestion/"incoming not tracked"; metrics-live blocks (movers,
+  compare, inventory p95 + leak, stock series leak); access-matrix (window 1's file → flag); contract gaps to
+  report: MetricAnswer needs `inventory` + `labels` fields in #871 a3; template "change never cause" = REQUEST to
+  packages/ai (bi-qa-answer@4); routes route spec overlay in tests (no contracts edit).
+  RESUMED 2026-11-17 under Manager session FOURTEEN (local_66534535…; replaces thirteen). Pushed on
+  integration/bi-v2-data (no PR): 5e5eeee5 Ask tests, 8ac55347 owner stock golden (golden/stock.ts checker +
+  stock.test.ts: Red mug stock_out order 3, Blue mug 10 d order 64, Espresso cup 30 d order 12, incoming sentence),
+  82abed96 MODELS (every joining view SETTINGS join_algorithm='hash': CH 25.8 parallel hash preallocated ~300 MiB/query
+  → 4.4 MiB; shared CH caps 1.13 GiB; fct_return_line returns on the join's right), 13b0e8f9 CORE live blocks
+  (metrics-live 14/14: inventory p95 143 store / 117 HQ, movers 53, compare 67, random 48; stock leak A 50 / HQ 120),
+  then the access overlay (access-v2.test.ts). Step 4: #906 REQUEST window 1 access-matrix rows (land WITH the
+  contracts commit; matrix fails on POST /admin/metrics/movers until then). #907 REQUEST bi-qa-answer@4 (packages/ai).
+  #871 addendum comment: MetricAnswer.inventory + labels. GOTCHAS: CH form field ~128 KB (~3000 uuids) — inventory
+  loader reads stock-outs by organization; store-scoped stock series still sends its item list (limit stated).
+  Postgres template literals are scanned by the alias-shadow lint too (rename `x AS x`). The reconcile gate NOT run
+  (needs the relay on the shared broker → manager OK); shared analytics DB needs ch:migrate after landing.
+  FOURTEEN decided: reconcile gate OK (prefixed self-cleaning suites need no machine) → RAN 9/9, every identity 0
+  (1: 68 keys, 2a 743/36, 2b 273, 2c 92, 3a 71, 3b 71, 3c 3); PII sweep 38 tables / 97 cols / 0. join_algorithm on
+  every joining view stays in this branch (PR calls it out as a fix: 309→4.4, 163→4.5, 394→4.1 MiB). #908 filed (the
+  ~3 000-id limit): store-scoped series > 2 500 items → validation_error stock_scope_too_large (Ask: tool error).
+  ch:migrate on shared analytics = after merge, OWNER-typed. NO PR until the manager lands the contracts commit.
+  CONTRACTS LANDED (manager fourteen): integration/bi-v2-contracts c2390ec6 (Admin API 0.4.30 / contracts 0.4.37; its
+  commit message's /admin/inventory/health is WRONG, yaml right: /admin/metrics/inventory). The branch is checked out in
+  the manager's wt-contracts worktree → I work on LOCAL w12/bi-v2-contracts and push HEAD:integration/bi-v2-contracts
+  (fast-forward). Merged bi-v2-data clean; admin BI fixtures +5 MetricRow keys; #906 matrix rows applied (22/22);
+  contract-v2.test (real outputs vs yaml). Gates: lint, typecheck 30/30, core 1829, admin 1349, ingest 154. Pushed
+  9de5910b. PR #924 (integration/bi-v2-contracts → main), Fable review via the manager. Report checks.
+  #924 Fable BLOCK (2 items): (1) movers ranked a 1 000-row slice sorted by key → FIXED: ExecuteOptions.noLimit
+  (every key of BOTH ranges), listMetricMovers + Ask movers tool (records a result capped at the query limit;
+  ranking unaffected); test 1 500 keys × EUR/JPY, top riser past row 1 000, no false is_new/is_gone; negative
+  control (noLimit false) FAILS as it should. No contract change. (2) analytics_ro (readonly=1, real profile) reads
+  every view with SETTINGS join_algorithm and the setting TAKES EFFECT (~4 MiB peak per view) — probe
+  apps/analytics-ingest/src/testing/probe-readonly.ts: throwaway db + renamed user/profile/quota, all dropped (verified
+  0 left). Definitions now say lines counts failed-payment orders, sales does not. metrics-live 14/14 (movers p95 70).
+  (mart_bookings_daily keys, mart_product_daily, mart_stock_daily, mart_sales_rate) once #871 is decided.
 - INT5 3c FOLLOW-UP (2026-11-05, manager eleven): #718 MERGED 1fad84d4; #633 MERGED as #719 268a81bf (richPayments
   opt-in). Branch data/phase5-int5-3c. Done: gate month richPayments + reconcileAll(createFixtureSource(month.payouts))
   after the consumers stop; 3c exemption removed (3 payouts reconciled, 3 keys, 6 psp.payout lines in CH); "3c fails
@@ -59,6 +161,9 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   sweep classifies every column type (UnclassifiedColumnError on IPv4/6, Tuple, AggregateFunction …), pii:sweep as
   CLICKHOUSE_READONLY_USER. #720 nit: ask route reader is a lazy getter → store B 403 before the reader's 503 (new
   route test; negative control: eager → 503). Live gate 9/9 (lag p95 599 ms). Unit: ingest 154, reporting 265.
+  DONE: #723 MERGED 62de3377 — data side of Integration 5 done; machine handed back. LATER nits (not now): in-file
+  negative control for the lazy ask reader (same app, store A → 503 not_configured); comment that columnClass reads
+  Tuple/Map containing String through toString. IDLE.
 - INTEGRATION 5 GATE (2026-11-05, Manager session ELEVEN local_3be8fff4…; plan on #612 latest comment). Branch
   data/phase5-int5-gate from origin/main 2bc270be (first push with explicit -u). Machine is MINE for live CH runs
   (report "machine free"). One PR "Refs #612", Fable review; message PR up (number+head) + checks finished; HOLD
