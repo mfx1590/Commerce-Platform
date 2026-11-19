@@ -579,6 +579,18 @@ export async function listCustomers(
   });
 }
 
+/**
+ * The store's customer groups (`viewer` on the store — the lightest gate in the customers area,
+ * because a group is a name, not personal data). Admin API 0.4.7; the list has no paging.
+ */
+export async function listCustomerGroups(
+  storeId: string,
+): Promise<ApiResult<AdminResponse<'listCustomerGroups'>>> {
+  return adminCall<'listCustomerGroups'>({
+    path: buildPath('/admin/stores/{storeId}/customer-groups', { storeId }),
+  });
+}
+
 export async function getCustomer(
   storeId: string,
   customerId: string,

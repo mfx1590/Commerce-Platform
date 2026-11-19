@@ -31,6 +31,7 @@ export function CustomersTable({
   rows,
   total,
   query,
+  groupNames = {},
   emptyState,
   error,
 }: {
@@ -38,6 +39,8 @@ export function CustomersTable({
   rows: readonly CustomerRow[];
   total: number;
   query: TableQuery;
+  /** Group id → name, resolved on the server. Names are not personal data; ids alone are useless. */
+  groupNames?: Readonly<Record<string, string>>;
   emptyState?: ReactNode;
   error?: { status: number; error: AdminError } | undefined;
 }) {
@@ -76,12 +79,18 @@ export function CustomersTable({
     {
       id: 'group',
       header: 'Group',
-      cell: ({ row }) =>
-        row.original.customer_group_id === null ? (
-          <span className="text-muted">—</span>
+      cell: ({ row }) => {
+        const id = row.original.customer_group_id;
+        if (id === null) return <span className="text-muted">—</span>;
+        const name = Object.hasOwn(groupNames, id) ? groupNames[id] : undefined;
+        // A group the picker could not name (a failed read, or one removed since) keeps its id
+        // rather than reading as "no group".
+        return name === undefined ? (
+          <span className="text-muted font-mono text-xs">{id.slice(0, 8)}…</span>
         ) : (
-          <span className="font-mono text-xs">{row.original.customer_group_id.slice(0, 8)}…</span>
-        ),
+          <span>{name}</span>
+        );
+      },
     },
     {
       id: 'created_at',

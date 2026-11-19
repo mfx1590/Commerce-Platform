@@ -1313,6 +1313,39 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   - Where an item's parameters came from is in words ("the platform default", "the store's setting", "set on this page").
   - An id the API didn't label reads "unknown" (the API itself says "(deleted)"), never an id prefix.
 
+### Added — #870 wave 1 item 4 (PR A): the customer group picker, and an email out of a URL
+
+- **A group picker on the customers list**, which keeps a promise the page's own docstring had been
+  making: it said there would be no picker "until a customer-groups operation exists", and
+  `listCustomerGroups` arrived in Admin API 0.4.7. `group_id` was always honoured from the URL;
+  now it is choosable, and the server does the filtering (`listCustomers` takes the parameter).
+  The groups read is `viewer` while the list is `support`, so it cannot widen what anyone sees.
+- **The Group column shows the group's name**, not the first eight characters of a uuid. A group
+  that cannot be named — a failed read, or one removed since — keeps its id rather than reading as
+  "no group", and a refused groups read leaves the table working with a note saying so.
+- **Defect fixed: a customer's email address travelled in a URL.** "Orders by this customer" linked
+  `/orders?q=<email>`, which puts personal data into browser history, into the referrer of anything
+  the orders page loads, and into any log that records paths. `listOrders` has taken an exact
+  `customer_id` since Admin API 0.4.24 (#569), so the link uses that. It is also more accurate: `q`
+  matches a display id too, and the same address can exist in more than one store.
+  - `customer_id` had to be added to `ORDER_FILTER_KEYS`: a key the orders page does not parse is
+    dropped, so the new link would otherwise have shown **every** order while looking filtered.
+  - The orders list now says when it is showing one customer's orders, with links to that customer
+    and back to the unfiltered list — a filtered list that looks unfiltered is a trap.
+- **No CSV export of the customer list**, deliberately: that is a bulk extraction of emails, phones
+  and addresses and needs its own decision (store_admin, audited, with a stated reason), not a
+  button added while building a filter. A test asserts the list offers none.
+- Tests: `test/customers-list.test.tsx` (9) — the picker's options and the parameter sent, the group
+  name and both fallbacks, the refused read, the absent CSV, and the privacy assertion that **no
+  href on the customer page contains the address** in any encoding.
+- **The e2e asserted the old link, and I had not grepped for it.** `e2e/store-admin.spec.ts:268`
+  pinned the `?q=jane%40example.com` href, so both e2e jobs on this PR failed on that one line —
+  the same single cause in each, with every unit suite green. The spec now takes the customer id
+  from the address it is already on, asserts the real `?customer_id=` link, and asserts the href
+  contains the email in **no** encoding. Other specs were grepped for `q=` and email expectations:
+  the only other hits are a product handle in `catalog-core` and a staff email rendered on HQ ›
+  Roles, neither of which this change touches.
+
 ### Fixed — #910: an active store that loses a prerequisite no longer reads "customers can place an order"
 
 - `canSell` requires `missing` to be empty.
