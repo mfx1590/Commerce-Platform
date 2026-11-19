@@ -1146,3 +1146,26 @@ Owner: window 4 (admin). `src/app/(hq)/bi/**` is window 12 (embed only), and
 `src/app/(hq)/marketing/**` plus `src/app/(store)/[storeId]/marketing/**` are window 17 from
 Phase 2 — they hold a placeholder each today, deliberately self-contained (one file, no shared
 components inside them, no API calls) so window 17 inherits a clean folder. See CLAUDE.md.
+
+## Server-side checks on every action and route (#903, #900)
+
+**Every server action and every `route.ts` refuses before the Admin API.** A server action or route handler is a
+public endpoint: a section guard or a hidden button does nothing for a crafted POST or a typed URL.
+
+- **Server actions** start with `refuseUnlessPermitted(operation, storeId)` (`src/lib/permissions/guard.ts`)
+  or reach it through `runStoreBulkAction` / `precheck` (orders) / `exportStoreList` (section check). Each
+  relation comes from a `*_PERMISSIONS` table pinned to `admin-api.yaml` by a unit test. #903 added
+  `CUSTOMER_PERMISSIONS` (`updateCustomer` support, `eraseCustomer` store_admin), `PRICING_PERMISSIONS`
+  (`createPriceList`, `upsertPrices`: store_admin) and `PROMOTION_PERMISSIONS` (`createPromotion`,
+  `updatePromotion`: store_admin). Erasure is irreversible, so it never leaves the admin for a principal
+  without store_admin on that store.
+- **BI routes** (`(hq)/bi/*` and `(store)/[storeId]/bi/*`: export, query, ask, ask feedback, live) start with
+  `refuseUnlessBi(storeId?)` (`src/app/(hq)/bi/_lib/gate.ts`): the principal, then the **same**
+  `visibleHqSections` / `visibleStoreSections` predicate as the pages, from the same `bi` catalogue entry.
+  No session → the failed `/admin/me` status (401; a fail-closed 503 stays 503); without the section → 403
+  (`analyst` on organization:hq for HQ, `viewer` on the URL's store); a store id that is not a uuid → 404.
+  None of them reaches the API, so HQ Ask spends no AI tokens for a non-analyst. The audit export (#896)
+  works the same way.
+- **Not gated on purpose:** `api/auth/{login,callback,logout}` (the sign-in flow itself) and `health`.
+- **Known gap, not window 4's:** the nine Marketing actions (`(store)/[storeId]/marketing/_actions.ts`, window
+  17). They're filed as REQUEST #925 with the same fix.
