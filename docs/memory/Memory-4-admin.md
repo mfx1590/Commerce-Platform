@@ -563,6 +563,42 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   `satisfies`; warnings = contract enum. hq-onboarding.spec turns invoice on from the panel before the last
   Activate (a PATCH with invoice_allowed + status active together is refused). The manager fast-forwards and
   opens the one PR. Admin 66 files / 1131 tests; test:contract 133.
+- **#859, 2026-11-19 (Manager session fourteen, after the owner STOP/CONTINUE):** merged origin/main again
+  (#909/#913 etc.; picomatch audit fixed on main by #912). CHANGELOG + Memory-4 conflicts resolved main-first,
+  my entries LAST (the #851 part 2 CHANGELOG section moved to the end of Unreleased) so the next merge does not
+  collide. Hermetic gates only (Docker down). Follow-ups not now (manager).
+- **#859 (Finance part 2), 2026-11-18 (Manager session fourteen):** merged origin/main (f313c8c6; CHANGELOG +
+  Memory-4 conflicts additive, both kept). Every 11-13 Fable BLOCK item answered in the PR body: (1) e2e runs in
+  the advisory core job on Prism accounting :4013 (proof run 43457259820: two FINANCE-E2E passed lines, 38
+  passed / 7 skipped); (2) the payout note now says plainly "Why this payout is discrepant is not available
+  yet" + CONTRACT CHANGE #865; (3) waiver comment on #851 naming #852; (4) this entry rides in the head commit
+  itself (code + memory in one commit; head sha in the PR body). Customer-group hint: already fixed on main by #862; picker not built
+  (no listCustomerGroups wrapper; a follow-up). #839 admin half is in PR #909 (manager); hands off
+  integration/readiness-payment(-admin). Demo core/admin NOT running.
+- **#853 MERGED** (Finance part 1). **#859 re-targeted to main** after the Fable BLOCK fixes (code 94801ea1;
+  main merged in; head = this memory commit; one push). The advisory admin e2e job runs CORE mode, where
+  finance.spec skipped everything: core mode now starts `prism mock openapi/accounting.yaml` on :4013 from
+  playwright.config (unless E2E_ACCOUNTING_URL); refusal runs in both runs, the journey in core mode on the
+  contract examples; each prints a `FINANCE-E2E passed|skipped` line. TODO: quote that line from the
+  advisory job log in the PR once it runs. Payout page note for payout-level reasons → CONTRACT CHANGE #865
+  (reasons are only logged in reconcile.ts:332, not stored). Waiver on #851 (REQUEST #852).
+- **#862 (#860 guard):** Fable MERGE, queued after #853. Nits for later: import the service ids from
+  SEED_IDS + a test pinning them. #864 (manager) = core gaps. #860 comment: lying panel reachable only on
+  soft navigation (Shell handles a failed principal on full loads).
+- **Next after #859:** an orders e2e for line-item edits ("lower quantity", "cancel line", 409 with a
+  shipment, refund due after capture) once window 1's #863 merges (manager says when).
+- **PR #859 — #851 part 2, STACKED on #853 (code 85c8c1a9; head = this memory commit).** Branch
+  `admin/phase6-851-finance-2` cut from #853 head 22a0f3c3; PR base `admin/phase6-851-finance` → re-target to
+  `main` after #853 merges (then merge main in once, push once). Payouts tab (`listPayouts`, no currency param)
+  + `/finance/payouts/[payoutId]?entity=` (`getPayout`, verdicts in words, PSP − ledger difference); ops tab
+  (`getErpSyncStatus`, `listParkedEvents` → order links). Only the chosen tab's ops are called.
+  e2e/finance.spec.ts: Prism run = store-admin refusal (Prism /admin/me is the store-admin example); finance
+  journey needs E2E_API=core + E2E_ACCOUNTING_URL (Prism accounting :4013 is enough). playwright.config passes
+  ACCOUNTING_API_URL (next start = production → no mock fallback). Fable review. Hold pushes after reporting.
+  - Gotcha: full admin suite had 2–4 run-to-run timing failures (tax-rates-screens, onboarding-screens,
+    contract-form) while the demo servers run; they pass in isolation. Not a regression.
+  - Gotcha: Python heredoc strings turn `\`` into a literal backslash-backtick; and `sed -i` here rewrote
+    whole files (line endings). Use Write + node scripts for doc edits.
 - **PR #862 — #860 roles defect (code 1e48a2ac; head = this memory commit).** Branch
   `admin/phase6-860-roles-guard` from main f431249a. Owner saw "you need the owner relation" on HQ › Roles ›
   Manage …0061 (crm-sync service account). Cause in the admin: HqSectionGuard showed that panel whenever
@@ -580,7 +616,8 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   AND debit = credit. New test/finance-page.test.tsx renders FinancePage (placeholder gone; down,
   not_configured, 401, 403, 5xx). Nits deferred: Math.abs badge, "no lines" past the last page, no transport
   timeout. Not ours: accounting journal ORDER BY tiebreak (window 15).
-  - Then #859 (part 2) is rebased/merged onto the new #853 head and pushed once.
+  - #853 pushed once (head 78de647c, main merged in). #859 then MERGED the new #853 head (no rebase, no
+    force-push); its payouts/ops/payout-page panels moved to AccountingStatePanel; finance-page tests for both.
 - **#839 next (after Finance part 2):** contracts 0.4.36 on `integration/readiness-payment` f4b538cf
   (getStoreReadiness + StoreReadiness as filed). May rebase cfe11b71 onto it to swap the fixture for generated
   types; the admin commit is CUT from window 1's core sha (manager sends it after #855).

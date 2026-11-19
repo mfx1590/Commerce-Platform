@@ -1184,6 +1184,28 @@
 - `.next/` and `next-env.d.ts` are ignored locally; the root ESLint and Prettier ignore lists do not
   cover Next build output yet (`REQUEST:` issue filed — those files belong to the main window).
 
+### Added — #851 (part 2): HQ › Finance payouts, payout reconciliation, parked events and ERP sync, e2e
+
+- Payouts tab (`listPayouts`, status and provider filters, paging) and a payout page (`getPayout`): line verdicts in
+  words, amount, fee and net in the payout's currency, the PSP − ledger difference.
+- Parked events & ERP tab (`getErpSyncStatus`, `listParkedEvents`): mapping gaps as an alert; parked events link
+  to their order.
+- All seven accounting operations are behind the finance gate. Only the chosen tab's operations are called.
+- Merged with #853's review fixes: the payouts, ops and payout-page failures render `AccountingStatePanel` too.
+  `finance-page` covers the payouts tab (only `listPayouts` called, currency never sent), the ops tab and the payout
+  page (no request without a valid entity; not configured named).
+- `e2e/finance.spec.ts` (#859 review: it had skipped everywhere):
+  - Both runs use Prism's accounting mock. Core mode starts `prism mock openapi/accounting.yaml` on :4013 itself.
+  - The store-admin refusal runs in both runs; the finance journey runs in core mode, asserting the contract's
+    examples.
+  - A `FINANCE-E2E` line is printed on pass and on skip. The real-service waiver is on #851 (REQUEST #852).
+- A discrepant payout says plainly that **why it is discrepant is not available yet**, and that no reason shown
+  doesn't mean there is none. The accounting service doesn't report payout-level reasons yet (payout total ≠ Σ net,
+  ledger payments or refunds the payout doesn't carry): CONTRACT CHANGE #865. Merged with main 2026-11-18 and 2026-11-19.
+- Tests:
+  - `finance-payouts-screens` (JPY payout and lines, verdicts, ERP gaps, parked links; 7).
+  - `finance` grew to 22: every operation gated, the payouts query never carries a currency.
+
 ### Added — #869 / #871: BI v2 screens, wave 1 — Overview, Products & categories, Inventory health (window 3)
 
 Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`) and the same three on a store's BI (`/<storeId>/bi/…`, narrowed to that store). Admin API 0.4.30. The existing dashboard stays at `/bi`, with a tab bar to the new views.
