@@ -1276,3 +1276,20 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   - **Inventory defaults to most urgent first**: out of stock, then low by days of cover, then the rest by cover; items without a cover last (`byUrgency`, tested).
   - Where an item's parameters came from is in words ("the platform default", "the store's setting", "set on this page").
   - An id the API didn't label reads "unknown" (the API itself says "(deleted)"), never an id prefix.
+
+### Added — #870 wave 1 item 5 (PR A): variant and product attributes (window 3)
+
+- **Variant editor**: every attribute `updateVariant` takes.
+  - Title, SKU, barcode; tracking stock and selling when out of stock (backorder).
+  - Weight (g) and dimensions (mm, all three sides or none).
+  - HS code (6, 8 or 10 digits; dots and spaces typed are stripped) and country of origin (ISO alpha-2, upper-cased).
+  - Per currency, the price **and its compare-at price**. Editing a price used to drop the compare-at; now it travels with it.
+  - A compare-at that shows no saving is a **warning, not a block**.
+  - The contract declares no format for these fields, so the admin checks them as typed and again in the server action, through the shared schema. The core itself checks only the origin and a non-negative weight.
+- **The variant list** says per variant what shipping and customs data is missing ("missing: barcode, weight, …"), and that a variant can't be deleted (there is no API operation; #870 gap).
+- **Product form**:
+  - **tags** as chips;
+  - **SEO**: title and description with length hints, and a canonical that must be https or a store path (refused on the server too). These are the keys the storefront's product page reads, and every other `seo` key already present is kept;
+  - **attributes** as key/value rows. Values that aren't text or numbers are kept, read-only; a duplicate key is said.
+- **Catalog list**: a "Variant data" column ("2 lack weight · 1 lacks HS code" / complete), and the CSV gains one column per kind (`variants_missing_barcode`, `…_weight`, `…_dimensions`, `…_hs_code`, `…_origin`). `listProducts` can't filter on these, so there's no URL filter (#870 gap).
+- Tests: `test/catalog-attributes.test.ts` (13), `test/catalog-attributes-ui.test.tsx` (6). `variants-panel.test.tsx` now expects the fuller save body and the per-row "Edit <SKU>" button. Mutation-checked: loosening the HS code pattern or dropping the all-three-sides rule fails the suite.

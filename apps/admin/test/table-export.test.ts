@@ -151,7 +151,10 @@ describe('Export CSV of the filtered list', () => {
       data: { exported: 3, total: 3, truncated: false },
     });
     const csv = result.status === 'success' ? result.data.csv : '';
-    expect(csv.split('\r\n')[0]).toBe('id,title,handle,status,variants,published_at,updated_at');
+    // #870 item 5: how many variants lack each kind of shipping / customs data.
+    expect(csv.split('\r\n')[0]).toBe(
+      'id,title,handle,status,variants,published_at,updated_at,variants_missing_barcode,variants_missing_weight,variants_missing_dimensions,variants_missing_hs_code,variants_missing_origin',
+    );
     // The injected formula is neutralised; a comma is quoted.
     expect(csv).toContain(`"'=HYPERLINK(""http://evil.example"",""x"")"`);
     expect(csv).toContain('"Towel, size 2"');

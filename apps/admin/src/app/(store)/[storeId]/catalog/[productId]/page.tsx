@@ -58,6 +58,8 @@ export default async function ProductDetailPage({
     category_id: current.category_id,
     brand_name: current.brand_name,
     tags: current.tags,
+    seo: (current.seo as Record<string, unknown> | undefined) ?? {},
+    attributes: (current.attributes as Record<string, unknown> | undefined) ?? {},
     options: current.options.map((option) => ({ name: option.name, values: option.values })),
     media: current.media.map((item) => ({
       url: item.url,

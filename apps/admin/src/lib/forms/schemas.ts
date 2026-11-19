@@ -11,6 +11,7 @@
  * from the contract, so this file cannot silently rot.
  */
 
+import { COUNTRY, HS_CODE } from '../catalog/attributes';
 import { z } from 'zod';
 import type { AdminComponents } from '../api/admin-client';
 
@@ -142,6 +143,10 @@ export const productCreateSchema = z.object({
   category_id: z.string().uuid().nullable().optional(),
   brand_name: z.string().nullable().optional(),
   tags: z.array(z.string().min(1)).optional(),
+  // Open objects in the contract. The form edits seo.title / description / canonical and text
+  // attributes, and keeps every other key (`mergeSeo`, `attributesFrom` in lib/catalog).
+  seo: z.record(z.string(), z.unknown()).optional(),
+  attributes: z.record(z.string(), z.unknown()).optional(),
   options: z.array(productOptionSchema).optional(),
   media: z.array(productMediaSchema).optional(),
 });
@@ -179,7 +184,22 @@ export const variantCreateSchema = z.object({
   options: z.record(z.string(), z.string()).optional(),
   manage_inventory: z.boolean().optional(),
   allow_backorder: z.boolean().optional(),
-  weight_g: z.number().int().nullable().optional(),
+  weight_g: z.number().int('Whole grams').min(0, 'Cannot be negative').nullable().optional(),
+  // Not constrained by the contract; the admin checks the formats (lib/catalog/attributes.ts).
+  dimensions_mm: z
+    .object({
+      l: z.number().int('Whole millimetres').min(0).optional(),
+      w: z.number().int('Whole millimetres').min(0).optional(),
+      h: z.number().int('Whole millimetres').min(0).optional(),
+    })
+    .nullable()
+    .optional(),
+  hs_code: z.string().regex(HS_CODE, 'An HS code is 6, 8 or 10 digits').nullable().optional(),
+  origin_country: z
+    .string()
+    .regex(COUNTRY, 'Use the two-letter ISO country code, e.g. JP')
+    .nullable()
+    .optional(),
   position: z.number().int().optional(),
   prices: z.array(variantPriceSchema).optional(),
 });

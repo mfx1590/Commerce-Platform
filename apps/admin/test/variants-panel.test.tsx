@@ -187,7 +187,7 @@ describe('editing a variant', () => {
     const user = userEvent.setup();
     render(<VariantsPanel storeId="s1" product={product({ variants: existing })} />);
 
-    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.click(screen.getByRole('button', { name: 'Edit SKU-v1' }));
     const sku = screen.getByLabelText('SKU');
     await user.clear(sku);
     await user.type(sku, 'TEE-S-RED');
@@ -202,8 +202,17 @@ describe('editing a variant', () => {
       sku: 'TEE-S-RED',
       title: 'S / Red',
       options: { Size: 'S', Colour: 'Red' },
-      // 24.50 EUR is 2450 minor units — never 2449.9999999999995.
-      prices: [{ currency: 'EUR', amount_minor: 2450 }],
+      // #870 item 5: the editor now sends every attribute it shows, unchanged ones included.
+      barcode: null,
+      manage_inventory: true,
+      allow_backorder: false,
+      weight_g: null,
+      dimensions_mm: null,
+      hs_code: null,
+      origin_country: null,
+      // 24.50 EUR is 2450 minor units — never 2449.9999999999995. The compare-at price travels
+      // with it (it used to be dropped on save).
+      prices: [{ currency: 'EUR', amount_minor: 2450, compare_at_minor: null }],
     });
   });
 
@@ -216,7 +225,7 @@ describe('editing a variant', () => {
     });
 
     render(<VariantsPanel storeId="s1" product={product({ variants: existing })} />);
-    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    await user.click(screen.getByRole('button', { name: 'Edit SKU-v1' }));
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('sku already exists');
