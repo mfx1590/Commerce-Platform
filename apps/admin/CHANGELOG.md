@@ -1313,6 +1313,23 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   - Where an item's parameters came from is in words ("the platform default", "the store's setting", "set on this page").
   - An id the API didn't label reads "unknown" (the API itself says "(deleted)"), never an id prefix.
 
+### Security — #925: the Marketing server actions refuse before the Admin API
+
+- The nine actions in `(store)/[storeId]/marketing/_actions.ts` (campaigns create / launch / end, segments
+  create / update / preview / materialize, feeds create / publish) start with `refuseUnlessPermitted`: the
+  contract's 403 unless the principal holds the operation's `x-permission` on the URL's store, before any request.
+- `MARKETING_PERMISSIONS` (`src/lib/marketing/permissions.ts`) is pinned to `admin-api.yaml` and added to the
+  guard: `previewSegment` store_staff, the other eight store_admin.
+- Tests (`test/marketing/action-permissions`), per action:
+  - refused before the API;
+  - a store the principal holds nothing on;
+  - 401;
+  - a store id that isn't a uuid;
+  - allowed;
+  - the yaml pin.
+- Mutation-checked: removing any one of the nine guards fails its tests.
+- Window 17's files, landed on `integration/admin-marketing-guards`.
+
 ### Added — #870 wave 1 item 5 (PR A): variant and product attributes (window 3)
 
 - **Variant editor**: every attribute `updateVariant` takes.
@@ -1339,19 +1356,3 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   - The server schema takes all three dimensions or none.
   - Dimensions, HS code and origin are checked and sent **only when changed**, so a legacy value never blocks another save.
   - Tests: default + tier + sale-list rows in one currency (in any order); prices omitted on a barcode-only save; unreadable lists; cleared price; legacy values; `//` and `/\` canonicals; partial dimensions. Mutation-checked: making every price editable fails 1 test; always sending prices fails 4.
-### Security — #925: the Marketing server actions refuse before the Admin API
-
-- The nine actions in `(store)/[storeId]/marketing/_actions.ts` (campaigns create / launch / end, segments
-  create / update / preview / materialize, feeds create / publish) start with `refuseUnlessPermitted`: the
-  contract's 403 unless the principal holds the operation's `x-permission` on the URL's store, before any request.
-- `MARKETING_PERMISSIONS` (`src/lib/marketing/permissions.ts`) is pinned to `admin-api.yaml` and added to the
-  guard: `previewSegment` store_staff, the other eight store_admin.
-- Tests (`test/marketing/action-permissions`), per action:
-  - refused before the API;
-  - a store the principal holds nothing on;
-  - 401;
-  - a store id that isn't a uuid;
-  - allowed;
-  - the yaml pin.
-- Mutation-checked: removing any one of the nine guards fails its tests.
-- Window 17's files, landed on `integration/admin-marketing-guards`.
