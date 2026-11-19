@@ -10,6 +10,10 @@
 //     carry no store, so a store predicate would hide them from everyone. An organization caller reads it by
 //     `organization_id`; a store caller by the stock items its stores' variants map (read from Postgres under RLS),
 //     plus pre-pool rows (no stock item) its own stores caused.
+//   * BI v2 wave 2 (#935): the `customers_v2` source aggregates PER CUSTOMER KEY first (inner query) and counts keys
+//     outside it, so a distinct count, repeat customers and per-customer sums come from one statement and the key
+//     never leaves ClickHouse; the `attribution` source always carries the touch model as a parameter; `promotions`
+//     is Postgres (promotions.ts), never compiled here.
 import { validationError } from '../../../lib/errors';
 import { METRICS, type Dimension, type Grain, type MetricId, type SourceId } from './catalogue';
 import type { MetricQuery } from './query';
@@ -22,6 +26,8 @@ interface SourceSpec {
   columns: Partial<Record<Dimension | 'currency', string>>;
   /** `store` (the default): `store_id IN {scope}`; `stock`: the stock scope (see the header). */
   scope?: 'store' | 'stock';
+  /** Aggregate per this key first (#935): the inner query's columns `k`, plus these aggregates; metrics read them. */
+  perKey?: { key: string; inner: Readonly<Record<string, string>> };
 }
 
 /** Who may read the `stock` series: the organization, or the stock items the caller's stores map. */
@@ -32,13 +38,19 @@ const ORDER_DIMS = {
   sales_channel: 'sales_channel_id',
   customer_type: 'customer_type',
 } as const;
+const SHIP_COLUMNS = { store: 'store_id', warehouse: 'warehouse_id', carrier: 'carrier' } as const;
 
 const SOURCES: Readonly<Record<SourceId, SourceSpec>> = {
   // mart_sales_daily = mart_bookings_daily's figures keyed also by country, channel and customer type (#871 b)
   sales: {
     from: 'mart_sales_daily',
     day: 'day',
-    columns: { store: 'store_id', currency: 'currency', ...ORDER_DIMS },
+    columns: {
+      store: 'store_id',
+      currency: 'currency',
+      ...ORDER_DIMS,
+      customer_group: 'customer_group_id',
+    },
   },
   refunds: {
     from: 'fct_refund',
@@ -61,6 +73,7 @@ const SOURCES: Readonly<Record<SourceId, SourceSpec>> = {
       product: 'product_id',
       category: 'category_id',
       ...ORDER_DIMS,
+      customer_group: 'customer_group_id',
     },
   },
   returns: {
@@ -98,7 +111,86 @@ const SOURCES: Readonly<Record<SourceId, SourceSpec>> = {
     where: 'is_revenue',
     columns: { store: 'store_id', currency: 'currency' },
   },
+  // ---- BI v2 wave 2 (#935) ----
+  customers_v2: {
+    from: 'fct_order_sales',
+    day: "toDate(placed_at, 'UTC')",
+    columns: {
+      store: 'store_id',
+      currency: 'currency',
+      country: 'country',
+      sales_channel: 'sales_channel_id',
+      customer_group: 'customer_group_id',
+    },
+    perKey: { key: 'customer_key', inner: { k_orders: 'count()', k_net: 'sum(net_minor)' } },
+  },
+  attribution: {
+    from: 'fct_order_touch',
+    day: "toDate(placed_at, 'UTC')",
+    where: 'touch = {touch:String}',
+    columns: {
+      store: 'store_id',
+      currency: 'currency',
+      utm_source: 'utm_source',
+      utm_medium: 'utm_medium',
+      utm_campaign: 'utm_campaign',
+      campaign: 'campaign_id',
+    },
+  },
+  campaigns: {
+    from: 'dim_campaign',
+    day: "toDate(starts_at, 'UTC')",
+    where: 'budget_minor IS NOT NULL AND starts_at IS NOT NULL',
+    columns: { store: 'store_id', currency: 'budget_currency', campaign: 'campaign_id' },
+  },
+  // Postgres (promotions.ts): listed so the column checks below hold; never compiled to ClickHouse
+  promotions: {
+    from: '',
+    day: '',
+    columns: { store: 'store_id', currency: 'currency', promotion: 'promotion_id' },
+  },
+  carts: {
+    from: 'stg_cart_abandoned_v1',
+    day: "toDate(abandoned_at, 'UTC')",
+    columns: { store: 'store_id', currency: 'currency' },
+  },
+  ship: {
+    from: 'fct_order_fulfilment',
+    day: "toDate(first_shipped_at, 'UTC')",
+    where: 'first_shipped_at IS NOT NULL',
+    columns: SHIP_COLUMNS,
+  },
+  deliver: {
+    from: 'fct_order_fulfilment',
+    day: "toDate(delivered_at, 'UTC')",
+    where: 'delivered_at IS NOT NULL',
+    columns: SHIP_COLUMNS,
+  },
+  shipments: {
+    from: 'fct_shipment',
+    day: "toDate(shipped_at, 'UTC')",
+    where: 'shipped_at IS NOT NULL',
+    columns: { ...SHIP_COLUMNS, currency: 'currency' },
+  },
+  return_requests: {
+    from: 'stg_return_requested_v1',
+    day: "toDate(requested_at, 'UTC')",
+    columns: { store: 'store_id' },
+  },
+  payments: {
+    from: 'fct_payment_event',
+    day: "toDate(at, 'UTC')",
+    columns: { store: 'store_id', provider: 'provider', failure_reason: 'failure_code' },
+  },
+  refund_failures: {
+    from: 'stg_refund_failed_v1',
+    day: "toDate(failed_at, 'UTC')",
+    columns: { store: 'store_id' },
+  },
 };
+
+/** Sources answered by Postgres, not ClickHouse (#935): the executor asks its loader for them. */
+export const POSTGRES_SOURCES: ReadonlySet<SourceId> = new Set<SourceId>(['promotions']);
 
 const PERIOD: Readonly<Record<Grain, (day: string) => string>> = {
   day: (d) => `toString(${d})`,
@@ -118,6 +210,14 @@ const OUT: Readonly<Record<Dimension | 'currency', string>> = {
   category: 'out_category',
   customer_type: 'out_ctype',
   warehouse: 'out_warehouse',
+  customer_group: 'out_cgroup',
+  utm_source: 'out_utm_source',
+  utm_medium: 'out_utm_medium',
+  utm_campaign: 'out_utm_campaign',
+  campaign: 'out_campaign',
+  promotion: 'out_promotion',
+  carrier: 'out_carrier',
+  failure_reason: 'out_failure',
 };
 
 /** A filter → the dimension whose column it narrows, its parameter name and type. */
@@ -127,6 +227,15 @@ const FILTERS = [
   ['category_ids', 'category', 'categories', 'Array(UUID)'],
   ['customer_types', 'customer_type', 'ctypes', 'Array(String)'],
   ['warehouse_ids', 'warehouse', 'warehouses', 'Array(UUID)'],
+  // BI v2 wave 2 (#935)
+  ['customer_group_ids', 'customer_group', 'cgroups', 'Array(UUID)'],
+  ['campaign_ids', 'campaign', 'campaigns', 'Array(UUID)'],
+  ['promotion_ids', 'promotion', 'promotions', 'Array(UUID)'],
+  ['utm_sources', 'utm_source', 'utm_sources', 'Array(String)'],
+  ['utm_mediums', 'utm_medium', 'utm_mediums', 'Array(String)'],
+  ['utm_campaigns', 'utm_campaign', 'utm_campaigns', 'Array(String)'],
+  ['carriers', 'carrier', 'carriers', 'Array(String)'],
+  ['providers', 'provider', 'providers', 'Array(String)'],
 ] as const;
 
 export interface CompiledSource {
@@ -150,6 +259,8 @@ export function additiveMetrics(metrics: readonly MetricId[]): MetricId[] {
     const def = METRICS[m];
     if (def.derived) for (const i of def.derived.inputs) out.add(i);
     else out.add(m);
+    // #935 c: a per-customer value is only shown with its customer count, so the count is always fetched
+    if (def.per_customer) out.add('customers');
   }
   return [...out];
 }
@@ -157,11 +268,12 @@ export function additiveMetrics(metrics: readonly MetricId[]): MetricId[] {
 export function compileMetricQuery(
   q: MetricQuery,
   scope: readonly string[],
-  opts: { stock?: StockScope } = {},
+  /** `currencyKey` (#935): the totals query of a money answer keys its counts by currency like the answer does. */
+  opts: { stock?: StockScope; currencyKey?: boolean } = {},
 ): Compiled {
   if (scope.length === 0)
     throw new Error('compileMetricQuery: an empty scope never reaches the compiler');
-  const currencyKey = q.metrics.some((m) => METRICS[m].currency_bound);
+  const currencyKey = opts.currencyKey ?? q.metrics.some((m) => METRICS[m].currency_bound);
   const bySource = new Map<SourceId, MetricId[]>();
   for (const m of additiveMetrics(q.metrics)) {
     const id = METRICS[m].source!.id;
@@ -171,6 +283,11 @@ export function compileMetricQuery(
   const sources: CompiledSource[] = [];
   for (const [id, metrics] of bySource) {
     const s = SOURCES[id];
+    if (POSTGRES_SOURCES.has(id)) {
+      // the filters' column checks still apply (a filter the source cannot narrow is a 400, as for any source)
+      checkFilters(q, s);
+      continue;
+    }
     const select: string[] = [`${PERIOD[q.grain](s.day)} AS out_period`];
     const group: string[] = q.grain === 'total' ? [] : ['out_period'];
     const keys: (Dimension | 'currency')[] = [
@@ -242,10 +359,56 @@ export function compileMetricQuery(
       where.push('reason IN {reasons:Array(String)}');
       params.reasons = f.refund_reasons;
     }
-    const sql =
-      `SELECT ${select.join(', ')} FROM ${s.from} WHERE ${where.join(' AND ')}` +
-      (group.length > 0 ? ` GROUP BY ${group.join(', ')}` : '');
+    if (s.where?.includes('{touch:String}')) params.touch = q.filters.touch ?? 'last';
+    let sql: string;
+    if (s.perKey) {
+      // inner: one row per (period, keys…, customer key) with the per-key aggregates; outer: the metrics over keys
+      const inner = select
+        .filter((x) => !x.includes(' AS m_'))
+        .concat(
+          `${s.perKey.key} AS k`,
+          Object.entries(s.perKey.inner).map(([alias, agg]) => `${agg} AS ${alias}`),
+        );
+      const outerKeys = group;
+      const outer = [
+        // with grain total the period is a constant the outer query does not group by
+        q.grain === 'total' ? 'any(out_period) AS out_p' : 'out_period',
+        ...select
+          .filter((x) => / AS out_/.test(x) && !x.endsWith('AS out_period'))
+          .map((x) => x.split(' AS ')[1]!),
+        ...metrics.map((m) => `${METRICS[m].source!.sql} AS m_${m}`),
+      ];
+      sql =
+        `SELECT ${outer.join(', ')} FROM (SELECT ${inner.join(', ')} FROM ${s.from} WHERE ${where.join(' AND ')}` +
+        ` GROUP BY ${[...group, 'k'].join(', ')})` +
+        (outerKeys.length > 0 ? ` GROUP BY ${outerKeys.join(', ')}` : '');
+    } else
+      sql =
+        `SELECT ${select.join(', ')} FROM ${s.from} WHERE ${where.join(' AND ')}` +
+        (group.length > 0 ? ` GROUP BY ${group.join(', ')}` : '');
     sources.push({ source: id, sql, params, metrics });
   }
   return { currencyKey, sources };
+}
+
+/** Every filter the query carries must narrow a column of the source (else a 400 naming the filter). */
+function checkFilters(q: MetricQuery, s: SourceSpec): void {
+  const f = q.filters;
+  for (const [filter, dim] of FILTERS)
+    if (f[filter] && !s.columns[dim])
+      throw validationError(`filters.${filter} needs metrics that accept the ${dim} dimension`, {
+        field: `filters.${filter}`,
+      });
+  if (f.currencies && !s.columns.currency)
+    throw validationError('filters.currencies applies to money metrics only', {
+      field: 'filters.currencies',
+    });
+  for (const [filter, dim] of [
+    ['product_ids', 'product'],
+    ['refund_reasons', 'refund_reason'],
+  ] as const)
+    if (f[filter] && !s.columns[dim])
+      throw validationError(`filters.${filter} needs metrics that accept the ${dim} dimension`, {
+        field: `filters.${filter}`,
+      });
 }

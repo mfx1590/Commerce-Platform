@@ -188,7 +188,8 @@ describe('the scope (#606 acceptance: a store-A principal asking about store B)'
     [
       true,
       [
-        'captured_minor, fee_minor take store, provider',
+        // #935: the payment outcome counts take the same dimensions
+        'captured_minor, fee_minor, payments_authorized, payments_captured, payments_with_outcome, payment_failure_rate_bp take store, provider',
         'refunds_minor take store, refund_reason, country, sales_channel',
       ],
     ],

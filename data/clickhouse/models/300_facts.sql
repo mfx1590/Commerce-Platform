@@ -234,12 +234,19 @@ SELECT
     o.customer_type                                          AS customer_type,
     o.customer_group_id                                      AS customer_group_id,
     o.customer_key                                           AS customer_key,
-    o.total_minor - coalesce(r.refunded_minor, 0)            AS net_minor
+    o.total_minor - coalesce(r.refunded_minor, 0)            AS net_minor,
+    -- the key's FIRST order in the store (any status: mart_customers_daily's rule), for cohorts; NULL without a key
+    f.first_order_at                                         AS first_order_at
 FROM fct_order AS o
 LEFT JOIN
 (
     SELECT order_id, sum(amount_minor) AS refunded_minor FROM fct_refund GROUP BY order_id
 ) AS r ON r.order_id = o.order_id
+LEFT JOIN
+(
+    SELECT store_id, customer_key, min(placed_at) AS first_order_at
+    FROM fct_order WHERE customer_key IS NOT NULL GROUP BY store_id, customer_key
+) AS f ON f.store_id = o.store_id AND f.customer_key = o.customer_key
 WHERE o.order_status != 'cancelled'
   AND o.order_id NOT IN
   (
@@ -247,7 +254,7 @@ WHERE o.order_status != 'cancelled'
       WHERE status = 'failed'
         AND order_id NOT IN (SELECT order_id FROM fct_payment WHERE status = 'captured')
   )
-SETTINGS join_algorithm = 'hash';
+SETTINGS join_algorithm = 'hash', join_use_nulls = 1;
 
 -- fct_order_touch: every counted order TWICE, once per touch model (first, last), with that touch's utm values and
 -- campaign, or none (attributed = 0). An order with several events for one touch keeps the earliest recorded.

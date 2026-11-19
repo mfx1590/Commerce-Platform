@@ -47,6 +47,41 @@ export const METRIC_IDS = [
   'stockout_events',
   'units_received',
   'units_adjusted',
+  // BI v2 wave 2 (#935, catalogue version 3): customers
+  'customers',
+  'repeat_customers',
+  'customer_orders',
+  'customer_net_sales_minor',
+  'repeat_rate_bp',
+  'orders_per_customer_bp',
+  'revenue_per_customer_minor',
+  'unknown_customer_orders',
+  // marketing and promotions
+  'attributed_orders',
+  'attributed_net_sales_minor',
+  'unattributed_orders',
+  'campaign_net_sales_minor',
+  'campaign_budget_minor',
+  'promotion_orders',
+  'promotion_discount_minor',
+  'abandoned_carts',
+  'abandoned_value_minor',
+  // operations
+  'orders_shipped',
+  'hours_to_ship_p50',
+  'hours_to_ship_p90',
+  'orders_delivered',
+  'hours_to_deliver_p50',
+  'hours_to_deliver_p90',
+  'shipping_cost_minor',
+  'shipping_cost_unknown',
+  'return_requests',
+  'payments_authorized',
+  'payments_captured',
+  'payments_failed',
+  'payments_with_outcome',
+  'payment_failure_rate_bp',
+  'refunds_failed',
 ] as const;
 export type MetricId = (typeof METRIC_IDS)[number];
 
@@ -61,6 +96,15 @@ export const DIMENSIONS = [
   'category',
   'customer_type',
   'warehouse',
+  // BI v2 wave 2 (#935)
+  'customer_group',
+  'utm_source',
+  'utm_medium',
+  'utm_campaign',
+  'campaign',
+  'promotion',
+  'carrier',
+  'failure_reason',
 ] as const;
 export type Dimension = (typeof DIMENSIONS)[number];
 
@@ -69,6 +113,10 @@ export type Grain = (typeof GRAINS)[number];
 
 export const REFUND_REASONS = ['return', 'cancellation', 'goodwill', 'chargeback'] as const;
 export const CUSTOMER_TYPES = ['new', 'returning', 'unknown'] as const;
+/** The attribution touch models (#935): which touch of an order an attribution metric reads. */
+export const TOUCHES = ['first', 'last'] as const;
+/** Below this many customers a per-customer value is suppressed (#935 c, decision 2). */
+export const MIN_CUSTOMERS = 5;
 
 /** The platform defaults of the inventory parameters (#871 a4): a store's settings override them, a request both. */
 export const INVENTORY_DEFAULTS = {
@@ -93,23 +141,65 @@ export const LIMITS = {
   max_warehouse_ids: 50,
   max_movers: 20,
   max_inventory_rows: 500,
+  // BI v2 wave 2 (#935)
+  max_csv_rows: 10_000,
+  max_customer_group_ids: 50,
+  max_campaign_ids: 50,
+  max_promotion_ids: 50,
+  max_utm_values: 50,
+  max_carriers: 20,
+  max_providers: 10,
+  /** utm values shown per dimension and answer; the rest are `other` (decision 5). */
+  utm_top: 50,
+  max_cohorts: 24,
+  max_cohort_months: 24,
+  max_dimension_values: 50,
 } as const;
 
 /** The models a metric reads (one compiled query per source per request). */
 export type SourceId =
-  'sales' | 'refunds' | 'lines' | 'returns' | 'stock' | 'customers' | 'cash' | 'ledger' | 'live';
+  | 'sales'
+  | 'refunds'
+  | 'lines'
+  | 'returns'
+  | 'stock'
+  | 'customers'
+  | 'cash'
+  | 'ledger'
+  | 'live'
+  // BI v2 wave 2 (#935)
+  | 'customers_v2'
+  | 'attribution'
+  | 'campaigns'
+  | 'promotions'
+  | 'carts'
+  | 'ship'
+  | 'deliver'
+  | 'shipments'
+  | 'return_requests'
+  | 'payments'
+  | 'refund_failures';
 
 export interface MetricDefinition {
   id: MetricId;
   label: string;
   description: string;
-  unit: 'minor' | 'count' | 'bp' | 'milli';
-  /** `snapshot` metrics describe now (inventory, #871): getInventoryHealth serves them, queryMetrics refuses them. */
-  kind?: 'series' | 'snapshot';
+  unit: 'minor' | 'count' | 'bp' | 'milli' | 'hours';
+  /**
+   * `snapshot` metrics describe now (inventory, #871): getInventoryHealth serves them, queryMetrics refuses them.
+   * `distribution` (#935): a quantile over the rows' group, hours with one decimal, no currency; its total is its own
+   * query over every row in scope, never a sum or an average of rows; movers refuse it.
+   */
+  kind?: 'series' | 'snapshot' | 'distribution';
   /** The calculation in plain words, shown with the definition. */
   formula?: string;
-  /** How a per-currency total is formed: `sum` of the rows (default), or `none` (a distinct count: not summable). */
-  total?: 'sum' | 'none';
+  /**
+   * How a per-currency total is formed: `sum` of the rows (default); `none` (a distinct count: not summable); or
+   * `query` (#935): its own query over every row in scope (distinct customers and payments, quantiles).
+   */
+  total?: 'sum' | 'none' | 'query';
+  /** A per-customer value (#935 c): null and `suppressed` when the row counts fewer than MIN_CUSTOMERS customers. */
+  per_customer?: boolean;
   /** Money: rows always carry `currency` and nothing is summed across currencies. */
   currency_bound: boolean;
   /** `finance` on `organization:hq` required (as getHqFinanceReport). */
@@ -152,6 +242,7 @@ export function isAdditive(m: MetricDefinition): boolean {
     !m.derived &&
     (m.unit === 'minor' || m.unit === 'count') &&
     m.total !== 'none' &&
+    m.total !== 'query' &&
     m.source !== undefined &&
     m.source.id !== 'live'
   );
@@ -214,10 +305,439 @@ export const DIMENSION_INFO: Readonly<
   },
   warehouse: {
     label: 'Warehouse',
-    description: 'The warehouse of the stock movement.',
+    description:
+      'The warehouse of the stock movement, or of the shipment (the first one that left an order).',
     filter: 'warehouse_ids',
     max: LIMITS.max_warehouse_ids,
   },
+  customer_group: {
+    label: 'Customer group',
+    description:
+      'The customer’s CURRENT group (there is no group history: a customer moved to another group shows there for past orders too). Empty for no group and for an erased customer.',
+    filter: 'customer_group_ids',
+    max: LIMITS.max_customer_group_ids,
+  },
+  utm_source: {
+    label: 'Source (utm_source)',
+    description:
+      'The link’s utm_source, lower-cased and trimmed. The 50 largest values by orders are shown; the rest, and anything that looks like personal data, are `other`.',
+    filter: 'utm_sources',
+    max: LIMITS.max_utm_values,
+  },
+  utm_medium: {
+    label: 'Medium (utm_medium)',
+    description: 'The link’s utm_medium, normalised like the source.',
+    filter: 'utm_mediums',
+    max: LIMITS.max_utm_values,
+  },
+  utm_campaign: {
+    label: 'Campaign tag (utm_campaign)',
+    description: 'The link’s utm_campaign, normalised like the source.',
+    filter: 'utm_campaigns',
+    max: LIMITS.max_utm_values,
+  },
+  campaign: {
+    label: 'Campaign',
+    description: 'The marketing campaign the touch or the budget belongs to.',
+    filter: 'campaign_ids',
+    max: LIMITS.max_campaign_ids,
+  },
+  promotion: {
+    label: 'Promotion',
+    description:
+      'The promotion applied to the order (automatic or by code), labelled by its name, never a code.',
+    filter: 'promotion_ids',
+    max: LIMITS.max_promotion_ids,
+  },
+  carrier: {
+    label: 'Carrier',
+    description: 'The carrier of the shipment (the first one that left an order), lower-cased.',
+    filter: 'carriers',
+    max: LIMITS.max_carriers,
+  },
+  failure_reason: {
+    label: 'Failure code',
+    description:
+      'The PSP’s failure code of a failed payment; free text and anything that is not a code is `other`.',
+    filter: null,
+    max: null,
+  },
+};
+
+// ---- BI v2 wave 2 (#935 a1, catalogue version 3) ---------------------------------------------------------------------
+
+type Wave2Id = (typeof METRIC_IDS)[number] &
+  (
+    | 'customers'
+    | 'repeat_customers'
+    | 'customer_orders'
+    | 'customer_net_sales_minor'
+    | 'repeat_rate_bp'
+    | 'orders_per_customer_bp'
+    | 'revenue_per_customer_minor'
+    | 'unknown_customer_orders'
+    | 'attributed_orders'
+    | 'attributed_net_sales_minor'
+    | 'unattributed_orders'
+    | 'campaign_net_sales_minor'
+    | 'campaign_budget_minor'
+    | 'promotion_orders'
+    | 'promotion_discount_minor'
+    | 'abandoned_carts'
+    | 'abandoned_value_minor'
+    | 'orders_shipped'
+    | 'hours_to_ship_p50'
+    | 'hours_to_ship_p90'
+    | 'orders_delivered'
+    | 'hours_to_deliver_p50'
+    | 'hours_to_deliver_p90'
+    | 'shipping_cost_minor'
+    | 'shipping_cost_unknown'
+    | 'return_requests'
+    | 'payments_authorized'
+    | 'payments_captured'
+    | 'payments_failed'
+    | 'payments_with_outcome'
+    | 'payment_failure_rate_bp'
+    | 'refunds_failed'
+  );
+
+const CURRENT_GROUP =
+  ' A customer group is the customer’s CURRENT group (no history); an erased customer has none.';
+const CUSTOMER_DIMS = ['store', 'country', 'sales_channel', 'customer_group'] as const;
+const SMALL = ` Shown only for at least ${MIN_CUSTOMERS} customers (fewer: suppressed, and a second cell with it so it cannot be worked out from the total).`;
+const ATTRIBUTION_DIMS = ['store', 'utm_source', 'utm_medium', 'utm_campaign', 'campaign'] as const;
+const SHIP_DIMS = ['store', 'warehouse', 'carrier'] as const;
+const PAYMENT_DIMS = ['store', 'provider'] as const;
+
+function w2(
+  id: Wave2Id,
+  label: string,
+  description: string,
+  unit: MetricDefinition['unit'],
+  dimensions: readonly Dimension[],
+  rest: Partial<MetricDefinition>,
+): MetricDefinition {
+  return {
+    id,
+    label,
+    description,
+    unit,
+    currency_bound: unit === 'minor',
+    finance: false,
+    available: true,
+    dimensions,
+    ...rest,
+  };
+}
+
+const WAVE2: Readonly<Record<Wave2Id, MetricDefinition>> = {
+  // customers (source customers_v2 = fct_order_sales, one customer = one pseudonymous key per store, never across
+  // brands; the key never leaves ClickHouse: the source aggregates per key first, then counts keys)
+  customers: w2(
+    'customers',
+    'Customers',
+    'Distinct customers with an order in the period, per store (a customer of two brands is two customers). Erased customers are not counted.' +
+      CURRENT_GROUP,
+    'count',
+    CUSTOMER_DIMS,
+    { source: { id: 'customers_v2', sql: 'countIf(k IS NOT NULL)' }, total: 'query' },
+  ),
+  repeat_customers: w2(
+    'repeat_customers',
+    'Repeat customers',
+    'Customers with 2 or more orders in the period (in the same row).' + CURRENT_GROUP,
+    'count',
+    CUSTOMER_DIMS,
+    {
+      source: { id: 'customers_v2', sql: 'countIf(k IS NOT NULL AND k_orders >= 2)' },
+      total: 'query',
+    },
+  ),
+  customer_orders: w2(
+    'customer_orders',
+    'Orders of known customers',
+    'Orders counted in sales (not cancelled, payment not only failed) whose customer is known (not erased).',
+    'count',
+    CUSTOMER_DIMS,
+    { source: { id: 'customers_v2', sql: 'sumIf(k_orders, k IS NOT NULL)' } },
+  ),
+  customer_net_sales_minor: w2(
+    'customer_net_sales_minor',
+    'Net sales of known customers',
+    'Net sales (order totals − refunds) of the orders of known customers, per currency.' + SMALL,
+    'minor',
+    CUSTOMER_DIMS,
+    { source: { id: 'customers_v2', sql: 'sumIf(k_net, k IS NOT NULL)' }, per_customer: true },
+  ),
+  repeat_rate_bp: w2(
+    'repeat_rate_bp',
+    'Repeat purchase rate',
+    'Repeat customers ÷ customers, in basis points.' + SMALL,
+    'bp',
+    CUSTOMER_DIMS,
+    {
+      derived: { inputs: ['repeat_customers', 'customers'] },
+      formula: 'repeat customers ÷ customers',
+      per_customer: true,
+    },
+  ),
+  orders_per_customer_bp: w2(
+    'orders_per_customer_bp',
+    'Orders per customer',
+    'Orders of known customers ÷ customers, × 10 000.' + SMALL,
+    'bp',
+    CUSTOMER_DIMS,
+    {
+      derived: { inputs: ['customer_orders', 'customers'] },
+      formula: 'orders of known customers ÷ customers',
+      per_customer: true,
+    },
+  ),
+  revenue_per_customer_minor: w2(
+    'revenue_per_customer_minor',
+    'Revenue per customer',
+    'Net sales of known customers ÷ customers, per currency (integer half-up).' + SMALL,
+    'minor',
+    CUSTOMER_DIMS,
+    {
+      derived: { inputs: ['customer_net_sales_minor', 'customers'] },
+      formula: 'net sales of known customers ÷ customers',
+      per_customer: true,
+    },
+  ),
+  unknown_customer_orders: w2(
+    'unknown_customer_orders',
+    'Orders without a customer',
+    'Orders counted in sales whose customer was erased (no key).',
+    'count',
+    ['store', 'country', 'sales_channel'],
+    { source: { id: 'customers_v2', sql: 'sumIf(k_orders, k IS NULL)' } },
+  ),
+  // marketing (source attribution = fct_order_touch: every counted order once per touch model; `touch` picks one)
+  attributed_orders: w2(
+    'attributed_orders',
+    'Attributed orders',
+    'Orders counted in sales with a touch of the chosen model (filters.touch: first or last; last when omitted).',
+    'count',
+    ATTRIBUTION_DIMS,
+    { source: { id: 'attribution', sql: 'countIf(attributed = 1)' } },
+  ),
+  attributed_net_sales_minor: w2(
+    'attributed_net_sales_minor',
+    'Attributed net sales',
+    'Net sales (order totals − refunds) of the attributed orders, per currency.',
+    'minor',
+    ATTRIBUTION_DIMS,
+    { source: { id: 'attribution', sql: 'sumIf(net_minor, attributed = 1)' } },
+  ),
+  unattributed_orders: w2(
+    'unattributed_orders',
+    'Orders without a source',
+    'Orders counted in sales with no touch of the chosen model.',
+    'count',
+    ['store'],
+    { source: { id: 'attribution', sql: 'countIf(attributed = 0)' } },
+  ),
+  campaign_net_sales_minor: w2(
+    'campaign_net_sales_minor',
+    'Campaign net sales',
+    'Net sales of orders attributed to a campaign (the chosen touch) and placed between the campaign’s start and end.',
+    'minor',
+    ['store', 'campaign'],
+    { source: { id: 'attribution', sql: 'sumIf(net_minor, in_campaign = 1)' } },
+  ),
+  campaign_budget_minor: w2(
+    'campaign_budget_minor',
+    'Campaign budget (planned)',
+    'The PLANNED budget of each campaign, counted once and in full in the period that contains its start (never spread over days); spend is not recorded (#873). A campaign without a budget has none.',
+    'minor',
+    ['store', 'campaign'],
+    { source: { id: 'campaigns', sql: 'sum(budget_minor)' } },
+  ),
+  // promotions (source promotions = Postgres order.metadata.promotions: the frozen per-promotion allocation, automatic
+  // and code promotions alike; stacked promotions each counted with their own share)
+  promotion_orders: w2(
+    'promotion_orders',
+    'Orders with the promotion',
+    'Orders (not cancelled) whose applied promotions include it; an order with two stacked promotions counts in both.',
+    'count',
+    ['store', 'promotion'],
+    { source: { id: 'promotions', sql: 'promotion_orders' } },
+  ),
+  promotion_discount_minor: w2(
+    'promotion_discount_minor',
+    'Discount given',
+    'The promotion’s own share of the line discounts of those orders, per currency. Free shipping is not included.',
+    'minor',
+    ['store', 'promotion'],
+    { source: { id: 'promotions', sql: 'promotion_discount_minor' } },
+  ),
+  abandoned_carts: w2(
+    'abandoned_carts',
+    'Abandoned carts (all currencies)',
+    'Carts marked abandoned, by the UTC day of abandonment, in every currency. Recovery is a separate figure over the store’s default-currency carts only (getAbandonedCartReport); never divide one by the other.',
+    'count',
+    ['store'],
+    { source: { id: 'carts', sql: 'count()' } },
+  ),
+  abandoned_value_minor: w2(
+    'abandoned_value_minor',
+    'Abandoned value',
+    'The totals of the abandoned carts, per currency.',
+    'minor',
+    ['store'],
+    { source: { id: 'carts', sql: 'sum(total_minor)' } },
+  ),
+  // operations
+  orders_shipped: w2(
+    'orders_shipped',
+    'Orders shipped',
+    'Orders (not cancelled) whose first shipment left in the period; warehouse and carrier are that shipment’s.',
+    'count',
+    SHIP_DIMS,
+    { source: { id: 'ship', sql: 'count()' } },
+  ),
+  hours_to_ship_p50: w2(
+    'hours_to_ship_p50',
+    'Time to ship (median)',
+    'Hours from placement to the first shipment that left, the median over the orders shipped in the period. The total is the median over every order in scope, never an average of rows.',
+    'hours',
+    SHIP_DIMS,
+    {
+      kind: 'distribution',
+      total: 'query',
+      source: { id: 'ship', sql: 'round(quantileExact(0.5)(hours_to_ship), 1)' },
+    },
+  ),
+  hours_to_ship_p90: w2(
+    'hours_to_ship_p90',
+    'Time to ship (90th percentile)',
+    'Hours from placement to the first shipment that left: 9 orders in 10 shipped within this.',
+    'hours',
+    SHIP_DIMS,
+    {
+      kind: 'distribution',
+      total: 'query',
+      source: { id: 'ship', sql: 'round(quantileExact(0.9)(hours_to_ship), 1)' },
+    },
+  ),
+  orders_delivered: w2(
+    'orders_delivered',
+    'Orders delivered',
+    'Orders whose LAST shipment was delivered in the period, counted only once EVERY shipment of the order is delivered.',
+    'count',
+    SHIP_DIMS,
+    { source: { id: 'deliver', sql: 'count()' } },
+  ),
+  hours_to_deliver_p50: w2(
+    'hours_to_deliver_p50',
+    'Time to deliver (median)',
+    'Hours from placement to the last delivery, over orders fully delivered in the period. Orders still in transit are left out (they show in the backlog).',
+    'hours',
+    SHIP_DIMS,
+    {
+      kind: 'distribution',
+      total: 'query',
+      source: { id: 'deliver', sql: 'round(quantileExact(0.5)(hours_to_deliver), 1)' },
+    },
+  ),
+  hours_to_deliver_p90: w2(
+    'hours_to_deliver_p90',
+    'Time to deliver (90th percentile)',
+    'Hours from placement to the last delivery: 9 fully delivered orders in 10 arrived within this.',
+    'hours',
+    SHIP_DIMS,
+    {
+      kind: 'distribution',
+      total: 'query',
+      source: { id: 'deliver', sql: 'round(quantileExact(0.9)(hours_to_deliver), 1)' },
+    },
+  ),
+  shipping_cost_minor: w2(
+    'shipping_cost_minor',
+    'Shipping cost',
+    'The carrier cost of the shipments that left in the period, per currency (shipments without a known cost are counted apart).',
+    'minor',
+    SHIP_DIMS,
+    { source: { id: 'shipments', sql: 'sum(coalesce(cost_minor, 0))' } },
+  ),
+  shipping_cost_unknown: w2(
+    'shipping_cost_unknown',
+    'Shipments without a cost',
+    'Shipments that left with no known carrier cost.',
+    'count',
+    SHIP_DIMS,
+    { source: { id: 'shipments', sql: 'countIf(cost_minor IS NULL)' } },
+  ),
+  return_requests: w2(
+    'return_requests',
+    'Return requests',
+    'Returns requested in the period. Reasons are not shown until they are a closed list (#937).',
+    'count',
+    ['store'],
+    { source: { id: 'return_requests', sql: 'uniqExact(return_id)' }, total: 'query' },
+  ),
+  payments_authorized: w2(
+    'payments_authorized',
+    'Payments authorised',
+    'Distinct payments authorised in the period.',
+    'count',
+    PAYMENT_DIMS,
+    {
+      source: { id: 'payments', sql: "uniqExactIf(payment_id, outcome = 'authorized')" },
+      total: 'query',
+    },
+  ),
+  payments_captured: w2(
+    'payments_captured',
+    'Payments captured',
+    'Distinct payments captured in the period.',
+    'count',
+    PAYMENT_DIMS,
+    {
+      source: { id: 'payments', sql: "uniqExactIf(payment_id, outcome = 'captured')" },
+      total: 'query',
+    },
+  ),
+  payments_failed: w2(
+    'payments_failed',
+    'Payments with a failure',
+    'Distinct payments with at least one failure in the period: a failed authorisation OR capture (the event does not say which). Retries on the same payment count once; a retry that creates a new payment is a new payment.',
+    'count',
+    [...PAYMENT_DIMS, 'failure_reason'],
+    {
+      source: { id: 'payments', sql: "uniqExactIf(payment_id, outcome = 'failed')" },
+      total: 'query',
+    },
+  ),
+  payments_with_outcome: w2(
+    'payments_with_outcome',
+    'Payments with an outcome',
+    'Distinct payments authorised, captured or failed in the period (the failure rate’s base).',
+    'count',
+    PAYMENT_DIMS,
+    { source: { id: 'payments', sql: 'uniqExact(payment_id)' }, total: 'query' },
+  ),
+  payment_failure_rate_bp: w2(
+    'payment_failure_rate_bp',
+    'Payment failure rate',
+    'Payments with a failure ÷ payments with any outcome in the period, in basis points.',
+    'bp',
+    PAYMENT_DIMS,
+    {
+      derived: { inputs: ['payments_failed', 'payments_with_outcome'] },
+      formula: 'payments with a failure ÷ payments with an outcome',
+    },
+  ),
+  refunds_failed: w2(
+    'refunds_failed',
+    'Failed refunds',
+    'Distinct refunds the PSP refused in the period.',
+    'count',
+    ['store'],
+    { source: { id: 'refund_failures', sql: 'uniqExact(refund_id)' }, total: 'query' },
+  ),
 };
 
 export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
@@ -230,7 +750,7 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     currency_bound: false,
     finance: false,
     available: true,
-    dimensions: ['store', 'country', 'sales_channel', 'customer_type'],
+    dimensions: ['store', 'country', 'sales_channel', 'customer_type', 'customer_group'],
     source: { id: 'sales', sql: 'sum(orders)' },
   },
   bookings_minor: {
@@ -242,7 +762,7 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     currency_bound: true,
     finance: false,
     available: true,
-    dimensions: ['store', 'country', 'sales_channel', 'customer_type'],
+    dimensions: ['store', 'country', 'sales_channel', 'customer_type', 'customer_group'],
     source: { id: 'sales', sql: 'sum(total_minor)' },
   },
   net_bookings_minor: {
@@ -254,7 +774,7 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     currency_bound: true,
     finance: false,
     available: true,
-    dimensions: ['store', 'country', 'sales_channel', 'customer_type'],
+    dimensions: ['store', 'country', 'sales_channel', 'customer_type', 'customer_group'],
     source: { id: 'sales', sql: 'sum(net_minor)' },
   },
   aov_minor: {
@@ -266,7 +786,7 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     currency_bound: true,
     finance: false,
     available: true,
-    dimensions: ['store', 'country', 'sales_channel', 'customer_type'],
+    dimensions: ['store', 'country', 'sales_channel', 'customer_type', 'customer_group'],
     derived: { inputs: ['bookings_minor', 'orders'] },
   },
   refunds_minor: {
@@ -301,7 +821,15 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     currency_bound: false,
     finance: false,
     available: true,
-    dimensions: ['store', 'product', 'country', 'sales_channel', 'category', 'customer_type'],
+    dimensions: [
+      'store',
+      'product',
+      'country',
+      'sales_channel',
+      'category',
+      'customer_type',
+      'customer_group',
+    ],
     source: { id: 'lines', sql: 'sum(quantity)' },
   },
   product_net_minor: {
@@ -313,7 +841,15 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     currency_bound: true,
     finance: false,
     available: true,
-    dimensions: ['store', 'product', 'country', 'sales_channel', 'category', 'customer_type'],
+    dimensions: [
+      'store',
+      'product',
+      'country',
+      'sales_channel',
+      'category',
+      'customer_type',
+      'customer_group',
+    ],
     source: { id: 'lines', sql: 'sum(total_minor)' },
   },
   new_customers: {
@@ -411,7 +947,15 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     currency_bound: true,
     finance: false,
     available: true,
-    dimensions: ['store', 'product', 'country', 'sales_channel', 'category', 'customer_type'],
+    dimensions: [
+      'store',
+      'product',
+      'country',
+      'sales_channel',
+      'category',
+      'customer_type',
+      'customer_group',
+    ],
     source: { id: 'lines', sql: 'sum(total_minor - tax_minor)' },
   },
   gross_sales_minor: {
@@ -423,7 +967,7 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     currency_bound: true,
     finance: false,
     available: true,
-    dimensions: ['store', 'country', 'sales_channel', 'customer_type'],
+    dimensions: ['store', 'country', 'sales_channel', 'customer_type', 'customer_group'],
     source: { id: 'sales', sql: 'sum(gross_minor)' },
   },
   discounts_minor: {
@@ -435,7 +979,7 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     currency_bound: true,
     finance: false,
     available: true,
-    dimensions: ['store', 'country', 'sales_channel', 'customer_type'],
+    dimensions: ['store', 'country', 'sales_channel', 'customer_type', 'customer_group'],
     source: { id: 'sales', sql: 'sum(discount_minor)' },
   },
   shipping_minor: {
@@ -447,7 +991,7 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     currency_bound: true,
     finance: false,
     available: true,
-    dimensions: ['store', 'country', 'sales_channel', 'customer_type'],
+    dimensions: ['store', 'country', 'sales_channel', 'customer_type', 'customer_group'],
     source: { id: 'sales', sql: 'sum(shipping_minor)' },
   },
   tax_minor: {
@@ -459,7 +1003,7 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     currency_bound: true,
     finance: false,
     available: true,
-    dimensions: ['store', 'country', 'sales_channel', 'customer_type'],
+    dimensions: ['store', 'country', 'sales_channel', 'customer_type', 'customer_group'],
     source: { id: 'sales', sql: 'sum(tax_minor)' },
   },
   items_per_order_bp: {
@@ -471,7 +1015,7 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     currency_bound: false,
     finance: false,
     available: true,
-    dimensions: ['store', 'country', 'sales_channel', 'customer_type'],
+    dimensions: ['store', 'country', 'sales_channel', 'customer_type', 'customer_group'],
     derived: { inputs: ['units', 'orders'] },
   },
   placed_orders: {
@@ -483,7 +1027,7 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     currency_bound: false,
     finance: false,
     available: true,
-    dimensions: ['store', 'country', 'sales_channel', 'customer_type'],
+    dimensions: ['store', 'country', 'sales_channel', 'customer_type', 'customer_group'],
     source: { id: 'sales', sql: 'sum(placed_orders)' },
   },
   cancelled_orders: {
@@ -495,7 +1039,7 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     currency_bound: false,
     finance: false,
     available: true,
-    dimensions: ['store', 'country', 'sales_channel', 'customer_type'],
+    dimensions: ['store', 'country', 'sales_channel', 'customer_type', 'customer_group'],
     source: { id: 'sales', sql: 'sum(cancelled_orders)' },
   },
   cancellation_rate_bp: {
@@ -507,7 +1051,7 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     currency_bound: false,
     finance: false,
     available: true,
-    dimensions: ['store', 'country', 'sales_channel', 'customer_type'],
+    dimensions: ['store', 'country', 'sales_channel', 'customer_type', 'customer_group'],
     derived: { inputs: ['cancelled_orders', 'placed_orders'] },
   },
   returned_units: {
@@ -545,7 +1089,15 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     currency_bound: true,
     finance: false,
     available: true,
-    dimensions: ['store', 'product', 'country', 'sales_channel', 'category', 'customer_type'],
+    dimensions: [
+      'store',
+      'product',
+      'country',
+      'sales_channel',
+      'category',
+      'customer_type',
+      'customer_group',
+    ],
     source: { id: 'lines', sql: 'sum(total_minor - tax_minor)' },
   },
   product_gross_minor: {
@@ -557,7 +1109,15 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     currency_bound: true,
     finance: false,
     available: true,
-    dimensions: ['store', 'product', 'country', 'sales_channel', 'category', 'customer_type'],
+    dimensions: [
+      'store',
+      'product',
+      'country',
+      'sales_channel',
+      'category',
+      'customer_type',
+      'customer_group',
+    ],
     source: { id: 'lines', sql: 'sum(unit_price_minor * quantity)' },
   },
   product_discount_minor: {
@@ -569,7 +1129,15 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     currency_bound: true,
     finance: false,
     available: true,
-    dimensions: ['store', 'product', 'country', 'sales_channel', 'category', 'customer_type'],
+    dimensions: [
+      'store',
+      'product',
+      'country',
+      'sales_channel',
+      'category',
+      'customer_type',
+      'customer_group',
+    ],
     source: { id: 'lines', sql: 'sum(discount_minor)' },
   },
   product_orders: {
@@ -581,7 +1149,15 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     currency_bound: false,
     finance: false,
     available: true,
-    dimensions: ['store', 'product', 'country', 'sales_channel', 'category', 'customer_type'],
+    dimensions: [
+      'store',
+      'product',
+      'country',
+      'sales_channel',
+      'category',
+      'customer_type',
+      'customer_group',
+    ],
     source: { id: 'lines', sql: 'uniqExact(order_id)' },
     total: 'none',
   },
@@ -684,12 +1260,13 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
     dimensions: ['warehouse'],
     source: { id: 'stock', sql: 'sum(units_adjusted)' },
   },
+  ...WAVE2,
 };
 
 /** What `listMetrics` answers for a caller (finance metrics only for finance principals). */
 export function catalogueFor(opts: { finance: boolean; stores: { id: string; code: string }[] }) {
   return {
-    version: 2,
+    version: 3,
     max_range_days: LIMITS.max_range_days,
     max_metrics: LIMITS.max_metrics,
     max_dimensions: LIMITS.max_dimensions,

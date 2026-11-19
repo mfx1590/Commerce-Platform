@@ -13,7 +13,7 @@
 import { AppError } from '../../../lib/errors';
 import { LIMITS } from '../metrics/catalogue';
 import type { StockScope } from '../metrics/compile';
-import type { MetricLabels, MetricsReader } from '../metrics/execute';
+import type { MetricLabels, MetricsReader, PostgresSourceLoader } from '../metrics/execute';
 import type { InventoryHealth, InventoryQuery } from '../metrics/inventory';
 import type { MetricId } from '../metrics/catalogue';
 import { aiErrorToAppError, type AiToolRun, type GatewayFactory } from './gateway';
@@ -87,6 +87,8 @@ export interface AskDeps {
   now?: () => Date;
   /** BI v2 (#871): the `stock` series scope for these stores; stock series are a tool error without it */
   stockScope?: (storeIds: readonly string[]) => Promise<StockScope>;
+  /** BI v2 wave 2 (#935): the Postgres promotions source under the caller's scope */
+  promotions?: PostgresSourceLoader;
   /** BI v2: getInventoryHealth over these stores only (the inventory_health tool is offered only with it) */
   inventory?: (storeIds: readonly string[], q: InventoryQuery) => Promise<InventoryHealth>;
   /** BI v2: names for the aliases the answer uses, under the caller's scope (aliases stay when omitted) */
@@ -212,6 +214,7 @@ export async function askMetrics(
           codes: new Map(on.map((s) => [s.id, s.code])),
           aliases,
           ...(deps.stockScope ? { stockScope: () => deps.stockScope!(onIds) } : {}),
+          ...(deps.promotions ? { promotions: deps.promotions } : {}),
           ...(deps.inventory
             ? { inventory: (q: InventoryQuery) => deps.inventory!(onIds, q), inventoryCalls }
             : {}),

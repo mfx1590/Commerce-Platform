@@ -23,6 +23,7 @@ import {
 } from '../metrics/catalogue';
 import type { StockScope } from '../metrics/compile';
 import {
+  type PostgresSourceLoader,
   executeMetricQuery,
   type MetricLabels,
   type MetricResult,
@@ -68,13 +69,27 @@ export class Aliases {
     return a;
   }
 }
-export type AliasKind = 'product' | 'category' | 'sales_channel' | 'warehouse' | 'item';
+export type AliasKind =
+  | 'product'
+  | 'category'
+  | 'sales_channel'
+  | 'warehouse'
+  | 'item'
+  // BI v2 wave 2 (#935 e): groups, campaigns and promotions are ids; a utm value is link text, never shown to the model
+  | 'customer_group'
+  | 'campaign'
+  | 'promotion'
+  | 'utm';
 const ALIAS_PREFIX: Readonly<Record<AliasKind, string>> = {
   product: 'p',
   category: 'c',
   sales_channel: 'ch',
   warehouse: 'w',
   item: 'i',
+  customer_group: 'g',
+  campaign: 'cp',
+  promotion: 'pr',
+  utm: 'u',
 };
 
 /** One inventory_health call: its ref (h1, h2 …), the query and the answer. */
@@ -256,23 +271,54 @@ export interface ToolDeps {
   aliases?: Aliases;
   /** the `stock` series scope (#871 c); stock metrics are a tool error without it */
   stockScope?: () => Promise<StockScope>;
+  /** the Postgres promotions source (#935); promotion metrics are a tool error without it */
+  promotions?: PostgresSourceLoader;
   /** getInventoryHealth for this caller, restricted to the question's stores (BI Q&A-off stores excluded) */
   inventory?: (q: InventoryQuery) => Promise<InventoryHealth>;
   inventoryCalls?: ExecutedInventory[];
+}
+
+/** A utm value as an alias (u1 …): its text is the legend's, the model never reads it. */
+function utmAlias(aliases: Aliases, value: string | null): string | null {
+  const a = aliases.of('utm', value);
+  if (a !== null && value !== null) aliases.known.set(a, value);
+  return a;
 }
 
 /** A result's rows as the model reads them: no uuid, aliases instead (#680 review; #871 e). */
 function modelRows(result: MetricResult, deps: ToolDeps, aliases: Aliases) {
   return result.rows
     .slice(0, MODEL_ROWS)
-    .map(({ store_id, product_id, category_id, sales_channel_id, warehouse_id, ...rest }) => ({
-      ...rest,
-      store: store_id === null ? null : (deps.codes?.get(store_id) ?? store_id),
-      product: aliases.of('product', product_id),
-      category: aliases.of('category', category_id),
-      sales_channel: aliases.of('sales_channel', sales_channel_id),
-      warehouse: aliases.of('warehouse', warehouse_id),
-    }));
+    .map(
+      ({
+        store_id,
+        product_id,
+        category_id,
+        sales_channel_id,
+        warehouse_id,
+        customer_group_id,
+        campaign_id,
+        promotion_id,
+        utm_source,
+        utm_medium,
+        utm_campaign,
+        ...rest
+      }) => ({
+        ...rest,
+        store: store_id === null ? null : (deps.codes?.get(store_id) ?? store_id),
+        product: aliases.of('product', product_id),
+        category: aliases.of('category', category_id),
+        sales_channel: aliases.of('sales_channel', sales_channel_id),
+        warehouse: aliases.of('warehouse', warehouse_id),
+        // #935 e: ids as aliases; utm text as aliases too (the text is known: the legend shows it after the answer)
+        customer_group: aliases.of('customer_group', customer_group_id),
+        campaign: aliases.of('campaign', campaign_id),
+        promotion: aliases.of('promotion', promotion_id),
+        utm_source: utmAlias(aliases, utm_source),
+        utm_medium: utmAlias(aliases, utm_medium),
+        utm_campaign: utmAlias(aliases, utm_campaign),
+      }),
+    );
 }
 
 /** One handler for every tool, by name (the gateway calls a single handler). */
@@ -322,7 +368,10 @@ export function queryMetricsHandler(deps: ToolDeps): (call: AiToolCall) => Promi
       deps.executed.push({ ref, query, error: errorOf(e) });
       return { isError: true, content: JSON.stringify({ ref, error: errorOf(e) }) };
     }
-    const result = await executeMetricQuery(deps.reader, query, scope, stock ? { stock } : {});
+    const result = await executeMetricQuery(deps.reader, query, scope, {
+      ...(stock ? { stock } : {}),
+      ...(deps.promotions ? { promotions: deps.promotions } : {}),
+    });
     deps.executed.push({ ref, query, result });
     // What the model reads carries no uuid (#680 review): each store by its CODE, everything else by an alias stable
     // for the whole question (#871 e). The ids stay where they matter: the tool schema's store enum (what the model
@@ -405,7 +454,10 @@ function moversHandler(deps: ToolDeps & { aliases: Aliases }) {
     }
     // ranked over EVERY key of both ranges (#924 review); the answer records the equivalent compare query with its
     // rows capped at the query's limit, as any query result is (the ranking above is not affected by the cap)
-    const full = await executeMetricQuery(deps.reader, query, scope, { noLimit: true });
+    const full = await executeMetricQuery(deps.reader, query, scope, {
+      noLimit: true,
+      ...(deps.promotions ? { promotions: deps.promotions } : {}),
+    });
     const r = moversFromResult(mq, full, new Date());
     const cap = <T>(rows: T[]) => rows.slice(0, query.limit);
     deps.executed.push({
@@ -554,7 +606,7 @@ function inventoryHandler(deps: ToolDeps & { aliases: Aliases }) {
 
 // ---- the substitution: aliases → names, in the final answer only -------------------------------------------------
 
-const ALIAS = /\b(ch|[pcwi])(\d+)\b/g;
+const ALIAS = /\b(ch|cp|pr|[pcwigu])(\d+)\b/g;
 
 /**
  * The model wrote aliases; the owner reads names. Every whole-token alias the question issued is replaced by its label
@@ -568,13 +620,15 @@ export async function substituteAliases(
 ): Promise<{ text: string; legend: Record<string, string> }> {
   const want: Partial<Record<keyof MetricLabels, Set<string>>> = {};
   for (const [alias, { kind, id }] of aliases.reverse) {
-    if (kind === 'item' || aliases.known.has(alias)) continue;
+    if (kind === 'item' || kind === 'utm' || aliases.known.has(alias)) continue;
     (want[kind] ??= new Set()).add(id);
   }
   const labels = Object.keys(want).length > 0 ? await resolve(want) : {};
   const legend: Record<string, string> = {};
   for (const [alias, { kind, id }] of aliases.reverse) {
-    const name = aliases.known.get(alias) ?? (kind === 'item' ? undefined : labels[kind]?.[id]);
+    const name =
+      aliases.known.get(alias) ??
+      (kind === 'item' || kind === 'utm' ? undefined : labels[kind]?.[id]);
     if (name !== undefined) legend[alias] = name;
   }
   return { text: text.replace(ALIAS, (m) => legend[m] ?? m), legend };

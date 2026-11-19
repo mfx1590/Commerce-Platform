@@ -42,6 +42,7 @@ import {
 } from './inventory';
 import { idsOf, resolveLabels } from './labels';
 import { listMetricMovers, parseMoversQuery } from './movers';
+import { promotionsLoader } from './promotions';
 import { parseMetricQuery, type MetricQuery } from './query';
 import { sharedMetricsReader } from './reader';
 import { scopeForQuery } from './scope';
@@ -174,7 +175,9 @@ export function metricsAdminRouter(opts: MetricsRouterOptions = {}): Router {
     handle(async (req, res) => {
       const p = requirePrincipal(req);
       spec.validateBody('queryMetrics', req.body);
-      const q = parseMetricQuery(req.body);
+      // #935 (manager decision): JSON answers at most LIMITS.max_rows rows; text/csv up to LIMITS.max_csv_rows
+      const csv = wantsCsv(req);
+      const q = parseMetricQuery(req.body, { csv });
       // the same rules BI Q&A's tool applies (scope.ts): 403 outside the scope, never empty rows
       const scope = await scopeForQuery(q, {
         stores: (await metricsScope(p)).map((s) => s.id),
@@ -183,13 +186,16 @@ export function metricsAdminRouter(opts: MetricsRouterOptions = {}): Router {
       const stock = usesStock(q)
         ? await stockScopeFor(p, scope, q.filters.store_ids !== undefined)
         : undefined;
-      const result = await executeMetricQuery(reader(), q, scope, stock ? { stock } : {});
+      const result = await executeMetricQuery(reader(), q, scope, {
+        ...(stock ? { stock } : {}),
+        promotions: promotionsLoader(visibleStoresClientFor(p)),
+      });
       result.labels = await resolveLabels(
         visibleStoresClientFor(p),
         idsOf([...result.rows, ...(result.compare?.rows ?? [])]),
       );
       // text/csv only when the client prefers it over JSON (the default stays JSON); errors stay JSON either way
-      if (wantsCsv(req)) {
+      if (csv) {
         res
           .status(200)
           .type('text/csv; charset=utf-8')

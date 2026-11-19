@@ -19,6 +19,15 @@ const COLUMN: Readonly<Record<Dimension, DimensionColumn>> = {
   category: 'category_id',
   customer_type: 'customer_type',
   warehouse: 'warehouse_id',
+  // BI v2 wave 2 (#935)
+  customer_group: 'customer_group_id',
+  utm_source: 'utm_source',
+  utm_medium: 'utm_medium',
+  utm_campaign: 'utm_campaign',
+  campaign: 'campaign_id',
+  promotion: 'promotion_id',
+  carrier: 'carrier',
+  failure_reason: 'failure_reason',
 };
 
 /** The label map of a dimension (only id-valued dimensions have one). */
@@ -28,6 +37,9 @@ const LABELLED: Partial<Record<Dimension, keyof MetricLabels>> = {
   category: 'category',
   sales_channel: 'sales_channel',
   warehouse: 'warehouse',
+  customer_group: 'customer_group',
+  campaign: 'campaign',
+  promotion: 'promotion',
 };
 
 const FORMULA_START = /^[=+\-@\t\r]/;
@@ -41,7 +53,9 @@ export function csvText(value: string): string {
 function cell(v: string | number | null | undefined): string {
   if (v === null || v === undefined) return '';
   if (typeof v === 'number') {
-    if (!Number.isSafeInteger(v)) throw new Error(`csv: a non-integer value ${v}`);
+    // integers, and the hours of a distribution metric (#935: one decimal)
+    if (!Number.isSafeInteger(v) && !(Number.isFinite(v) && Math.round(v * 10) === v * 10))
+      throw new Error(`csv: an unexpected value ${v}`);
     return String(v);
   }
   return csvText(v);
