@@ -27,6 +27,10 @@ export const MOVER_DIMENSIONS = [
   'sales_channel',
   'product',
   'category',
+  // BI v2 wave 2 (#935 a2)
+  'customer_type',
+  'customer_group',
+  'warehouse',
 ] as const;
 export type MoverDimension = (typeof MOVER_DIMENSIONS)[number];
 
@@ -68,14 +72,27 @@ export interface MoversResult {
   }[];
 }
 
-const ROW_KEY: Readonly<
-  Record<MoverDimension, 'store_id' | 'country' | 'sales_channel_id' | 'product_id' | 'category_id'>
+export const MOVER_ROW_KEY: Readonly<
+  Record<
+    MoverDimension,
+    | 'store_id'
+    | 'country'
+    | 'sales_channel_id'
+    | 'product_id'
+    | 'category_id'
+    | 'customer_type'
+    | 'customer_group_id'
+    | 'warehouse_id'
+  >
 > = {
   store: 'store_id',
   country: 'country',
   sales_channel: 'sales_channel_id',
   product: 'product_id',
   category: 'category_id',
+  customer_type: 'customer_type',
+  customer_group: 'customer_group_id',
+  warehouse: 'warehouse_id',
 };
 
 export function parseMoversQuery(body: unknown): MoversQuery {
@@ -241,7 +258,7 @@ export async function listMetricMovers(
 
 /** The ranking of an executed compare query (pure). */
 export function moversFromResult(mq: MoversQuery, r: MetricResult, now: Date): MoversResult {
-  const col = ROW_KEY[mq.dimension];
+  const col = MOVER_ROW_KEY[mq.dimension];
   const index = (rows: MetricResult['rows']) => {
     const m = new Map<string | null, Map<string, number>>();
     for (const row of rows) {

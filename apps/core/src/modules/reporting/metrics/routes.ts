@@ -41,7 +41,7 @@ import {
   type InventoryQuery,
 } from './inventory';
 import { idsOf, resolveLabels } from './labels';
-import { listMetricMovers, parseMoversQuery } from './movers';
+import { listMetricMovers, MOVER_ROW_KEY, parseMoversQuery } from './movers';
 import {
   getCustomerCohorts,
   getOperationsBacklog,
@@ -268,13 +268,7 @@ export function metricsAdminRouter(opts: MetricsRouterOptions = {}): Router {
       );
       const result = await listMetricMovers(reader(), mq, scope);
       const keys = result.by_currency.flatMap((b) => [...b.risers, ...b.fallers]).map((m) => m.key);
-      const column = {
-        store: 'store_id',
-        country: 'country',
-        sales_channel: 'sales_channel_id',
-        product: 'product_id',
-        category: 'category_id',
-      }[mq.dimension];
+      const column = MOVER_ROW_KEY[mq.dimension];
       res.json({
         ...result,
         labels: await resolveLabels(

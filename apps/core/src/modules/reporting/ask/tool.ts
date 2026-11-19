@@ -570,7 +570,11 @@ function moversHandler(deps: ToolDeps & { aliases: Aliases }) {
           ? 'category'
           : mq.dimension === 'sales_channel'
             ? 'sales_channel'
-            : null;
+            : mq.dimension === 'customer_group'
+              ? 'customer_group'
+              : mq.dimension === 'warehouse'
+                ? 'warehouse'
+                : null;
     const key = (k: string) =>
       mq.dimension === 'store' ? (deps.codes?.get(k) ?? k) : kind ? deps.aliases.of(kind, k)! : k;
     return {

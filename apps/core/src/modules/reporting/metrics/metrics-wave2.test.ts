@@ -7,6 +7,7 @@ import type { AppError } from '../../../lib/errors';
 import { isAdditive, METRIC_IDS, METRICS, type MetricId } from './catalogue';
 import { compileMetricQuery } from './compile';
 import { suppressSmallCells, utmValue, type MetricRow } from './execute';
+import { moversFromResult, parseMoversQuery } from './movers';
 import { promotionsSql } from './promotions';
 import { parseMetricQuery } from './query';
 
@@ -189,5 +190,36 @@ describe('promotions from Postgres (R1)', () => {
     expect(sql).toContain('o.store_id = ANY($1::uuid[])');
     expect(sql).toContain("o.status <> 'cancelled'");
     expect(params).toEqual([[A], '2026-10-01', '2026-11-01', [A], ['EUR']]);
+  });
+});
+
+describe('movers by customer type, customer group and warehouse (#935 a2)', () => {
+  it.each([
+    ['net_sales_minor', 'customer_group', 'customer_group_id'],
+    ['units', 'customer_type', 'customer_type'],
+    ['orders_shipped', 'warehouse', 'warehouse_id'],
+  ] as const)('%s by %s ranks the %s column', async (metric, dimension, column) => {
+    const mq = parseMoversQuery({ metric, dimension, from: '2026-10-01', to: '2026-11-01' });
+    const row = (key: string, v: number) => ({
+      [column]: key,
+      currency: null,
+      values: { [metric]: v },
+    });
+    const r = moversFromResult(
+      mq,
+      {
+        rows: [row('x', 10), row('y', 50)],
+        currency_totals: [],
+        data_as_of: null,
+        compare: {
+          rows: [row('x', 40), row('y', 20)],
+          currency_totals: [],
+          current_incomplete: false,
+        },
+      } as never,
+      new Date('2026-11-19T00:00:00Z'),
+    );
+    expect(r.by_currency[0]!.risers.map((m) => m.key)).toEqual(['y']);
+    expect(r.by_currency[0]!.fallers.map((m) => m.key)).toEqual(['x']);
   });
 });
