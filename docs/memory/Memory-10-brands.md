@@ -410,6 +410,45 @@ branch), dropping versions from the manifest (`--check`'s drift report needs the
 `bump-starter-dep.mjs` as the primary path — **a script of mine cannot make a starter edit legal**;
 bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
+## In progress — #870 item 4 PR A, customers list (2026-11-19)
+
+**PR #945**, branch `integration/admin-customers-list` from main `38bfa8c3` (code commit
+`62f9e6cc`; head = this memory commit). Plan approved A → B → C. Admin suite **1543 / 86 files**; lint, format:check, typecheck 30/30 and
+ownership green. #933 (order history) is approved and queued, so this branch does not carry it —
+Memory-10 here is main's copy and the #921 entry arrives when #933 merges.
+
+**The privacy defect was already in the code, and reading the yaml is what found it.** "Orders by
+this customer" linked `/orders?q=<email>`: a customer's email address in a URL, so in browser
+history, in the referrer of whatever the orders page loads next, and in any log that records paths.
+`listOrders` has taken an exact `customer_id` since 0.4.24 and nobody had switched to it.
+
+**And the obvious fix was a trap.** `ORDER_FILTER_KEYS` did not include `customer_id`, and
+`parseTableQuery` drops a key the page does not list — so the new link would have shown **every
+order while looking filtered**, which is worse than the email it replaced. I caught it by checking
+the filter keys before trusting my own link. **A URL parameter is only real if the page parses it.**
+The orders list now also says when it is showing one customer, because a filtered list that looks
+unfiltered is the same trap wearing a different hat.
+
+**Said no to the CSV.** The manager's note and my own reading agree: a customer-list export is a
+bulk extraction of emails, phones and addresses. PR A ships none, a test asserts none, and the
+docstring says why — cheaper than arguing about it after somebody adds a button.
+
+**CI caught what I should have: the e2e asserted the old href.** `store-admin.spec.ts:268` pinned
+`?q=jane%40example.com`, so both e2e jobs failed on that single line (I read both logs: identical
+spec, identical assertion, every unit suite green, and the kafkajs errors in the live-auth log are
+an intentional consumer test). The spec now derives the customer id from the address it is on and
+asserts the email appears in no encoding.
+
+**This is the second time an e2e locator broke on my change** — #896 was a strict-mode text
+collision from the Activity panel, this one an href assertion. The rule is therefore wider than I
+first wrote it: **when a change alters anything a spec can assert — rendered text, an href, a role
+name, a testid — grep `apps/*/e2e` before pushing.** Unit tests cannot see any of it. I grepped the
+other specs this time: the only `q=` hits left are a product handle and a staff email rendered on
+HQ › Roles, neither affected.
+
+**A flake to pass on, not to fix:** `test/bi-v2-views.test.tsx` → "Copy link to this view" timed
+out at 5 s in the full parallel run and passes 19/19 alone. Window 12's file, and nothing in my diff
+touches BI. Re-ran the suite green and reported it rather than touching another window's test.
 
 ## In progress — #921, the order's own history (2026-11-19)
 

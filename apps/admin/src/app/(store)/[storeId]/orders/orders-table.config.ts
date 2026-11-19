@@ -14,6 +14,10 @@ export const ORDER_FILTER_KEYS = [
   'status',
   'payment_status',
   'fulfillment_status',
+  // `listOrders` has taken an exact `customer_id` since Admin API 0.4.24 (#569). It is here so the
+  // customer page can link to one person's orders WITHOUT putting their email in the URL: a key
+  // the page does not parse is dropped, and the link would quietly have shown every order.
+  'customer_id',
   'placed_from',
   'placed_to',
 ] as const;
