@@ -3,3 +3,8 @@
 *.png binary
 *.jpg binary
 *.ico binary
+
+# Append-only logs: when two PRs add entries at the same spot, keep both sides instead of a conflict
+# (the merge queue and the windows merge origin/main locally, where git honours this; manager 2026-11-19).
+**/CHANGELOG.md merge=union
+docs/memory/*.md merge=union
