@@ -516,6 +516,28 @@
   partly refunded, provider refusal, a lost provider answer then a retry (one refund at the PSP), pending, re-cancel,
   fail closed. `test/wiring.test.ts` checks the registration. Mutation-checked.
 
+### 2026-11-18 · audit rows for order mutations (#887)
+
+- `transition()` — the one mutation path of an order — writes one `audit_log` row per call (`entity_type: 'order'`),
+  in its transaction, by the change's actor (`actor_type` staff / customer / system; `actor_id` the staff id, a
+  signed-in customer's id, NULL for a guest or the system). Actions:
+  `order.cancel`, `order.status_change`, `order.update`, or the caller's (`order.line_item_update` /
+  `order.line_item_cancel` with the line and quantities); `before` / `after` = the status fields that moved + the
+  changed field names; no PII. So placement's confirm, captures and refunds (window 7's status moves), fulfilment
+  moves, the fraud hold, cancel (+ its void) and line edits are all audited on the order. Placement writes
+  `order.place` (ids, currency, total, line count, provider); shipments and received returns write `order.ship` /
+  `order.return` with the lines' ids and quantities (one row per call, also when no status moves); `linkExchange`
+  (returns module, now with an `actor`) writes `order.exchange_link`. Nothing wrote `entity_type 'order'` before.
+- `writeAudit` stamps `created_at` with `clock_timestamp()` (the write time), so several rows of one transaction keep
+  their order in a history sorted by time.
+- `test/order-audit.test.ts` (8): placement by a guest (NULL) and by a signed-in customer (its id), capture (system),
+  cancel by a store admin (void row, then one `order.cancel` with staff id, previous status, reason; re-cancel writes
+  nothing), both line edits, three shipments and two returns (one row each, status-preserving ones included), none
+  for a rolled-back, a refused, or a transition that throws after its audit write; no email or address in any row.
+  `returns.test.ts` asserts the exchange row. Mutation-checked.
+- The cancel's refund link: a cancel that refunded a captured payment (#905) puts the refund ids on its `order.cancel`
+  row (`after.refund_ids`); `cancel-refund.test.ts` asserts it.
+
 ## Phase 2 (window 1, contracts-v0.3)
 
 ### 2026-10-03 · the customer on carts and orders — review fixes (#325)

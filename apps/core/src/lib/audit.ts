@@ -24,15 +24,17 @@ export interface AuditEntry {
 
 /**
  * Appends one `audit_log` row inside the caller's transaction (docs/domain.md: every admin mutation, before/after
- * JSON, same transaction). The table is append-only for the app role.
+ * JSON, same transaction). The table is append-only for the app role. `created_at` is the WRITE time
+ * (`clock_timestamp()`, #887), not the transaction's start: several rows of one transaction (a void, then the
+ * cancel) keep their order in a history sorted by `created_at`.
  *
  * Phase 1 stub: docs/domain.md assigns the shared writer helper to window 2 (@platform/auth-sdk). When it lands,
  * this function delegates to it behind the same signature.
  */
 export async function writeAudit(tx: Queryable, entry: AuditEntry): Promise<void> {
   await tx.query(
-    `INSERT INTO audit_log (organization_id, store_id, actor_id, actor_type, action, entity_type, entity_id, before, after, request_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    `INSERT INTO audit_log (organization_id, store_id, actor_id, actor_type, action, entity_type, entity_id, before, after, request_id, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, clock_timestamp())`,
     [
       entry.organizationId,
       entry.storeId,
