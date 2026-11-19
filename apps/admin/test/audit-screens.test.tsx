@@ -264,6 +264,65 @@ describe("the order's payment activity", () => {
   });
 });
 
+describe("the order's own Activity (#921)", () => {
+  it('asks for the order, not its payments, and reads a cancellation without its reason', async () => {
+    api.listAuditLog.mockResolvedValue(
+      pageOf([
+        auditEntry({
+          entity_type: 'order',
+          entity_id: 'o1',
+          action: 'order.cancel',
+          before: { status: 'confirmed' },
+          after: {
+            status: 'cancelled',
+            reason: 'customer Jane Doe changed her mind',
+            refund_ids: ['r1'],
+            changed_fields: ['status'],
+          },
+        }),
+      ]),
+    );
+
+    const activity = await loadActivity({ storeId: STORE, entityType: 'order', entityId: 'o1' });
+    render(<ActivityPanel activity={activity} entityType="order" basePath="/base" />);
+
+    expect(api.listAuditLog).toHaveBeenCalledWith({
+      store_id: STORE,
+      entity_type: 'order',
+      entity_id: 'o1',
+      page: 1,
+      limit: 20,
+    });
+    const table = screen.getByRole('table', { name: /activity on this order/i });
+    expect(within(table).getByText('cancelled · reason, refund_ids, status')).toBeTruthy();
+    expect(within(table).getByText('1 refund')).toBeTruthy();
+    // The reason is named so the reader knows one exists, and not shown.
+    expect(within(table).getByText('reason')).toBeTruthy();
+    expect(screen.queryByText(/Jane Doe/)).toBeNull();
+  });
+
+  it('shows a shipment as lines and units, with no invented previous value', async () => {
+    api.listAuditLog.mockResolvedValue(
+      pageOf([
+        auditEntry({
+          entity_type: 'order',
+          entity_id: 'o1',
+          action: 'order.ship',
+          before: {},
+          after: { lines: [{ line_item_id: 'l1', quantity: 2 }] },
+        }),
+      ]),
+    );
+    const activity = await loadActivity({ storeId: STORE, entityType: 'order', entityId: 'o1' });
+    render(<ActivityPanel activity={activity} entityType="order" basePath="/base" />);
+
+    expect(screen.getByText('shipped · lines')).toBeTruthy();
+    expect(screen.getByText('1 line, 2 units')).toBeTruthy();
+    // `before: {}` records nothing about the lines, so the row must not read "none → 1 line".
+    expect(screen.queryByText('none')).toBeNull();
+  });
+});
+
 describe('HQ · Audit', () => {
   const searchParams = (params: Record<string, string> = {}) => Promise.resolve(params);
 
