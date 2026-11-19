@@ -4,8 +4,16 @@
 //   sales (order currency, reference = order)
 //     Dr 2300 Contract liability goods     goods net − goods released
 //     Dr 2310 Contract liability shipping  shipping net                      unless already released
-//     Dr 2200 VAT payable                  round-half-up(tax × unreleased / (goods net + shipping net))   (= tax when nothing shipped)
-//     Cr 1200 Accounts receivable          the sum
+//     Dr 2200 VAT payable                  round-half-up(tax × unreleased / (goods net + shipping net)) − O tax
+//     Cr 4090 Refunds and allowances       O net                                                  (#919)
+//     Cr 1200 Accounts receivable          the rest (the unreleased total − O)
+//
+// O (#919) = the part of the order's refunds (return / goodwill / chargeback, their GROSS amounts from the refund
+// projection, whatever arrival order posted them) that exceeds the value of what has shipped: a refund the
+// cancellation now covers. Those refunds already reversed that
+// VAT and booked that amount as an allowance; without O the cancel reversed the VAT a second time and credited the
+// receivable for money the customer already had back (1200 ended at −refund). O's VAT is the refunds' own VAT in
+// proportion (exact when every refund is covered); a refund of shipped goods (O = 0) is a real allowance and stays.
 //
 // Amounts come from the projection; the event's `totals` are not used (an edited order's totals describe the order,
 // the projection describes what the ledger holds). A second cancel of a cancelled order posts nothing. The projection
@@ -34,6 +42,47 @@ export function cancellationVat(
   return shipped ? 0 : order.tax_minor;
 }
 
+/** The VAT part of a return / goodwill / chargeback refund: the order's own proportion, round-half-up. */
+export function refundTaxOf(
+  order: { total_minor: number; tax_minor: number },
+  amount: number,
+): number {
+  return order.total_minor > 0 ? roundShare(amount, order.tax_minor, order.total_minor) : 0;
+}
+
+/** The part of the placed entry not yet released: goods and shipping net, and their VAT (#919 helper). */
+export function unreleasedOf(
+  order: OrderProjection,
+  shipped: boolean = order.shipping_released,
+): { goods: number; shipping: number; net: number; tax: number; total: number } {
+  const goods = order.goods_net_minor - order.goods_released_minor;
+  const shipping = order.shipping_released ? 0 : order.shipping_net_minor;
+  const tax = cancellationVat(order, goods + shipping, shipped);
+  return { goods, shipping, net: goods + shipping, tax, total: goods + shipping + tax };
+}
+
+/** The value of what has shipped, VAT included: the order total minus the unreleased part. */
+export function shippedValueOf(order: OrderProjection): number {
+  return Math.max(order.total_minor - unreleasedOf(order).total, 0);
+}
+
+/**
+ * #919: the part O of the order's earlier refunds that the cancellation covers — what they reversed beyond the shipped
+ * value, capped at the unreleased total — with its VAT (the refunds' own VAT in proportion) and its net.
+ */
+export function refundOverlapOf(order: OrderProjection): {
+  total: number;
+  tax: number;
+  net: number;
+} {
+  const refunded = order.refunded_net_minor + order.refunded_tax_minor;
+  if (refunded <= 0) return { total: 0, tax: 0, net: 0 };
+  const u = unreleasedOf(order);
+  const total = Math.min(Math.max(refunded - shippedValueOf(order), 0), u.total);
+  const tax = Math.min(roundShare(order.refunded_tax_minor, total, refunded), u.tax, total);
+  return { total, tax, net: total - tax };
+}
+
 export function postOrderCancelled(
   e: EventEnvelope<'order.cancelled'>,
   order: OrderProjection | null,
@@ -42,9 +91,8 @@ export function postOrderCancelled(
   if (!order) throw new OrderProjectionMissingError(p.order_id, e.topic);
   if (order.status === 'cancelled') return { entries: [], order };
 
-  const goodsRemaining = order.goods_net_minor - order.goods_released_minor;
-  const shippingRemaining = order.shipping_released ? 0 : order.shipping_net_minor;
-  const vat = cancellationVat(order, goodsRemaining + shippingRemaining);
+  const u = unreleasedOf(order);
+  const o = refundOverlapOf(order);
   const cur = order.currency;
 
   const entry = finalizeEntry({
@@ -57,10 +105,11 @@ export function postOrderCancelled(
     reference_type: 'order',
     reference_id: p.order_id,
     lines: [
-      line(ACCOUNT.CONTRACT_LIABILITY_GOODS, cur, goodsRemaining, 'debit'),
-      line(ACCOUNT.CONTRACT_LIABILITY_SHIPPING, cur, shippingRemaining, 'debit'),
-      line(ACCOUNT.VAT_PAYABLE, cur, vat, 'debit'),
-      line(ACCOUNT.RECEIVABLE, cur, goodsRemaining + shippingRemaining + vat, 'credit'),
+      line(ACCOUNT.CONTRACT_LIABILITY_GOODS, cur, u.goods, 'debit'),
+      line(ACCOUNT.CONTRACT_LIABILITY_SHIPPING, cur, u.shipping, 'debit'),
+      line(ACCOUNT.VAT_PAYABLE, cur, u.tax - o.tax, 'debit'),
+      line(ACCOUNT.REFUNDS, cur, o.net, 'credit'),
+      line(ACCOUNT.RECEIVABLE, cur, u.total - o.total, 'credit'),
     ],
   });
   return {

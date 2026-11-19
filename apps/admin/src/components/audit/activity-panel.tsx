@@ -32,14 +32,22 @@ function ChangeList({ row }: { row: AuditRow }) {
       {row.changes.map((change) => (
         <li key={change.field}>
           <span className="font-mono">{change.field}</span>{' '}
-          {change.kind === 'shown' ? (
-            <>
-              <span className="line-through">{change.before ?? 'none'}</span>
-              {' → '}
-              <span className="font-medium">{change.after ?? 'none'}</span>
-            </>
-          ) : (
+          {change.kind !== 'shown' ? (
             <span>changed — value not shown</span>
+          ) : change.before === null ? (
+            // The row records no previous value (`order.ship` writes `before: {}`): show what it
+            // does say rather than inventing a "none" it never claimed.
+            <span className="font-medium">{change.after}</span>
+          ) : change.after === null ? (
+            <span>
+              was <span className="line-through">{change.before}</span>
+            </span>
+          ) : (
+            <>
+              <span className="line-through">{change.before}</span>
+              {' → '}
+              <span className="font-medium">{change.after}</span>
+            </>
           )}
         </li>
       ))}
@@ -139,9 +147,8 @@ export function ActivityPanel({
           <RequestErrorPanel status={error.status} error={error.error} />
         ) : rows.length === 0 ? (
           <p className="text-muted text-sm">
-            Nothing recorded for this {label} yet. Rows appear here as the core writes them; a
-            change to something related — a product&rsquo;s variants or its media — is recorded
-            under that entity&rsquo;s own id, not this one.
+            Nothing recorded for this {label} yet. Rows appear here as the core writes them, and a
+            change recorded against a related thing of its own appears there rather than here.
           </p>
         ) : (
           <div className="space-y-3">

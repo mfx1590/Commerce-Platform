@@ -10,6 +10,11 @@
 //       Dr 4090 Refunds and allowances  amount − tax part
 //       Dr 2200 VAT payable             tax part
 //       Cr 1100 PSP clearing            amount_minor
+//     on a CANCELLED order (#919) the refund also moves the cancellation's overlap O (order-cancelled.ts) by ΔO: the
+//     part beyond the shipped value is not a sale reversal but settles the customer's credit the cancellation created
+//     — Cr 4090 ΔO net, Cr 2200 ΔO VAT, Dr 1200 ΔO (netted with the lines above). That is what the cancellation would
+//     have posted had the refund arrived first, and a shipment consumed later moves O back, so every arrival order
+//     nets the same.
 //
 // The PSP keeps its fee on a refund (Stripe does), so the fee stays where payment.captured put it. Chargebacks: no
 // dispute event exists yet; a refund with reason `chargeback` posts like a return (CONTRACT CHANGE filed for the
@@ -17,7 +22,8 @@
 import type { EventEnvelope } from '@platform/events';
 import { ACCOUNT } from '../chart.js';
 import { OrderProjectionMissingError } from '../errors.js';
-import { dateOf, finalizeEntry, line, roundShare } from './balance.js';
+import { dateOf, finalizeEntry, line } from './balance.js';
+import { refundOverlapOf, refundTaxOf } from './order-cancelled.js';
 import type { JournalLine, OrderProjection, PostingResult } from './types.js';
 
 export function postRefundIssued(
@@ -30,6 +36,7 @@ export function postRefundIssued(
   const cur = p.currency;
 
   let lines: (JournalLine | null)[];
+  let nextOrder: OrderProjection | undefined;
   if (p.reason === 'cancellation') {
     lines = [
       line(ACCOUNT.RECEIVABLE, cur, p.amount_minor, 'debit'),
@@ -37,11 +44,25 @@ export function postRefundIssued(
     ];
   } else {
     if (!order) throw new OrderProjectionMissingError(p.order_id, e.topic);
-    const taxPart =
-      order.total_minor > 0 ? roundShare(p.amount_minor, order.tax_minor, order.total_minor) : 0;
+    const taxPart = refundTaxOf(order, p.amount_minor);
+    nextOrder = {
+      ...order,
+      refunded_net_minor: order.refunded_net_minor + p.amount_minor - taxPart,
+      refunded_tax_minor: order.refunded_tax_minor + taxPart,
+    };
+    // #919: on a cancelled order the part beyond the shipped value settles the cancellation's credit instead (ΔO)
+    let dTotal = 0;
+    let dTax = 0;
+    if (order.status === 'cancelled') {
+      const o1 = refundOverlapOf(order);
+      const o2 = refundOverlapOf(nextOrder);
+      dTotal = o2.total - o1.total;
+      dTax = o2.tax - o1.tax;
+    }
     lines = [
-      line(ACCOUNT.REFUNDS, cur, p.amount_minor - taxPart, 'debit'),
-      line(ACCOUNT.VAT_PAYABLE, cur, taxPart, 'debit'),
+      line(ACCOUNT.REFUNDS, cur, p.amount_minor - taxPart - (dTotal - dTax), 'debit'),
+      line(ACCOUNT.VAT_PAYABLE, cur, taxPart - dTax, 'debit'),
+      line(ACCOUNT.RECEIVABLE, cur, dTotal, 'debit'),
       line(ACCOUNT.PSP_CLEARING, cur, p.amount_minor, 'credit'),
     ];
   }
@@ -59,6 +80,7 @@ export function postRefundIssued(
   });
   return {
     entries: [entry],
+    ...(nextOrder ? { order: nextOrder } : {}),
     refund: {
       refund_id: p.refund_id,
       payment_id: p.payment_id,

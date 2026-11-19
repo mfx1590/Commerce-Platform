@@ -59,6 +59,8 @@ export function postOrderPlaced(e: EventEnvelope<'order.placed'>): PostingResult
     shipping_net_minor: shippingNet,
     goods_released_minor: 0,
     shipping_released: false,
+    refunded_net_minor: 0,
+    refunded_tax_minor: 0,
     status: 'placed',
     placed_at: p.placed_at,
     cancelled_at: null,

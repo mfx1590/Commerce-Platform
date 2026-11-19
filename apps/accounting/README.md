@@ -192,6 +192,11 @@ Reason `cancellation`: the sale was already reversed by `order.cancelled`, the r
 **Dr 1200 / Cr 1100** for the amount (no projection needed). The PSP keeps its fee on a refund, so 6100 stays. A
 chargeback posts like a return until a dispute event exists (CONTRACT CHANGE filed; out of the Phase 4 gate).
 
+A `return` / `goodwill` / `chargeback` refund consumed AFTER the order's cancel (#919): the cancel already reversed
+everything unreleased, so the refund also moves the cancellation's overlap O (below) by ΔO — the part beyond the
+shipped value settles the customer's credit instead: Cr 4090 ΔO net, Cr 2200 ΔO VAT, **Dr 1200 ΔO**, netted with the
+lines above. Every arrival order of refunds, the cancel and late shipments nets to the same books.
+
 ### order.cancelled → journal `sales`, reference the order
 
 Reverses what is still UNRELEASED (an unshipped order: the placed entry exactly; a partially shipped order keeps the
@@ -210,6 +215,32 @@ Partially shipped (2 × 50.00 at 20 %, shipping 10.00 + 2.00, one unit shipped):
 (= 22.00 × 50 / 110), Cr 1200 60.00. A second cancel posts nothing. A zero-base order (every net 0, tax > 0) has no
 proportion: its cancel reverses the whole tax when nothing has shipped and none once anything has, in either arrival
 order.
+
+**A refund before the cancel (#919).** A `return` / `goodwill` / `chargeback` refund already reversed revenue and VAT
+(4090, 2200) and paid the customer. The cancel must not reverse that VAT again nor credit the receivable for money the
+customer already has back (1200 ended at −refund, 2200 at −its VAT part). The order projection carries the order's
+return / goodwill / chargeback refunds so far, GROSS, split net / VAT as each refund posts them (`refunded_net_minor`,
+`refunded_tax_minor`, from `accounting_refund` on load, never stored) — the same whatever the arrival order. The
+overlap O = the refunds beyond the shipped value, at most the unreleased total;
+its VAT part is the refunds' VAT in proportion, at most the unreleased VAT. The cancel posts Dr 2300 / 2310 as before,
+**Dr 2200 unreleased VAT − O's VAT, Cr 4090 O's net, Cr 1200 unreleased total − O**; the cancellation refund of the
+rest stays Dr 1200 / Cr 1100. Unshipped 2 × 50.00 at 20 %, shipping 10.00 + 2.00 (total 132.00, VAT 22.00), a 26.40
+goodwill (VAT 4.40) then the cancel:
+
+| Account | Debit  | Credit |
+| ------- | ------ | ------ |
+| 2300    | 100.00 |        |
+| 2310    | 10.00  |        |
+| 2200    | 17.60  |        |
+| 4090    |        | 22.00  |
+| 1200    |        | 105.60 |
+
+The 105.60 cancellation refund then settles 1200; 2200, 4090, 1200 and the liabilities end at zero. A goodwill on a
+partially shipped order counts against the shipped part first (O = 0 while the refunds stay within the shipped value);
+a refund consumed after the cancel moves O up, a shipment consumed after it (dated before) moves O down, each posting
+the difference (Cr / Dr 4090, 2200 and 1200). O is a function of the projection's state alone, so every posting after
+the cancel is a difference of the same function: every arrival order — cancel → refund → late shipment included (the
+#931 review) — nets to the fact-order books to the minor unit, VAT included.
 
 ### A whole life, netted
 
@@ -482,11 +513,14 @@ missing from the ledger without any alert. The ledger itself needs no code chang
 
 ## Tests
 
-`pnpm --filter @platform/accounting test` — 132 tests in eighteen files:
+`pnpm --filter @platform/accounting test` — 150 tests in nineteen files:
 
 - `src/posting/posting.test.ts` — pure: the arithmetic, the worked example of every topic above, partial shipments,
   proportional refunds and cancellations, every defect class, the netted life of one order, the late shipment, event
-  times as instants (fractional seconds, a +02:00 offset, equal instants written differently), the zero-base cancel.
+  times as instants (fractional seconds, a +02:00 offset, equal instants written differently), the zero-base cancel,
+  a refund before a cancellation (#919: full capture, goodwill, two goodwills, JPY, partial shipment, return; every
+  arrival order nets to the settled books; the #931 review: all six arrival orders of shipment, refund and cancel for a
+  return, a goodwill above and one within the shipped value, EUR and JPY, identical to the minor unit).
 - `src/posting/stream.test.ts` — pure: a generated month (seeded PRNG, 400 orders → 1,464 events over two legal
   entities and two currencies, partial / full shipments, every refund reason, cancellations before and mid-shipment)
   balances per legal entity per currency; the contract liability equals the unreleased part of the open orders.
@@ -496,6 +530,10 @@ missing from the ledger without any alert. The ledger itself needs no code chang
   fact order, a 436-event month balanced in SQL with a second pass that changes nothing, the same month delivered in
   shuffled topic order (every order last) producing the identical ledger, RLS between stores and organizations, the
   processed table append-only for the app role.
+- `test/cancel-after-refund.test.ts` — throwaway database (#919): the refund totals come from `accounting_refund`
+  through `handleLedgerEvent`, one transaction per event; goodwill then cancel in both arrival orders, two goodwills, JPY with
+  the cancel's yen lines, a partial shipment consumed after the cancel — each order ends settled (1200, 2200, 4090 at
+  zero); cancel → return / goodwill → late shipment, EUR and JPY, equal to fact order with 1200 at zero.
 - `test/reconcile.test.ts` — the committed payout fixtures equal the builder's output; the pure matcher (every kind,
   the window rule, the window as instants, a row in another currency); the clean month on a seeded database: eight payouts reconciled with zero differences and posted,
   the PSP clearing account equal to the open balance to the cent, books balanced, a re-import a no-op; the discrepant

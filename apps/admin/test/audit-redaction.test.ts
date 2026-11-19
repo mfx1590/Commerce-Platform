@@ -15,6 +15,7 @@ import { auditCsv, csvCell, toAuditRow, type AuditRow } from '@/lib/audit/projec
 import {
   NEVER_SHOW,
   SAFE_VALUE_FIELDS,
+  SHAPES,
   actionVerb,
   fieldChanges,
   formatValue,
@@ -221,6 +222,231 @@ describe('the two cases the review asked to be pinned by name', () => {
     expect(invited.find((change) => change.field === 'email')?.kind).toBe('redacted');
     expect(invited.find((change) => change.field === 'keycloak_subject')?.kind).toBe('redacted');
     expect(JSON.stringify(invited)).not.toContain(MARKER);
+  });
+});
+
+describe('order rows (#921, from the writers #920 added)', () => {
+  const order = (over: Record<string, unknown>) => ({
+    action: 'order.status_change',
+    entity_type: 'order',
+    ...over,
+  });
+
+  it('shows the status fields that moved', () => {
+    expect(
+      fieldChanges(
+        order({
+          before: { status: 'pending', payment_status: 'authorized' },
+          after: {
+            status: 'confirmed',
+            payment_status: 'authorized',
+            changed_fields: ['status'],
+          },
+        }),
+      ),
+    ).toEqual([{ field: 'status', kind: 'shown', before: 'pending', after: 'confirmed' }]);
+  });
+
+  it('NEVER shows a cancellation reason, which is free text somebody typed', () => {
+    // `transition()` puts `order.cancel_reason` in the audit row. It is the one field on an order
+    // where a customer's name or a complaint ends up, so it stays a NAME until #922 decides.
+    const changes = fieldChanges(
+      order({
+        action: 'order.cancel',
+        before: { status: 'confirmed' },
+        after: {
+          status: 'cancelled',
+          reason: `customer ${MARKER} asked to cancel`,
+          changed_fields: ['status'],
+        },
+      }),
+    );
+    expect(changes.find((change) => change.field === 'reason')).toEqual({
+      field: 'reason',
+      kind: 'redacted',
+      before: null,
+      after: null,
+    });
+    expect(JSON.stringify(changes)).not.toContain(MARKER);
+    // And it is still named, so a reader knows a reason exists and where to ask for it.
+    expect(changes.map((change) => change.field)).toContain('reason');
+  });
+
+  it('summarises the shipped lines instead of printing them', () => {
+    const changes = fieldChanges(
+      order({
+        action: 'order.ship',
+        before: {},
+        after: {
+          lines: [
+            { line_item_id: 'l1', quantity: 1 },
+            { line_item_id: 'l2', quantity: 2 },
+          ],
+        },
+      }),
+    );
+    // `before: {}` records nothing about the lines, so there is no previous value to show.
+    expect(changes).toEqual([
+      { field: 'lines', kind: 'shown', before: null, after: '2 lines, 3 units' },
+    ]);
+  });
+
+  it('a shape that is not the shape the core writes is redacted, not guessed at', () => {
+    // The renderer fails closed itself: one element without a numeric quantity and the whole
+    // field goes back to being a name.
+    const changes = fieldChanges(
+      order({
+        action: 'order.ship',
+        after: { lines: [{ line_item_id: 'l1', quantity: 1 }, { note: MARKER }] },
+      }),
+    );
+    expect(changes).toEqual([{ field: 'lines', kind: 'redacted', before: null, after: null }]);
+    expect(JSON.stringify(changes)).not.toContain(MARKER);
+  });
+
+  it('counts the refunds a cancellation issued, without printing their ids', () => {
+    const changes = fieldChanges(
+      order({
+        action: 'order.cancel',
+        after: { refund_ids: ['r1', 'r2'], changed_fields: ['status'] },
+      }),
+    );
+    // `changed_fields` names `status` as well, and a named field is part of the history.
+    expect(changes).toEqual([
+      { field: 'refund_ids', kind: 'shown', before: null, after: '2 refunds' },
+      { field: 'status', kind: 'redacted', before: null, after: null },
+    ]);
+  });
+
+  it('shows a line edit as the quantity it moved', () => {
+    const changes = fieldChanges(
+      order({
+        action: 'order.line_item_update',
+        after: { line_item_id: 'li1', from_quantity: 3, to_quantity: 1 },
+      }),
+    );
+    expect(changes.map((change) => `${change.field}=${change.after}`)).toEqual([
+      'from_quantity=3',
+      'line_item_id=li1',
+      'to_quantity=1',
+    ]);
+  });
+
+  it('leaves a field #920 writes that nobody reviewed as a name', () => {
+    // `order.place` also writes `cart_id`. It is not on the list, so it is not printed.
+    const changes = fieldChanges(
+      order({
+        action: 'order.place',
+        after: { display_id: 1042, cart_id: MARKER, total_minor: 3168, currency: 'JPY' },
+      }),
+    );
+    const byField = new Map(changes.map((change) => [change.field, change]));
+    expect(byField.get('display_id')?.after).toBe('1042');
+    expect(byField.get('total_minor')?.after).toBe('3168');
+    expect(byField.get('currency')?.after).toBe('JPY');
+    expect(byField.get('cart_id')?.kind).toBe('redacted');
+    expect(JSON.stringify(changes)).not.toContain(MARKER);
+  });
+
+  it('names all nine of #920’s actions as verbs a reader understands', () => {
+    expect(
+      [
+        'order.place',
+        'order.status_change',
+        'order.update',
+        'order.cancel',
+        'order.line_item_update',
+        'order.line_item_cancel',
+        'order.ship',
+        'order.return',
+        'order.exchange_link',
+      ].map(actionVerb),
+    ).toEqual([
+      'placed',
+      'status changed',
+      'updated',
+      'cancelled',
+      'line quantity changed',
+      'line cancelled',
+      'shipped',
+      'return received',
+      'linked to an exchange',
+    ]);
+  });
+
+  it('a shape renderer cannot smuggle a field past the allow-list', () => {
+    for (const [entityType, shapes] of Object.entries(SHAPES)) {
+      for (const field of Object.keys(shapes)) {
+        expect(
+          isSafeField(entityType, field),
+          `${entityType}.${field} has a shape but no entry`,
+        ).toBe(true);
+      }
+    }
+    // And the summary still only runs for the reviewed pair: the same array on another entity type
+    // is a name.
+    expect(
+      fieldChanges({
+        action: 'product.update',
+        entity_type: 'product',
+        after: { lines: [{ line_item_id: 'l1', quantity: 1 }] },
+      }),
+    ).toEqual([{ field: 'lines', kind: 'redacted', before: null, after: null }]);
+  });
+});
+
+describe('the three renderings of one change (#933 review)', () => {
+  it('an explicitly null value still reads "none" — that word is reserved for it', () => {
+    expect(
+      fieldChanges({
+        action: 'product.update',
+        entity_type: 'product',
+        before: { subtitle: null },
+        after: { subtitle: 'Woven in Portugal' },
+      }),
+    ).toEqual([{ field: 'subtitle', kind: 'shown', before: 'none', after: 'Woven in Portugal' }]);
+  });
+
+  it('a field the AFTER body does not record keeps its old value, for a "was X" row', () => {
+    // `tax_rate.delete` writes a before and no after. The change is still a fact worth showing.
+    expect(
+      fieldChanges({
+        action: 'promotion.update',
+        entity_type: 'promotion',
+        before: { code: 'WELCOME10' },
+        after: {},
+      }),
+    ).toEqual([{ field: 'code', kind: 'shown', before: 'WELCOME10', after: null }]);
+  });
+
+  it('a quantity that arrives as a string is redacted, not coerced', () => {
+    // The renderer adds numbers. A string would make "2 lines, 12 units" out of "1" and "2".
+    expect(
+      fieldChanges({
+        action: 'order.ship',
+        entity_type: 'order',
+        after: { lines: [{ line_item_id: 'l1', quantity: '2' }] },
+      }),
+    ).toEqual([{ field: 'lines', kind: 'redacted', before: null, after: null }]);
+  });
+
+  it('an entity type or field borrowed from the prototype chain is redacted, never called', () => {
+    // `entity_type` and the field names come from the API. Before the guard,
+    // `SAFE_VALUE_FIELDS['__proto__']` was `Object.prototype` (no `.includes`) and
+    // `SHAPES['order']['toString']` was a function that would have been called as a renderer.
+    expect(isSafeField('__proto__', 'title')).toBe(false);
+    expect(isSafeField('constructor', 'title')).toBe(false);
+    expect(isSafeField('order', 'toString')).toBe(false);
+    expect(() =>
+      fieldChanges({
+        action: 'x.update',
+        entity_type: '__proto__',
+        after: { title: 'anything' },
+      }),
+    ).not.toThrow();
+    expect(
+      fieldChanges({ action: 'x.update', entity_type: '__proto__', after: { title: 'a' } }),
+    ).toEqual([{ field: 'title', kind: 'redacted', before: null, after: null }]);
   });
 });
 
