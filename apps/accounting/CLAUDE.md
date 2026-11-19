@@ -111,3 +111,6 @@ keycloakUrl?, keycloakRealm?, verifier?, permission? })`; `loadApiSpec(path?)` /
 - `order.placed@2` (#696) posts like v1; the ledger must be deployed with the @2-aware `@platform/events` no later than
   core, or the SDK counts v2 as `skipped_unknown` and the order never reaches the ledger. `src/testing/order-placed-v2.ts`
   is the local @2 mock for tests until @2 is published.
+- A refund before a cancel (#919): the cancel leaves out what the order's refunds already reversed beyond the shipped
+  value (`refundOverlapOf`); the projection's `refunded_net_minor` / `refunded_tax_minor` are DERIVED from the ledger in
+  `loadOrderProjection` (never stored, no column), so any posting that reads them must go through that loader.

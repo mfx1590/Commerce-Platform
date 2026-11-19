@@ -55,6 +55,12 @@ export interface OrderProjection {
   cancelled_at: string | null;
   source_event_id: string;
   lines: OrderProjectionLine[];
+  /**
+   * #919: what this order's REFUND entries reversed so far — Dr 4090 (net) and Dr 2200 (VAT). Derived from the ledger
+   * on load (`loadOrderProjection`), carried in memory by the pure posting, never stored.
+   */
+  refunded_net_minor: number;
+  refunded_tax_minor: number;
 }
 
 export interface PaymentProjection {

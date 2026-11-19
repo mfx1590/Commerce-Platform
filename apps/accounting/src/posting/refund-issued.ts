@@ -10,6 +10,10 @@
 //       Dr 4090 Refunds and allowances  amount − tax part
 //       Dr 2200 VAT payable             tax part
 //       Cr 1100 PSP clearing            amount_minor
+//     on a CANCELLED order (#919) only the shipped value not yet refunded is reversed that way; the rest of the
+//     amount settles the customer's credit the cancellation created, like a cancellation refund (Dr 1200). That is
+//     what the cancellation would have taken into account had the refund arrived first, so both arrival orders net
+//     the same.
 //
 // The PSP keeps its fee on a refund (Stripe does), so the fee stays where payment.captured put it. Chargebacks: no
 // dispute event exists yet; a refund with reason `chargeback` posts like a return (CONTRACT CHANGE filed for the
@@ -18,6 +22,7 @@ import type { EventEnvelope } from '@platform/events';
 import { ACCOUNT } from '../chart.js';
 import { OrderProjectionMissingError } from '../errors.js';
 import { dateOf, finalizeEntry, line, roundShare } from './balance.js';
+import { shippedValueOf } from './order-cancelled.js';
 import type { JournalLine, OrderProjection, PostingResult } from './types.js';
 
 export function postRefundIssued(
@@ -30,6 +35,7 @@ export function postRefundIssued(
   const cur = p.currency;
 
   let lines: (JournalLine | null)[];
+  let nextOrder: OrderProjection | undefined;
   if (p.reason === 'cancellation') {
     lines = [
       line(ACCOUNT.RECEIVABLE, cur, p.amount_minor, 'debit'),
@@ -37,13 +43,30 @@ export function postRefundIssued(
     ];
   } else {
     if (!order) throw new OrderProjectionMissingError(p.order_id, e.topic);
+    // #919: on a cancelled order only the shipped value not yet refunded is a sale reversal
+    const onSale =
+      order.status === 'cancelled'
+        ? Math.min(
+            p.amount_minor,
+            Math.max(
+              shippedValueOf(order) - order.refunded_net_minor - order.refunded_tax_minor,
+              0,
+            ),
+          )
+        : p.amount_minor;
     const taxPart =
-      order.total_minor > 0 ? roundShare(p.amount_minor, order.tax_minor, order.total_minor) : 0;
+      order.total_minor > 0 ? roundShare(onSale, order.tax_minor, order.total_minor) : 0;
     lines = [
-      line(ACCOUNT.REFUNDS, cur, p.amount_minor - taxPart, 'debit'),
+      line(ACCOUNT.REFUNDS, cur, onSale - taxPart, 'debit'),
       line(ACCOUNT.VAT_PAYABLE, cur, taxPart, 'debit'),
+      line(ACCOUNT.RECEIVABLE, cur, p.amount_minor - onSale, 'debit'),
       line(ACCOUNT.PSP_CLEARING, cur, p.amount_minor, 'credit'),
     ];
+    nextOrder = {
+      ...order,
+      refunded_net_minor: order.refunded_net_minor + onSale - taxPart,
+      refunded_tax_minor: order.refunded_tax_minor + taxPart,
+    };
   }
 
   const entry = finalizeEntry({
@@ -59,6 +82,7 @@ export function postRefundIssued(
   });
   return {
     entries: [entry],
+    ...(nextOrder ? { order: nextOrder } : {}),
     refund: {
       refund_id: p.refund_id,
       payment_id: p.payment_id,
