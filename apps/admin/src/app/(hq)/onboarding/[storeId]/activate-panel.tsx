@@ -9,7 +9,7 @@ import { activateStoreAction } from '@/app/actions/stores';
 import { updatePaymentSettingsAction } from '@/app/actions/store-payment';
 import type { ActionRefusalInfo } from '@/lib/forms/action-result';
 import { MISSING_LABELS } from '@/lib/onboarding';
-import type { StoreReadiness } from '@/lib/readiness';
+import { missingLabels, type StoreReadiness } from '@/lib/readiness';
 import { TaxRateQuickCreate } from '@/components/tax-rates/tax-rate-forms';
 import { ShippingOptionQuickCreate } from '@/components/shipping-options/shipping-option-forms';
 
@@ -37,6 +37,10 @@ function Needs({ storeId, to }: { storeId: string; to: string }) {
  * so a draft store lists what is missing before Activate is pressed. Missing `payment_method` comes
  * with an inline "Pay on invoice" (`updatePaymentSettingsAction`, store_admin; `canEditPayment`)
  * and a link to Settings › Payment. Activate stays the gate: the core re-checks every time.
+ *
+ * #910: an ACTIVE store is not assumed to be fine. When the readiness read finds something missing (a
+ * store that went live and later lost its tax rate, shipping option or payment method), the panel says
+ * "Customers cannot currently order" with what is missing and where to fix it, instead of "the store is live".
  */
 export function ActivatePanel({
   storeId,
@@ -76,7 +80,9 @@ export function ActivatePanel({
   } | null>(null);
 
   if (status === 'active') {
-    return (
+    return readiness !== null && readiness.missing.length > 0 ? (
+      <ActiveButMissing storeId={storeId} readiness={readiness} />
+    ) : (
       <p role="status" className="text-success text-sm">
         Active — the store is live.
       </p>
@@ -232,6 +238,47 @@ export function ActivatePanel({
       >
         {pending ? 'Activating…' : 'Activate'}
       </Button>
+    </div>
+  );
+}
+
+/** Where each missing prerequisite is fixed, for a store that is already active (#910). */
+const FIX_LINKS: Record<string, { hash: string; label: string }> = {
+  tax_rates: { hash: '', label: 'Settings › Tax rates' },
+  shipping_options: { hash: '#shipping-options', label: 'Settings › Shipping options' },
+  payment_method: { hash: '#payment', label: 'Settings › Payment' },
+};
+
+/**
+ * An ACTIVE store whose readiness read finds something missing (#910). It is still active: nothing
+ * here deactivates it. It says what customers cannot do and where each gap is fixed.
+ */
+function ActiveButMissing({ storeId, readiness }: { storeId: string; readiness: StoreReadiness }) {
+  const labels = missingLabels(readiness);
+  const fixes = readiness.missing.filter((item) => FIX_LINKS[item] !== undefined);
+  return (
+    <div
+      role="alert"
+      className="border-danger/30 bg-danger/5 space-y-2 rounded-md border px-3 py-2 text-sm"
+    >
+      <p className="font-medium">Customers cannot currently order: {labels.join(', ')} missing.</p>
+      <p className="text-muted">
+        The store is still active, but it no longer has everything a checkout needs.
+      </p>
+      {fixes.length > 0 && (
+        <ul className="list-disc pl-5" aria-label="Where to fix it">
+          {fixes.map((item) => (
+            <li key={item}>
+              <Link
+                href={`/${storeId}/settings${FIX_LINKS[item]!.hash}`}
+                className="text-accent hover:underline"
+              >
+                {FIX_LINKS[item]!.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
