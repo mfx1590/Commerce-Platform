@@ -1421,6 +1421,8 @@ gap); this list replaces them. Each is fixed in the 2.2 PR and pinned by a test 
   first. Window 3 will hit the same thing.
 
 ## Gotchas learned
+- **Run the root `pnpm format:check` before every push** (manager, 2026-11-19): #926 failed CI lint+typecheck only on
+  prettier for a CHANGELOG I appended with a node script; lint and typecheck do not run prettier on markdown.
 - (#468, 2026-10-16) A core-only e2e that cannot run locally still has to be read against the
   core's data: `getByLabel('Variant')` is a substring match (it also hit "Or a variant id"), and one
   shared item means no pick list. Use `{ exact: true }` labels.

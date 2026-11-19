@@ -1195,6 +1195,7 @@
 
   The new tables `CUSTOMER_PERMISSIONS`, `PRICING_PERMISSIONS` and `PROMOTION_PERMISSIONS` are pinned to
   the yaml and added to the guard.
+
 - **#900:** the ten BI route handlers (HQ and store: export, query, ask, ask feedback, live) check the principal and
   the `bi` section predicate before any API call (`refuseUnlessBi`): 401 / forwarded status, 403, 404 for a
   store id that is not a uuid. The store feedback route now reads the URL's store to check it.
