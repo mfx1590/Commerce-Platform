@@ -3,6 +3,7 @@
 import type { ColumnDef } from '@tanstack/react-table';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
+import { describeGaps, productDataGaps } from '@/lib/catalog/attributes';
 import { BulkAction } from '@/components/table/bulk-action';
 import { DataTable } from '@/components/table/data-table';
 import { bulkArchiveProductsAction, bulkPublishProductsAction } from '@/app/actions/bulk-catalog';
@@ -91,6 +92,18 @@ export function ProductsTable({
       cell: ({ row }) => (
         <span className="text-muted">{formatDate(row.original.published_at)}</span>
       ),
+    },
+    {
+      id: 'data',
+      header: 'Variant data',
+      cell: ({ row }) => {
+        const gaps = describeGaps(productDataGaps(row.original.variants));
+        return gaps === null ? (
+          <Badge tone="success">complete</Badge>
+        ) : (
+          <span className="text-warning text-xs">{gaps}</span>
+        );
+      },
     },
     {
       id: 'updated_at',
