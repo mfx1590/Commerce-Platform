@@ -8,6 +8,7 @@ import type {
   PaymentProjection,
   RefundProjection,
 } from './posting/types.js';
+import { refundTaxOf } from './posting/order-cancelled.js';
 
 interface OrderRow {
   order_id: string;
@@ -54,6 +55,21 @@ export async function loadOrderProjection(
        FROM accounting_order_line WHERE order_id = $1 ORDER BY order_line_item_id`,
     [orderId],
   );
+  // #919: the order's return / goodwill / chargeback refunds so far, gross, split by the order's proportion exactly as
+  // the refund posting splits each one (refundTaxOf); arrival order does not change them
+  const refunds = await tx.query<{ amount_minor: string }>(
+    `SELECT amount_minor::text FROM accounting_refund WHERE order_id = $1 AND reason <> 'cancellation'`,
+    [orderId],
+  );
+  const totals = { total_minor: Number(row.total_minor), tax_minor: Number(row.tax_minor) };
+  let refundedNet = 0;
+  let refundedTax = 0;
+  for (const r of refunds.rows) {
+    const amount = Number(r.amount_minor);
+    const tax = refundTaxOf(totals, amount);
+    refundedNet += amount - tax;
+    refundedTax += tax;
+  }
   return {
     order_id: row.order_id,
     organization_id: row.organization_id,
@@ -78,6 +94,8 @@ export async function loadOrderProjection(
       shipped_quantity: l.shipped_quantity,
       released_minor: Number(l.released_minor),
     })),
+    refunded_net_minor: refundedNet,
+    refunded_tax_minor: refundedTax,
   };
 }
 

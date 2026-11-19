@@ -58,10 +58,13 @@ export async function loadActivity({
 }
 
 /**
- * The audit rows for an order, which are its PAYMENTS' rows: nothing in the core writes an
- * `entity_type: 'order'` row. `listAuditLog` takes one `entity_id`, so the payments are fetched in
- * parallel and merged newest-first, bounded at {@link MAX_PAYMENTS} and capped at one page —
- * paging a merge of N queries would misstate the ordering.
+ * The audit rows of an order's PAYMENTS.
+ *
+ * The order's own rows exist since #920 and are read by `loadActivity` with
+ * `entityType: 'order'`; this function is the other half of that page, the money side.
+ * `listAuditLog` takes one `entity_id`, so the payments are fetched in parallel and merged
+ * newest-first, bounded at {@link MAX_PAYMENTS} and capped at one page — paging a merge of N
+ * queries would misstate the ordering.
  */
 export async function loadOrderPaymentActivity(
   storeId: string,

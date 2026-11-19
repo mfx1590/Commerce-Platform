@@ -17,8 +17,9 @@ import { OrderActions } from './order-actions';
 import { PaymentsPanel } from './payments-panel';
 import { FulfilmentPanel } from './shipments-panel';
 import { Timeline } from './timeline';
+import { ActivityPanel, activityPage } from '@/components/audit/activity-panel';
 import { OrderActivityPanel } from '@/components/audit/order-activity-panel';
-import { loadOrderPaymentActivity } from '@/lib/audit/load';
+import { loadActivity, loadOrderPaymentActivity } from '@/lib/audit/load';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,10 +35,13 @@ const NO_PERMISSIONS: OrderPermissions = {
 
 export default async function OrderDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ storeId: string; orderId: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { storeId, orderId } = await params;
+  const page = activityPage((await searchParams)?.['activity']);
   const [order, store, principal] = await Promise.all([
     getOrder(storeId, orderId),
     getStore(storeId),
@@ -60,9 +64,14 @@ export default async function OrderDetailPage({
   }
 
   const current = order.data;
-  // An order has no audit rows of its own; its payments do. See OrderActivityPanel.
+  // Since #920 the order has audit rows of its own (nine actions, from placement to an exchange
+  // link) AND its payments have theirs. Two panels, because they answer different questions and
+  // `listAuditLog` takes one entity id (#921).
   const paymentIds = current.payments.map((payment) => payment.id);
-  const paymentActivity = await loadOrderPaymentActivity(storeId, paymentIds);
+  const [activity, paymentActivity] = await Promise.all([
+    loadActivity({ storeId, entityType: 'order', entityId: orderId, page }),
+    loadOrderPaymentActivity(storeId, paymentIds),
+  ]);
   const locale = store.ok ? store.data.default_locale : 'en-GB';
   const refundLimit = store.ok ? supportRefundLimitMinor(store.data.settings) : null;
   const permissions = principal.ok ? orderPermissions(principal.data, storeId) : NO_PERMISSIONS;
@@ -229,6 +238,13 @@ export default async function OrderDetailPage({
             <Timeline order={current} locale={locale} />
           </CardBody>
         </Card>
+
+        <ActivityPanel
+          activity={activity}
+          entityType="order"
+          basePath={`/${storeId}/orders/${orderId}`}
+          note="A cancellation reason is recorded but not shown here; money movements are under Payment activity."
+        />
 
         <OrderActivityPanel activity={paymentActivity} hasPayments={paymentIds.length > 0} />
       </div>

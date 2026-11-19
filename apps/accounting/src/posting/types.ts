@@ -55,6 +55,13 @@ export interface OrderProjection {
   cancelled_at: string | null;
   source_event_id: string;
   lines: OrderProjectionLine[];
+  /**
+   * #919: the GROSS return / goodwill / chargeback refunds of this order so far, split net / VAT by the order's
+   * proportion (`refundTaxOf` per refund). Derived from accounting_refund on load (`loadOrderProjection`), carried in
+   * memory by the pure posting, never stored. Independent of arrival order (unlike the 4090 / 2200 lines they caused).
+   */
+  refunded_net_minor: number;
+  refunded_tax_minor: number;
 }
 
 export interface PaymentProjection {

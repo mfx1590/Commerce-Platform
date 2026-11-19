@@ -1096,6 +1096,10 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   links; CanSellBox "No — the store is active …"; page "Could not check…" on a failed read; parseReadiness
   tolerant of unknown warnings (other_warnings, shown generically). Opus review. Specialist version (stores
   list column/filter, alert, history) not in scope: follow-up.
+- **#926 MERGED** (490b48aa). **#925 (Marketing guards), 2026-11-19:** branch `integration/admin-marketing-guards`
+  from main 84be39d0 (window 17's files → integration branch, rule E). MARKETING_PERMISSIONS in src/lib/marketing,
+  9 guards, tests per action, mutation-checked (scratchpad mutate-925.cjs). Fable review. Next: #910 (active store
+  losing a prerequisite) on an admin branch, Opus review.
 ## Brand D pre-flight (admin side; input for window 10's wave-3 D8 task — brand D = Japan)
 
 Written 2026-11-10 and extended 2026-11-11 for **brand D = Japan** (JPY, ja-JP, ships to JP). Read-only, on
