@@ -158,11 +158,7 @@ export function parseInventoryQuery(body: unknown, opts: { csv?: boolean } = {})
     out.page = b.page as number;
   }
   if (b.limit !== undefined) {
-    if (
-      !Number.isInteger(b.limit) ||
-      (b.limit as number) < 1 ||
-      (b.limit as number) > maxRows
-    )
+    if (!Number.isInteger(b.limit) || (b.limit as number) < 1 || (b.limit as number) > maxRows)
       throw validationError(`limit is an integer 1–${maxRows}`, {
         field: 'limit',
       });
