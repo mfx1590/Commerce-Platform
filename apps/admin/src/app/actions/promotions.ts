@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { createPromotion, updatePromotion } from '@/lib/api/admin';
 import type { AdminComponents } from '@/lib/api/admin-client';
 import { toActionResult, type ActionResult } from '@/lib/forms/action-result';
+import { refuseUnlessPermitted } from '@/lib/permissions/guard';
 import {
   promotionFormSchema,
   toPromotionInput,
@@ -39,11 +40,13 @@ function revalidate(storeId: string, promotionId?: string): void {
   if (promotionId !== undefined) revalidatePath(`/${storeId}/promotions/${promotionId}`);
 }
 
-/** Re-validates with the form's schema (type-dependent rules included), then `createPromotion`; `store_admin` re-checked by the API. */
+/** Refused without `store_admin` on the store; re-validates with the form's schema (type-dependent rules included), then `createPromotion`. */
 export async function createPromotionAction(
   storeId: string,
   values: PromotionFormValues,
 ): Promise<ActionResult<Promotion>> {
+  const refused = await refuseUnlessPermitted('createPromotion', storeId);
+  if (refused) return refused;
   const parsed = promotionFormSchema.safeParse(values);
   if (!parsed.success)
     return invalid(parsed.error.issues[0]?.message ?? 'Some fields are not valid.');
@@ -58,6 +61,8 @@ export async function updatePromotionAction(
   promotionId: string,
   values: PromotionFormValues,
 ): Promise<ActionResult<Promotion>> {
+  const refused = await refuseUnlessPermitted('updatePromotion', storeId);
+  if (refused) return refused;
   const parsed = promotionFormSchema.safeParse(values);
   if (!parsed.success)
     return invalid(parsed.error.issues[0]?.message ?? 'Some fields are not valid.');
