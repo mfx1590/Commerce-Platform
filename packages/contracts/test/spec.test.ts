@@ -1846,8 +1846,9 @@ describe('BI v2 Phase A wave 1 (contracts 0.4.37, Admin API 0.4.30, #871)', () =
     expect(schema('MetricMover')).toContain(
       'required: [key, current, previous, change, change_bp, is_new, is_gone, share_bp]',
     );
-    expect(schema('MetricMoversQuery')).toContain(
-      'dimension: { type: string, enum: [store, country, sales_channel, product, category] }',
+    // 0.4.31 (#935 a2): customer_type, customer_group and warehouse join the mover dimensions
+    expect(schema('MetricMoversQuery')).toMatch(
+      /dimension:\n\s+type: string\n\s+enum:\n\s+\[\n\s+store,\n\s+country,\n\s+sales_channel,\n\s+product,\n\s+category,\n\s+customer_type,\n\s+customer_group,\n\s+warehouse,\n\s+\]/,
     );
     expect(schema('MetricMoversQuery')).toContain(
       'limit: { type: integer, minimum: 1, maximum: 20, default: 5 }',

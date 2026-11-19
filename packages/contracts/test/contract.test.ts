@@ -895,7 +895,7 @@ describe('Admin API mock (0.4.30 BI v2 wave 1, #871)', () => {
       headers: adminHeaders,
       body: JSON.stringify({
         metric: 'net_sales_minor',
-        dimension: 'warehouse',
+        dimension: 'refund_reason', // not a mover dimension (warehouse is one since 0.4.31)
         from: '2026-11-09',
         to: '2026-11-16',
       }),
@@ -947,13 +947,36 @@ describe('Admin API mock (0.4.30 BI v2 wave 1, #871)', () => {
 
 describe('Admin API mock (0.4.31 BI v2 wave 2, #935)', () => {
   it('listMetricDimensionValues answers 200; all three new operations answer 401 without a token', async () => {
-    // getCustomerCohorts and getOperationsBacklog carry no response example: Prism's generated bodies break their
-    // month / currency patterns and the uuid-keyed labels (a 500 under --errors), so only their 401 is walked.
     const res = await fetch(`${ADMIN}/admin/metrics/dimension-values?dimension=store`, {
       headers: adminHeaders,
     });
     expect(res.status).toBe(200);
     expect(Array.isArray((await json(res)).values)).toBe(true);
+    // getCustomerCohorts and getOperationsBacklog answer their response examples (a suppressed cell and cohort; one
+    // row per backlog kind), validated by Prism against their schemas
+    const cohorts = await fetch(`${ADMIN}/admin/metrics/cohorts`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({
+        from_month: '2026-01',
+        to_month: '2026-02',
+        months: 3,
+        currency: 'EUR',
+      }),
+    });
+    expect(cohorts.status).toBe(200);
+    expect((await json(cohorts)).cohorts[1]).toMatchObject({ size: null, suppressed: true });
+    const backlog = await fetch(`${ADMIN}/admin/metrics/operations/backlog`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: '{}',
+    });
+    expect(backlog.status).toBe(200);
+    expect((await json(backlog)).rows.map((r: { kind: string }) => r.kind)).toEqual([
+      'unassigned',
+      'shipment_not_shipped',
+      'return_not_received',
+    ]);
     const calls: Array<[string, RequestInit]> = [
       [
         '/admin/metrics/cohorts',

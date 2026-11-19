@@ -4104,8 +4104,11 @@ export interface components {
         MetricMoversQuery: {
             /** @description Additive series metrics only (catalogue `additive`); else 400. */
             metric: components["schemas"]["MetricId"];
-            /** @enum {string} */
-            dimension: "store" | "country" | "sales_channel" | "product" | "category";
+            /**
+             * @description 0.4.31 (#935): customer_type, customer_group (the CURRENT group) and warehouse.
+             * @enum {string}
+             */
+            dimension: "store" | "country" | "sales_channel" | "product" | "category" | "customer_type" | "customer_group" | "warehouse";
             /** Format: date */
             from: string;
             /** Format: date */
@@ -10988,6 +10991,54 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "query": {
+                     *         "from_month": "2026-01",
+                     *         "to_month": "2026-02",
+                     *         "months": 3,
+                     *         "currency": "EUR"
+                     *       },
+                     *       "generated_at": "2026-11-19T09:00:00Z",
+                     *       "currency": "EUR",
+                     *       "cohorts": [
+                     *         {
+                     *           "cohort_month": "2026-01",
+                     *           "size": 120,
+                     *           "suppressed": false,
+                     *           "cells": [
+                     *             {
+                     *               "month_offset": 0,
+                     *               "active": 120,
+                     *               "retention_bp": 10000,
+                     *               "ltv_to_date_minor": 6450,
+                     *               "suppressed": false
+                     *             },
+                     *             {
+                     *               "month_offset": 1,
+                     *               "active": 31,
+                     *               "retention_bp": 2583,
+                     *               "ltv_to_date_minor": 8120,
+                     *               "suppressed": false
+                     *             },
+                     *             {
+                     *               "month_offset": 2,
+                     *               "active": 4,
+                     *               "retention_bp": null,
+                     *               "ltv_to_date_minor": null,
+                     *               "suppressed": true
+                     *             }
+                     *           ]
+                     *         },
+                     *         {
+                     *           "cohort_month": "2026-02",
+                     *           "size": null,
+                     *           "suppressed": true,
+                     *           "cells": []
+                     *         }
+                     *       ]
+                     *     }
+                     */
                     "application/json": components["schemas"]["CustomerCohorts"];
                 };
             };
@@ -11016,6 +11067,62 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "generated_at": "2026-11-19T09:00:00Z",
+                     *       "buckets": [
+                     *         "lt_1d",
+                     *         "d1_2",
+                     *         "d3_7",
+                     *         "gt_7d"
+                     *       ],
+                     *       "rows": [
+                     *         {
+                     *           "kind": "unassigned",
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "warehouse_id": null,
+                     *           "bucket": "d1_2",
+                     *           "count": 4
+                     *         },
+                     *         {
+                     *           "kind": "shipment_not_shipped",
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "warehouse_id": "00000000-0000-4000-8000-0000000000a1",
+                     *           "bucket": "d3_7",
+                     *           "count": 2
+                     *         },
+                     *         {
+                     *           "kind": "return_not_received",
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "warehouse_id": null,
+                     *           "bucket": "gt_7d",
+                     *           "count": 1
+                     *         }
+                     *       ],
+                     *       "totals": [
+                     *         {
+                     *           "kind": "unassigned",
+                     *           "bucket": "d1_2",
+                     *           "count": 4
+                     *         },
+                     *         {
+                     *           "kind": "shipment_not_shipped",
+                     *           "bucket": "d3_7",
+                     *           "count": 2
+                     *         },
+                     *         {
+                     *           "kind": "return_not_received",
+                     *           "bucket": "gt_7d",
+                     *           "count": 1
+                     *         }
+                     *       ],
+                     *       "labels": {
+                     *         "warehouse": {
+                     *           "00000000-0000-4000-8000-0000000000a1": "BER"
+                     *         }
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["OperationsBacklog"];
                 };
             };

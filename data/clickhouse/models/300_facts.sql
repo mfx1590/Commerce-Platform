@@ -236,8 +236,11 @@ SELECT
     o.customer_group_id                                      AS customer_group_id,
     o.customer_key                                           AS customer_key,
     o.total_minor - coalesce(r.refunded_minor, 0)            AS net_minor,
-    -- the key's FIRST order in the store (any status: mart_customers_daily's rule), for cohorts; NULL without a key
-    f.first_order_at                                         AS first_order_at
+    -- the key's FIRST order in the store (any status: mart_customers_daily's rule), for cohorts; NULL without a key.
+    -- (No view here sets join_use_nulls: a view reading another joining view must use the same setting, or ClickHouse
+    -- refuses the nullability mismatch; a LEFT JOIN miss is the column's default, handled explicitly.)
+    if(o.customer_key IS NULL, CAST(NULL AS Nullable(DateTime64(3, 'UTC'))),
+       CAST(f.first_order_at AS Nullable(DateTime64(3, 'UTC'))))   AS first_order_at
 FROM fct_order AS o
 LEFT JOIN
 (
@@ -255,7 +258,7 @@ WHERE o.order_status != 'cancelled'
       WHERE status = 'failed'
         AND order_id NOT IN (SELECT order_id FROM fct_payment WHERE status = 'captured')
   )
-SETTINGS join_algorithm = 'hash', join_use_nulls = 1;
+SETTINGS join_algorithm = 'hash';
 
 -- fct_order_touch: every counted order TWICE, once per touch model (first, last), with that touch's utm values and
 -- campaign, or none (attributed = 0). An order with several events for one touch keeps the earliest recorded.
@@ -269,7 +272,8 @@ SELECT
     o.currency                                               AS currency,
     o.net_minor                                              AS net_minor,
     o.touch_model                                            AS touch,
-    toUInt8(a.order_id IS NOT NULL)                          AS attributed,
+    -- a LEFT JOIN miss leaves the zero uuid (join_use_nulls is not set: see fct_order_sales)
+    toUInt8(a.order_id != toUUID('00000000-0000-0000-0000-000000000000')) AS attributed,
     a.utm_source                                             AS utm_source,
     a.utm_medium                                             AS utm_medium,
     a.utm_campaign                                           AS utm_campaign,
@@ -289,7 +293,7 @@ LEFT JOIN
     LIMIT 1 BY order_id, touch
 ) AS a ON a.order_id = o.order_id AND a.touch = o.touch_model
 LEFT JOIN dim_campaign AS k ON k.store_id = o.store_id AND k.campaign_id = a.campaign_id
-SETTINGS join_algorithm = 'hash', join_use_nulls = 1;
+SETTINGS join_algorithm = 'hash';
 
 -- fct_shipment: one row per shipment known from shipment.created or shipment.shipped, with its warehouse and carrier
 -- (from either), destination_country (created only), cost and shipped_at (shipped only), delivered_at (delivered).
@@ -369,7 +373,7 @@ INNER JOIN
     GROUP BY order_id
 ) AS s ON s.order_id = o.order_id
 WHERE o.order_status != 'cancelled'
-SETTINGS join_algorithm = 'hash', join_use_nulls = 1;
+SETTINGS join_algorithm = 'hash';
 
 -- fct_payment_event: every payment outcome event (authorized, captured, failed) with the normalised failure code.
 -- Metrics count DISTINCT payment_id per outcome: a payment retried after a failure counts once as failed.
@@ -450,4 +454,4 @@ FROM
         ) AS x
     ) AS w ON w.return_id = r.return_id
 ) AS a
-SETTINGS join_algorithm = 'hash', join_use_nulls = 1;
+SETTINGS join_algorithm = 'hash';

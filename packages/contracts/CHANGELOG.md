@@ -620,3 +620,10 @@ new block pins the wave. The Prism walk reads listMetricDimensionValues (200) an
 getCustomerCohorts and getOperationsBacklog have no response example, so their generated mock body fails its own
 patterns and only their 401 is walked. apps/core's access matrix gains the three rows in the same change. Store API,
 Accounting API, events and db unchanged.
+
+Window 12 follow-up on the integration branch (same version): `MetricMoversQuery.dimension` gains `customer_type`,
+`customer_group` and `warehouse` (#935 a2; the wave 1 spec pin now checks the eight values, and the Prism walk's
+bad-body movers call uses `refund_reason`, which is not a mover dimension); `getCustomerCohorts` and
+`getOperationsBacklog` gain a realistic response example each (a suppressed cell and a suppressed cohort; one row per
+backlog kind), so Prism answers them 200. The admin `hours` display unit and the row fixtures with the nine new
+`MetricRow` keys are in apps/admin.
