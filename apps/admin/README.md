@@ -420,8 +420,12 @@ why the reveal carries a warning and a copy button rather than a "show again" co
 (`q`, `status`) and sort; `/{storeId}/catalog/new` and `/{storeId}/catalog/{id}` are the same form,
 which previews the variant matrix as options are typed — `variantMatrix` is a pure function with its
 own tests, because 3 sizes × 2 colours must be 6 variants and quietly producing 3 would corrupt a
-catalog. Media is an ordered list of URLs (row 1 is the thumbnail) with move up / move down; the
-server action renumbers `position` from the array order, so the form never sets one. Publish and
+catalog. On the create page, media is an ordered list of URLs (row 1 is the thumbnail) with move up /
+move down; the server action renumbers `position` from the array order. On the product page the
+**Images** card owns the images instead (#870 item 5): upload through a server action that checks the
+type from the file's bytes and signs the Cloudinary upload server-side, alt text required, reorder,
+variant, delete — and the Details form there never sends `media`, because `updateProduct` replaces
+the whole set. Publish and
 archive each sit behind an inline confirmation — publish because it emits `product.published` and
 makes the product visible to shoppers, archive because `DELETE` is the verb even though the
 contract archives rather than hard-deletes — and both render what the server returned (`status`,

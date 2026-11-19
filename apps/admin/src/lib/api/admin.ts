@@ -340,6 +340,76 @@ export async function updateVariant(
   });
 }
 
+// ---------------------------------------------------------------------------- product media (#870 item 5)
+
+/**
+ * Signed parameters for ONE upload of a product image to Cloudinary (store_staff). The signature
+ * and api_key stay on the server: the upload action posts the file itself and never echoes them.
+ */
+export async function createMediaUploadParams(
+  storeId: string,
+  body: AdminComponents['MediaUploadRequest'],
+): Promise<ApiResult<AdminResponse<'createMediaUploadParams'>>> {
+  return adminCall<'createMediaUploadParams'>({
+    path: buildPath('/admin/stores/{storeId}/media/upload-params', { storeId }),
+    method: 'POST',
+    body,
+  });
+}
+
+export async function listProductMedia(
+  storeId: string,
+  productId: string,
+): Promise<ApiResult<AdminResponse<'listProductMedia'>>> {
+  return adminCall<'listProductMedia'>({
+    path: buildPath('/admin/stores/{storeId}/products/{productId}/media', { storeId, productId }),
+  });
+}
+
+export async function addProductMedia(
+  storeId: string,
+  productId: string,
+  body: AdminComponents['ProductMediaInput'],
+): Promise<ApiResult<AdminResponse<'addProductMedia'>>> {
+  return adminCall<'addProductMedia'>({
+    path: buildPath('/admin/stores/{storeId}/products/{productId}/media', { storeId, productId }),
+    method: 'POST',
+    body,
+  });
+}
+
+export async function updateProductMedia(
+  storeId: string,
+  productId: string,
+  mediaId: string,
+  body: AdminComponents['ProductMediaPatch'],
+): Promise<ApiResult<AdminResponse<'updateProductMedia'>>> {
+  return adminCall<'updateProductMedia'>({
+    path: buildPath('/admin/stores/{storeId}/products/{productId}/media/{mediaId}', {
+      storeId,
+      productId,
+      mediaId,
+    }),
+    method: 'PATCH',
+    body,
+  });
+}
+
+export async function deleteProductMedia(
+  storeId: string,
+  productId: string,
+  mediaId: string,
+): Promise<ApiResult<AdminResponse<'deleteProductMedia'>>> {
+  return adminCall<'deleteProductMedia'>({
+    path: buildPath('/admin/stores/{storeId}/products/{productId}/media/{mediaId}', {
+      storeId,
+      productId,
+      mediaId,
+    }),
+    method: 'DELETE',
+  });
+}
+
 // ---------------------------------------------------------------------------- orders (task 2.2)
 
 /**
