@@ -374,3 +374,91 @@ describe.runIf(skip === null)('BI v2 wave 2 models (#935)', () => {
     expect(cols).toEqual([]);
   });
 });
+
+// #935: refunds by product — a refund for a return split over the returned lines, exactly
+describe.runIf(skip === null)(
+  'fct_refund_line: a refund split over its returned lines (#935)',
+  () => {
+    const db = throwawayDatabase();
+    let admin: ChClient;
+    let c: ChClient;
+    // two lines: 1 × 1 000 and 2 × 500; one unit of each returned → weights 1 000 and 500
+    const o = orderPlaced({
+      orderId: id(990),
+      storeId: STORE_A,
+      lines: [
+        { quantity: 1, unit_price_minor: 1000, tax_rate_bp: 0 },
+        { quantity: 2, unit_price_minor: 500, tax_rate_bp: 0 },
+      ],
+      placed_at: '2026-10-01T10:00:00.000Z',
+    });
+    const [l1, l2] = o.payload.line_items as [
+      { order_line_item_id: string },
+      { order_line_item_id: string },
+    ];
+    const pay = paymentCaptured(o, { paymentId: id(991) });
+    const refund = refundIssued(o, pay, { amount_minor: 1001, refundId: id(992) });
+    (refund.payload as { return_id: string | null }).return_id = id(993);
+    const plain = refundIssued(o, pay, { amount_minor: 50, refundId: id(994) }); // no return: order level
+    const events = [
+      o,
+      pay,
+      refund,
+      plain,
+      ev('return.received', 'return', id(993), '2026-10-05T00:00:00.000Z', {
+        return_id: id(993),
+        order_id: o.payload.order_id,
+        warehouse_id: W1,
+        items: [
+          { order_line_item_id: l1.order_line_item_id, quantity: 1, condition: 'resellable' },
+          { order_line_item_id: l2.order_line_item_id, quantity: 1, condition: 'resellable' },
+        ],
+        received_at: '2026-10-05T00:00:00.000Z',
+      }),
+    ] as unknown as EventEnvelopeV1Base[];
+
+    beforeAll(async () => {
+      admin = createChClient(cfg, 'default');
+      c = createChClient(cfg, db);
+      await migrate(admin, c, db, readSqlFiles());
+      await createRawEventsSink(c).insert(
+        events.map((e, i) => {
+          const r = classify(
+            toWire(e, i),
+            { topic: e.topic, partition: 0 },
+            { groupId: 'analytics.raw', validator, now: new Date('2026-11-01T00:00:00.000Z') },
+          );
+          if (r.kind !== 'row') throw new Error(`fixture ${e.topic} dead-lettered`);
+          return r.row;
+        }),
+      );
+    });
+    afterAll(async () => {
+      await admin?.command({ query: `DROP DATABASE IF EXISTS ${db}` }).catch(() => undefined);
+      await Promise.allSettled([admin?.close(), c?.close()]);
+    });
+
+    it('shares by paid value, the remainder on the heaviest line; a refund with no return stays order-level', async () => {
+      const rows = await (
+        await c.query({
+          query: `SELECT toString(refund_id) AS r, toString(product_id) AS p, amount_minor AS a
+                FROM fct_refund_line ORDER BY r, a DESC`,
+          format: 'JSONEachRow',
+        })
+      ).json<{ r: string; p: string | null; a: string | number }>();
+      expect(rows.map((x) => [x.r, Number(x.a)])).toEqual([
+        [id(992), 668], // 1 001 × 1 000 / 1 500 = 667, + the remainder 1
+        [id(992), 333], // 1 001 × 500 / 1 500
+        [id(994), 50],
+      ]);
+      expect(rows[2]!.p).toBeNull();
+      const [sum] = await (
+        await c.query({
+          query: `SELECT (SELECT sum(amount_minor) FROM fct_refund_line) AS l, (SELECT sum(amount_minor) FROM fct_refund) AS f`,
+          format: 'JSONEachRow',
+        })
+      ).json<{ l: string | number; f: string | number }>();
+      expect(Number(sum!.l)).toBe(Number(sum!.f));
+    });
+  },
+);

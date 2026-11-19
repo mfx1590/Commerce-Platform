@@ -79,7 +79,20 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   GOTCHAS: bash heredocs with quotes/backslashes break → Write a .py and run it (yaml backslashes: chr(92));
   customer keys must be per store (concat(store_id, ':', key)) or one e-mail at two brands counts once; a
   totals-only compile must take the answer's currencyKey; YAML plain scalars cannot hold "Accept: text/csv".
-  NOT DONE: cohort / backlog / pickers p95 not measured separately (wave2-live: >200 queries in 17.6 s ≈ 80 ms
+  MANAGER 11-19 (after the yaml): contracts commit being assembled by him on top of my branch (he sends the head);
+  integer→number widening accepted (say "widening" in PR + CHANGELOG). Before the PR: 8 golden owner questions
+  (acceptance), movers by customer_type/group/warehouse, refunds by product/category, p95 cohorts/backlog/pickers.
+  DONE since: 04b26f0d exact-set system.columns test; d26ee601 admin BI `hours` display unit (test/bi/hours.test.ts);
+  5e242cdd movers dims (+ yaml overlay MetricMoversQuery enum — TELL the manager, it is not in the #935 comment);
+  WORKING TREE (uncommitted when written): fct_refund_line (refund split over returned lines by paid value, remainder
+  on heaviest; no return → one order-level row; refunds source + refunds_minor dims product/category), staging +
+  fct_refund return_id appended, operations.ts picker alias vid, p95 blocks in metrics-wave2-live + routes-wave2.
+  GOLDEN PLAN (not started): golden/wave2.ts + wave2.test.ts like golden/stock.ts — a fixture reader answering by
+  source table (fct_order_sales, fct_order_touch, dim_campaign, fct_order_fulfilment, fct_payment_event, cohorts),
+  one scripted tool step per question, final text from the tool result, CONCRETE expected answers + checks (numbers
+  only from results, no alias left, the caveat per question: planned budget not spend; default-currency carts;
+  current group; < 5 suppressed; failure codes; time to deliver excludes undelivered).
+  NOT DONE (older note): cohort / backlog / pickers p95 not measured separately (wave2-live: >200 queries in 17.6 s ≈ 80 ms
   each); movers by customer_type / customer_group / warehouse (#935 a2) not wired yet; refunds by product/category
   not done; golden owner questions (#935 e, 8) not written. NEXT: manager lands contracts → PR → those gaps.
 - BI v2 PHASE A (2026-11-13, Manager session THIRTEEN local_a8e32bd9…; replaces eleven; owner rule: everything to the

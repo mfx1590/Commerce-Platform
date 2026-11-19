@@ -305,6 +305,49 @@ describe.runIf(skip === null)('BI v2 wave 2 metrics on ClickHouse (#935)', () =>
     expect(first.rows[0]!.values).toEqual({ attributed_orders: 1, unattributed_orders: 9 });
   });
 
+  it('cost: p95 of cohorts and of the ClickHouse pickers on seeded data (#935 f: cohorts < 300 ms, pickers < 150 ms)', async () => {
+    const {
+      getCustomerCohorts,
+      listMetricDimensionValues,
+      parseCohortQuery,
+      parseDimensionValuesQuery,
+    } = await import('./operations');
+    const time = async (f: () => Promise<unknown>, n = 40) => {
+      const ms: number[] = [];
+      for (let i = 0; i < n; i++) {
+        const t = performance.now();
+        await f();
+        ms.push(performance.now() - t);
+      }
+      ms.sort((a, b) => a - b);
+      return {
+        p50: Math.round(ms[Math.floor(n * 0.5)]!),
+        p95: Math.round(ms[Math.floor(n * 0.95)]!),
+      };
+    };
+    const cq = parseCohortQuery({
+      from_month: '2026-01',
+      to_month: '2026-12',
+      months: 12,
+      currency: 'EUR',
+    });
+    const cohorts = await time(() => getCustomerCohorts(reader, cq, [D]));
+    const pickers: Record<string, { p50: number; p95: number }> = {};
+    for (const dimension of ['country', 'carrier', 'utm_source'])
+      pickers[dimension] = await time(() =>
+        listMetricDimensionValues(
+          { pg: { query: async () => ({ rows: [] }) } as never, reader },
+          parseDimensionValuesQuery({ dimension }),
+          [D],
+        ),
+      );
+    console.info(
+      JSON.stringify({ test: 'metrics-wave2-live', block: 'cost (ms)', cohorts, pickers }),
+    );
+    expect(cohorts.p95).toBeLessThan(300);
+    for (const p of Object.values(pickers)) expect(p.p95).toBeLessThan(150);
+  }, 120_000);
+
   it('nothing of store D reaches another scope (the month stores A–C only)', async () => {
     const tu = await import('@platform/test-utils');
     const r = await run({ metrics: ['customers', 'orders_shipped'], dimensions: ['store'] }, [

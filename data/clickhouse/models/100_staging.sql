@@ -150,7 +150,9 @@ SELECT
     JSONExtractInt(payload, 'amount_minor')                                AS amount_minor,
     JSONExtractString(payload, 'currency')                                 AS currency,
     JSONExtractString(payload, 'reason')                                   AS reason,
-    parseDateTime64BestEffort(JSONExtractString(payload, 'issued_at'), 3, 'UTC') AS issued_at
+    parseDateTime64BestEffort(JSONExtractString(payload, 'issued_at'), 3, 'UTC') AS issued_at,
+    -- BI v2 wave 2 (#935): the return a refund pays for (NULL for a refund with no return), appended
+    toUUIDOrNull(JSONExtract(payload, 'return_id', 'Nullable(String)'))    AS return_id
 FROM (SELECT * FROM raw_events FINAL WHERE topic = 'refund.issued' AND version = 1 AND store_id IS NOT NULL);
 
 CREATE OR REPLACE VIEW stg_shipment_shipped_v1 AS

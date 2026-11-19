@@ -52,8 +52,10 @@ const SOURCES: Readonly<Record<SourceId, SourceSpec>> = {
       customer_group: 'customer_group_id',
     },
   },
+  // #935: fct_refund_line = fct_refund split over the lines it pays for (a returned line; else one order-level row
+  // with no product), so refunds group by product and category; summed over its lines it IS fct_refund
   refunds: {
-    from: 'fct_refund',
+    from: 'fct_refund_line',
     day: "toDate(issued_at, 'UTC')",
     columns: {
       store: 'store_id',
@@ -61,6 +63,8 @@ const SOURCES: Readonly<Record<SourceId, SourceSpec>> = {
       refund_reason: 'reason',
       country: 'country',
       sales_channel: 'sales_channel_id',
+      product: 'product_id',
+      category: 'category_id',
     },
   },
   lines: {

@@ -203,6 +203,36 @@ describe('listMetricDimensionValues', () => {
   });
 });
 
+describe('cost (#935 f)', () => {
+  it('p95 over HTTP of the backlog (< 300 ms) and of a Postgres picker (< 150 ms) on the seeded database', async () => {
+    const time = async (f: () => Promise<unknown>, n = 40) => {
+      const ms: number[] = [];
+      for (let i = 0; i < n; i++) {
+        const t = performance.now();
+        await f();
+        ms.push(performance.now() - t);
+      }
+      ms.sort((a, b) => a - b);
+      return {
+        p50: Math.round(ms[Math.floor(n * 0.5)]!),
+        p95: Math.round(ms[Math.floor(n * 0.95)]!),
+      };
+    };
+    const backlogCost = await time(() => backlog({}, 'seed-owner'));
+    const pickerCost = await time(() => values({ dimension: 'product', q: 'a' }, 'seed-owner'));
+    console.info(
+      JSON.stringify({
+        test: 'routes-wave2',
+        block: 'cost (HTTP, ms)',
+        backlog: backlogCost,
+        picker: pickerCost,
+      }),
+    );
+    expect(backlogCost.p95).toBeLessThan(300);
+    expect(pickerCost.p95).toBeLessThan(150);
+  }, 120_000);
+});
+
 describe('promotion metrics (Postgres, R1)', () => {
   it('each promotion of a stacked order counts with its own share; labelled by name; scoped', async () => {
     const r = await as(

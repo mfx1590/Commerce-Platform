@@ -164,7 +164,8 @@ SELECT
     r.issued_at                                              AS issued_at,
     r.event_id                                               AS source_event_id,
     o.country                                                AS country,
-    o.sales_channel_id                                       AS sales_channel_id
+    o.sales_channel_id                                       AS sales_channel_id,
+    r.return_id                                              AS return_id
 FROM stg_refund_issued_v1 AS r
 LEFT JOIN fct_order AS o ON o.order_id = r.order_id
 SETTINGS join_algorithm = 'hash';
@@ -385,3 +386,68 @@ UNION ALL
 SELECT organization_id, store_id, payment_id, order_id, provider,
        CAST('failed' AS LowCardinality(String)), failure_code, failed_at
 FROM stg_payment_failure_v1;
+
+-- fct_refund_line (#935, refunds by product and category): every refund split over the lines it pays for. A refund
+-- for a RETURN is allocated to the returned lines by weight = the line's paid total × returned ÷ ordered quantity;
+-- shares are integer divisions and the remainder goes to the heaviest line, so a refund's lines sum to its amount
+-- exactly. A refund with no return (or whose return is not in the facts yet) is ONE row with no product or category:
+-- an order-level refund, never guessed onto a product. Summed over its lines this view IS fct_refund.
+CREATE OR REPLACE VIEW fct_refund_line AS
+SELECT
+    a.organization_id                                        AS organization_id,
+    a.store_id                                               AS store_id,
+    a.refund_id                                              AS refund_id,
+    a.order_id                                               AS order_id,
+    a.currency                                               AS currency,
+    a.reason                                                 AS reason,
+    a.issued_at                                              AS issued_at,
+    a.country                                                AS country,
+    a.sales_channel_id                                       AS sales_channel_id,
+    a.product_id                                             AS product_id,
+    a.category_id                                            AS category_id,
+    a.raw_share + if(a.rn = 1, a.refund_total - sum(a.raw_share) OVER (PARTITION BY a.refund_id), 0) AS amount_minor
+FROM
+(
+    SELECT
+        r.organization_id                                    AS organization_id,
+        r.store_id                                           AS store_id,
+        r.refund_id                                          AS refund_id,
+        r.order_id                                           AS order_id,
+        r.currency                                           AS currency,
+        r.reason                                             AS reason,
+        r.issued_at                                          AS issued_at,
+        r.country                                            AS country,
+        r.sales_channel_id                                   AS sales_channel_id,
+        r.amount_minor                                       AS refund_total,
+        w.product_id                                         AS product_id,
+        w.category_id                                        AS category_id,
+        if(w.w_total > 0, intDiv(r.amount_minor * w.w, w.w_total), r.amount_minor) AS raw_share,
+        row_number() OVER (PARTITION BY r.refund_id ORDER BY w.w DESC, toString(w.order_line_item_id)) AS rn
+    FROM fct_refund AS r
+    LEFT JOIN
+    (
+        SELECT
+            x.return_id                                      AS return_id,
+            x.order_line_item_id                             AS order_line_item_id,
+            x.product_id                                     AS product_id,
+            x.category_id                                    AS category_id,
+            x.w                                              AS w,
+            sum(x.w) OVER (PARTITION BY x.return_id)         AS w_total
+        FROM
+        (
+            SELECT
+                rl.return_id                                 AS return_id,
+                rl.order_line_item_id                        AS order_line_item_id,
+                rl.product_id                                AS product_id,
+                rl.category_id                               AS category_id,
+                intDiv(ol.total_minor * toInt64(rl.quantity), greatest(toInt64(ol.quantity), 1)) AS w
+            FROM fct_return_line AS rl
+            INNER JOIN
+            (
+                SELECT order_line_item_id, total_minor, quantity FROM fct_order_line
+                WHERE order_line_item_id IN (SELECT order_line_item_id FROM stg_return_received_v1)
+            ) AS ol ON ol.order_line_item_id = rl.order_line_item_id
+        ) AS x
+    ) AS w ON w.return_id = r.return_id
+) AS a
+SETTINGS join_algorithm = 'hash', join_use_nulls = 1;

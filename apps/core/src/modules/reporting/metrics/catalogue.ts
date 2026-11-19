@@ -792,12 +792,13 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
   refunds_minor: {
     id: 'refunds_minor',
     label: 'Refunds',
-    description: 'Succeeded refunds by the day they were issued.',
+    description:
+      'Succeeded refunds by the day they were issued. By product or category: a refund for a return is split over the returned lines (by their paid value); a refund with no return has no product (shown as none), never guessed.',
     unit: 'minor',
     currency_bound: true,
     finance: false,
     available: true,
-    dimensions: ['store', 'refund_reason', 'country', 'sales_channel'],
+    dimensions: ['store', 'refund_reason', 'country', 'sales_channel', 'product', 'category'],
     source: { id: 'refunds', sql: 'sum(amount_minor)' },
   },
   refund_rate_bp: {

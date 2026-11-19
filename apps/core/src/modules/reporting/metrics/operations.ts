@@ -369,16 +369,16 @@ export function parseDimensionValuesQuery(query: Record<string, unknown>): Dimen
 
 /** Postgres pickers: id + label; `$1` the stores, `$2` the search (NULL for none, LIKE-escaped), `$3` the limit. */
 const PG_PICKERS: Partial<Record<PickerDimension, string>> = {
-  store: `SELECT id::text AS id, name AS label FROM store WHERE id = ANY($1::uuid[])`,
-  sales_channel: `SELECT id::text AS id, name AS label FROM sales_channel WHERE store_id = ANY($1::uuid[])`,
-  category: `SELECT id::text AS id, name AS label FROM product_category WHERE store_id = ANY($1::uuid[])`,
-  product: `SELECT id::text AS id, title AS label FROM product WHERE store_id = ANY($1::uuid[])`,
+  store: `SELECT id::text AS vid, name AS label FROM store WHERE id = ANY($1::uuid[])`,
+  sales_channel: `SELECT id::text AS vid, name AS label FROM sales_channel WHERE store_id = ANY($1::uuid[])`,
+  category: `SELECT id::text AS vid, name AS label FROM product_category WHERE store_id = ANY($1::uuid[])`,
+  product: `SELECT id::text AS vid, title AS label FROM product WHERE store_id = ANY($1::uuid[])`,
   // warehouses belong to the organization: RLS decides which the caller sees
-  warehouse: `SELECT id::text AS id, code AS label FROM warehouse WHERE $1::uuid[] IS NOT NULL`,
-  customer_group: `SELECT id::text AS id, name AS label FROM customer_group WHERE store_id = ANY($1::uuid[])`,
-  campaign: `SELECT id::text AS id, name AS label FROM campaign WHERE store_id = ANY($1::uuid[])`,
+  warehouse: `SELECT id::text AS vid, code AS label FROM warehouse WHERE $1::uuid[] IS NOT NULL`,
+  customer_group: `SELECT id::text AS vid, name AS label FROM customer_group WHERE store_id = ANY($1::uuid[])`,
+  campaign: `SELECT id::text AS vid, name AS label FROM campaign WHERE store_id = ANY($1::uuid[])`,
   // by NAME only: a code is never matched, never returned
-  promotion: `SELECT id::text AS id, name AS label FROM promotion WHERE store_id = ANY($1::uuid[])`,
+  promotion: `SELECT id::text AS vid, name AS label FROM promotion WHERE store_id = ANY($1::uuid[])`,
 };
 
 /** ClickHouse pickers: the distinct values in the caller's stores (no id: the value is its own label). */
@@ -400,7 +400,7 @@ export async function listMetricDimensionValues(
   const pgSql = PG_PICKERS[q.dimension];
   if (pgSql) {
     const r = await deps.pg.query<{ id: string; label: string }>(
-      `SELECT id, label FROM (${pgSql}) v WHERE ($2::text IS NULL OR label ILIKE '%' || $2 || '%') ORDER BY label, id LIMIT $3`,
+      `SELECT vid AS id, label FROM (${pgSql}) v WHERE ($2::text IS NULL OR label ILIKE '%' || $2 || '%') ORDER BY label, vid LIMIT $3`,
       [[...stores], q.q === undefined ? null : likeEscape(q.q), q.limit],
     );
     return { dimension: q.dimension, values: r.rows };
