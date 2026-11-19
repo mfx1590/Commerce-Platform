@@ -336,5 +336,6 @@ describe('manager notes: the landing tab, the answer, the link', () => {
     await user.click(screen.getByRole('button', { name: 'Copy link to this view' }));
     expect(writeText).toHaveBeenCalledWith(window.location.href);
     expect(await screen.findByText('Link copied: it opens this exact view.')).toBeInTheDocument();
-  });
+    // It renders the whole Overview; under a loaded full run 5 s was not always enough.
+  }, 15_000);
 });
