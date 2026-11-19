@@ -1312,3 +1312,20 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   - **Inventory defaults to most urgent first**: out of stock, then low by days of cover, then the rest by cover; items without a cover last (`byUrgency`, tested).
   - Where an item's parameters came from is in words ("the platform default", "the store's setting", "set on this page").
   - An id the API didn't label reads "unknown" (the API itself says "(deleted)"), never an id prefix.
+
+### Security — #925: the Marketing server actions refuse before the Admin API
+
+- The nine actions in `(store)/[storeId]/marketing/_actions.ts` (campaigns create / launch / end, segments
+  create / update / preview / materialize, feeds create / publish) start with `refuseUnlessPermitted`: the
+  contract's 403 unless the principal holds the operation's `x-permission` on the URL's store, before any request.
+- `MARKETING_PERMISSIONS` (`src/lib/marketing/permissions.ts`) is pinned to `admin-api.yaml` and added to the
+  guard: `previewSegment` store_staff, the other eight store_admin.
+- Tests (`test/marketing/action-permissions`), per action:
+  - refused before the API;
+  - a store the principal holds nothing on;
+  - 401;
+  - a store id that isn't a uuid;
+  - allowed;
+  - the yaml pin.
+- Mutation-checked: removing any one of the nine guards fails its tests.
+- Window 17's files, landed on `integration/admin-marketing-guards`.

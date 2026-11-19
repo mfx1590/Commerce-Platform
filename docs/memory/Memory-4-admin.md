@@ -1091,6 +1091,10 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   Marketing (window 17, 9 actions) is unguarded, filed as REQUEST #925. BI paths are window 12's in ownership.md;
   edited on the manager's assignment (#900 names window 4), noted in the PR. #859 approved, in the merge queue
   (no pushes there). Follow-ups parked.
+- **#926 MERGED** (490b48aa). **#925 (Marketing guards), 2026-11-19:** branch `integration/admin-marketing-guards`
+  from main 84be39d0 (window 17's files → integration branch, rule E). MARKETING_PERMISSIONS in src/lib/marketing,
+  9 guards, tests per action, mutation-checked (scratchpad mutate-925.cjs). Fable review. Next: #910 (active store
+  losing a prerequisite) on an admin branch, Opus review.
 ## Brand D pre-flight (admin side; input for window 10's wave-3 D8 task — brand D = Japan)
 
 Written 2026-11-10 and extended 2026-11-11 for **brand D = Japan** (JPY, ja-JP, ships to JP). Read-only, on
