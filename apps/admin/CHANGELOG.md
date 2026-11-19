@@ -1205,3 +1205,74 @@
 - Tests:
   - `finance-payouts-screens` (JPY payout and lines, verdicts, ERP gaps, parked links; 7).
   - `finance` grew to 22: every operation gated, the payouts query never carries a currency.
+
+### Security — #903, #900: every server action and BI route refuses before the Admin API
+
+- **#903:** the six actions without their own check now refuse first, with the contract's 403, unless the
+  principal holds the operation's `x-permission` on the URL's store:
+  - `eraseCustomerAction` (store_admin; irreversible, privacy).
+  - `updateCustomerAction` (support).
+  - `createPriceListAction` and `upsertPricesAction` (store_admin).
+  - `createPromotionAction` and `updatePromotionAction` (store_admin).
+
+  The new tables `CUSTOMER_PERMISSIONS`, `PRICING_PERMISSIONS` and `PROMOTION_PERMISSIONS` are pinned to
+  the yaml and added to the guard.
+
+- **#900:** the ten BI route handlers (HQ and store: export, query, ask, ask feedback, live) check the principal and
+  the `bi` section predicate before any API call (`refuseUnlessBi`): 401 / forwarded status, 403, 404 for a
+  store id that is not a uuid. The store feedback route now reads the URL's store to check it.
+- **Re-sweep** of every server action and `route.ts`: everything else is guarded, or is the sign-in flow /
+  health. The Marketing section's nine actions (window 17) are not, so I filed REQUEST #925.
+- Tests:
+  - `action-permissions`: per action, refused before the API, 401, allowed; the other store; a non-uuid store;
+    the yaml pin.
+  - `bi-route-gate`: per route, 401, 503 forwarded, 403 per role or store, allowed.
+  - Mutation-checked: removing any one of the 16 guards fails its tests.
+  - `pricing` and `bi/handlers` mock the principal now.
+
+### Added — #869 / #871: BI v2 screens, wave 1 — Overview, Products & categories, Inventory health (window 3)
+
+Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`) and the same three on a store's BI (`/<storeId>/bi/…`, narrowed to that store). Admin API 0.4.30. The existing dashboard stays at `/bi`, with a tab bar to the new views.
+
+- **Overview:**
+  - Net sales (the headline), gross sales, discounts, shipping, tax, refunds, net bookings, orders, units, AOV and items per order, each against the previous period or the same period last year.
+  - One currency at a time (a tab; never summed). JPY has no decimals.
+  - A breakdown by store, country, sales channel or category. Clicking a row filters the page by it; a store row drills to that store's Orders for the period.
+  - **What changed**: `listMetricMovers`, risers and fallers by name, change only, never cause.
+- **Products & categories:**
+  - Best and worst products by net sales, units or return rate, **by name** from the answer's labels ("(deleted)" when gone).
+  - The category roll-up.
+  - **Stock but no sales**: inventory health status `dead`.
+- **Inventory health** answers "do we need to order anything?":
+  - Per stock item: status, available / reserved / on hand, sales per day ("may be understated" when it was out of stock), days of cover, suggested reorder.
+  - Warehouses as a breakdown. A **shared pool** is marked, and a partial suggestion says HQ's view is authoritative.
+  - Status chips that count the whole filtered set; sort, search, paging, and overrides for the sales window, lead time, cover and dead-stock days (the API's bounds).
+  - States said on screen: "incoming is not tracked yet" (#878); a degraded panel when sales rates are unavailable (positions stay live).
+  - A ledger link per warehouse for principals who may open HQ › Warehouse.
+- **Specialist bar on every view:**
+  - every filter in the URL and usable without editing it: period, comparison, breakdown, store, country and customer type from the form; channel, category and product by clicking a row; each removable as a chip;
+  - a written definition per metric from the catalogue;
+  - metrics or dimensions the catalogue doesn't offer to this principal are left out and named;
+  - truncated, empty, incomplete-period and 503 states.
+- **Export CSV** of every block, through the API's own `text/csv` with label columns. A server action checks the BI section itself (HQ `bi` = analyst; store `bi` = viewer, the same predicates as the guards) and rebuilds the query from the URL state server-side. No new `route.ts`. `ExportCsvButton` gained a `cap` prop so each block states its own cap.
+- **Not possible yet, said on screen:**
+  - drill-down from a country, channel or category to orders (the orders list has no such filters);
+  - a customer **group** filter (the API takes customer type only);
+  - "why" in What changed (by design);
+  - incoming stock (#878).
+- Tests:
+  - `test/bi-v2-model.test.ts` (17): state, filters, catalogue offer, formatting, comparison shaping, query bodies, inventory bounds, one currency at a time.
+  - `test/bi-v2-actions.test.ts` (9): HQ and store gates before any call, 401, queries rebuilt server-side, store narrowing, inventory 500 cap, errors passed on.
+  - `test/bi-v2-views.test.tsx` (17): the three views as rendered.
+  - Mutation-checked: removing the section gate, the store narrowing, or the single-currency rule fails the suite.
+- Manager notes (11-19):
+  - **Inventory health is the first tab** of the BI nav, and it opens with the owner's answer in one line: "N items need ordering (out of stock, low or at the reorder point), M are out of stock; incoming stock is not tracked yet". When rates are unavailable, it says it cannot tell yet.
+  - **"Copy link to this view"**: the URL holds every filter, the period, the comparison and the currency, so the link is the view. That's the first step to saved views (#869); named, per-user saved views come later. It's not on the two existing dashboards, whose URL holds their own parameters.
+  - The BI route handlers' own gate is #900 (window 4); untouched here.
+- #927 review (Opus):
+  - **The first sentence** of Inventory health now reads "N items need ordering (M out of stock, K low); incoming stock is not tracked yet". During an outage it says "Cannot compute what to order right now".
+  - **bp reads by meaning:** a `*_rate_bp` metric is a percentage (12.5 %); any other bp metric is a ratio. Items per order now shows **2.14**, never "214.3 %" (`displayUnitOf`, every bp metric swept); the test that locked the bug is fixed.
+  - **Unknown is "not computed", never 0 or a dash**: KPIs, rates, cover, suggestions, and the status counts during an outage.
+  - **Inventory defaults to most urgent first**: out of stock, then low by days of cover, then the rest by cover; items without a cover last (`byUrgency`, tested).
+  - Where an item's parameters came from is in words ("the platform default", "the store's setting", "set on this page").
+  - An id the API didn't label reads "unknown" (the API itself says "(deleted)"), never an id prefix.

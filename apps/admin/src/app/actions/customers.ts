@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { eraseCustomer, updateCustomer } from '@/lib/api/admin';
 import { compact } from '@/lib/api/payload';
 import { toActionResult, type ActionResult } from '@/lib/forms/action-result';
+import { refuseUnlessPermitted } from '@/lib/permissions/guard';
 import { customerUpdateSchema, fieldNames, type CustomerUpdateValues } from '@/lib/forms/schemas';
 
 function invalid(): ActionResult<never> {
@@ -28,6 +29,8 @@ export async function updateCustomerAction(
   customerId: string,
   values: CustomerUpdateValues,
 ): Promise<ActionResult<null>> {
+  const refused = await refuseUnlessPermitted('updateCustomer', storeId);
+  if (refused) return refused;
   const parsed = customerUpdateSchema.safeParse(values);
   if (!parsed.success) return invalid();
   const { customer_group_id, ...rest } = parsed.data;
@@ -43,11 +46,16 @@ export async function updateCustomerAction(
   return mapped.status === 'success' ? { status: 'success', data: null } : mapped;
 }
 
-/** 202, no body: the screen re-reads to show `status: erased`. No PII is logged anywhere here. */
+/**
+ * 202, no body: the screen re-reads to show `status: erased`. No PII is logged anywhere here.
+ * Irreversible: a principal without `store_admin` on the store is refused before the request is sent.
+ */
 export async function eraseCustomerAction(
   storeId: string,
   customerId: string,
 ): Promise<ActionResult<null>> {
+  const refused = await refuseUnlessPermitted('eraseCustomer', storeId);
+  if (refused) return refused;
   const result = await eraseCustomer(storeId, customerId);
   if (result.ok) revalidateCustomer(storeId, customerId);
   return toActionResult(result, []);

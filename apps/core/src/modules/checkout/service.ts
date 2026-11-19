@@ -6,6 +6,7 @@
 import { createHash } from 'node:crypto';
 import type { Queryable, ScopedClient } from '@platform/db';
 import { orderMetadataFromCart, recordAttribution } from '../../lib/attribution';
+import { writeAudit } from '../../lib/audit';
 import { AppError, notFound, validationError } from '../../lib/errors';
 import {
   currentFraudCheck,
@@ -634,6 +635,23 @@ async function placeOrder(
           },
         }),
       ]);
+      // ---- audit (#887): the placement, by its actor (a customer, or the system) — ids and amounts, never PII ----
+      await writeAudit(tx, {
+        organizationId: cart.organization_id,
+        storeId: cart.store_id,
+        actor: input.actor,
+        action: 'order.place',
+        entityType: 'order',
+        entityId: order.id,
+        after: {
+          display_id: Number(order.display_id),
+          cart_id: cart.id,
+          currency: cart.currency,
+          total_minor: Number(cart.total_minor),
+          line_count: lines.length,
+          payment_provider: session.provider,
+        },
+      });
       if (input.hooks?.afterEvents) await input.hooks.afterEvents(tx);
 
       // ---- confirmed (#350) ---- The payment is authorised, so the order confirms here, after order.placed in
