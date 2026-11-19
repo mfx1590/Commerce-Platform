@@ -9,7 +9,10 @@ import {
   INVENTORY_LIMIT,
   INVENTORY_SORTS,
   INVENTORY_STATUSES,
+  NOT_COMPUTED,
+  byUrgency,
   inventoryAnswer,
+  PARAMETERS_SOURCE_WORDS,
   inventoryQuery,
   parseInventory,
   parseState,
@@ -37,6 +40,7 @@ const STATUS_TONE: Record<
 };
 
 const SORT_WORDS: Record<InventoryState['sort'], string> = {
+  urgency: 'most urgent',
   days_of_cover: 'days of cover',
   suggested_reorder_units: 'suggested reorder',
   available: 'available',
@@ -49,7 +53,7 @@ function extrasOf(inventory: InventoryState, changes: Partial<Record<string, str
   const values: Record<string, string> = {
     status: inventory.statuses.join(','),
     q: inventory.q,
-    sort: inventory.sort === 'days_of_cover' ? '' : inventory.sort,
+    sort: inventory.sort === 'urgency' ? '' : inventory.sort,
     dir: inventory.direction === 'asc' ? '' : inventory.direction,
     page: inventory.page > 1 ? String(inventory.page) : '',
     warehouse: inventory.warehouse,
@@ -97,7 +101,7 @@ export async function InventoryView({
   const names = (kind: string, id: string) =>
     kind === 'store' && catalogue.ok
       ? (catalogue.data.stores.find((s) => s.id === id)?.code ?? id)
-      : `${id.slice(0, 8)}…`;
+      : 'unknown';
 
   if (!health.ok) {
     return (
@@ -166,7 +170,11 @@ export async function InventoryView({
                   className={`border-line inline-flex items-center gap-2 rounded-full border px-3 py-1 ${inventory.statuses.includes(status) ? 'bg-accent/10 border-accent/40' : ''}`}
                 >
                   <Badge tone={STATUS_TONE[status]}>{STATUS_WORDS[status]}</Badge>
-                  <span className="tabular-nums">{summary[status] ?? 0}</span>
+                  <span className="tabular-nums">
+                    {data.rate_available && summary[status] !== undefined
+                      ? summary[status]
+                      : NOT_COMPUTED}
+                  </span>
                 </Link>
               </li>
             ))}
@@ -280,7 +288,7 @@ export async function InventoryView({
                   </tr>
                 </thead>
                 <tbody className="divide-line divide-y align-top">
-                  {data.rows.map((row) => (
+                  {(inventory.sort === 'urgency' ? byUrgency(data.rows) : data.rows).map((row) => (
                     <tr key={row.stock_item_id}>
                       <td className="py-2">
                         <div className="font-medium">{row.name}</div>
@@ -335,9 +343,9 @@ export async function InventoryView({
                           </span>
                         )}
                       </td>
-                      <td className="tabular-nums">{row.days_of_cover ?? '—'}</td>
+                      <td className="tabular-nums">{row.days_of_cover ?? NOT_COMPUTED}</td>
                       <td className="tabular-nums">
-                        {row.suggested_reorder_units ?? '—'}
+                        {row.suggested_reorder_units ?? NOT_COMPUTED}
                         {row.suggestion_partial && (
                           <span className="text-muted block text-xs">
                             this store&apos;s sales only — HQ&apos;s view is authoritative for a
@@ -346,7 +354,7 @@ export async function InventoryView({
                         )}
                         <span className="text-muted block text-xs">
                           lead {row.parameters.lead_time_days} d, cover {row.parameters.cover_days}{' '}
-                          d ({row.parameters_source})
+                          d ({PARAMETERS_SOURCE_WORDS[row.parameters_source]})
                         </span>
                       </td>
                       <td className="text-muted text-xs">

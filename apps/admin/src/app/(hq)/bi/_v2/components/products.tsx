@@ -8,6 +8,7 @@ import {
   breakdownOf,
   currenciesOf,
   definitionOf,
+  displayUnitOf,
   formatChange,
   formatValue,
   labelOf,
@@ -380,7 +381,7 @@ function RowsTable({
                 )}
               </td>
               {metrics.map((metric) => {
-                const unit = definitionOf(catalogue, metric)?.unit ?? 'count';
+                const unit = displayUnitOf(definitionOf(catalogue, metric), metric);
                 const money = unit === 'minor' ? currency : null;
                 const now = line.values[metric] ?? null;
                 const before = line.previous[metric] ?? null;
@@ -391,7 +392,7 @@ function RowsTable({
                       <span className={cn('block text-xs', TREND_TONE[trend(now - before)])}>
                         {formatChange(
                           now - before,
-                          unit === 'bp' || before === 0
+                          unit === 'percent' || before === 0
                             ? null
                             : Math.round(((now - before) / before) * 10000),
                           unit,

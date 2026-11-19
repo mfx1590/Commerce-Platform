@@ -178,19 +178,47 @@ export function chunk<T>(items: readonly T[], size: number): T[][] {
 
 // ---------------------------------------------------------------------------- formatting
 
-/** A value in its unit: money in the currency (JPY with no decimals), bp as %, milli as ×1/1000. */
+/**
+ * How a value reads, by what the metric MEANS (#927 review): the API's `bp` unit is "× 10 000",
+ * which is a percentage for a rate (`refund_rate_bp`, `return_rate_bp`, `cancellation_rate_bp`,
+ * `product_return_rate_bp`: 1 250 = 12.5 %) but a plain ratio for anything else
+ * (`items_per_order_bp`: 21 429 = 2.14 items per order, never "214.3 %").
+ */
+export type DisplayUnit = 'minor' | 'count' | 'milli' | 'percent' | 'ratio';
+
+export function displayUnitOf(
+  definition: Pick<MetricDefinition, 'unit'> | undefined,
+  metric: string,
+): DisplayUnit {
+  const unit = definition?.unit ?? 'count';
+  if (unit !== 'bp') return unit;
+  return metric.endsWith('_rate_bp') ? 'percent' : 'ratio';
+}
+
+/** What the page shows for a value the API did not compute (never 0, never a blank). */
+export const NOT_COMPUTED = 'not computed';
+
+/**
+ * A value in its display unit: money in the currency (JPY with no decimals), a rate as %, a ratio
+ * as a number with two decimals, milli as ×1/1000. A missing value is "not computed".
+ */
 export function formatValue(
   value: number | null | undefined,
-  unit: MetricDefinition['unit'],
+  unit: DisplayUnit,
   currency: string | null,
   locale = 'en-GB',
 ): string {
-  if (value === null || value === undefined) return '—';
+  if (value === null || value === undefined) return NOT_COMPUTED;
   switch (unit) {
     case 'minor':
       return currency === null ? String(value) : formatMoney(value, currency, locale);
-    case 'bp':
+    case 'percent':
       return `${(value / 100).toLocaleString(locale, { maximumFractionDigits: 1 })} %`;
+    case 'ratio':
+      return (value / 10000).toLocaleString(locale, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
     case 'milli':
       return (value / 1000).toLocaleString(locale, { maximumFractionDigits: 1 });
     default:
@@ -206,14 +234,22 @@ export function formatValue(
 export function formatChange(
   change: number | null | undefined,
   changeBp: number | null | undefined,
-  unit: MetricDefinition['unit'],
+  unit: DisplayUnit,
   currency: string | null,
   locale = 'en-GB',
 ): string {
   if (change === null || change === undefined) return 'no comparison';
   const sign = change > 0 ? '+' : change < 0 ? '−' : '±';
-  if (unit === 'bp') {
+  if (unit === 'percent') {
     return `${sign}${(Math.abs(change) / 100).toLocaleString(locale, { maximumFractionDigits: 1 })} pts`;
+  }
+  if (unit === 'ratio') {
+    // A ratio changes by its own amount (2.02 → 2.14 is +0.12), plus the relative change.
+    const percent =
+      changeBp === null || changeBp === undefined
+        ? ''
+        : ` (${changeBp > 0 ? '+' : changeBp < 0 ? '−' : '±'}${(Math.abs(changeBp) / 100).toLocaleString(locale, { maximumFractionDigits: 1 })} %)`;
+    return `${sign}${formatValue(Math.abs(change), 'ratio', null, locale)}${percent}`;
   }
   const amount = formatValue(Math.abs(change), unit, currency, locale);
   const percent =
@@ -306,7 +342,9 @@ export function labelOf(labels: Labels | undefined, dimension: string, key: stri
   const map = (labels as Record<string, Record<string, string> | undefined> | undefined)?.[
     dimension
   ];
-  return map?.[key] ?? `${key.slice(0, 8)}…`;
+  // The API labels a deleted record "(deleted)" itself; an id it did not label is one the caller
+  // may not read, or that is unknown — said in words, never shown as an id prefix.
+  return map?.[key] ?? 'unknown';
 }
 
 /** One currency's rows by `dimension`, each with its previous-period values when compared. */
@@ -354,6 +392,9 @@ export const INVENTORY_STATUSES = [
   'ok',
 ] as const;
 export const INVENTORY_SORTS = [
+  // Most urgent first (the default): out of stock, then low by days of cover, then the rest by
+  // cover; items without a cover last. Asked of the API as days of cover, ordered here per page.
+  'urgency',
   'days_of_cover',
   'suggested_reorder_units',
   'available',
@@ -409,7 +450,7 @@ export function parseInventory(raw: Raw): InventoryState {
     q: one(raw, 'q').trim().slice(0, 100),
     sort: (INVENTORY_SORTS as readonly string[]).includes(sort)
       ? (sort as InventoryState['sort'])
-      : 'days_of_cover',
+      : 'urgency',
     direction: one(raw, 'dir') === 'desc' ? 'desc' : 'asc',
     page: Number.isFinite(page) && page > 0 ? page : 1,
     warehouse: UUID.test(one(raw, 'warehouse')) ? one(raw, 'warehouse') : '',
@@ -439,8 +480,8 @@ export function inventoryQuery(
     ...(inventory.lead !== null ? { lead_time_days: inventory.lead } : {}),
     ...(inventory.cover !== null ? { cover_days: inventory.cover } : {}),
     ...(inventory.dead !== null ? { dead_days: inventory.dead } : {}),
-    sort: inventory.sort,
-    direction: inventory.direction,
+    sort: inventory.sort === 'urgency' ? 'days_of_cover' : inventory.sort,
+    direction: inventory.sort === 'urgency' ? 'asc' : inventory.direction,
     page: inventory.page,
     limit: INVENTORY_LIMIT,
   };
@@ -449,32 +490,65 @@ export function inventoryQuery(
 /** Units per day from the API's milli-units, as people read it. */
 export function perDay(milli: number | null): string {
   return milli === null
-    ? '—'
+    ? NOT_COMPUTED
     : (milli / 1000).toLocaleString('en-GB', { maximumFractionDigits: 2 });
 }
 
 /**
- * The owner's question in one plain line, from the status counts of the whole filtered set:
- * "N items need ordering (stock out, low or at the reorder point), M are out of stock; incoming
- * stock is not tracked yet." Said differently when the rates are unavailable (no status), and
- * prefixed when a status filter narrows what is counted.
+ * The owner's question in one plain line, from the status counts of the whole filtered set (#927
+ * review): "N items need ordering (M out of stock, K low); incoming stock is not tracked yet."
+ * "Need ordering" = out of stock + low + at the reorder point. During an outage of the sales
+ * rates there is no status: "Cannot compute what to order right now …". A status filter narrows
+ * what is counted, and the line says so.
  */
 export function inventoryAnswer(
   health: Pick<InventoryHealth, 'rate_available' | 'incoming_tracked' | 'summary'>,
   statusFiltered: boolean,
 ): string {
   if (!health.rate_available) {
-    return 'Sales rates are unavailable right now, so what needs ordering cannot be said yet; the stock positions below are live.';
+    return 'Cannot compute what to order right now: sales rates are unavailable. The stock positions below are live.';
   }
   const count = (status: InventoryStatus) =>
     (health.summary as Record<string, number>)[status] ?? 0;
   const out = count('stock_out');
-  const need = out + count('low') + count('reorder');
-  const items = (n: number) => `${n} ${n === 1 ? 'item' : 'items'}`;
+  const low = count('low');
+  const need = out + low + count('reorder');
   const prefix = statusFiltered ? 'Among the statuses shown: ' : '';
   const head =
     need === 0
       ? 'Nothing needs ordering right now'
-      : `${items(need)} ${need === 1 ? 'needs' : 'need'} ordering, ${out} ${out === 1 ? 'is' : 'are'} out of stock`;
+      : `${need} ${need === 1 ? 'item needs' : 'items need'} ordering (${out} out of stock, ${low} low)`;
   return `${prefix}${head}${health.incoming_tracked ? '.' : '; incoming stock is not tracked yet.'}`;
 }
+
+const URGENCY: Partial<Record<InventoryStatus, number>> = { stock_out: 0, low: 1 };
+
+/**
+ * Most urgent first: out of stock, then low, then everything else; inside each, fewest days of
+ * cover first; an item whose cover is not computed goes last. Stable for equal keys.
+ */
+export function byUrgency<T extends Pick<InventoryRow, 'status' | 'days_of_cover'>>(
+  rows: readonly T[],
+): T[] {
+  const rank = (row: T) => (row.status === null ? 3 : (URGENCY[row.status] ?? 2));
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => {
+      const byRank = rank(a.row) - rank(b.row);
+      if (byRank !== 0) return byRank;
+      const ac = a.row.days_of_cover;
+      const bc = b.row.days_of_cover;
+      if (ac === null && bc !== null) return 1;
+      if (bc === null && ac !== null) return -1;
+      if (ac !== null && bc !== null && ac !== bc) return ac - bc;
+      return a.index - b.index;
+    })
+    .map(({ row }) => row);
+}
+
+/** Where a row's cover and lead time came from, in words. */
+export const PARAMETERS_SOURCE_WORDS: Record<InventoryRow['parameters_source'], string> = {
+  request: 'set on this page',
+  store: "the store's setting",
+  default: 'the platform default',
+};

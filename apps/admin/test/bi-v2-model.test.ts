@@ -5,6 +5,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   breakdownOf,
+  byUrgency,
+  displayUnitOf,
+  PARAMETERS_SOURCE_WORDS,
+  type InventoryStatus,
   chunk,
   filtersOf,
   formatChange,
@@ -173,19 +177,39 @@ describe('formatting', () => {
     expect(formatValue(120000, 'minor', 'JPY')).toBe('JP¥120,000');
     expect(formatValue(120000, 'minor', 'JPY', 'ja-JP')).toBe('￥120,000');
     expect(formatValue(4550, 'minor', 'EUR')).toBe('€45.50');
-    expect(formatValue(null, 'minor', 'EUR')).toBe('—');
+    // Unknown is said, never 0 and never a blank (#927 review).
+    expect(formatValue(null, 'minor', 'EUR')).toBe('not computed');
+    expect(formatValue(null, 'count', null)).toBe('not computed');
   });
 
-  it('rates as %, milli as units, counts grouped', () => {
-    expect(formatValue(1250, 'bp', null)).toBe('12.5 %');
+  it('a rate as %, a ratio as a number, milli as units, counts grouped', () => {
+    expect(formatValue(1250, 'percent', null)).toBe('12.5 %');
+    // items_per_order_bp: 21 429 = 2.14 items per order, never "214.3 %" (#927 review).
+    expect(formatValue(21429, 'ratio', null)).toBe('2.14');
     expect(formatValue(2500, 'milli', null)).toBe('2.5');
     expect(formatValue(12345, 'count', null)).toBe('12,345');
   });
 
-  it('a change: signed amount and %, a rate change in points, a withheld % left out', () => {
+  it('every bp metric reads by its meaning: *_rate_bp is a percentage, any other bp a ratio', () => {
+    const bp = catalogue().metrics.filter((m) => m.unit === 'bp');
+    expect(bp.length).toBeGreaterThan(1);
+    for (const metric of bp) {
+      expect(displayUnitOf(metric, metric.id), metric.id).toBe(
+        metric.id.endsWith('_rate_bp') ? 'percent' : 'ratio',
+      );
+    }
+    expect(displayUnitOf({ unit: 'bp' }, 'items_per_order_bp')).toBe('ratio');
+    expect(displayUnitOf({ unit: 'bp' }, 'refund_rate_bp')).toBe('percent');
+    expect(displayUnitOf({ unit: 'bp' }, 'cancellation_rate_bp')).toBe('percent');
+    expect(displayUnitOf({ unit: 'minor' }, 'aov_minor')).toBe('minor');
+    expect(displayUnitOf(undefined, 'orders')).toBe('count');
+  });
+
+  it('a change: signed amount and %, a rate in points, a ratio in its own amount, a withheld % left out', () => {
     expect(formatChange(80000, 6667, 'minor', 'JPY')).toBe('+JP¥80,000 (+66.7 %)');
     expect(formatChange(-30000, null, 'minor', 'JPY')).toBe('−JP¥30,000');
-    expect(formatChange(-150, -1200, 'bp', null)).toBe('−1.5 pts');
+    expect(formatChange(-150, -1200, 'percent', null)).toBe('−1.5 pts');
+    expect(formatChange(1200, 594, 'ratio', null)).toBe('+0.12 (+5.9 %)');
     expect(formatChange(null, null, 'count', null)).toBe('no comparison');
   });
 });
@@ -230,7 +254,8 @@ describe('shaping the answers', () => {
         previous: { net_sales_minor: 120000 },
       },
     ]);
-    expect(labelOf(undefined, 'product', PROD)).toBe(`${PROD.slice(0, 8)}…`);
+    // Never an id prefix: an id the API did not label is "unknown" (#927 review).
+    expect(labelOf(undefined, 'product', PROD)).toBe('unknown');
     expect(labelOf(undefined, 'country', 'JP')).toBe('JP');
   });
 });
@@ -328,7 +353,7 @@ describe('the owner’s question in one line', () => {
   it('counts stock out + low + reorder as "need ordering", and says incoming is not tracked', () => {
     expect(
       inventoryAnswer(health({ stock_out: 1, low: 2, reorder: 3, dead: 4, ok: 10 }), false),
-    ).toBe('6 items need ordering, 1 is out of stock; incoming stock is not tracked yet.');
+    ).toBe('6 items need ordering (1 out of stock, 2 low); incoming stock is not tracked yet.');
   });
 
   it('nothing to order; incoming tracked; a status filter narrows what is counted', () => {
@@ -336,13 +361,63 @@ describe('the owner’s question in one line', () => {
       'Nothing needs ordering right now.',
     );
     expect(inventoryAnswer(health({ low: 1 }), true)).toBe(
-      'Among the statuses shown: 1 item needs ordering, 0 are out of stock; incoming stock is not tracked yet.',
+      'Among the statuses shown: 1 item needs ordering (0 out of stock, 1 low); incoming stock is not tracked yet.',
     );
   });
 
-  it('rates unavailable: it cannot say, and says why', () => {
-    expect(inventoryAnswer(health({}, { rate_available: false }), false)).toMatch(
-      /cannot be said yet; the stock positions below are live/,
+  it('rates unavailable: "cannot compute what to order right now"', () => {
+    expect(inventoryAnswer(health({ low: 3 }, { rate_available: false }), false)).toBe(
+      'Cannot compute what to order right now: sales rates are unavailable. The stock positions below are live.',
     );
+  });
+});
+
+describe('most urgent first (#927 review)', () => {
+  const row = (id: string, status: InventoryStatus | null, days_of_cover: number | null) => ({
+    id,
+    status,
+    days_of_cover,
+  });
+
+  it('out of stock, then low by cover, then the rest by cover; no cover last; stable', () => {
+    const rows = [
+      row('ok-30', 'ok', 30),
+      row('low-5', 'low', 5),
+      row('reorder-null', 'reorder', null),
+      row('out', 'stock_out', 0),
+      row('low-2', 'low', 2),
+      row('reorder-9', 'reorder', 9),
+      row('unknown', null, null),
+      row('dead-null', 'dead', null),
+      row('ok-30b', 'ok', 30),
+    ];
+    expect(byUrgency(rows).map((r) => r.id)).toEqual([
+      'out',
+      'low-2',
+      'low-5',
+      'reorder-9',
+      'ok-30',
+      'ok-30b',
+      'reorder-null',
+      'dead-null',
+      'unknown',
+    ]);
+  });
+
+  it('is the default sort, asked of the API as days of cover ascending', () => {
+    const inv = parseInventory({});
+    expect(inv.sort).toBe('urgency');
+    expect(inventoryQuery(parseState({}), inv)).toMatchObject({
+      sort: 'days_of_cover',
+      direction: 'asc',
+    });
+  });
+
+  it('where the parameters came from, in words', () => {
+    expect(PARAMETERS_SOURCE_WORDS).toEqual({
+      request: 'set on this page',
+      store: "the store's setting",
+      default: 'the platform default',
+    });
   });
 });

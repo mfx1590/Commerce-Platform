@@ -108,7 +108,10 @@ describe('Overview', () => {
     expect(cards[0]).toHaveTextContent('JP¥300,000');
     expect(cards[0]).toHaveTextContent('+JP¥50,000 (+20 %) vs JP¥250,000');
     expect(screen.getByRole('listitem', { name: 'Orders' })).toHaveTextContent('42');
-    expect(screen.getByRole('listitem', { name: 'Items per order' })).toHaveTextContent('214.3 %');
+    // A ratio, not a percentage (#927 review): 21 429 bp = 2.14 items per order.
+    const ipo = screen.getByRole('listitem', { name: 'Items per order' });
+    expect(ipo).toHaveTextContent('2.14');
+    expect(ipo).not.toHaveTextContent('214.3');
   });
 
   it('every figure carries its written definition from the catalogue', async () => {
@@ -245,6 +248,7 @@ describe('Inventory health', () => {
       "80this store's sales only — HQ's view is authoritative for a shared pool",
     );
     expect(row).toHaveTextContent('wh-eu: available 8, reserved 4, on hand 12');
+    expect(row).toHaveTextContent('lead 14 d, cover 30 d (the platform default)');
   });
 
   it('says incoming stock is not tracked yet', async () => {
@@ -275,7 +279,13 @@ describe('Inventory health', () => {
         /Sales rates are unavailable right now \(the analytics store did not answer\)/,
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText('not computed')).toBeInTheDocument();
+    // Unknown is "not computed", never 0: the status, the rate, the cover, the suggestion and every chip.
+    expect(screen.getAllByText('not computed').length).toBeGreaterThanOrEqual(4);
+    const chips = screen.getByRole('list', { name: 'Items per status' });
+    expect(within(chips).getAllByText('not computed')).toHaveLength(6);
+    expect(screen.getByRole('status', { name: 'The answer' })).toHaveTextContent(
+      'Cannot compute what to order right now',
+    );
   });
 
   it('status chips count the whole filtered set and toggle the filter', async () => {
@@ -313,7 +323,7 @@ describe('manager notes: the landing tab, the answer, the link', () => {
       'Dashboard',
     ]);
     expect(screen.getByRole('status', { name: 'The answer' })).toHaveTextContent(
-      '6 items need ordering, 1 is out of stock; incoming stock is not tracked yet.',
+      '6 items need ordering (1 out of stock, 2 low); incoming stock is not tracked yet.',
     );
   });
 

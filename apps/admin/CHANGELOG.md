@@ -1223,3 +1223,10 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   - **Inventory health is the first tab** of the BI nav, and it opens with the owner's answer in one line: "N items need ordering (out of stock, low or at the reorder point), M are out of stock; incoming stock is not tracked yet". When rates are unavailable, it says it cannot tell yet.
   - **"Copy link to this view"**: the URL holds every filter, the period, the comparison and the currency, so the link is the view. That's the first step to saved views (#869); named, per-user saved views come later. It's not on the two existing dashboards, whose URL holds their own parameters.
   - The BI route handlers' own gate is #900 (window 4); untouched here.
+- #927 review (Opus):
+  - **The first sentence** of Inventory health now reads "N items need ordering (M out of stock, K low); incoming stock is not tracked yet". During an outage it says "Cannot compute what to order right now".
+  - **bp reads by meaning:** a `*_rate_bp` metric is a percentage (12.5 %); any other bp metric is a ratio. Items per order now shows **2.14**, never "214.3 %" (`displayUnitOf`, every bp metric swept); the test that locked the bug is fixed.
+  - **Unknown is "not computed", never 0 or a dash**: KPIs, rates, cover, suggestions, and the status counts during an outage.
+  - **Inventory defaults to most urgent first**: out of stock, then low by days of cover, then the rest by cover; items without a cover last (`byUrgency`, tested).
+  - Where an item's parameters came from is in words ("the platform default", "the store's setting", "set on this page").
+  - An id the API didn't label reads "unknown" (the API itself says "(deleted)"), never an id prefix.

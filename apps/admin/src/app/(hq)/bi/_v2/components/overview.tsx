@@ -9,6 +9,7 @@ import {
   breakdownOf,
   currenciesOf,
   definitionOf,
+  displayUnitOf,
   formatChange,
   formatValue,
   kpisOf,
@@ -156,7 +157,7 @@ export async function OverviewView({
             <ul aria-label="Headline figures" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {kpis.map((kpi) => {
                 const definition = definitionOf(catalogue.data, kpi.metric);
-                const unit = definition?.unit ?? 'count';
+                const unit = displayUnitOf(definition, kpi.metric);
                 const money = unit === 'minor' ? currency : null;
                 return (
                   <li
@@ -219,7 +220,10 @@ export async function OverviewView({
               if (block === null || (block.risers.length === 0 && block.fallers.length === 0)) {
                 return <p className="text-muted text-sm">Nothing moved between the two periods.</p>;
               }
-              const unit = definitionOf(catalogue.data, 'net_sales_minor')?.unit ?? 'minor';
+              const unit = displayUnitOf(
+                definitionOf(catalogue.data, 'net_sales_minor'),
+                'net_sales_minor',
+              );
               const list = (title: string, items: typeof block.risers) => (
                 <div>
                   <h3 className="text-sm font-medium">{title}</h3>
@@ -344,7 +348,7 @@ function Breakdown({
                       </Link>
                     </td>
                     {metrics.map((metric) => {
-                      const unit = definitionOf(catalogue, metric)?.unit ?? 'count';
+                      const unit = displayUnitOf(definitionOf(catalogue, metric), metric);
                       const money = unit === 'minor' ? currency : null;
                       const now = line.values[metric] ?? null;
                       const before = line.previous[metric] ?? null;
@@ -355,7 +359,9 @@ function Breakdown({
                             <span className={cn('block text-xs', TREND_TONE[trend(now - before)])}>
                               {formatChange(
                                 now - before,
-                                before === 0 ? null : Math.round(((now - before) / before) * 10000),
+                                unit === 'percent' || before === 0
+                                  ? null
+                                  : Math.round(((now - before) / before) * 10000),
                                 unit,
                                 money,
                               )}
