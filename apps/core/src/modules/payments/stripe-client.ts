@@ -67,6 +67,17 @@ export interface StripeRefund {
   amount: number;
   currency: string;
   failure_reason?: string | null;
+  /** The PaymentIntent the refund belongs to (#918: orphan reconciliation lists by it). */
+  payment_intent?: string | null;
+  /** Ours: `{ reason, order_id }` on every refund this module creates (#918). */
+  metadata?: Record<string, string>;
+}
+
+/** A Stripe list (`GET /v1/refunds?payment_intent=…`). */
+export interface StripeList<T> {
+  object: 'list';
+  data: T[];
+  has_more: boolean;
 }
 
 /** One line of a Stripe Tax calculation (`POST /v1/tax/calculations`, `expand[]=line_items`). */
@@ -149,6 +160,8 @@ export interface StripeApi {
   ): Promise<StripePaymentIntent>;
   cancelPaymentIntent(id: string, opts?: StripeRequestOptions): Promise<StripePaymentIntent>;
   createRefund(params: StripeParams, opts?: StripeRequestOptions): Promise<StripeRefund>;
+  /** #918: the refunds of a PaymentIntent (newest first, up to `limit`), for orphan reconciliation. */
+  listRefunds(params: StripeParams, opts?: StripeRequestOptions): Promise<StripeList<StripeRefund>>;
   /** Stripe Tax (task 2.4): amounts, ids and the destination address only. */
   createTaxCalculation(
     params: StripeParams,
@@ -158,6 +171,12 @@ export interface StripeApi {
 
 export interface StripeClientOptions {
   secretKey: string;
+  /**
+   * Per-request timeout in ms (#918): default `STRIPE_TIMEOUT_MS`, else 10 000. A timeout aborts the request and
+   * throws a plain `TimeoutError` — never a `StripeError` — so every caller treats it as an UNKNOWN outcome
+   * (nothing written; a retry reuses its idempotency key), never as a definitive failure.
+   */
+  timeoutMs?: number;
   /** Injectable for tests; default global fetch. */
   fetch?: typeof fetch;
   baseUrl?: string;
@@ -187,12 +206,16 @@ export class StripeClient implements StripeApi {
   private readonly fetchFn: typeof fetch;
   private readonly baseUrl: string;
   private readonly apiVersion: string;
+  private readonly timeoutMs: number;
 
   constructor(opts: StripeClientOptions) {
     this.secretKey = opts.secretKey;
     this.fetchFn = opts.fetch ?? fetch;
     this.baseUrl = opts.baseUrl ?? BASE_URL;
     this.apiVersion = opts.apiVersion ?? STRIPE_API_VERSION;
+    const fromEnv = Number(process.env.STRIPE_TIMEOUT_MS);
+    this.timeoutMs =
+      opts.timeoutMs ?? (Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : 10_000);
   }
 
   private async request<T>(
@@ -215,6 +238,7 @@ export class StripeClient implements StripeApi {
       method,
       headers,
       ...(method === 'POST' ? { body: encoded } : {}),
+      signal: AbortSignal.timeout(this.timeoutMs),
     });
     const requestId = res.headers.get('request-id');
     let body: unknown;
@@ -269,6 +293,10 @@ export class StripeClient implements StripeApi {
 
   cancelPaymentIntent(id: string, opts?: StripeRequestOptions) {
     return this.request<StripePaymentIntent>('POST', `/v1/payment_intents/${id}/cancel`, {}, opts);
+  }
+
+  listRefunds(params: StripeParams, opts?: StripeRequestOptions) {
+    return this.request<StripeList<StripeRefund>>('GET', '/v1/refunds', params, opts);
   }
 
   createRefund(params: StripeParams, opts?: StripeRequestOptions) {

@@ -307,8 +307,18 @@ export function createStripePaymentProvider(opts: StripeProviderOptions = {}): P
       }
       const api = await apiFor(tx, storeId);
       try {
+        // #918: `order_id` + `reason` on the refund, so an orphan (the PSP refunded, our transaction did not commit)
+        // can be reconciled with its reason; Stripe keeps metadata on the refund object.
+        const order = await tx.query<{ order_id: string }>(
+          `SELECT order_id FROM payment WHERE provider = 'stripe' AND provider_payment_id = $1`,
+          [providerPaymentId],
+        );
         const refund = await api.createRefund(
-          { payment_intent: providerPaymentId, amount: amountMinor, metadata: { reason } },
+          {
+            payment_intent: providerPaymentId,
+            amount: amountMinor,
+            metadata: { reason, order_id: order.rows[0]?.order_id ?? '' },
+          },
           { idempotencyKey: `refund_${idempotencyKey}` },
         );
         if (

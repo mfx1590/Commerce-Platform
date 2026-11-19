@@ -9,6 +9,7 @@ import {
   type StripeChargeOutcome,
   type StripeParams,
   type StripePaymentIntent,
+  type StripeList,
   type StripeRefund,
   type StripeRequestOptions,
   type StripeTaxCalculation,
@@ -301,6 +302,39 @@ export class FakeStripe implements StripeApi {
     return intent;
   }
 
+  async listRefunds(params: StripeParams): Promise<StripeList<StripeRefund>> {
+    this.log({ method: 'listRefunds', params });
+    const data = [...this.refunds.values()]
+      .filter((r) => r.payment_intent === params.payment_intent)
+      .reverse();
+    return { object: 'list', data, has_more: false };
+  }
+
+  /** Test seam (#918): a refund made at Stripe by someone else (the Dashboard), with no idempotency key of ours. */
+  refundOutsideUs(intentId: string, amount: number, metadata: Record<string, string> = {}): StripeRefund {
+    const intent = this.intent(intentId);
+    const refund: StripeRefund = {
+      id: `re_${randomUUID().replace(/-/g, '').slice(0, 24)}`,
+      object: 'refund',
+      status: 'succeeded',
+      amount,
+      currency: intent.currency,
+      payment_intent: intent.id,
+      metadata,
+    };
+    this.refunds.set(refund.id, refund);
+    return refund;
+  }
+
+  /** Test seam (#918): Stripe settles a pending refund as failed. */
+  failRefund(refundId: string, reason = 'expired_or_canceled_card'): StripeRefund {
+    const refund = this.refunds.get(refundId);
+    if (!refund) throw new Error(`no fake refund ${refundId}`);
+    refund.status = 'failed';
+    refund.failure_reason = reason;
+    return refund;
+  }
+
   async createRefund(params: StripeParams, opts: StripeRequestOptions = {}): Promise<StripeRefund> {
     this.log({ method: 'createRefund', params, idempotencyKey: opts.idempotencyKey });
     const replayed = this.replay(opts.idempotencyKey, (id) => this.refunds.get(id));
@@ -319,6 +353,8 @@ export class FakeStripe implements StripeApi {
       status: pending ? 'pending' : 'succeeded',
       amount: params.amount === undefined ? intent.amount : Number(params.amount),
       currency: intent.currency,
+      payment_intent: intent.id,
+      metadata: (params.metadata as Record<string, string> | undefined) ?? {},
     };
     this.refunds.set(refund.id, refund);
     if (opts.idempotencyKey) this.recorded.set(opts.idempotencyKey, refund.id);
