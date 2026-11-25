@@ -1442,3 +1442,13 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
 - **Data-loss fix:** the edit page's Details form no longer sends `media`. `updateProduct` replaces the whole set when `media` is sent, so a stale list would have undone the panel's uploads. The create page keeps its URL list.
 - **Tests:** `media-actions.test.ts` (sniffing, hosts, limits pinned to the core's `UPLOAD_MAX_BYTES`, every refusal before the API, the upload's FormData, no signature in the result) and `media-panel.test.tsx`. Mutation-checked: removing the magic-byte check, either host check, `redirect: 'error'`, or the form's `media` strip each fails a test.
 - **Copy-link test (#947 follow-up):** renders `CopyLink` alone and awaits the status with `findByRole`; no full Overview render, no fixed wait.
+
+### Changed — test infrastructure: 15 s per-test timeout; one Prism port per contract suite
+
+- **Per-test timeout:** `vitest.config.ts` sets `testTimeout: 15_000`. Full local runs on a loaded laptop
+  failed with dozens of 5 s timeouts across unrelated files, and passed with `--maxWorkers=2`.
+- **Contract suite ports:** `test-contract/settings.test.tsx` moves from :4217 (the BI suite's) to :4223, so
+  the contract suites run together without EADDRINUSE. Verified with all 13 suites, 133 tests, in one run.
+  `test/contract-ports.test.ts` keeps the ports distinct and clear of :4011 and :4013.
+- **CLAUDE.md:** a red run made only of timeouts during a stack boot or heavy load is a load signature;
+  classify it before believing it.
