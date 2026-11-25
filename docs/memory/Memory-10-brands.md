@@ -536,6 +536,34 @@ substring by default, which is the trap #896 hit.
 
 ## In progress — #870 item 4, the bundle download (2026-11-25)
 
+### #965 Fable review: BLOCK on two, then MERGE (2026-11-25)
+
+**The finding I should have seen: the route echoed the upstream failure body.** Every non-410
+failure forwarded `bundle.body` with the Admin API's own `content-type`. On a route whose success
+case is one person's entire record, that hands the browser bytes the handler never looked at — an
+upstream proxy's HTML error page under `text/html`, for instance. Now every failure becomes one of
+our messages: 404 `not_found`, 401/403 `forbidden` with the status kept, everything else 502
+`unavailable`. The test feeds it an HTML 404 and asserts neither the text nor the content type
+crosses.
+
+**The rule worth keeping: a proxy must decide what it says.** I had been thinking of the handler as
+a conduit, and for the 200 that is right — stream it, never parse it. For a FAILURE it is the
+opposite: the handler owns the message, because an error body is attacker-influenced in a way the
+success body is not.
+
+**And `bundle.ts` had no test at all,** which is how the dead `status === 0` branch survived: the
+module answers 503 on a throw and never 0, so the route's check could never fire. Nine tests now
+pin the request itself — URL from the three encoded ids, token in an **Authorization header and
+never in the URL**, `cache: 'no-store'`, body read as text and unparsed, throw → 503. **The module
+that holds the credential was the one without a test**, which is the wrong way round.
+
+Folded in: `redirect: 'error'` (a 3xx would otherwise be followed **with the Authorization header
+attached**), `nosniff` everywhere, `getCustomerExport` in `CUSTOMER_PERMISSIONS` — the only entry
+guarding a route rather than a server action, so the exhaustiveness test names it in `ROUTE_ONLY`
+instead of being loosened — and a `support` reader asserted to have no path to a bundle by href,
+not merely by the panel being absent.
+
+
 **PR #965**, branch `integration/admin-customers-download` (code commit `e7e9e177`; head = this
 memory commit). **Stacked on #962**, which is itself Fable-approved and retargeted to main —
 retarget this one when #962 merges. Admin suite **1750 / 95**; lint, format:check, typecheck 30/30,

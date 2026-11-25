@@ -8,8 +8,38 @@ export const dynamic = 'force-dynamic';
 const json = (status: number, error: AdminError) =>
   new Response(JSON.stringify(error), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    },
   });
+
+/**
+ * Every upstream failure becomes one of OUR messages (#965 review).
+ *
+ * The first version forwarded the Admin API's own body and `content-type` for any non-410 failure.
+ * That hands a reader bytes this handler never looked at, on a route whose success case is one
+ * person's whole record: an upstream proxy's HTML error page, or anything else that happened to
+ * come back, would be echoed to the browser under its own content type. There is nothing in an
+ * upstream error body a store admin needs, so none of it crosses.
+ *
+ * A 503 from `fetchExportBundle` (it could not reach the API at all) lands in the same `502
+ * unavailable` as any other unexpected status: from here both mean "the API did not answer
+ * usefully", and the distinction is in the server's logs, not something to tell a browser.
+ */
+function upstreamFailure(status: number): Response {
+  if (status === 404) {
+    return json(404, { code: 'not_found', message: 'That export does not exist.' });
+  }
+  if (status === 401 || status === 403) {
+    return json(status, {
+      code: 'forbidden',
+      message: 'The Admin API refused that export.',
+    });
+  }
+  return json(502, { code: 'unavailable', message: 'The Admin API did not answer usefully.' });
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -68,10 +98,8 @@ export async function GET(
         message: 'That bundle has expired and been purged. Request a new export.',
       });
     }
-    return new Response(bundle.body, {
-      status: bundle.status === 0 ? 502 : bundle.status,
-      headers: { 'content-type': bundle.contentType, 'cache-control': 'no-store' },
-    });
+    // Never `bundle.body` or `bundle.contentType`: see `upstreamFailure`.
+    return upstreamFailure(bundle.status);
   }
 
   return new Response(bundle.body, {
@@ -81,6 +109,8 @@ export async function GET(
       'content-disposition': `attachment; filename="customer-export-${exportId}.json"`,
       // Never cached anywhere: this is one person's whole record.
       'cache-control': 'no-store, no-cache, must-revalidate, private',
+      // The body is whatever the core built; nothing may re-type it as HTML or a script.
+      'x-content-type-options': 'nosniff',
     },
   });
 }

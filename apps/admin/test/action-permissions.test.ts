@@ -208,7 +208,16 @@ describe('the #903 permission tables', () => {
     }
   });
 
-  it('cover exactly the guarded actions this file exercises — a new one must be added here', () => {
-    expect(Object.keys(tables).sort()).toEqual(CASES.map((c) => c.operation).sort());
+  /**
+   * Guarded by a ROUTE handler, not a server action, so this file cannot call it: the download
+   * route's own gate is covered by `test/customer-export-download.test.ts`. Listed explicitly so
+   * the exhaustiveness check below stays meaningful rather than being loosened.
+   */
+  const ROUTE_ONLY = ['getCustomerExport'];
+
+  it('cover exactly the guarded operations — a new one must be added here or to ROUTE_ONLY', () => {
+    expect(Object.keys(tables).sort()).toEqual(
+      [...CASES.map((c) => c.operation), ...ROUTE_ONLY].sort(),
+    );
   });
 });

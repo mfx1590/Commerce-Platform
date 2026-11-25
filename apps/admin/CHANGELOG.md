@@ -1537,3 +1537,25 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
 - Tests: `test/customer-export-download.test.ts` (14) for the route; the panel's tests now pin
   **where** a bundle may be reached from — a link on a ready row only, none while pending or after a
   purge — replacing #962's "no download anywhere", which was true of that PR and is not of this one.
+
+- #965 review (Fable):
+  - **The route no longer echoes the Admin API's failure body.** Every non-410 failure becomes one
+    of our own messages — 404 `not_found`, 401/403 `forbidden` with the status kept, everything else
+    502 `unavailable` — instead of forwarding `bundle.body` with its upstream `content-type`. On a
+    route whose success case is one person's whole record, handing back bytes this handler never
+    looked at (an upstream proxy's HTML error page, say) is not something to do for convenience. A
+    test feeds it an HTML 404 and asserts none of that text, and no `text/html`, reaches the caller.
+  - **`fetchExportBundle` has its own tests** (9): the URL built from the three encoded ids, the
+    token in an **Authorization header and never in the URL**, `cache: 'no-store'`, the body read as
+    text and handed back unparsed, and a thrown fetch becoming a 503 rather than an exception.
+  - **The route's `status === 0` branch was dead** — the module answers 503 when it cannot reach the
+    API — so it is gone, and 503 now lands in the same 502 `unavailable` as any other unexpected
+    status. Tested for 500, 503 and an unexpected 418.
+  - `redirect: 'error'` on the fetch: a 3xx would otherwise be followed **with the Authorization
+    header attached**, to wherever it pointed.
+  - `x-content-type-options: nosniff` on the bundle and on every error response.
+  - `getCustomerExport` added to `CUSTOMER_PERMISSIONS`, so the download's relation is pinned
+    against the yaml like the rest. It is the one entry guarding a **route** rather than a server
+    action, which the exhaustiveness test now names explicitly rather than being loosened.
+  - A `support` reader has no way to reach a bundle from anywhere on the page: asserted by href, not
+    only by the panel being absent.

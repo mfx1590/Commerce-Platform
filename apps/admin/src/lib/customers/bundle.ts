@@ -38,7 +38,10 @@ export async function fetchExportBundle(
 
   let response: Response;
   try {
-    response = await fetch(url, { headers, cache: 'no-store' });
+    // `redirect: 'error'` (#965 review): a 3xx from the API would otherwise be followed with the
+    // Authorization header attached, to wherever it points. One person's whole record is not a
+    // thing to hand to a redirect target.
+    response = await fetch(url, { headers, cache: 'no-store', redirect: 'error' });
   } catch {
     return {
       ok: false,

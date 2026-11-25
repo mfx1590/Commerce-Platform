@@ -14,6 +14,10 @@ export const CUSTOMER_PERMISSIONS = {
   // A GDPR export schedules a bundle of everything held about one person, so it is `store_admin`
   // like erasure — not `support`, which is enough to READ the record on screen.
   exportCustomer: { relation: 'store_admin', object: 'store' },
+  // Downloading a bundle is the same class of act as scheduling one, and the download ROUTE checks
+  // this rule (#965 review) — the only entry here that guards a route handler rather than a server
+  // action, because a route is reachable by typing a URL.
+  getCustomerExport: { relation: 'store_admin', object: 'store' },
 } as const satisfies Record<string, PermissionRule>;
 
 /**

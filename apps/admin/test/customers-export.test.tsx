@@ -179,6 +179,11 @@ describe('nothing is asked that would be refused', () => {
     expect(api.listCustomerExports).not.toHaveBeenCalled();
     expect(screen.getByText(/Only a store admin can request or see data exports/)).toBeTruthy();
     expect(screen.queryByRole('table', { name: 'Data export requests' })).toBeNull();
+    // And no way to reach a bundle from anywhere on the page (#965 review).
+    expect(screen.queryByRole('link', { name: /Download the bundle/ })).toBeNull();
+    for (const anchor of screen.queryAllByRole('link')) {
+      expect(anchor.getAttribute('href') ?? '').not.toContain('/exports/');
+    }
   });
 
   it('a store admin: the trail adds no staff lookup of its own, and shows a short id', async () => {

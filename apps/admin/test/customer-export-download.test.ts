@@ -117,6 +117,7 @@ describe('handing the bundle over', () => {
       `attachment; filename="customer-export-${EXPORT}.json"`,
     );
     expect(response.headers.get('cache-control')).toContain('no-store');
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
     // Byte-for-byte what the API gave: the handler is a conduit, not a reader.
     expect(await response.text()).toBe(BODY);
     expect(bundle.fetchExportBundle).toHaveBeenCalledWith(STORE, CUSTOMER, EXPORT);
@@ -136,23 +137,59 @@ describe('handing the bundle over', () => {
     expect(body.message).toMatch(/Request a new export/);
   });
 
-  it("forwards the API's own refusal with its status", async () => {
+  it('maps a 404 to our own message, and the upstream text does not cross (#965 review)', async () => {
+    // The first version forwarded the API's body and content-type. On a route whose success case
+    // is one person's whole record, nothing unexamined may be echoed to the browser.
+    const upstream = '<html><body>nginx: no such export</body></html>';
     bundle.fetchExportBundle.mockResolvedValue({
       ok: false,
       status: 404,
-      body: '{"code":"not_found","message":"No such export"}',
-      contentType: 'application/json',
+      body: upstream,
+      contentType: 'text/html',
     });
-    expect((await call()).status).toBe(404);
+    const response = await call();
+    expect(response.status).toBe(404);
+    expect(response.headers.get('content-type')).toBe('application/json; charset=utf-8');
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+    const text = await response.text();
+    expect(text).not.toContain('nginx');
+    expect(text).not.toContain('<html>');
+    expect(JSON.parse(text)).toEqual({
+      code: 'not_found',
+      message: 'That export does not exist.',
+    });
   });
 
-  it('an unreachable API is a 502, never a 0', async () => {
-    bundle.fetchExportBundle.mockResolvedValue({
-      ok: false,
-      status: 0,
-      body: '{"code":"unavailable"}',
-      contentType: 'application/json',
-    });
-    expect((await call()).status).toBe(502);
+  it('keeps the status but not the body for a 401 or 403 from the API', async () => {
+    for (const status of [401, 403]) {
+      bundle.fetchExportBundle.mockResolvedValue({
+        ok: false,
+        status,
+        body: '{"code":"whatever","message":"upstream wording"}',
+        contentType: 'application/json',
+      });
+      const response = await call();
+      expect(response.status).toBe(status);
+      const body = (await response.json()) as { code: string; message: string };
+      expect(body.code).toBe('forbidden');
+      expect(body.message).not.toContain('upstream wording');
+    }
+  });
+
+  it('every other failure, including an unreachable API, is 502 unavailable', async () => {
+    // `fetchExportBundle` answers 503 when it cannot reach the API at all; 500 and anything
+    // unexpected land in the same place. There is no `status === 0` path: the module never returns
+    // one, and the dead branch that checked for it is gone (#965 review).
+    for (const status of [500, 503, 418]) {
+      bundle.fetchExportBundle.mockResolvedValue({
+        ok: false,
+        status,
+        body: 'anything at all',
+        contentType: 'text/plain',
+      });
+      const response = await call();
+      expect(response.status).toBe(502);
+      expect(await response.text()).not.toContain('anything at all');
+    }
   });
 });
