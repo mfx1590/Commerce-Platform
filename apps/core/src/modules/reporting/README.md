@@ -106,6 +106,8 @@ Tests:
   the whole group covers fewer, the currency's totals are hidden too. Cohorts: a cohort under 5 is hidden whole, a
   cell of 1–4 active customers is hidden, and the LTV is withheld from the first hidden cell on. Property tests
   (`metrics-wave2.test.ts`) enumerate every signed sum of the visible figures and assert none equals a hidden value.
+  Known limit (#961): the rule holds within ONE answer; differencing two answers (with and without a narrow filter,
+  overlapping ranges) is not prevented yet. Movers skip a key hidden in either range and keep a hidden total null.
 - **utm values**: lower-cased, trimmed, ≤ 64 characters in the models; per answer, the top 50 by attributed orders are
   shown and the rest — and anything PII-shaped (`utmValue`) — are `other`.
 - **Promotions** (`promotions.ts`): Postgres `order.metadata.promotions` (the frozen per-promotion allocation:

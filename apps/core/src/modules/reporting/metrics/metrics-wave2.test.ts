@@ -411,3 +411,40 @@ describe('cohort LTV after a hidden cell (#951 review 3)', () => {
     expect(hiddenSeen).toBeGreaterThan(20);
   });
 });
+
+describe('movers never turn a hidden value into 0 (#951 re-review)', () => {
+  it('a key hidden in either range is no mover; a hidden total stays null, and so do the shares', () => {
+    const mq = parseMoversQuery({
+      metric: 'customer_net_sales_minor',
+      dimension: 'customer_group',
+      from: '2026-10-01',
+      to: '2026-11-01',
+    });
+    const row = (key: string, v: number | null, suppressed = false) => ({
+      customer_group_id: key,
+      currency: 'EUR',
+      suppressed,
+      values: { customer_net_sales_minor: v },
+    });
+    const r = moversFromResult(
+      mq,
+      {
+        rows: [row('hidden', null, true), row('y', 9000), row('z', 100)],
+        currency_totals: [
+          { currency: 'EUR', values: { customer_net_sales_minor: null }, suppressed: true },
+        ],
+        data_as_of: null,
+        compare: {
+          rows: [row('hidden', 5000), row('y', 1000), row('z', 400)],
+          currency_totals: [{ currency: 'EUR', values: { customer_net_sales_minor: 6400 } }],
+          current_incomplete: false,
+        },
+      } as never,
+      new Date('2026-11-25T00:00:00Z'),
+    );
+    const block = r.by_currency[0]!;
+    expect([...block.risers, ...block.fallers].map((m) => m.key).sort()).toEqual(['y', 'z']);
+    expect(block.total_current).toBeNull();
+    expect([...block.risers, ...block.fallers].every((m) => m.share_bp === null)).toBe(true);
+  });
+});

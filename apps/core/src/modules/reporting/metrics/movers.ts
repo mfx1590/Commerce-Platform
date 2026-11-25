@@ -173,10 +173,13 @@ export function rankMovers(
   opts: {
     limit: number;
     minBase?: number;
-    /** The metric's full totals per currency (rows without a key included); the keyed sums when omitted. */
+    /**
+     * The metric's full totals per currency (rows without a key included); the keyed sums when omitted. A null total
+     * (hidden by the small-cell rule, #951) stays null, and so does every share of it.
+     */
     totals?: {
-      current: ReadonlyMap<string | null, number>;
-      previous: ReadonlyMap<string | null, number>;
+      current: ReadonlyMap<string | null, number | null>;
+      previous: ReadonlyMap<string | null, number | null>;
     };
   },
 ): MoversResult['by_currency'] {
@@ -187,11 +190,14 @@ export function rankMovers(
     const cur = current.get(currency) ?? new Map<string, number>();
     const prev = previous.get(currency) ?? new Map<string, number>();
     const minBase = opts.minBase ?? defaultMinBase(currency);
-    const totalCurrent =
-      opts.totals?.current.get(currency) ?? [...cur.values()].reduce((n, v) => n + v, 0);
-    const totalPrevious =
-      opts.totals?.previous.get(currency) ?? [...prev.values()].reduce((n, v) => n + v, 0);
-    const totalChange = totalCurrent - totalPrevious;
+    const given = (t: ReadonlyMap<string | null, number | null> | undefined) =>
+      t && t.has(currency) ? t.get(currency)! : undefined;
+    const tc = given(opts.totals?.current);
+    const tp = given(opts.totals?.previous);
+    const totalCurrent = tc !== undefined ? tc : [...cur.values()].reduce((n, v) => n + v, 0);
+    const totalPrevious = tp !== undefined ? tp : [...prev.values()].reduce((n, v) => n + v, 0);
+    const totalChange =
+      totalCurrent === null || totalPrevious === null ? null : totalCurrent - totalPrevious;
     const movers: Mover[] = [...new Set([...cur.keys(), ...prev.keys()])].map((key) => {
       const c = cur.get(key) ?? 0;
       const p = prev.get(key) ?? 0;
@@ -204,7 +210,7 @@ export function rankMovers(
         change_bp: p > 0 && p >= minBase ? bp(change, p) : null,
         is_new: p === 0 && c > 0,
         is_gone: p > 0 && c === 0,
-        share_bp: totalChange === 0 ? null : bp(change, totalChange),
+        share_bp: totalChange === null || totalChange === 0 ? null : bp(change, totalChange),
       };
     });
     // ties: the larger current value, then the key, so the order is stable
@@ -259,11 +265,19 @@ export async function listMetricMovers(
 /** The ranking of an executed compare query (pure). */
 export function moversFromResult(mq: MoversQuery, r: MetricResult, now: Date): MoversResult {
   const col = MOVER_ROW_KEY[mq.dimension];
+  // a key hidden by the small-cell rule in EITHER range is no mover (#951 re-review): a hidden value is unknown,
+  // never 0, and ranking it against the other range would give it back as the change
+  const hidden = new Set(
+    [...r.rows, ...r.compare!.rows]
+      .filter((x) => x.suppressed)
+      .map((x) => `${x.currency}|${x[col]}`),
+  );
   const index = (rows: MetricResult['rows']) => {
     const m = new Map<string | null, Map<string, number>>();
     for (const row of rows) {
       const k = row[col];
       if (k === null) continue; // no key (e.g. a line whose product was never published): not a mover
+      if (hidden.has(`${row.currency}|${k}`)) continue;
       const block = m.get(row.currency) ?? new Map<string, number>();
       block.set(k, (block.get(k) ?? 0) + (row.values[mq.metric] ?? 0));
       m.set(row.currency, block);
@@ -281,9 +295,10 @@ export function moversFromResult(mq: MoversQuery, r: MetricResult, now: Date): M
     by_currency: rankMovers(index(r.rows), index(r.compare!.rows), {
       limit: mq.limit,
       totals: {
-        current: new Map(r.currency_totals.map((t) => [t.currency, t.values[mq.metric] ?? 0])),
+        // a hidden (null) total stays null, never 0 (#951 re-review)
+        current: new Map(r.currency_totals.map((t) => [t.currency, t.values[mq.metric] ?? null])),
         previous: new Map(
-          r.compare!.currency_totals.map((t) => [t.currency, t.values[mq.metric] ?? 0]),
+          r.compare!.currency_totals.map((t) => [t.currency, t.values[mq.metric] ?? null]),
         ),
       },
       ...(mq.min_base !== undefined ? { minBase: mq.min_base } : {}),

@@ -24,7 +24,13 @@ import {
   type MetricResult,
   type Raw,
 } from '../model';
-import { breakdownQuery, moversQuery, overviewQueries } from '../queries';
+import {
+  breakdownQuery,
+  customerFilterRefused,
+  moversQuery,
+  overviewQueries,
+  SMALL_CELL_REFUSAL,
+} from '../queries';
 import { BiExport } from './bi-export';
 import { BiNav, Controls, CurrencyTabs, Definition, FilterChips, Notice } from './shell';
 
@@ -66,6 +72,13 @@ export async function OverviewView({
   }
   const effective: BiState =
     storeId !== undefined && state.by === 'store' ? { ...state, by: 'country' } : state;
+  // a customer filter under a product or category filter: nothing of the overview can be protected (#951)
+  if (customerFilterRefused(effective, []))
+    return (
+      <p role="note" className="text-muted text-sm">
+        {SMALL_CELL_REFUSAL}
+      </p>
+    );
   const overview = overviewQueries(catalogue.data, effective, storeId);
   const breakdown = breakdownQuery(catalogue.data, effective, storeId);
   const movers = moversQuery(effective, storeId);
@@ -209,7 +222,11 @@ export async function OverviewView({
         />
         <CardBody className="space-y-3">
           {movers === null ? (
-            <p className="text-muted text-sm">Choose a comparison to see what changed.</p>
+            <p role={state.compare === 'none' ? undefined : 'note'} className="text-muted text-sm">
+              {state.compare === 'none'
+                ? 'Choose a comparison to see what changed.'
+                : SMALL_CELL_REFUSAL}
+            </p>
           ) : change === null || !change.ok ? (
             change !== null && !change.ok ? (
               <ApiStatePanel status={change.status} error={change.error} what="what changed" />
@@ -317,7 +334,11 @@ function Breakdown({
             {state.by.replace('_', ' ')} filter yet.
           </Notice>
         )}
-        {error !== null ? (
+        {customerFilterRefused(state, [state.by]) ? (
+          <p role="note" className="text-muted text-sm">
+            {SMALL_CELL_REFUSAL}
+          </p>
+        ) : error !== null ? (
           <ApiStatePanel status={error.status} error={error.error} what="the breakdown" />
         ) : lines.length === 0 ? (
           <p className="text-muted text-sm">No rows for this currency and these filters.</p>
