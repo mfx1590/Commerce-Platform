@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { eraseCustomer, updateCustomer } from '@/lib/api/admin';
+import { eraseCustomer, exportCustomer, updateCustomer } from '@/lib/api/admin';
 import { compact } from '@/lib/api/payload';
 import { toActionResult, type ActionResult } from '@/lib/forms/action-result';
 import { refuseUnlessPermitted } from '@/lib/permissions/guard';
@@ -43,6 +43,25 @@ export async function updateCustomerAction(
   const result = await updateCustomer(storeId, customerId, body);
   if (result.ok) revalidateCustomer(storeId, customerId);
   const mapped = toActionResult(result, fieldNames(customerUpdateSchema));
+  return mapped.status === 'success' ? { status: 'success', data: null } : mapped;
+}
+
+/**
+ * Schedules a GDPR export: 202, no body, so success is "scheduled" and the trail re-reads.
+ *
+ * `store_admin`, refused here before the request is sent. `support` is enough to read a customer on
+ * screen; it is not enough to have a bundle of everything held about them built. Nothing about the
+ * customer is returned to the caller and nothing is logged.
+ */
+export async function requestCustomerExportAction(
+  storeId: string,
+  customerId: string,
+): Promise<ActionResult<null>> {
+  const refused = await refuseUnlessPermitted('exportCustomer', storeId);
+  if (refused) return refused;
+  const result = await exportCustomer(storeId, customerId);
+  if (result.ok) revalidateCustomer(storeId, customerId);
+  const mapped = toActionResult(result, []);
   return mapped.status === 'success' ? { status: 'success', data: null } : mapped;
 }
 
