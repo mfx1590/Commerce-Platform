@@ -102,6 +102,19 @@ const ALIAS_PREFIX: Readonly<Record<AliasKind, string>> = {
   utm: 'u',
 };
 
+/** One customer_cohorts call (#951 review 6): its ref (k1, k2 …), the query and the answer. */
+export interface ExecutedCohorts {
+  ref: string;
+  query: CohortQuery;
+  result: CustomerCohorts;
+}
+
+/** One operations_backlog call (#951 review 6): its ref (b1, b2 …) and the answer. */
+export interface ExecutedBacklog {
+  ref: string;
+  result: OperationsBacklog;
+}
+
 /** One inventory_health call: its ref (h1, h2 …), the query and the answer. */
 export interface ExecutedInventory {
   ref: string;
@@ -302,6 +315,9 @@ export interface ToolDeps {
   cohorts?: (q: CohortQuery) => Promise<CustomerCohorts>;
   /** getOperationsBacklog over the question's stores (#935; the tool is offered only with it) */
   backlog?: () => Promise<OperationsBacklog>;
+  /** the evidence the answer carries (#951 review 6): every cohorts / backlog call with its ref (k1 …, b1 …) */
+  cohortCalls?: ExecutedCohorts[];
+  backlogCalls?: ExecutedBacklog[];
 }
 
 /** An id filter of the tool schema that takes aliases of one kind (p1, c2 …), never a uuid the model cannot see. */
@@ -311,14 +327,12 @@ function aliasFilter(name: string, prefix: string, what: string): Record<string,
       type: 'array',
       minItems: 1,
       uniqueItems: true,
-      // an alias, or an id the question itself gave
-      items: { type: 'string', pattern: `^(${prefix}\\d+|[0-9a-fA-F-]{36})$` },
+      // an alias this question issued; a raw id is refused (#951 review 7)
+      items: { type: 'string', pattern: `^${prefix}\\d+$` },
       description: `Aliases of ${what} an earlier result of this question returned (${prefix}1, ${prefix}2 …)`,
     },
   };
 }
-
-const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The filter → the alias kind its values are (#935 e). */
 const ALIAS_FILTERS: Readonly<Record<string, AliasKind>> = {
@@ -349,7 +363,6 @@ export function resolveAliasInputs(input: unknown, aliases: Aliases): unknown {
     const values = out[name];
     if (!Array.isArray(values)) continue;
     out[name] = values.map((v) => {
-      if (typeof v === 'string' && UUID_SHAPE.test(v)) return v; // an id, not an alias
       const hit = typeof v === 'string' ? aliases.reverse.get(v) : undefined;
       if (!hit || hit.kind !== kind)
         throw new AppError(
@@ -759,7 +772,10 @@ function cohortsHandler(deps: ToolDeps) {
       // the stores are the question's: the tool takes no store ids
       const q = parseCohortQuery(call.input ?? {});
       const r = await deps.cohorts(q);
-      return { content: JSON.stringify({ currency: r.currency, cohorts: r.cohorts }) };
+      const calls = deps.cohortCalls ?? [];
+      const ref = `k${calls.length + 1}`;
+      calls.push({ ref, query: q, result: r });
+      return { content: JSON.stringify({ ref, currency: r.currency, cohorts: r.cohorts }) };
     } catch (e) {
       if (!(e instanceof AppError) || e.code === 'unavailable') throw e;
       return { isError: true, content: JSON.stringify({ error: errorOf(e) }) };
@@ -788,8 +804,12 @@ function backlogHandler(deps: ToolDeps & { aliases: Aliases }) {
         }),
       };
     const r = await deps.backlog();
+    const calls = deps.backlogCalls ?? [];
+    const ref = `b${calls.length + 1}`;
+    calls.push({ ref, result: r });
     return {
       content: JSON.stringify({
+        ref,
         buckets: r.buckets,
         rows: r.rows.map((x) => ({
           kind: x.kind,

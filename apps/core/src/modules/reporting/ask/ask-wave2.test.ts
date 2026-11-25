@@ -10,19 +10,24 @@ const W = '00000000-0000-4000-8000-0000000000b1';
 const S = '00000000-0000-4000-8000-0000000000c1';
 
 describe('alias inputs (#935 e)', () => {
-  it('an alias this question issued maps back to its id; a uuid passes; anything else is a 400', () => {
+  it('an alias this question issued maps back to its id; a raw uuid or any other value is a 400 (#951 review 7)', () => {
     const a = new Aliases();
     const p = a.of('product', P)!;
     const u = a.of('utm', 'google')!;
     const input = {
       metrics: ['units'],
-      filters: { product_ids: [p], utm_sources: [u], category_ids: [P] },
+      filters: { product_ids: [p], utm_sources: [u] },
     };
     expect(resolveAliasInputs(input, a)).toEqual({
       metrics: ['units'],
-      filters: { product_ids: [P], utm_sources: ['google'], category_ids: [P] },
+      filters: { product_ids: [P], utm_sources: ['google'] },
     });
-    for (const bad of [{ product_ids: ['p9'] }, { category_ids: [p] }, { warehouse_ids: ['w1'] }]) {
+    for (const bad of [
+      { product_ids: ['p9'] },
+      { category_ids: [p] },
+      { warehouse_ids: ['w1'] },
+      { product_ids: [P] }, // a raw id: the model never saw it, so it never names it
+    ]) {
       let err: unknown;
       try {
         resolveAliasInputs({ filters: bad }, a);
@@ -78,7 +83,7 @@ describe('cohorts and backlog tools', () => {
       name: COHORTS_TOOL,
       input: { from_month: '2026-01', to_month: '2026-03', currency: 'EUR' },
     });
-    expect(JSON.parse(ok.content)).toEqual({ currency: 'EUR', cohorts: [] });
+    expect(JSON.parse(ok.content)).toEqual({ ref: 'k1', currency: 'EUR', cohorts: [] }); // cited by its ref (#951 review 6)
     const none = await biQaToolHandler(base)({ id: 't', name: COHORTS_TOOL, input: {} });
     expect(none.isError).toBe(true);
   });

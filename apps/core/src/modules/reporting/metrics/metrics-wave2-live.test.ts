@@ -237,12 +237,13 @@ describe.runIf(skip === null)('BI v2 wave 2 metrics on ClickHouse (#935)', () =>
     const by = Object.fromEntries(r.rows.map((x) => [x.customer_group_id, x]));
     expect(by[G1]).toMatchObject({
       suppressed: true,
-      values: { customers: 2, revenue_per_customer_minor: null },
+      values: { customers: null, revenue_per_customer_minor: null }, // a hidden row hides every value (#951)
     });
-    // G2 has 5 customers, but showing it would reveal G1 from the total: the complementary cell
+    // G1 covers 2 customers: hidden alone, total − visible would give it back. The smallest visible row joins until
+    // the hidden rows cover 5 together (2 + 5 = 7), then the total may show
     expect(by[G2]).toMatchObject({
       suppressed: true,
-      values: { customers: 5, revenue_per_customer_minor: null },
+      values: { customers: null, revenue_per_customer_minor: null },
     });
     expect(r.currency_totals).toEqual([
       { currency: 'EUR', values: { customers: 7, revenue_per_customer_minor: 1429 } }, // 10 000 / 7

@@ -125,6 +125,8 @@ const SOURCES: Readonly<Record<SourceId, SourceSpec>> = {
       country: 'country',
       sales_channel: 'sales_channel_id',
       customer_group: 'customer_group_id',
+      // #951: a cut by customer type is countable in customers (a customer can be new and returning in one period)
+      customer_type: 'customer_type',
     },
     // a key is PER STORE (a customer of two brands is two customers); NULL when the customer was erased
     perKey: {
@@ -261,16 +263,46 @@ export interface Compiled {
 }
 
 /** The additive metrics a query needs: the requested ones plus the inputs of the derived ones. */
-export function additiveMetrics(metrics: readonly MetricId[]): MetricId[] {
+export function additiveMetrics(metrics: readonly MetricId[], q?: MetricQuery): MetricId[] {
   const out = new Set<MetricId>();
   for (const m of metrics) {
     const def = METRICS[m];
     if (def.derived) for (const i of def.derived.inputs) out.add(i);
     else out.add(m);
-    // #935 c: a per-customer value is only shown with its customer count, so the count is always fetched
-    if (def.per_customer) out.add('customers');
   }
+  // #935 c (the #951 review rule): an answer resting on customers always carries its customer count per row
+  if (q ? restsOnCustomers(q) : metrics.some((m) => METRICS[m].per_customer)) out.add('customers');
   return [...out];
+}
+
+/** The dimensions and filters that cut an answer by customer (#951 review, rule 2). */
+const CUSTOMER_DIMENSIONS: readonly Dimension[] = ['customer_group', 'customer_type'];
+
+/**
+ * Whether an answer rests on customers (#935 c, the #951 review rule): a metric of the customers source (or derived
+ * from one), or a cut by customer group / customer type (a dimension or a filter). Such an answer carries a hidden
+ * customer count per row, and no figure in it may reveal a value resting on fewer than MIN_CUSTOMERS customers.
+ */
+export function restsOnCustomers(q: MetricQuery): boolean {
+  const fromCustomers = (m: MetricId): boolean => {
+    const def = METRICS[m];
+    return def.derived ? def.derived.inputs.some(fromCustomers) : def.source?.id === 'customers_v2';
+  };
+  return (
+    q.metrics.some(fromCustomers) ||
+    q.dimensions.some((d) => CUSTOMER_DIMENSIONS.includes(d)) ||
+    q.filters.customer_group_ids !== undefined ||
+    q.filters.customer_types !== undefined
+  );
+}
+
+/**
+ * Store and customer group PARTITION customers (a customer is in one store's keys and one current group), so the
+ * customers of several rows add up; any other dimension (customer type, country, channel) can count one customer in
+ * two rows, so only the largest row is a safe lower bound of what several rows cover together.
+ */
+export function partitionsCustomers(q: MetricQuery): boolean {
+  return q.dimensions.every((d) => d === 'store' || d === 'customer_group');
 }
 
 export function compileMetricQuery(
@@ -283,7 +315,25 @@ export function compileMetricQuery(
     throw new Error('compileMetricQuery: an empty scope never reaches the compiler');
   const currencyKey = opts.currencyKey ?? q.metrics.some((m) => METRICS[m].currency_bound);
   const bySource = new Map<SourceId, MetricId[]>();
-  for (const m of additiveMetrics(q.metrics)) {
+  if (restsOnCustomers(q)) {
+    // every row must be countable in customers: a dimension or a filter the customers source cannot cut is a 400
+    const customers = SOURCES.customers_v2;
+    for (const d of q.dimensions)
+      if (!customers.columns[d])
+        throw validationError(
+          `${d} cannot be combined with customer figures: their rows could not be checked for small cells`,
+          { field: 'dimensions', dimension: d, reason: 'small_cell_unverifiable' },
+        );
+    try {
+      checkFilters(q, customers);
+    } catch {
+      throw validationError(
+        'a filter of this query cannot be applied to customer figures, so their rows could not be checked for small cells',
+        { field: 'filters', reason: 'small_cell_unverifiable' },
+      );
+    }
+  }
+  for (const m of additiveMetrics(q.metrics, q)) {
     const id = METRICS[m].source!.id;
     bySource.set(id, [...(bySource.get(id) ?? []), m]);
   }

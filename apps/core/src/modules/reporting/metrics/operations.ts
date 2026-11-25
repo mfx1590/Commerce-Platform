@@ -210,16 +210,21 @@ export async function getCustomerCohorts(
     const n = size.get(month) ?? 0;
     const small = n < MIN_CUSTOMERS;
     let cumulative = 0;
+    // #951 review 3: the LTV to date is cumulative, so once a cell is hidden every LATER LTV includes that cell's net
+    // and two neighbours would give it back ((ltv[k+1] − ltv[k−1]) × size). The variant chosen: the LTV row is
+    // withheld from the first hidden cell on (active and retention of later cells stay: counts of ≥ 5 or 0).
+    let ltvWithheld = small;
     const out: CohortCell[] = [];
     for (let k = 0; k < q.months && i + k <= current; k++) {
       const c = byCell.get(`${month}|${k}`) ?? { active: 0, net: 0 };
       cumulative += c.net;
       const hide = small || (c.active > 0 && c.active < MIN_CUSTOMERS);
+      if (hide) ltvWithheld = true;
       out.push({
         month_offset: k,
         active: hide ? null : c.active,
         retention_bp: hide ? null : ratio(c.active, n, 10_000),
-        ltv_to_date_minor: hide ? null : ratio(cumulative, n),
+        ltv_to_date_minor: ltvWithheld ? null : ratio(cumulative, n),
         suppressed: hide,
       });
     }

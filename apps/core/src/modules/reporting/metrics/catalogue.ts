@@ -405,7 +405,7 @@ type Wave2Id = (typeof METRIC_IDS)[number] &
 const CURRENT_GROUP =
   ' A customer group is the customer’s CURRENT group (no history); an erased customer has none.';
 const CUSTOMER_DIMS = ['store', 'country', 'sales_channel', 'customer_group'] as const;
-const SMALL = ` Shown only for at least ${MIN_CUSTOMERS} customers (fewer: suppressed, and a second cell with it so it cannot be worked out from the total).`;
+const SMALL = ` Shown only for at least ${MIN_CUSTOMERS} customers. A row of fewer is hidden whole, together with the smallest other rows until the hidden ones cover ${MIN_CUSTOMERS} customers, so no total or difference in the answer gives it back; when even that is impossible the totals are hidden too.`;
 const ATTRIBUTION_DIMS = ['store', 'utm_source', 'utm_medium', 'utm_campaign', 'campaign'] as const;
 const SHIP_DIMS = ['store', 'warehouse', 'carrier'] as const;
 const PAYMENT_DIMS = ['store', 'provider'] as const;

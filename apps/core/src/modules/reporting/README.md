@@ -96,9 +96,16 @@ Tests:
 - **Totals** of distinct counts and quantiles (`total: 'query'`) come from their own query over every row in scope,
   never from the rows. **Distribution** metrics (`kind: 'distribution'`, `unit: 'hours'`): one decimal, no currency,
   no % in `compare`, refused by movers.
-- **Small cells** (`execute.ts` `suppressSmallCells`): any per-customer value of a row with fewer than 5 customers is
-  null with `suppressed: true`, and so is a complementary cell (the next-smallest of its period × currency); the
-  per-customer totals too under 5 customers.
+- **Small cells** (`execute.ts` `suppressSmallCells`, the #951 review rule): no figure in one answer, alone or added
+  to / subtracted from other figures of the same answer, may reveal a value resting on fewer than 5 customers. An
+  answer RESTS ON CUSTOMERS when it asks a customers metric or cuts by customer group / customer type (dimension or
+  filter); it then carries a hidden customer count per row (a dimension or filter the customers source cannot cut is
+  a 400 `small_cell_unverifiable`). A row of fewer than 5 customers is hidden WHOLE (every value null); within each
+  period × currency the smallest other rows are hidden with it until the hidden rows cover 5 customers together
+  (summed for store / customer group, which partition customers; otherwise only the largest row counts); when even
+  the whole group covers fewer, the currency's totals are hidden too. Cohorts: a cohort under 5 is hidden whole, a
+  cell of 1–4 active customers is hidden, and the LTV is withheld from the first hidden cell on. Property tests
+  (`metrics-wave2.test.ts`) enumerate every signed sum of the visible figures and assert none equals a hidden value.
 - **utm values**: lower-cased, trimmed, ≤ 64 characters in the models; per answer, the top 50 by attributed orders are
   shown and the rest — and anything PII-shaped (`utmValue`) — are `other`.
 - **Promotions** (`promotions.ts`): Postgres `order.metadata.promotions` (the frozen per-promotion allocation:

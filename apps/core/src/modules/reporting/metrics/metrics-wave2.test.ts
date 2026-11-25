@@ -6,8 +6,15 @@ import { describe, expect, it } from 'vitest';
 import type { AppError } from '../../../lib/errors';
 import { isAdditive, METRIC_IDS, METRICS, type MetricId } from './catalogue';
 import { compileMetricQuery } from './compile';
-import { suppressSmallCells, utmValue, type MetricRow } from './execute';
+import {
+  executeMetricQuery,
+  suppressSmallCells,
+  utmValue,
+  type MetricRow,
+  type MetricsReader,
+} from './execute';
 import { moversFromResult, parseMoversQuery } from './movers';
+import { getCustomerCohorts, parseCohortQuery } from './operations';
 import { promotionsSql } from './promotions';
 import { parseMetricQuery } from './query';
 
@@ -133,40 +140,174 @@ describe('utm values (decision 5)', () => {
   ])('%s → %s', (v, out) => expect(utmValue(v)).toBe(out));
 });
 
-describe('small cells (#935 c)', () => {
+describe('small cells (#935 c, the #951 review rule)', () => {
   const row = (period: string): MetricRow =>
     ({
       period,
       currency: 'EUR',
       suppressed: false,
-      values: { revenue_per_customer_minor: 100 },
+      values: { customer_net_sales_minor: 100, customers: 1 },
     }) as never;
-  it('a row under 5 customers loses its per-customer values; one hidden cell takes the next-smallest with it', () => {
-    const rows = [row('p'), row('p'), row('p'), row('q'), row('q')];
-    suppressSmallCells(
+  const run = (customers: number[], periods: string[], partitioned = true) => {
+    const rows = periods.map(row);
+    const unsafe = suppressSmallCells(
       rows,
-      [2, 9, 6, 7, 8].map((customers) => ({ customers })),
-      ['revenue_per_customer_minor'],
+      customers.map((c) => ({ customers: c })),
+      partitioned,
     );
-    expect(rows.map((r) => [r.suppressed, r.values.revenue_per_customer_minor])).toEqual([
-      [true, null],
-      [false, 100],
-      [true, null], // the complementary cell: 6 is the next-smallest of period p
-      [false, 100],
-      [false, 100],
-    ]);
+    return { hidden: rows.map((r) => r.suppressed), unsafe };
+  };
+
+  it('a hidden row loses EVERY value; complements are added until the hidden rows cover 5 customers', () => {
+    // two 1-customer rows cover 2: the smallest visible row (3) joins, still 5 short of nothing → 1 + 1 + 3 = 5
+    expect(run([1, 1, 9, 3], ['p', 'p', 'p', 'p']).hidden).toEqual([true, true, false, true]);
+    const rows = [row('p'), row('p')];
+    suppressSmallCells(rows, [{ customers: 2 }, { customers: 8 }], true);
+    expect(rows[0]!.values).toEqual({ customer_net_sales_minor: null, customers: null });
   });
-  it('two hidden cells need no complement; a metric that is not per customer is never touched', () => {
-    const rows = [row('p'), row('p'), row('p')];
-    suppressSmallCells(
-      rows,
-      [2, 3, 9].map((customers) => ({ customers })),
-      ['revenue_per_customer_minor'],
+
+  it('a group that cannot reach 5 customers is hidden whole and its currency total is unsafe', () => {
+    const r = run([1, 2, 1], ['p', 'p', 'p']);
+    expect(r.hidden).toEqual([true, true, true]);
+    expect([...r.unsafe]).toEqual(['EUR']);
+    expect([...run([7, 6], ['p', 'p']).unsafe]).toEqual([]);
+  });
+
+  it('rows that can share customers (customer type, country) count only their largest row', () => {
+    // 3 + 3 might be the same 3 people: not enough, the 9 joins
+    expect(run([3, 3, 9], ['p', 'p', 'p'], false).hidden).toEqual([true, true, true]);
+    expect(run([3, 3, 9], ['p', 'p', 'p'], true).hidden).toEqual([true, true, false]);
+  });
+
+  // The rule, not the examples: over random answers grouped by customer group, NO signed sum of the figures an answer
+  // shows (rows and totals, every money metric) equals the money of any set of hidden rows resting on < 5 customers.
+  // Money is drawn large and random, so a hit is a derivation, never a coincidence. (The 0.4.31 code fails this:
+  // two 1-customer rows hidden with no complement were given back by total − visible.)
+  it('property: no sum or difference of visible figures reveals a value resting on fewer than 5 customers', async () => {
+    let random = 935;
+    const rnd = () => (random = (random * 1_103_515_245 + 12_345) % 2_147_483_648) / 2_147_483_648;
+    let checked = 0;
+    for (let seed = 0; seed < 150; seed++) {
+      const periods = rnd() < 0.5 ? ['2026-10-01'] : ['2026-10-01', '2026-10-02'];
+      const fixture = periods.flatMap((period) =>
+        Array.from({ length: 1 + Math.floor(rnd() * 4) }, (_, g) => ({
+          period,
+          group: `00000000-0000-4000-8000-0000000000${String(10 + g)}`,
+          customers: 1 + Math.floor(rnd() * 9),
+          net: 1_000_000 + Math.floor(rnd() * 1_000_000_000),
+        })),
+      );
+      const reader: MetricsReader = {
+        async query({ query }) {
+          const sales = !query.includes('fct_order_sales'); // net_sales_minor: fct_order_line
+          const grouped = query.includes('out_cgroup');
+          const rows = query.includes('FROM raw_events')
+            ? [{ t: null }]
+            : grouped
+              ? fixture.map((f) => ({
+                  out_period: periods.length > 1 ? f.period : null,
+                  out_currency: 'EUR',
+                  out_cgroup: f.group,
+                  ...(sales
+                    ? { m_net_sales_minor: String(f.net) }
+                    : {
+                        m_customers: String(f.customers),
+                        m_customer_net_sales_minor: String(f.net),
+                      }),
+                }))
+              : [
+                  {
+                    out_currency: 'EUR',
+                    m_customers: String(fixture.reduce((n, f) => n + f.customers, 0)),
+                  },
+                ];
+          return { json: async <T>() => rows as T[] };
+        },
+      };
+      for (const metrics of [
+        ['customers', 'customer_net_sales_minor', 'revenue_per_customer_minor'],
+        ['net_sales_minor'],
+      ]) {
+        const r = await executeMetricQuery(
+          reader,
+          parseMetricQuery({
+            ...base,
+            grain: periods.length > 1 ? 'day' : 'total',
+            metrics,
+            dimensions: ['customer_group'],
+          }),
+          [A],
+        );
+        const money = ['customer_net_sales_minor', 'net_sales_minor', 'revenue_per_customer_minor'];
+        // per money metric (figures of different metrics do not add up to anything): every signed combination
+        // (−1, 0, +1) of the figures the answer shows — its rows and its totals
+        const sumsOf = (m: string) => {
+          const visible = [
+            ...r.rows.map((x) => x.values[m]),
+            ...r.currency_totals.map((t) => t.values[m]),
+          ].filter((x): x is number => typeof x === 'number');
+          let sums = new Set<number>([0]);
+          for (const f of visible) {
+            const next = new Set<number>();
+            for (const x of sums) for (const y of [x, x + f, x - f]) next.add(y);
+            sums = next;
+          }
+          return sums;
+        };
+        const sums = money.filter((m) => metrics.includes(m)).map(sumsOf);
+        // the secrets: every set of hidden rows (within a period) whose customers add up to fewer than 5
+        const hidden = fixture.filter((f) =>
+          r.rows.some(
+            (x) =>
+              x.suppressed &&
+              x.customer_group_id === f.group &&
+              (periods.length === 1 || x.period === f.period),
+          ),
+        );
+        for (const period of periods) {
+          const inPeriod = hidden.filter((f) => f.period === period);
+          for (let mask = 1; mask < 1 << inPeriod.length; mask++) {
+            const set = inPeriod.filter((_, i) => mask & (1 << i));
+            if (set.reduce((n, f) => n + f.customers, 0) >= 5) continue;
+            const secret = set.reduce((n, f) => n + f.net, 0);
+            for (const ss of sums)
+              expect(ss.has(secret), `seed ${seed}: ${JSON.stringify(set)}`).toBe(false);
+            checked++;
+          }
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(100);
+  });
+});
+
+describe('a missing campaign budget (#951 review 5)', () => {
+  it('is null, never 0: a campaign with net sales and no planned budget in the range', async () => {
+    const C = '00000000-0000-4000-8000-0000000c0001';
+    const reader: MetricsReader = {
+      async query({ query }) {
+        const rows = query.includes('FROM raw_events')
+          ? [{ t: null }]
+          : query.includes('fct_order_touch')
+            ? [{ out_campaign: C, out_currency: 'EUR', m_campaign_net_sales_minor: '9000' }]
+            : [];
+        return { json: async <T>() => rows as T[] };
+      },
+    };
+    const r = await executeMetricQuery(
+      reader,
+      parseMetricQuery({
+        ...base,
+        metrics: ['campaign_net_sales_minor', 'campaign_budget_minor'],
+        dimensions: ['campaign'],
+      }),
+      [A],
     );
-    expect(rows.map((r) => r.suppressed)).toEqual([true, true, false]);
-    const counts = [row('p')];
-    suppressSmallCells(counts, [{ customers: 1 }], ['customers']);
-    expect(counts[0]!.suppressed).toBe(false);
+    expect(r.rows[0]!.values).toEqual({
+      campaign_net_sales_minor: 9000,
+      campaign_budget_minor: null,
+    });
+    expect(r.currency_totals[0]!.values.campaign_budget_minor).toBeNull();
   });
 });
 
@@ -221,5 +362,52 @@ describe('movers by customer type, customer group and warehouse (#935 a2)', () =
     );
     expect(r.by_currency[0]!.risers.map((m) => m.key)).toEqual(['y']);
     expect(r.by_currency[0]!.fallers.map((m) => m.key)).toEqual(['x']);
+  });
+});
+
+describe('cohort LTV after a hidden cell (#951 review 3)', () => {
+  // LTV to date is cumulative: a visible LTV at or after a hidden cell would give the hidden cell's net back from
+  // two neighbours. Over random cohorts: no LTV is shown from the first hidden cell on, and the cells before it show.
+  it('property: from the first hidden cell on, no LTV is shown', async () => {
+    let random = 951;
+    const rnd = () => (random = (random * 1_103_515_245 + 12_345) % 2_147_483_648) / 2_147_483_648;
+    let hiddenSeen = 0;
+    for (let seed = 0; seed < 200; seed++) {
+      const size = 3 + Math.floor(rnd() * 20);
+      const months = 2 + Math.floor(rnd() * 6);
+      const cells = Array.from({ length: months }, (_, k) => ({
+        out_cohort: '2026-01-01',
+        out_offset: k,
+        m_active: String(k === 0 ? size : Math.floor(rnd() * (size + 1))),
+        m_net: String(1_000_000 + Math.floor(rnd() * 1_000_000_000)),
+      }));
+      const reader: MetricsReader = {
+        async query({ query }) {
+          const rows = query.includes('m_size')
+            ? [{ out_cohort: '2026-01-01', m_size: String(size) }]
+            : cells;
+          return { json: async <T>() => rows as T[] };
+        },
+      };
+      const r = await getCustomerCohorts(
+        reader,
+        parseCohortQuery({ from_month: '2026-01', to_month: '2026-01', months, currency: 'EUR' }),
+        [A],
+        new Date('2026-12-31T00:00:00Z'),
+      );
+      const out = r.cohorts[0]!.cells;
+      const first = out.findIndex((c) => c.suppressed);
+      if (first >= 0) hiddenSeen++;
+      out.forEach((c, k) => {
+        if (first >= 0 && k >= first)
+          expect(c.ltv_to_date_minor, `seed ${seed} cell ${k}`).toBeNull();
+        else expect(c.ltv_to_date_minor, `seed ${seed} cell ${k}`).not.toBeNull();
+        if (c.suppressed)
+          expect(
+            (Number(cells[k]!.m_active) > 0 && Number(cells[k]!.m_active) < 5) || size < 5,
+          ).toBe(true);
+      });
+    }
+    expect(hiddenSeen).toBeGreaterThan(20);
   });
 });

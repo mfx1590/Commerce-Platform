@@ -626,5 +626,5 @@ Window 12 follow-up on the integration branch (same version): `MetricMoversQuery
 bad-body movers call uses `refund_reason`, which is not a mover dimension); `getCustomerCohorts` and
 `getOperationsBacklog` gain a realistic response example each (a suppressed cell and a suppressed cohort; one row per
 backlog kind), so Prism answers them 200. The `queryMetrics` and `askMetrics` response examples gain the nine 0.4.31 `MetricRow` keys (their rows broke the
-schema they document, so Prism answered 500 under `--errors`; apps/admin `test:contract` caught it). The admin `hours` display unit and the row fixtures with the nine new
+schema they document, so Prism answered 500 under `--errors`; apps/admin `test:contract` caught it). `MetricAnswer` gains the optional `cohorts` (`ref` `^k[0-9]+$`, query, result) and `backlog` (`ref` `^b[0-9]+$`, result): the customer_cohorts and operations_backlog calls an answer cites, as `inventory` does for inventory_health (#951 review 6). The `MetricRow.suppressed` and `currency_totals.suppressed` descriptions state the #951 rule: a hidden row hides every value, complements are added until the hidden rows cover 5 customers, otherwise the totals are hidden too. The admin `hours` display unit and the row fixtures with the nine new
 `MetricRow` keys are in apps/admin.

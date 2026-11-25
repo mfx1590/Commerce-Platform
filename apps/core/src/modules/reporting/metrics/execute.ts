@@ -13,7 +13,9 @@ import { LIMITS, METRICS, MIN_CUSTOMERS, type MetricId } from './catalogue';
 import {
   additiveMetrics,
   compileMetricQuery,
+  partitionsCustomers,
   POSTGRES_SOURCES,
+  restsOnCustomers,
   type Compiled,
   type StockScope,
 } from './compile';
@@ -165,6 +167,8 @@ function derive(
     else if (m === 'payment_failure_rate_bp')
       out[m] = ratio(values.payments_failed ?? 0, values.payments_with_outcome ?? 0, 10_000);
     else if (METRICS[m].kind === 'distribution') out[m] = values[m] ?? null;
+    // a campaign with no planned budget in the range has none: null, never 0 (#951 review 5)
+    else if (m === 'campaign_budget_minor') out[m] = values[m] ?? null;
     else out[m] = values[m] ?? 0;
   }
   return out;
@@ -306,7 +310,7 @@ async function runOne(
   now: () => Date,
 ): Promise<MetricResult> {
   const compiled: Compiled = compileMetricQuery(q, scope, o.stock ? { stock: o.stock } : {});
-  const additive = additiveMetrics(q.metrics);
+  const additive = additiveMetrics(q.metrics, q);
   const pgMetrics = additive.filter((m) => POSTGRES_SOURCES.has(METRICS[m].source!.id));
   // #935: metrics whose total is a query of its own (distinct counts, quantiles), asked again over every row in scope
   const queryTotals = additive.filter((m) => METRICS[m].total === 'query');
@@ -394,11 +398,14 @@ async function runOne(
     suppressed: false,
     values: derive(values, q.metrics),
   }));
-  suppressSmallCells(
-    rows,
-    [...merged.values()].map((x) => x.values),
-    q.metrics,
-  );
+  // small cells (#935 c, the #951 review rule): on an answer resting on customers
+  const unsafe = restsOnCustomers(q)
+    ? suppressSmallCells(
+        rows,
+        [...merged.values()].map((x) => x.values),
+        partitionsCustomers(q),
+      )
+    : new Set<string | null>();
   const keyOf = (r: MetricRow) =>
     [
       r.period,
@@ -465,8 +472,10 @@ async function runOne(
       const v = derive(values, q.metrics);
       // a distinct count (product_orders) is not the sum of its rows: no total rather than a wrong one
       for (const m of q.metrics) if (METRICS[m].total === 'none') v[m] = null;
-      const small = (values.customers ?? MIN_CUSTOMERS) < MIN_CUSTOMERS;
-      if (small) for (const m of q.metrics) if (METRICS[m].per_customer) v[m] = null;
+      // a total is shown only when what it adds beyond the visible rows covers MIN_CUSTOMERS customers or more
+      const small =
+        unsafe.has(currency) || (restsOnCustomers(q) && (values.customers ?? 0) < MIN_CUSTOMERS);
+      if (small) for (const m of q.metrics) v[m] = null;
       return { currency, values: v, ...(small ? { suppressed: true } : {}) };
     });
 
@@ -509,36 +518,49 @@ function topUtmValues(raw: readonly Raw[]): Record<(typeof UTM_COLUMNS)[number],
 }
 
 /**
- * Small cells (#935 c, decision 2 widened): a row whose customers are fewer than MIN_CUSTOMERS loses its per-customer
- * values. Complementary: when exactly one row of a (period, currency) group is suppressed and the group has others,
- * the next-smallest row is suppressed too, so the hidden cell cannot be worked out from the total.
+ * Small cells (#935 c; the rule of the #951 review): no figure in one answer, alone or added to / subtracted from the
+ * other figures of the same answer, may reveal a value resting on fewer than MIN_CUSTOMERS customers.
+ *   * A row of fewer than MIN_CUSTOMERS customers is hidden WHOLE (every value null: money, counts, ratios — the same
+ *     figure under another metric id is no way round it).
+ *   * Within each (period, currency) group the hidden rows must together cover at least MIN_CUSTOMERS customers: the
+ *     smallest visible rows are hidden with them until they do. Then a total minus the visible rows is an aggregate
+ *     of at least MIN_CUSTOMERS customers.
+ *   * When even the whole group covers fewer, every row of it is hidden and its currency's totals are hidden too
+ *     (returned: the currencies whose totals must not show).
+ * `partitioned`: rows are disjoint in customers (store, customer group), so their customers add up; otherwise one
+ * customer can sit in two rows, and only the largest row is a safe lower bound of what several cover.
  */
 export function suppressSmallCells(
   rows: MetricRow[],
   raw: readonly Record<string, number | null>[],
-  metrics: readonly MetricId[],
-): void {
-  if (!metrics.some((m) => METRICS[m].per_customer)) return;
-  const customers = raw.map((v) => v.customers ?? null);
+  partitioned: boolean,
+): Set<string | null> {
+  const customers = raw.map((v) => v.customers ?? 0);
   const hide = (i: number) => {
     rows[i]!.suppressed = true;
-    for (const m of metrics) if (METRICS[m].per_customer) rows[i]!.values[m] = null;
+    for (const m of Object.keys(rows[i]!.values)) rows[i]!.values[m] = null;
   };
+  const cover = (idx: readonly number[]) =>
+    partitioned
+      ? idx.reduce((n, i) => n + customers[i]!, 0)
+      : idx.reduce((n, i) => Math.max(n, customers[i]!), 0);
+  const unsafe = new Set<string | null>();
   const groups = new Map<string, number[]>();
   rows.forEach((r, i) => {
-    const k = `${r.period ?? ''}|${r.currency ?? ''}`;
+    const k = JSON.stringify([r.period, r.currency]);
     groups.set(k, [...(groups.get(k) ?? []), i]);
   });
   for (const idx of groups.values()) {
-    const small = idx.filter((i) => (customers[i] ?? 0) < MIN_CUSTOMERS);
-    small.forEach(hide);
-    if (small.length === 1 && idx.length > 1) {
-      const next = idx
-        .filter((i) => !small.includes(i))
-        .sort((a, b) => (customers[a] ?? 0) - (customers[b] ?? 0))[0];
-      if (next !== undefined) hide(next);
-    }
+    const hidden = idx.filter((i) => customers[i]! < MIN_CUSTOMERS);
+    if (hidden.length === 0) continue;
+    const visible = idx
+      .filter((i) => !hidden.includes(i))
+      .sort((a, b) => customers[a]! - customers[b]! || a - b);
+    while (cover(hidden) < MIN_CUSTOMERS && visible.length > 0) hidden.push(visible.shift()!);
+    hidden.forEach(hide);
+    if (cover(hidden) < MIN_CUSTOMERS) unsafe.add(rows[idx[0]!]!.currency);
   }
+  return unsafe;
 }
 
 /** For a test or a log line: whether every compiled statement carries the scope predicate. */

@@ -27,6 +27,8 @@ import {
   moversTool,
   queryMetricsTool,
   substituteAliases,
+  type ExecutedBacklog,
+  type ExecutedCohorts,
   type ExecutedInventory,
   type ExecutedQuery,
 } from './tool';
@@ -113,6 +115,9 @@ export interface MetricAnswer {
   chart: { query_index: number; metric: MetricId } | null;
   /** BI v2 (#871): the inventory_health calls the answer cites (h1, h2 …) */
   inventory?: { ref: string; query: InventoryQuery; result?: InventoryHealth }[];
+  /** BI v2 wave 2 (#951 review 6): the customer_cohorts and operations_backlog calls the answer cites (k1 …, b1 …) */
+  cohorts?: ExecutedCohorts[];
+  backlog?: ExecutedBacklog[];
   /** BI v2: alias → name for every alias the question issued (the answer's text already uses the names) */
   labels?: Record<string, string>;
   excluded_store_ids: string[];
@@ -190,6 +195,8 @@ export async function askMetrics(
   });
   const executed: ExecutedQuery[] = [];
   const inventoryCalls: ExecutedInventory[] = [];
+  const cohortCalls: ExecutedCohorts[] = [];
+  const backlogCalls: ExecutedBacklog[] = [];
   const aliases = new Aliases();
   const onIds = on.map((s) => s.id);
   const tools = [
@@ -223,8 +230,10 @@ export async function askMetrics(
           aliases,
           ...(deps.stockScope ? { stockScope: () => deps.stockScope!(onIds) } : {}),
           ...(deps.promotions ? { promotions: deps.promotions } : {}),
-          ...(deps.cohorts ? { cohorts: (q: CohortQuery) => deps.cohorts!(onIds, q) } : {}),
-          ...(deps.backlog ? { backlog: () => deps.backlog!(onIds) } : {}),
+          ...(deps.cohorts
+            ? { cohorts: (q: CohortQuery) => deps.cohorts!(onIds, q), cohortCalls }
+            : {}),
+          ...(deps.backlog ? { backlog: () => deps.backlog!(onIds), backlogCalls } : {}),
           ...(deps.inventory
             ? { inventory: (q: InventoryQuery) => deps.inventory!(onIds, q), inventoryCalls }
             : {}),
@@ -247,6 +256,8 @@ export async function askMetrics(
     })),
     chart: chartHint(executed),
     ...(inventoryCalls.length > 0 ? { inventory: inventoryCalls } : {}),
+    ...(cohortCalls.length > 0 ? { cohorts: cohortCalls } : {}),
+    ...(backlogCalls.length > 0 ? { backlog: backlogCalls } : {}),
     ...(Object.keys(named.legend).length > 0 ? { labels: named.legend } : {}),
     excluded_store_ids: excluded,
     model: run.servedModel,

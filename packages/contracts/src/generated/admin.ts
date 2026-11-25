@@ -3965,8 +3965,10 @@ export interface components {
             /** @description A PSP failure code, or `other`. */
             failure_reason: string | null;
             /**
-             * @description true when the row's per-customer values are null: fewer than 5 customers, or the complementary cell of
-             *     one that is (so a hidden value cannot be worked out from the total).
+             * @description true when EVERY value of the row is null (#951 rule: no figure of one answer, alone or added to /
+             *     subtracted from others, reveals a value resting on fewer than 5 customers). On an answer resting on
+             *     customers, a row of fewer than 5 customers is hidden, with the smallest other rows of its period and
+             *     currency until the hidden rows cover 5 customers together.
              */
             suppressed: boolean;
             /** @description One entry per requested metric; integers (minor units, counts or basis points), and hours with one decimal for distribution metrics; null when undefined (e.g. aov with 0 orders) or suppressed. */
@@ -3992,7 +3994,7 @@ export interface components {
                 values: {
                     [key: string]: number | null;
                 };
-                /** @description true when the per-customer totals are null (fewer than 5 customers in all). */
+                /** @description true when every total of the currency is null (a period of the answer covers fewer than 5 customers in all). */
                 suppressed?: boolean;
             }[];
             compare?: {
@@ -4319,6 +4321,23 @@ export interface components {
                 ref: string;
                 query: components["schemas"]["InventoryHealthQuery"];
                 result?: components["schemas"]["InventoryHealth"];
+            }[];
+            /**
+             * @description 0.4.31 (#935 e): the customer_cohorts calls the answer cites (k1, k2 …), each with its query and the
+             *     CustomerCohorts it returned. Absent when the question made none.
+             */
+            cohorts?: {
+                ref: string;
+                query: components["schemas"]["CustomerCohortQuery"];
+                result: components["schemas"]["CustomerCohorts"];
+            }[];
+            /**
+             * @description 0.4.31 (#935 e): the operations_backlog calls the answer cites (b1, b2 …), each with the OperationsBacklog
+             *     it returned. Absent when the question made none.
+             */
+            backlog?: {
+                ref: string;
+                result: components["schemas"]["OperationsBacklog"];
             }[];
             /**
              * @description alias → name for every alias the question issued (p1 products, c1 categories, ch1 sales channels,

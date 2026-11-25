@@ -10,7 +10,7 @@
 //   * no alias left in the text, and no name or id ever sent to the model.
 import { createFakeTransport, type AiRequest } from '@platform/ai';
 import { describe, expect, it } from 'vitest';
-import type { MetricId } from '../../metrics/catalogue';
+import { MIN_CUSTOMERS, type MetricId } from '../../metrics/catalogue';
 import type { MetricsReader } from '../../metrics/execute';
 import { getCustomerCohorts } from '../../metrics/operations';
 import { askMetrics, type MetricAnswer } from '../ask';
@@ -120,12 +120,12 @@ const CASES: OwnerCase[] = [
         ltv_to_date_minor: number | null;
       }[];
       return [
-        `March 2026: ${c.size} new customers. A month later ${m1!.active} came back (${pct(m1!.retention_bp!)} %); net sales per customer to date ${major(m0!.ltv_to_date_minor!)} EUR, then ${major(m1!.ltv_to_date_minor!)} EUR.`,
+        `The ${c.cohort_month} cohort: ${c.size} new customers. A month later ${m1!.active} came back (${pct(m1!.retention_bp!)} %); net sales per customer to date ${major(m0!.ltv_to_date_minor!)} EUR, then ${major(m1!.ltv_to_date_minor!)} EUR [${r.ref}].`,
         m2!.active === null ? 'The third month has fewer than 5 customers, so it is withheld.' : '',
       ].join('\n');
     },
     expected:
-      'March 2026: 40 new customers. A month later 12 came back (30.00 %); net sales per customer to date 200.00 EUR, then 275.00 EUR.\nThe third month has fewer than 5 customers, so it is withheld.',
+      'The 2026-03 cohort: 40 new customers. A month later 12 came back (30.00 %); net sales per customer to date 200.00 EUR, then 275.00 EUR [k1].\nThe third month has fewer than 5 customers, so it is withheld.',
     caveat: /fewer than 5 customers/,
   },
   {
@@ -211,10 +211,10 @@ const CASES: OwnerCase[] = [
       const t = (kind: string, bucket: string) =>
         r.totals!.find((x) => x.kind === kind && x.bucket === bucket)?.count ?? 0;
       const w = r.rows!.find((x) => x.kind === 'shipment_not_shipped')!;
-      return `Right now: ${t('unassigned', 'gt_7d')} paid orders have no shipment after more than 7 days, and ${t('shipment_not_shipped', 'd3_7')} shipments in ${String(w.warehouse)} have waited 3 to 7 days.`;
+      return `Right now: ${t('unassigned', 'gt_7d')} paid orders have had no shipment for more than a week, and ${t('shipment_not_shipped', 'd3_7')} shipments in ${String(w.warehouse)} have waited between three days and a week [${r.ref}].`;
     },
     expected:
-      'Right now: 3 paid orders have no shipment after more than 7 days, and 5 shipments in BER have waited 3 to 7 days.',
+      'Right now: 3 paid orders have had no shipment for more than a week, and 5 shipments in BER have waited between three days and a week [b1].',
     caveat: /Right now/,
   },
   {
@@ -259,13 +259,24 @@ export function checkOwnerAnswer(c: OwnerCase, a: MetricAnswer): string[] {
   const problems: string[] = [];
   if (!c.caveat.test(a.answer)) problems.push(`the caveat ${String(c.caveat)} is missing`);
   if (/\b(ch|cp|pr|[pcwigu])\d+\b/.test(a.answer)) problems.push('an alias is left in the answer');
-  if (c.metrics) {
-    const backed = new Set<string>();
-    for (const q of a.queries)
-      if (q.result) for (const x of backedValues(q.result, c.metrics)) backed.add(x);
-    const numbers = a.answer.replace(/\[q\d+\]/g, '').match(/\d+(?:\.\d+)?/g) ?? [];
-    for (const n of numbers) if (!backed.has(n)) problems.push(`${n} is in no result`);
-  }
+  // every number is in the evidence the answer carries (#951 review 6: cohorts and the backlog too)
+  const backed = new Set<string>();
+  for (const q of a.queries)
+    if (q.result && c.metrics) for (const x of backedValues(q.result, c.metrics)) backed.add(x);
+  for (const k of a.cohorts ?? [])
+    for (const co of k.result.cohorts) {
+      for (const part of co.cohort_month.split('-')) backed.add(part);
+      if (co.size !== null) backed.add(String(co.size));
+      for (const cell of co.cells) {
+        if (cell.active !== null) backed.add(String(cell.active));
+        if (cell.retention_bp !== null) backed.add((cell.retention_bp / 100).toFixed(2));
+        if (cell.ltv_to_date_minor !== null) backed.add((cell.ltv_to_date_minor / 100).toFixed(2));
+      }
+      backed.add(String(MIN_CUSTOMERS)); // the rule the answer states
+    }
+  for (const b of a.backlog ?? []) for (const x of b.result.totals) backed.add(String(x.count));
+  const numbers = a.answer.replace(/\[[qkbh]\d+\]/g, '').match(/\d+(?:\.\d+)?/g) ?? [];
+  for (const n of numbers) if (!backed.has(n)) problems.push(`${n} is in no result`);
   return problems;
 }
 
@@ -343,6 +354,15 @@ describe('the owner’s wave 2 questions (#935 e acceptance)', () => {
     const sent = JSON.stringify(transport.calls);
     for (const secret of ['Autumn push', 'Spring sale', C, P, BER, TYO])
       expect(sent).not.toContain(secret);
+  });
+
+  it('the cohorts and backlog answers carry their evidence (k1, b1), and an invented figure there is caught', async () => {
+    const cohorts = await ask(CASES[0]!);
+    expect(cohorts.answer.cohorts!.map((k) => k.ref)).toEqual(['k1']);
+    const backlog = await ask(CASES[5]!);
+    expect(backlog.answer.backlog!.map((b) => b.ref)).toEqual(['b1']);
+    const invented = await ask(CASES[5]!, (t) => t.replace('5 shipments', '6 shipments'));
+    expect(checkOwnerAnswer(CASES[5]!, invented.answer)).toContain('6 is in no result');
   });
 
   it('the checks catch a dropped caveat, an invented figure and a left alias', async () => {
