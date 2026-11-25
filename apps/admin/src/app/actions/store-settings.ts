@@ -34,13 +34,16 @@ function schemaFor(field: SettingField): z.ZodTypeAny {
     case 'boolean':
       return z.boolean();
     case 'integer':
-      return z.number().int().min(field.min ?? 0);
+      return z
+        .number()
+        .int()
+        .min(field.min ?? 0);
     case 'enum':
       return z.enum([...(field.options ?? [])] as [string, ...string[]]);
     case 'enumArray':
-      return z.array(z.enum([...(field.options ?? [])] as [string, ...string[]])).max(
-        (field.options ?? []).length,
-      );
+      return z
+        .array(z.enum([...(field.options ?? [])] as [string, ...string[]]))
+        .max((field.options ?? []).length);
     case 'text':
       return z
         .string()

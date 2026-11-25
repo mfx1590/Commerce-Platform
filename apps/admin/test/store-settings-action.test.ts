@@ -33,7 +33,7 @@ const { saveStoreSettingsAction } = await import('@/app/actions/store-settings')
 const STORE = SEED.stores.brandA;
 const LOADED = '2026-11-25T10:00:00.000Z';
 
-const ok = <T,>(data: T) => ({ ok: true as const, status: 200, data });
+const ok = <T>(data: T) => ({ ok: true as const, status: 200, data });
 
 /** Settings as several modules left them: a save must not lose any of this. */
 const SETTINGS = {
@@ -102,7 +102,7 @@ describe('what reaches the API', () => {
       'tax',
       {
         'tax.shipping_taxable': false,
-        'support_refund_limit_minor': 999_999,
+        support_refund_limit_minor: 999_999,
         'payment.methods': ['card', 'invoice'],
         'fraud.providers': [],
       },

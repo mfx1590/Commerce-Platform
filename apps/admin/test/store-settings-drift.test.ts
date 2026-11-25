@@ -31,10 +31,7 @@ import {
   CONFIRM_PATHS,
 } from '@/lib/settings/fields';
 
-const SCHEMA = resolve(
-  process.cwd(),
-  '../../apps/core/src/modules/registry/settings-schema.ts',
-);
+const SCHEMA = resolve(process.cwd(), '../../apps/core/src/modules/registry/settings-schema.ts');
 
 /** The quoted keys of `STORE_SETTINGS_SHAPES`, in the order the core lists them. */
 function corePaths(): string[] {

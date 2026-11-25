@@ -271,7 +271,11 @@ export interface SettingChange {
 }
 
 /** How a value reads in a diff: never a bare `[object Object]`, never an empty string. */
-export function describeValue(field: SettingField, value: unknown, money: (n: number) => string): string {
+export function describeValue(
+  field: SettingField,
+  value: unknown,
+  money: (n: number) => string,
+): string {
   if (value === undefined || value === null) return 'not set';
   if (field.money && typeof value === 'number') return money(value);
   if (Array.isArray(value)) return value.length === 0 ? 'none' : value.join(', ');

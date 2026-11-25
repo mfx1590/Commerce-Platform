@@ -682,6 +682,29 @@ forms at all, every card read-only with the relation named, keys card the store_
 No core defects found. Screenshots in [`docs/settings/`](./docs/settings/) — the revealed key is
 redacted in the DOM before capture; no key value is committed.
 
+### Store settings (#870 wave 1 item 7)
+
+`Store.settings` is `additionalProperties: true` in the contract: the paths the core reads live in
+`apps/core/src/modules/registry/settings-schema.ts` (`STORE_SETTINGS_SHAPES`), and its 422 names
+each offending path in `details.settings`. `src/lib/settings/fields.ts` mirrors that list per card,
+and `test/store-settings-drift.test.ts` reads the core's file as text and fails if either side moves
+— including when the core gains a path nobody has decided about. CONTRACT CHANGE #967 asks for the
+paths to be described in the yaml; the guard then reads that.
+
+**`updateStore` replaces the whole settings column**, so every save is a read-modify-write:
+re-read, deep-set only that card's paths into the settings as the core has them now, send the lot.
+A card that sent only its own group would delete every other module's keys. The form submits the
+`updated_at` it rendered and the action refuses a stale one, so a tab left open cannot undo another
+admin's change; one request's worth of window remains between the re-read and the PATCH, because
+the contract has no `If-Match`.
+
+**Consequential changes are confirmed against a diff**: money (`support_refund_limit_minor`,
+`tax.prices_include_tax`) plus the fraud rules and `shipping.carrier_account_ids`. The dialog is in
+the form, but the **action** refuses an unconfirmed change to those paths — the check is not the UI.
+
+Money is minor units on the wire and an amount on screen, in the store's currency. Below
+`store_admin` every value is still shown, read-only, with the relation needed to change it.
+
 ## HQ › Finance (issue #851; Accounting API 0.1.0)
 
 `/finance` reads the accounting service (apps/accounting, `packages/contracts/openapi/accounting.yaml`). It is

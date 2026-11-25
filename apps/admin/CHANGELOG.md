@@ -1486,3 +1486,50 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   to the `Consent by channel` table, which this PR does not touch and whose name is not a substring
   of `Consent history`; no spec reads the group field by label, and none touches addresses or
   identity. Nothing to update.
+
+### Added — #870 wave 1 item 7 (PR A): the store settings `updateStore` always accepted
+
+- **Four new cards on Settings** — Tax, Fraud, Refunds and Brand voice — each showing every field
+  with the value the store has now: `tax.provider`, `tax.prices_include_tax`, `tax.shipping_taxable`,
+  `fraud.providers`, `fraud.velocity.max_orders`, `fraud.velocity.window_minutes`,
+  `fraud.country_mismatch`, `fraud.radar_highest`, `support_refund_limit_minor`,
+  `content.brand_voice`, `content.audience`. Shipping defaults and fulfilment routing follow in PR B.
+- **Each card saves only its own paths — through a read-modify-write, because `updateStore`
+  REPLACES the whole settings column** (`settings = $n` in the core's `updateStoreInTx`; not a
+  shallow merge, a wholesale one). The store is re-read and the card's paths are deep-set into the
+  settings as the core has them now, so no other module's keys are lost. A crafted request cannot
+  reach another card's path, or `payment.methods`, which the core refuses anyway. This generalises
+  what `store-payment.ts` did for one key in #825.
+- **A stale page cannot undo someone else's edit:** the form submits the `updated_at` it rendered
+  and the action refuses when the store has moved since. One request's worth of window remains
+  between that re-read and the PATCH — the contract has no `If-Match` — and the merge preserves
+  every key read in the same breath, so the exposure is one card's fields rather than the object.
+- **A diff before a consequential save:** money (`support_refund_limit_minor`,
+  `tax.prices_include_tax`) and, by the manager's decision, the fraud rules and
+  `shipping.carrier_account_ids` — loosening a fraud check lets orders through unchecked, which is
+  as consequential as an amount. The dialog is a courtesy; **the action refuses an unconfirmed
+  change to one of those paths**, so skipping the dialog does not skip the check.
+- **Money is the store's own:** the refund ceiling is read and shown as an amount in the store
+  currency and sent as minor units — ¥1,980 is 1980, and a zero-decimal store never sees "19.80".
+  The Refunds card says what the limit does: it bounds what **support** may refund, and does not
+  limit a store admin.
+- **Below `store_admin` the values are still shown**, read-only, with the relation needed to change
+  them — a support user reading a store should be able to see how it is configured.
+- **Each card links to the store's own history**, and the page now renders the `entity_type: 'store'`
+  Activity panel that link points at. (It was a link to nothing for about ten minutes; a link to a
+  route or anchor that does not exist is worse than no link.)
+- **A drift guard instead of a mirrored list nobody checks.** `Store.settings` is
+  `additionalProperties: true` in the contract, so the path list lives in the core
+  (`STORE_SETTINGS_SHAPES`). `test/store-settings-drift.test.ts` reads that file as **text** — no
+  import across an app boundary — and fails **both** ways: a path this app edits that the core does
+  not read, and a path the core reads that this app neither edits nor lists as deliberately not
+  edited. It also pins the core's own enums and bounds rather than a guess at them. CONTRACT CHANGE
+  #967 asks for the paths to be described in the yaml; the guard then reads that instead.
+- `theme` stays read-only (a free-form object with no shape to validate), and `payment.methods` is
+  shown as derived and never offered as an input.
+- Tests: `store-settings-action.test.ts` (15) — only the card's paths written, other modules' keys
+  preserved, the stale-`updated_at` refusal, the unconfirmed-change refusal per consequential path,
+  the core's 422 said in words; `store-settings-form.test.tsx` (8) — the diff shown before a save,
+  cancel, an ordinary change not interrupted, and money in EUR and JPY;
+  `store-settings-drift.test.ts` (7); three more in `settings.test.tsx`. Grepped `apps/*/e2e`: the
+  settings assertions are scoped forms and specific text, and no form name collides.
