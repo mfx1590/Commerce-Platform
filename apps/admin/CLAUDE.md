@@ -21,8 +21,11 @@ them self-contained (no shared components inside them, no API calls until contra
 - `pnpm --filter @platform/admin build` — `next build`
 - `pnpm --filter @platform/admin typecheck`
 - `pnpm --filter @platform/admin test` — Vitest (tests live in test/)
+  - **A red run made only of timeouts, during a stack boot or heavy load, is a load signature.** Classify it
+    before believing it: rerun the failing files alone, or the suite with `--maxWorkers=2`. Only a failure that
+    survives that is a finding.
 - `pnpm --filter @platform/admin test:contract` — suites in test-contract/ that boot Prism
-  themselves; kept out of `pnpm test` so the unit suite stays fast and hermetic.
+  themselves, each on its own port (`test/contract-ports.test.ts` fails on a shared one); kept out of `pnpm test` so the unit suite stays fast and hermetic.
 - Root: `pnpm lint && pnpm typecheck && pnpm test --filter @platform/admin` before finishing any task.
 - `pnpm --filter @platform/admin e2e` — Playwright, the store-admin journey (sign in → switch
   store → products). `e2e:ui` opens the runner.
