@@ -1109,6 +1109,10 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   the 23 findings fixed (20 dead initialisers removed; migrate.ts gets { cause }; replay.ts and dlq.ts keep error-CLASS-only
   redaction with a line disable + reason, since a cause would carry the message). Owners per file in the PR body. Opus review.
   - Gotcha: no-useless-assignment line numbers point at the variable, not always the one you expect (BI was body, not path).
+- **#944, #950 MERGED. Test infra, 2026-11-25:** branch `admin/phase6-test-infra` from main 9f319921.
+  testTimeout 15 s; settings contract suite :4217 → :4223 (bi kept 4217; roles was already on 4218);
+  test/contract-ports.test.ts guards it; CLAUDE.md load-signature line. Then evaluate Dependabot #956
+  (@hookform/resolvers 7) and #955 (ESLint 10): report, do not merge.
 ## Brand D pre-flight (admin side; input for window 10's wave-3 D8 task — brand D = Japan)
 
 Written 2026-11-10 and extended 2026-11-11 for **brand D = Japan** (JPY, ja-JP, ships to JP). Read-only, on
