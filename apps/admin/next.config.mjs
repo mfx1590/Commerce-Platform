@@ -11,6 +11,7 @@
  */
 
 import { staticSecurityHeaders } from './src/lib/security/static-headers.mjs';
+import { SERVER_ACTION_BODY_LIMIT } from './src/lib/catalog/media-limits.mjs';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -18,6 +19,11 @@ const nextConfig = {
   // No `X-Powered-By: Next.js`: it tells a scanner which advisories to try.
   poweredByHeader: false,
   transpilePackages: ['@platform/contracts'],
+  experimental: {
+    // A product photo (up to the 10 MiB createMediaUploadParams ceiling) through the upload server
+    // action; the action re-checks the API's max_bytes and the file's magic bytes (#870 item 5).
+    serverActions: { bodySizeLimit: SERVER_ACTION_BODY_LIMIT },
+  },
   // `experimental.typedRoutes` is deliberately off: almost every link in this app is built from a
   // store id at runtime (`/${storeId}/catalog`), which typed routes cannot check, so it would only
   // add casts. Route correctness is covered by the navigation unit tests instead.

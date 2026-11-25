@@ -1380,6 +1380,23 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
 - Mutation-checked: removing any one of the nine guards fails its tests.
 - Window 17's files, landed on `integration/admin-marketing-guards`.
 
+### Security — #949: the middleware matcher's exclusions are anchored
+
+- **Before:** `/((?!api/auth|health|_next/static|_next/image|favicon.ico).*)` excluded by prefix, so
+  `/healthx`, `/health/anything` and `/api/authxyz` skipped the session gate.
+- **Now:** `/((?!api/auth/|health/?$|_next/static/|_next/image$|favicon\\.ico$).*)`. Only `/api/auth/…`,
+  `/health`, the static assets and the favicon stay outside.
+- **Tests**, compiled with Next's `getMiddlewareMatchers`:
+  - every exclusion stays open;
+  - twelve look-alikes are matched;
+  - `/healthx`, `/api/authx` and `/health/anything` without a session get a 307 to sign-in, for GET and
+    for a `Next-Action` POST;
+  - `/health` still answers 200.
+- The security-headers test checks the error page through the same compiler, and that a look-alike is matched
+  (so it gets the CSP).
+- **Mutation-checked:** the old matcher, an unanchored `health`, and `api/auth` without its slash each
+  fail tests.
+
 ### Added — #870 wave 1 item 5 (PR A): variant and product attributes (window 3)
 
 - **Variant editor**: every attribute `updateVariant` takes.
@@ -1406,3 +1423,22 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   - The server schema takes all three dimensions or none.
   - Dimensions, HS code and origin are checked and sent **only when changed**, so a legacy value never blocks another save.
   - Tests: default + tier + sale-list rows in one currency (in any order); prices omitted on a barcode-only save; unreadable lists; cleared price; legacy values; `//` and `/\` canonicals; partial dimensions. Mutation-checked: making every price editable fails 1 test; always sending prices fails 4.
+
+### Added — #870 wave 1 item 5: product images (window 3; security, Fable review)
+
+- **Images** card on the product page: upload one image at a time, edit its alt text, tie it to a variant ("Shown for"), move it earlier or later (the first is the thumbnail), delete it behind a confirmation. Without `store_staff` on the store the card is read-only; the server decides either way.
+- **The upload is a server action** (`uploadProductMediaAction`), not a route, so it keeps Next's CSRF protection. In order, each step refusing before the next:
+  - permission for `createMediaUploadParams` and `addProductMedia`; product and variant ids;
+  - alt text required;
+  - the file: present, not empty, at most 10 MiB (from its size, before any byte is read);
+  - its type from its first bytes (JPEG, PNG, GIF, WebP, AVIF), never the name or the browser's MIME type;
+  - the signed parameters from `createMediaUploadParams`, server-side only — the signature never reaches the browser; then the size against that upload's `max_bytes` and the format against its `allowed_formats`;
+  - the upload URL must be exactly `https://api.cloudinary.com/v1_1/<cloud>/image/upload`; the file is posted there with no redirect followed and a 60 s timeout;
+  - the answer's `secure_url` must be on `https://res.cloudinary.com`; then `addProductMedia` attaches it. When that fails, the message says the image is on the image host but not on the product.
+  - No URL anyone types is ever fetched (no SSRF).
+- **Body limit:** `experimental.serverActions.bodySizeLimit` = the 10 MiB ceiling + a 64 KiB multipart envelope (`src/lib/catalog/media-limits.mjs`). Next parses the body before the action runs, so this is the cap on the stream itself; the envelope is what a 10 MiB file needs to arrive at all. It applies to every server action of the app (it was 1 MB).
+- **CSP:** `img-src 'self' data: blob: https://res.cloudinary.com` — exactly that host, no wildcard; pinned by the headers test.
+- **Alt text:** required on upload and on edit; the panel says how many images lack it and marks each one.
+- **Data-loss fix:** the edit page's Details form no longer sends `media`. `updateProduct` replaces the whole set when `media` is sent, so a stale list would have undone the panel's uploads. The create page keeps its URL list.
+- **Tests:** `media-actions.test.ts` (sniffing, hosts, limits pinned to the core's `UPLOAD_MAX_BYTES`, every refusal before the API, the upload's FormData, no signature in the result) and `media-panel.test.tsx`. Mutation-checked: removing the magic-byte check, either host check, `redirect: 'error'`, or the form's `media` strip each fails a test.
+- **Copy-link test (#947 follow-up):** renders `CopyLink` alone and awaits the status with `findByRole`; no full Overview render, no fixed wait.
