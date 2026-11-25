@@ -1505,3 +1505,35 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   would be refused" cases, the owner path naming the asker, the erased and empty states, a refused
   trail, and the pure wording/size/count helpers. `test/action-permissions.test.ts` gained the
   export action. Grepped `apps/*/e2e`: no spec touches exports or the new table.
+
+### Added — #870 wave 1 item 4 (follow-up): handing a GDPR bundle over
+
+- **`GET /{storeId}/customers/{customerId}/exports/{exportId}`** downloads one ready export bundle.
+  #962 shipped the trail and deliberately did not wrap `getCustomerExport`, because that operation's
+  200 **is** the bundle; the decision afterwards was that a subject-access request cannot be
+  answered without it, so this is the route that hands it over.
+- **Gated in the handler, before anything is fetched.** `loadPrincipal()` + `store_admin` on that
+  store — a route handler is reachable by typing a URL, which a section guard cannot stop (the #896
+  review's finding on `/audit/export`). No session is 401; a failed `/admin/me` forwards its own
+  status, so a fail-closed 503 stays 503; a reader without the relation, **including a store admin
+  of a different store**, is 403; and a path that is not three uuids is 400. Every refusal is
+  asserted to happen with the fetch never called.
+- **Streamed, never read.** `src/lib/customers/bundle.ts` reads the response as text and the handler
+  passes it through with `content-disposition: attachment` and `cache-control: no-store` — it is
+  never parsed, rendered or logged, and the admin is a conduit rather than a reader. It does not go
+  through `adminCall`, which parses every payload; same raw-fetch shape as the BI CSV export. The
+  session token is attached **server-side**, so nothing authenticating is in a URL — the only thing
+  in the path is the export's own uuid, which is not a credential.
+- **410 is a state, not a failure:** forwarded as `export_expired` with "request a new export",
+  because a purged bundle is the normal end of its life.
+- **A second bundle is not queued by accident** (#962 review nit): a pending export replaces the
+  request button with the reason, read from the **trail's** status rather than the control's own
+  state — before this, a reload re-armed the button while the core was still building one.
+- `mayAdministerCustomer` moved into `src/lib/customers/permissions.ts` and is now the one predicate
+  the page and the route share: the screen and the handler cannot drift about who may do this.
+- The download is audited by the core, verified rather than assumed:
+  `apps/core/src/modules/customers/export-delivery.ts` writes `customer_export.download` (ids and a
+  byte count) on the single path behind both the customer's own download and this one.
+- Tests: `test/customer-export-download.test.ts` (14) for the route; the panel's tests now pin
+  **where** a bundle may be reached from — a link on a ready row only, none while pending or after a
+  purge — replacing #962's "no download anywhere", which was true of that PR and is not of this one.

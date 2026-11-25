@@ -19,7 +19,20 @@ import type { ActionRefusalInfo } from '@/lib/forms/action-result';
  * The contract answers `202` with no body, so success is reported as "scheduled" and the page
  * re-reads to show the new row in the trail.
  */
-export function ExportControl({ storeId, customerId }: { storeId: string; customerId: string }) {
+export function ExportControl({
+  storeId,
+  customerId,
+  hasPending = false,
+}: {
+  storeId: string;
+  customerId: string;
+  /**
+   * An export is already being built, read from the trail rather than from this component's state
+   * (#962 review nit): `scheduled` below is client state only, so before this a reload re-armed the
+   * button and a second bundle of the same person's data could be queued by accident.
+   */
+  hasPending?: boolean;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
@@ -53,7 +66,12 @@ export function ExportControl({ storeId, customerId }: { storeId: string; custom
   return (
     <div className="space-y-3">
       <ActionRefusal refusal={refusal} message={error} />
-      {!open ? (
+      {hasPending ? (
+        <p className="text-muted text-sm">
+          An export is already being built for this customer. It appears in the trail below when the
+          core has finished it; there is no reason to ask for a second copy.
+        </p>
+      ) : !open ? (
         <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>
           Request a data export
         </Button>

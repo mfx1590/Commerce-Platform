@@ -715,9 +715,10 @@ export async function exportCustomer(
  * The customer's export REQUESTS in this store, newest first — ids, status, timestamps, sizes, who
  * asked, and how often each bundle has been downloaded. Never the bundle itself (`store_admin`).
  *
- * **`getCustomerExport` is deliberately not wrapped.** That operation's 200 *is* the bundle — the
- * whole of one person's data as an attachment — so nothing in this app can pull it until someone
- * decides it should be able to. See the PR for #870 item 4 PR C.
+ * **`getCustomerExport` is not wrapped here, on purpose.** That operation's 200 *is* the bundle —
+ * the whole of one person's data as an attachment — and `adminCall` parses every payload. It is
+ * fetched as raw text by `src/lib/customers/bundle.ts` and streamed straight to the browser by the
+ * download route, so the bundle is never an object in this process. Nothing else may read it.
  */
 export async function listCustomerExports(
   storeId: string,
