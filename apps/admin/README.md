@@ -537,6 +537,37 @@ read-only. Addresses, a GDPR **export** and a customer-groups picker wait on CON
 so the screen shows the session-ended panel (`docs/customers/core-unimplemented.png`); once the
 core answers the contract's 404, task 2.6 turns that into a "not implemented yet" panel.
 
+### Customers as a specialist's tool (#870 wave 1 item 4)
+
+**The list** has a group picker over `listCustomerGroups` (`viewer`, against the list's `support`,
+so it cannot widen anything) and shows each group's name rather than a uuid fragment. There is
+**no CSV export**, deliberately: a customer-list export is a bulk extraction of emails, phones and
+addresses and needs its own decision (store_admin, audited, with a stated reason). A test asserts
+the list offers none.
+
+**The orders link carries `customer_id`, never the email.** A URL reaches browser history, the
+referrer of whatever loads next, and any log that records paths. `listOrders` has taken an exact
+`customer_id` since Admin API 0.4.24 (#569). `ORDER_FILTER_KEYS` has to list it or
+`parseTableQuery` drops it and the link shows every order while looking filtered; the orders list
+also states when it is showing one customer.
+
+**The detail page** renders addresses and the consent ledger on the server. `Address` is a record
+`src/lib/client-safe.ts` polices, and these panels need no interactivity, so no projection of an
+address exists at all. The consent ledger (`listCustomerConsents`) sits beside the current-state
+table: the embedded `Customer.consent` is what is true now, the ledger is who decided what, when,
+from where, and under which policy version.
+
+**Cross-brand identity is HQ-only and ids-only.** `getCustomerIdentity` needs `support` on
+`organization:hq`; a store admin with every relation on their own stores is refused by design, so
+the page tells them that in a sentence and never makes the call. The answer carries store and
+customer ids, so the panel names the stores, links to each record, and says that the other
+records' names are not shown — reading one would be a second `getCustomer` behind a gate the
+reader may not hold on that store.
+
+**A group is assigned by name**, through the same schema and the same action; the action's own
+`refuseUnlessPermitted('updateCustomer', storeId)` is the server-side check, and the core writes
+the audit row that then appears in the customer's Activity panel.
+
 ## Promotions and price lists (task 2.4, issue #116)
 
 **Currency comes from the store, never a default (#810).** Money inputs parse with the currency's
