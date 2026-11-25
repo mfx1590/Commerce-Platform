@@ -556,6 +556,45 @@ table. All of them are role-scoped (`getByRole('list', { name: 'Payments' })`,
 "Order lines" is not a substring of "Activity on this order" — `getByRole`'s `name` matches a
 substring by default, which is the trap #896 hit.
 
+## In progress — #870 item 4 PR B, customer detail (2026-11-25)
+
+**PR #958**, branch `integration/admin-customers-detail` from main `f47683d7` (code commit
+`f1ce54e2`; head = this memory commit). PR A merged as #945; **PR C (GDPR export beside erase) is
+next and not started**. Admin suite **1716 / 93 files**, lint, format:check, typecheck 30/30,
+ownership green.
+
+Built: addresses (server-rendered, no projection of an `Address` exists at all), the consent
+**ledger** beside the current-state table, cross-brand identity (HQ-only, ids-only, never called
+for a reader the contract would refuse), and a group **select** in place of a uuid text box.
+
+**Verified instead of adding:** `updateCustomerAction` already re-checks
+`refuseUnlessPermitted('updateCustomer', storeId)`, so group assignment inherits a real
+server-side check. The manager asked me to confirm it; confirming beat writing a second one.
+
+**The privacy property I could actually test.** The identity answer is ids, and naming a sibling
+would cost one `getCustomer` per store behind that store's own `support`. So the test asserts the
+page makes **exactly one** `getCustomer` call — a count assertion is a better guard here than any
+string assertion, because it fails the moment someone "improves" the panel by resolving names.
+
+### A red suite that was the laptop, not the code — and how I established that
+
+Two full runs on this commit failed, 53 tests then 22, and **every failure was
+`Test timed out in 5000ms`** (90 then 36 timeout lines) across files this branch does not touch: BI,
+bulk capture, catalog attributes, copy drafts, registry, onboarding, tax rates. No customers file
+ever failed. Docker's 15 containers came up during the first run. Re-running the identical commit
+with `npx vitest run --maxWorkers=2` gave **1716/1716**.
+
+**The method, which is the keeper:** classify the failures before believing them. All-timeouts,
+spread across unrelated files, with my own files green, is a load signature, not a breakage. Same
+commit + fewer workers = green proves it in one command. I did **not** raise the vitest timeout to
+make my run look green — that is a repo-wide decision, and patching it for my own convenience
+would have hidden the real finding: the admin suite's default 5 s does not survive a stack boot on
+this machine. Reported to the manager as a decision for them (raise the default, or do not start
+suites during a boot).
+
+Earlier in the day I also declined to run `fga:seed` when the manager said Docker was back: PR B is
+hermetic, so seeding would have been a write to the shared OpenFGA store for no reason.
+
 ## In progress — #870 wave 1 item 3, admin history (2026-11-13)
 
 ### The e2e my own panel broke, and why unit gates could not see it (2026-11-17)
