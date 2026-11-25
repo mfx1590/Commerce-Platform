@@ -1452,6 +1452,7 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   `test/contract-ports.test.ts` keeps the ports distinct and clear of :4011 and :4013.
 - **CLAUDE.md:** a red run made only of timeouts during a stack boot or heavy load is a load signature;
   classify it before believing it.
+
 ### Added — #870 wave 1 item 4 (PR B): addresses, the consent ledger, cross-brand identity, a group by name
 
 - **Addresses** (`listCustomerAddresses`), defaults first, blank parts omitted. Rendered on the
