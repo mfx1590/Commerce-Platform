@@ -410,12 +410,34 @@ branch), dropping versions from the manifest (`--check`'s drift report needs the
 `bump-starter-dep.mjs` as the primary path — **a script of mine cannot make a starter edit legal**;
 bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
-## In progress — #870 item 4 PR A, customers list (2026-11-19)
+## Done — #870 item 4 PR A, customers list (2026-11-19); **PR B is next and NOT started**
 
-**PR #945**, branch `integration/admin-customers-list` from main `38bfa8c3` (code commit
-`62f9e6cc`; head = this memory commit). Plan approved A → B → C. Admin suite **1543 / 86 files**; lint, format:check, typecheck 30/30 and
-ownership green. #933 (order history) is approved and queued, so this branch does not carry it —
-Memory-10 here is main's copy and the #921 entry arrives when #933 merges.
+**PR #945 MERGED** (`11b1f196`), branch `integration/admin-customers-list` from main `38bfa8c3`,
+code commit `62f9e6cc`. #933 (order history) merged before it, so the #921 entry is in this file
+too. Admin suite at the merged head **1605 / 87 files**; lint, format:check, typecheck 30/30 and
+ownership green.
+
+### State at the stop (owner finished for the day, 2026-11-19)
+
+**Next: #870 item 4 PR B, not started** — addresses (`listCustomerAddresses`), consents
+(`listCustomerConsents`, already rendered on the detail page), group **assignment** through
+`updateCustomer` (it accepts `customer_group_id`; the manager asked that its own permission check
+be verified and that the core's audit row then show up in the customer Activity panel), and the
+**HQ-only identity panel** (`getCustomerIdentity` from `Customer.identity_id` — `support` on
+`organization:hq`, **ids only**, and a store admin gets 403, so the panel must read "HQ only"
+rather than render an error). Then **PR C**: the GDPR export trail (`exportCustomer` 202 +
+`listCustomerExports` + `getCustomerExport`, who requested and when, never the bundle) beside
+erase, which stays `store_admin` behind its typed confirmation.
+
+Standing constraints for both, from the manager: **no customer-list CSV** in this wave (a bulk PII
+export needs its own decision — store_admin, audited, with a reason; if one is ever added: ids,
+group, order counts and dates only), mask by relation, nothing cached client-side beyond
+`ClientSafe`, no PII in logs, URLs or error messages, a Fable review per PR, and root
+`pnpm format:check` before every push.
+
+Also still parked, deliberately off every branch: the #896 follow-up on the local branch
+**`wip/admin-history-entity-links`** (`22b769ef`) — `entityHref` plus the HQ › Audit page-size
+picker and row→entity link. `git cherry-pick 22b769ef` resumes it.
 
 **The privacy defect was already in the code, and reading the yaml is what found it.** "Orders by
 this customer" linked `/orders?q=<email>`: a customer's email address in a URL, so in browser
