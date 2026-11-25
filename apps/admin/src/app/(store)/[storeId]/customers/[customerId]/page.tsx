@@ -1,14 +1,28 @@
 import Link from 'next/link';
 import { StoreSectionGuard } from '@/components/shell/section-guard';
-import { ApiStatePanel } from '@/components/states/state-panel';
+import { ApiStatePanel, RequestErrorPanel } from '@/components/states/state-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
-import { getCustomer } from '@/lib/api/admin';
+import {
+  getCustomer,
+  getCustomerIdentity,
+  listCustomerAddresses,
+  listCustomerConsents,
+  listCustomerGroups,
+  listStores,
+} from '@/lib/api/admin';
+import {
+  addressLines,
+  addressPhone,
+  defaultLabels,
+  sortAddresses,
+  type CustomerAddress,
+} from '@/lib/customers/addresses';
 import { channelLabel, consentRows } from '@/lib/customers/consent';
 import { findStore, type Principal } from '@/lib/nav/navigation';
 import type { Relation } from '@/lib/nav/relations';
-import { expandStoreRelations } from '@/lib/nav/relations';
+import { expandOrganizationRelations, expandStoreRelations } from '@/lib/nav/relations';
 import { loadPrincipal } from '@/lib/principal';
 import { customerTone, displayName } from '../customers-table.config';
 import { CustomerForm } from './customer-form';
@@ -33,9 +47,27 @@ function formatAt(value: string | null): string {
 }
 
 /**
- * One customer. The PII (email, name, phone, consent) is rendered here, in the server component,
- * behind the `support` gate; the client components below receive exactly the fields they show —
- * the edit form its four inputs, the erase control only ids. Nothing is logged.
+ * One customer. The PII (email, name, phone, addresses, consent) is rendered here, in the server
+ * component, behind the `support` gate; the client components below receive exactly the fields they
+ * show — the edit form its four inputs and the group options, the erase control only ids. Nothing
+ * is logged.
+ *
+ * **Addresses never cross to the browser** (#870 item 4). `Address` is one of the records
+ * `src/lib/client-safe.ts` polices, and this panel has no interactivity, so it is rendered here and
+ * no projection of an address exists.
+ *
+ * **The consent ledger is not the same thing as `Customer.consent`.** The embedded object is the
+ * current state; `listCustomerConsents` is every recorded decision with its source and policy
+ * version. Both are shown, because "is she opted in?" and "when did she say so, and where?" are
+ * different questions.
+ *
+ * **Cross-brand identity is HQ-only, and asked for only by someone who may have it.**
+ * `getCustomerIdentity` needs `support` on `organization:hq` — a store admin with every relation on
+ * their own stores is refused by design. So the call is made only for a principal holding that
+ * organization relation; everyone else is told the panel is HQ-only rather than shown a 403. The
+ * answer is **ids only**: no email, no subject, no hash. Naming the sibling customers would need
+ * one `getCustomer` per store, each behind its own `support`, so the panel names the STORES and
+ * says what it cannot resolve.
  */
 export default async function CustomerDetailPage({
   params,
@@ -46,10 +78,13 @@ export default async function CustomerDetailPage({
 }) {
   const { storeId, customerId } = await params;
   const page = activityPage((await searchParams)?.['activity']);
-  const [customer, principal, activity] = await Promise.all([
+  const [customer, principal, activity, addresses, consents, groups] = await Promise.all([
     getCustomer(storeId, customerId),
     loadPrincipal(),
     loadActivity({ storeId, entityType: 'customer', entityId: customerId, page }),
+    listCustomerAddresses(storeId, customerId),
+    listCustomerConsents(storeId, customerId),
+    listCustomerGroups(storeId),
   ]);
 
   if (!customer.ok) {
@@ -68,6 +103,26 @@ export default async function CustomerDetailPage({
   }
 
   const current = customer.data;
+  // `support` on organization:hq, not on this store: the contract refuses a store-scoped caller,
+  // so the question is asked only by someone who can be answered.
+  const hqSupport =
+    principal.ok &&
+    expandOrganizationRelations(principal.data.organization_relations as Relation[]).has('support');
+  const identity =
+    hqSupport && current.identity_id !== null
+      ? await getCustomerIdentity(current.identity_id)
+      : null;
+  // Store names for the identity panel; `listStores` is viewer on store:*, which an HQ support
+  // principal holds. Only ever called for them, and it carries no customer data.
+  const stores = identity !== null && identity.ok ? await listStores({ limit: 100 }) : null;
+  const storeName = new Map<string, string>(
+    stores !== null && stores.ok
+      ? stores.data.items.map((store) => [store.id, `${store.name} (${store.code})`])
+      : [],
+  );
+  const groupOptions = groups.ok
+    ? groups.data.items.map((group) => ({ value: group.id, label: group.name }))
+    : [];
   const erased = current.status === 'erased';
   const consent = consentRows(current.consent);
   const mayErase = principal.ok && canErase(principal.data, storeId) && !erased;
@@ -138,6 +193,54 @@ export default async function CustomerDetailPage({
 
         <Card>
           <CardHeader
+            title="Addresses"
+            description="Everything the customer has saved, defaults first. Rendered on the server: an address never reaches the browser as data."
+          />
+          <CardBody>
+            {!addresses.ok ? (
+              <RequestErrorPanel status={addresses.status} error={addresses.error} />
+            ) : addresses.data.items.length === 0 ? (
+              <p className="text-muted text-sm">
+                No address saved. A guest checkout records the address on the order, not on the
+                customer.
+              </p>
+            ) : (
+              <ul className="grid gap-4 sm:grid-cols-2" aria-label="Saved addresses">
+                {sortAddresses(addresses.data.items as CustomerAddress[]).map((address) => {
+                  const phone = addressPhone(address);
+                  return (
+                    <li key={address.id} className="border-line rounded-md border px-3 py-2">
+                      <div className="mb-1 flex flex-wrap gap-1">
+                        {defaultLabels(address).map((label) => (
+                          <Badge key={label} tone="accent">
+                            {label}
+                          </Badge>
+                        ))}
+                      </div>
+                      {addressLines(address).length === 0 ? (
+                        // Every field blank or whitespace: say so rather than render an empty box
+                        // the reader has to interpret.
+                        <p className="text-muted text-sm">Nothing recorded on this address.</p>
+                      ) : (
+                        addressLines(address).map((line, index) => (
+                          <p key={`${address.id}-${index}`} className="text-sm">
+                            {line}
+                          </p>
+                        ))
+                      )}
+                      {phone !== null && (
+                        <p className="text-muted mt-1 text-xs">Contact on this address: {phone}</p>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader
             title="Consent"
             description="Per channel, with when and where it was given. Consent is recorded by the storefront and the core; it is not edited here."
           />
@@ -191,6 +294,109 @@ export default async function CustomerDetailPage({
           </CardBody>
         </Card>
 
+        <Card>
+          <CardHeader
+            title="Consent history"
+            description="Every decision the core recorded, newest first — when it was made, where it came from, and the policy version it was given under. The table above is only the current state."
+          />
+          <CardBody>
+            {!consents.ok ? (
+              <RequestErrorPanel status={consents.status} error={consents.error} />
+            ) : consents.data.items.length === 0 ? (
+              <p className="text-muted text-sm">
+                No decision recorded yet. A customer who has never been asked has no row here, which
+                is not the same as a refusal.
+              </p>
+            ) : (
+              <table className="w-full text-sm" aria-label="Consent history">
+                <thead className="border-line text-muted border-b text-left text-xs">
+                  <tr>
+                    <th className="px-3 py-2">Recorded</th>
+                    <th className="px-3 py-2">Purpose</th>
+                    <th className="px-3 py-2">Decision</th>
+                    <th className="px-3 py-2">Where from</th>
+                    <th className="px-3 py-2">Policy</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-line divide-y">
+                  {consents.data.items.map((entry) => (
+                    <tr key={entry.id}>
+                      <td className="text-muted px-3 py-2 font-mono text-xs">
+                        {formatAt(entry.recorded_at)}
+                      </td>
+                      <td className="px-3 py-2">{channelLabel(entry.purpose)}</td>
+                      <td className="px-3 py-2">
+                        <Badge tone={entry.granted ? 'success' : 'neutral'}>
+                          {entry.granted ? 'granted' : 'withdrawn'}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-2">{entry.source}</td>
+                      <td className="text-muted px-3 py-2 font-mono text-xs">
+                        {entry.policy_version}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="Across the organization"
+            description="Whether this person shops under more than one brand. Ids only — no email, no account subject — and HQ-only by contract."
+          />
+          <CardBody className="space-y-2">
+            {current.identity_id === null ? (
+              <p className="text-muted text-sm">
+                A guest with no account, so there is nothing to link across brands.
+              </p>
+            ) : !hqSupport ? (
+              <p className="text-muted text-sm">
+                HQ only: linking one person&rsquo;s records across brands needs{' '}
+                <span className="font-mono text-xs">support</span> on{' '}
+                <span className="font-mono text-xs">organization:hq</span>, which no relation on a
+                single store grants. Ask an organization owner.
+              </p>
+            ) : identity === null || !identity.ok ? (
+              <RequestErrorPanel
+                status={identity?.status ?? 0}
+                error={identity?.error ?? { code: 'unavailable', message: 'No answer' }}
+              />
+            ) : (
+              <>
+                <ul className="divide-line divide-y text-sm" aria-label="Records across brands">
+                  {identity.data.customers.map((row) => (
+                    <li
+                      key={`${row.store_id}-${row.customer_id}`}
+                      className="flex flex-wrap items-center gap-2 py-2"
+                    >
+                      <span>{storeName.get(row.store_id) ?? row.store_id}</span>
+                      {row.customer_id === current.id ? (
+                        <Badge tone="accent">this record</Badge>
+                      ) : (
+                        <Link
+                          href={`/${row.store_id}/customers/${row.customer_id}`}
+                          className="text-accent text-sm hover:underline"
+                        >
+                          Open
+                        </Link>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-muted text-xs">
+                  The names and emails of the other records are not shown: reading one costs a
+                  separate request per store, each needing{' '}
+                  <span className="font-mono">support</span> on that store. Open a record to see it
+                  under its own gate.
+                </p>
+              </>
+            )}
+          </CardBody>
+        </Card>
+
         <div className="grid gap-6 lg:grid-cols-3">
           <Card className="lg:col-span-2">
             <CardHeader
@@ -208,6 +414,7 @@ export default async function CustomerDetailPage({
                 </p>
               ) : (
                 <CustomerForm
+                  groupOptions={groupOptions}
                   storeId={storeId}
                   customerId={current.id}
                   defaultValues={{
