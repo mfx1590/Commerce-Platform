@@ -1476,3 +1476,32 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   to the `Consent by channel` table, which this PR does not touch and whose name is not a substring
   of `Consent history`; no spec reads the group field by label, and none touches addresses or
   identity. Nothing to update.
+
+### Added — #870 wave 1 item 4 (PR C): the GDPR export trail, beside erase
+
+- **Request an export** (`exportCustomer`, 202) and **the trail of every request**
+  (`listCustomerExports`): when it was asked for, by whom, what became of the bundle, its size, and
+  how many times it has been downloaded. Both are `store_admin`, so a `support` reader — who may
+  read the record on screen — is told it is store-admin work and **the trail is never fetched**.
+  `requestCustomerExportAction` is guarded by `refuseUnlessPermitted('exportCustomer', storeId)`;
+  the rule is in `CUSTOMER_PERMISSIONS`, which `test/action-permissions.test.ts` pins against the
+  `x-permission` in `admin-api.yaml` and now exercises for this action too.
+- **The bundle is not served from this screen, and `getCustomerExport` is not even wrapped.** That
+  operation's 200 _is_ the bundle — the whole of one person's record as an attachment. The panel
+  says so in a sentence, and a test asserts there is no download link or button anywhere in it. See
+  the PR for the question this leaves open.
+- **The states read as what they are.** "pending" is being built, "expired" is a purge and not a
+  failure, and the contract's two `reason` values are said in words ("the customer was erased
+  before the bundle was", "too large"). An empty trail says no export has ever been requested.
+- **Who asked, where that is knowable.** A customer's own self-service request is labelled as one
+  and never named. A staff id is resolved against `listUsers` — which is `owner` on
+  `organization:hq`, so the lookup is **skipped** for a store admin rather than fetching a certain
+  403, and the row reads "Staff (ab12cd34)". The one `listUsers` call a store admin still pays on
+  this page is the Activity panel's from #896, which asks unconditionally by design; gating that
+  would mean threading the principal into `loadActivity` and four pages, so it is named rather than
+  changed here.
+- An **erased** customer is not offered an export: there is nothing left to bundle.
+- Tests: `test/customers-export.test.tsx` (12) — no download anywhere, the two "do not ask what
+  would be refused" cases, the owner path naming the asker, the erased and empty states, a refused
+  trail, and the pure wording/size/count helpers. `test/action-permissions.test.ts` gained the
+  export action. Grepped `apps/*/e2e`: no spec touches exports or the new table.

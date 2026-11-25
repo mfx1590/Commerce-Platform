@@ -9,4 +9,7 @@ import type { PermissionRule } from '../permissions/rules';
 export const CUSTOMER_PERMISSIONS = {
   updateCustomer: { relation: 'support', object: 'store' },
   eraseCustomer: { relation: 'store_admin', object: 'store' },
+  // A GDPR export schedules a bundle of everything held about one person, so it is `store_admin`
+  // like erasure — not `support`, which is enough to READ the record on screen.
+  exportCustomer: { relation: 'store_admin', object: 'store' },
 } as const satisfies Record<string, PermissionRule>;
