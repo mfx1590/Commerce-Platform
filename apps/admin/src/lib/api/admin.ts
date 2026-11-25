@@ -661,6 +661,55 @@ export async function listCustomerGroups(
   });
 }
 
+/**
+ * The customer's addresses (`support` on the store — the same gate as the record itself, because an
+ * address is personal data). Each item is an `Address` plus its id and the two default flags.
+ */
+export async function listCustomerAddresses(
+  storeId: string,
+  customerId: string,
+): Promise<ApiResult<AdminResponse<'listCustomerAddresses'>>> {
+  return adminCall<'listCustomerAddresses'>({
+    path: buildPath('/admin/stores/{storeId}/customers/{customerId}/addresses', {
+      storeId,
+      customerId,
+    }),
+  });
+}
+
+/**
+ * The consent LEDGER — every recorded decision, newest first (`support` on the store). Different
+ * from `Customer.consent`, which is only the current state: this answers when a decision was made,
+ * where it came from (storefront / admin / import) and under which policy version.
+ */
+export async function listCustomerConsents(
+  storeId: string,
+  customerId: string,
+): Promise<ApiResult<AdminResponse<'listCustomerConsents'>>> {
+  return adminCall<'listCustomerConsents'>({
+    path: buildPath('/admin/stores/{storeId}/customers/{customerId}/consents', {
+      storeId,
+      customerId,
+    }),
+  });
+}
+
+/**
+ * One person's rows across the organization's stores — **ids only**, no email, no subject, no hash.
+ *
+ * `support` on **organization:hq**, not on a store: a store admin with every relation on their own
+ * stores is refused (403), which is the contract's intent and not an error to render. Call it only
+ * for a principal that holds the organization relation, so a store-scoped reader never generates a
+ * refusal the screen then has to explain away.
+ */
+export async function getCustomerIdentity(
+  identityId: string,
+): Promise<ApiResult<AdminResponse<'getCustomerIdentity'>>> {
+  return adminCall<'getCustomerIdentity'>({
+    path: buildPath('/admin/customer-identities/{identityId}', { identityId }),
+  });
+}
+
 export async function getCustomer(
   storeId: string,
   customerId: string,
