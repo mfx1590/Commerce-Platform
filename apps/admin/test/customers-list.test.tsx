@@ -38,6 +38,11 @@ const api = vi.hoisted(() => ({
   getStore: vi.fn(),
   listAuditLog: vi.fn(),
   listUsers: vi.fn(),
+  // #870 item 4 PR B: the detail page reads these too, and this file renders it for the href check.
+  listCustomerAddresses: vi.fn(),
+  listCustomerConsents: vi.fn(),
+  getCustomerIdentity: vi.fn(),
+  listStores: vi.fn(),
 }));
 vi.mock('@/lib/api/admin', () => api);
 
@@ -91,6 +96,9 @@ beforeEach(() => {
   api.listOrders.mockResolvedValue(pageOf([]));
   api.getStore.mockResolvedValue(ok({ id: STORE, default_locale: 'en-GB', settings: {} }));
   api.listAuditLog.mockResolvedValue(pageOf([]));
+  api.listCustomerAddresses.mockResolvedValue(ok({ items: [] }));
+  api.listCustomerConsents.mockResolvedValue(ok({ items: [] }));
+  api.listStores.mockResolvedValue(pageOf([]));
   api.listUsers.mockResolvedValue(pageOf([]));
 });
 

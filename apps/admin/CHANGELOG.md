@@ -1442,3 +1442,37 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
 - **Data-loss fix:** the edit page's Details form no longer sends `media`. `updateProduct` replaces the whole set when `media` is sent, so a stale list would have undone the panel's uploads. The create page keeps its URL list.
 - **Tests:** `media-actions.test.ts` (sniffing, hosts, limits pinned to the core's `UPLOAD_MAX_BYTES`, every refusal before the API, the upload's FormData, no signature in the result) and `media-panel.test.tsx`. Mutation-checked: removing the magic-byte check, either host check, `redirect: 'error'`, or the form's `media` strip each fails a test.
 - **Copy-link test (#947 follow-up):** renders `CopyLink` alone and awaits the status with `findByRole`; no full Overview render, no fixed wait.
+
+### Added — #870 wave 1 item 4 (PR B): addresses, the consent ledger, cross-brand identity, a group by name
+
+- **Addresses** (`listCustomerAddresses`), defaults first, blank parts omitted. Rendered on the
+  server: `Address` is one of the records `src/lib/client-safe.ts` polices, the panel needs no
+  interactivity, so **no projection of an address exists** and none can reach the browser. An
+  address's own phone is labelled "Contact on this address" so nobody reads it as the customer's.
+  An address whose every field is blank says so instead of rendering an empty box.
+- **Consent history** (`listCustomerConsents`) beside the existing current-state table, because
+  "is she opted in?" and "when did she say so, and where?" are different questions. Each row
+  carries the decision, the source (storefront / admin / import), the policy version and when it
+  was recorded. "Never asked" is worded so it cannot be read as a refusal.
+- **Across the organization** (`getCustomerIdentity`): whether this person shops under more than
+  one brand. **HQ-only and asked for only when it can be answered** — the operation needs `support`
+  on `organization:hq`, which no relation on a single store grants, so a store-scoped reader is told
+  that in a sentence instead of being shown a 403, and the call is never made for them. The answer
+  is **ids only**; the panel names the stores and links to each sibling record, and says plainly
+  that the other records' names and emails are not shown, because resolving one would be a second
+  `getCustomer` behind a gate this reader may not hold. A test pins that the page makes exactly
+  **one** `getCustomer` call.
+- **A group is assigned by name.** The field was a free-text box for a uuid ("The group's id (a
+  uuid)"), which is the junior-owner experience #870 is about. It is now a select of the store's
+  groups with an explicit "No group", through the same schema and the same server action —
+  `updateCustomerAction` already re-checks `refuseUnlessPermitted('updateCustomer', storeId)`, which
+  this PR verified rather than added. If the groups cannot be read the id box returns, because a
+  select with no options would make an existing group unchangeable.
+- Tests: `test/customers-detail.test.tsx` (13) — address order, omission and the blank-address
+  state; a refused read showing the refusal rather than a missing panel; both consent tables
+  coexisting; the identity panel in all three states with the call-count assertion; the group select
+  and its fallback. `test/customers-list.test.tsx` gained the detail page's new reads.
+- Grepped `apps/*/e2e` before pushing, as the rule now says: the only consent assertions are scoped
+  to the `Consent by channel` table, which this PR does not touch and whose name is not a substring
+  of `Consent history`; no spec reads the group field by label, and none touches addresses or
+  identity. Nothing to update.
