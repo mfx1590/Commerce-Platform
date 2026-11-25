@@ -472,6 +472,43 @@ HQ › Roles, neither affected.
 out at 5 s in the full parallel run and passes 19/19 alone. Window 12's file, and nothing in my diff
 touches BI. Re-ran the suite green and reported it rather than touching another window's test.
 
+## In progress — #870 item 7 PR A, store settings (2026-11-25)
+
+**PR #968**, branch `integration/admin-store-settings` from main `43cefd80` (code commit
+`940a2fb7`; head = this memory commit). Tax, Fraud, Refunds, Brand voice — eleven settings paths.
+**PR B (shipping defaults, fulfilment routing, shipping-option carrier/service/channel/rules) is
+next and not started.** Admin suite **1752 / 97**; lint, format:check, typecheck 30/30, ownership
+green. CONTRACT CHANGE **#967** filed for the settings paths. (This branch predates item 4's #962 /
+#965, so their Memory-10 entries arrive when those merge.)
+
+### The finding that shaped the PR
+
+The manager's precondition was "tell me if the core merges settings shallowly". It is **worse**:
+`updateStoreInTx` does `settings = $n` from `JSON.stringify(patch.settings)` — a **wholesale
+replace**. A card sending only its own group would delete every other module's keys. The answer was
+already in the repo, though: `store-payment.ts` (#825) had solved it for one key — re-read, merge,
+send everything, plus an `updated_at` compare-and-refuse. **Looking for the pattern before asking
+the question turned a blocker into a generalisation.**
+
+### Where the path list lives, and the guard
+
+`Store.settings` is `additionalProperties: true` in the contract: the real list is the core's
+`STORE_SETTINGS_SHAPES`. So `fields.ts` mirrors it and `store-settings-drift.test.ts` reads the
+core's file **as text** (no cross-app import) and fails **both** ways — a path we edit that the core
+does not read, and a path the core reads that nobody here has decided about, which is the failure
+mode a mirror actually has. It also pins the core's enums and bounds instead of a guess.
+
+### Two of my own slips, both caught before the PR landed
+
+- **I wrote a "History" link to an Activity panel the settings page did not have** — the exact
+  mistake I had written a lesson about in `entity-links`. tsc caught it (a missing `Link` import),
+  not my thinking. Added the `entity_type: 'store'` panel the link points at. **A link is a promise:
+  check the target exists in the same breath as writing the href.**
+- **An unescaped backtick in a `gh pr create --body` heredoc executed as a command**, so #968 went
+  up with a mangled heading. Repaired with `gh pr edit --body-file`. **Long PR bodies go in a file
+  written with the Write tool** — a rule I already had and skipped. Also learnt: Windows Python
+  cannot open a `/c/...` git-bash path, so the repair script failed until I used `sed`.
+
 ## In progress — #921, the order's own history (2026-11-19)
 
 **PR #933**, branch `integration/admin-order-history` from main `74d8c474` (code commit
