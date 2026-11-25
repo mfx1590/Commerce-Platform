@@ -625,5 +625,6 @@ Window 12 follow-up on the integration branch (same version): `MetricMoversQuery
 `customer_group` and `warehouse` (#935 a2; the wave 1 spec pin now checks the eight values, and the Prism walk's
 bad-body movers call uses `refund_reason`, which is not a mover dimension); `getCustomerCohorts` and
 `getOperationsBacklog` gain a realistic response example each (a suppressed cell and a suppressed cohort; one row per
-backlog kind), so Prism answers them 200. The admin `hours` display unit and the row fixtures with the nine new
+backlog kind), so Prism answers them 200. The `queryMetrics` and `askMetrics` response examples gain the nine 0.4.31 `MetricRow` keys (their rows broke the
+schema they document, so Prism answered 500 under `--errors`; apps/admin `test:contract` caught it). The admin `hours` display unit and the row fixtures with the nine new
 `MetricRow` keys are in apps/admin.

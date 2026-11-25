@@ -10712,6 +10712,15 @@ export interface operations {
                      *           "category_id": null,
                      *           "customer_type": null,
                      *           "warehouse_id": null,
+                     *           "customer_group_id": null,
+                     *           "utm_source": null,
+                     *           "utm_medium": null,
+                     *           "utm_campaign": null,
+                     *           "campaign_id": null,
+                     *           "promotion_id": null,
+                     *           "carrier": null,
+                     *           "failure_reason": null,
+                     *           "suppressed": false,
                      *           "values": {
                      *             "bookings_minor": 12200,
                      *             "orders": 2
@@ -10729,6 +10738,15 @@ export interface operations {
                      *           "category_id": null,
                      *           "customer_type": null,
                      *           "warehouse_id": null,
+                     *           "customer_group_id": null,
+                     *           "utm_source": null,
+                     *           "utm_medium": null,
+                     *           "utm_campaign": null,
+                     *           "campaign_id": null,
+                     *           "promotion_id": null,
+                     *           "carrier": null,
+                     *           "failure_reason": null,
+                     *           "suppressed": false,
                      *           "values": {
                      *             "bookings_minor": 6000,
                      *             "orders": 1
@@ -11236,6 +11254,15 @@ export interface operations {
                      *                 "category_id": null,
                      *                 "customer_type": null,
                      *                 "warehouse_id": null,
+                     *                 "customer_group_id": null,
+                     *                 "utm_source": null,
+                     *                 "utm_medium": null,
+                     *                 "utm_campaign": null,
+                     *                 "campaign_id": null,
+                     *                 "promotion_id": null,
+                     *                 "carrier": null,
+                     *                 "failure_reason": null,
+                     *                 "suppressed": false,
                      *                 "values": {
                      *                   "bookings_minor": 1234500
                      *                 }
@@ -11289,6 +11316,15 @@ export interface operations {
                      *                 "category_id": null,
                      *                 "customer_type": null,
                      *                 "warehouse_id": null,
+                     *                 "customer_group_id": null,
+                     *                 "utm_source": null,
+                     *                 "utm_medium": null,
+                     *                 "utm_campaign": null,
+                     *                 "campaign_id": null,
+                     *                 "promotion_id": null,
+                     *                 "carrier": null,
+                     *                 "failure_reason": null,
+                     *                 "suppressed": false,
                      *                 "values": {
                      *                   "refunds_minor": 41000
                      *                 }
