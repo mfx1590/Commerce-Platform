@@ -18,6 +18,7 @@ import {
   scopeLabel,
   sortRules,
   unpublishedChange,
+  utcLabel,
   type MerchandisingRule,
   type PublishReport,
   type RuleState,
@@ -49,10 +50,6 @@ const STATE_TONE: Record<RuleState, 'success' | 'neutral' | 'warning'> = {
 };
 
 const control = 'border-line bg-surface h-9 rounded-md border px-2 text-sm';
-
-function day(value: string | null): string {
-  return value === null ? '—' : value.slice(0, 16).replace('T', ' ');
-}
 
 /** The rule's products a shopper would not see as intended: deleted, archived or draft. */
 export function productTrouble(
@@ -342,10 +339,10 @@ export function RulesScreen({
                   <td className="text-muted py-2 text-xs">
                     {rule.starts_at === null && rule.ends_at === null
                       ? 'Always'
-                      : `${day(rule.starts_at)} → ${day(rule.ends_at)} UTC`}
+                      : `${utcLabel(rule.starts_at)} → ${utcLabel(rule.ends_at)}`}
                   </td>
                   <td className="py-2 text-xs">
-                    <div className="text-muted">{day(rule.published_at)}</div>
+                    <div className="text-muted">{utcLabel(rule.published_at)}</div>
                     {change === 'never' && <Badge tone="warning">never published</Badge>}
                     {change === 'changed' && <Badge tone="warning">changed since</Badge>}
                   </td>

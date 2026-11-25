@@ -855,6 +855,7 @@ Wave C — starts when cms 2.2 and core 2.2 have merged.
 
 ## Gotchas learned
 
+- A `datetime-local` value has no zone: parsed in a server action it is read in the SERVER's zone (#963 BLOCK). Convert to an instant in the browser; send an untouched value back exactly (the input drops seconds); the server refuses zone-less strings. Test with `process.env.TZ` pinned to a non-UTC zone (assert the offset), and restore it in afterAll. (11-25)
 - jsdom does not see user-event's uploaded files for a `required` file input's validity: clicking submit silently does nothing. Use `fireEvent.submit(form)` in tests. An `<img alt="">` has no `img` role (presentational): query it by tag. (11-19)
 - **A stable wrong page baselines perfectly (2026-11-11, #797):** brand C's visual suite shot its 404 (hard-coded /en-GB). Assert status 200 + a page-specific element before any screenshot. And a demo that changes SUPPORTED_LOCALES stops the e2e server (its warm-up 404s) rather than exercising the spec: mutate the path instead.
 - **WHATWG URL is not a CSP-source validator (2026-11-10, #783):** new URL("https://a.example;script-src-elem").origin equals the input; validate tokens with a strict grammar and pin the whole policy string (a Map-based test hides a duplicate directive).

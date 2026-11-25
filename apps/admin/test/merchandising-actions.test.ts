@@ -65,8 +65,8 @@ const draft = (over: Partial<RuleDraft> = {}) => ({
   boosts: [{ product_id: P2, weight: 40 }],
   buries: [],
   enabled: true,
-  starts_at: '',
-  ends_at: '',
+  starts_at: null,
+  ends_at: null,
   ...over,
 });
 
@@ -136,19 +136,66 @@ describe('before a save', () => {
     ],
     [
       'an end before the start',
-      draft({ starts_at: '2026-12-02T10:00', ends_at: '2026-12-01T10:00' }),
+      draft({ starts_at: '2026-12-02T10:00:00Z', ends_at: '2026-12-01T10:00:00Z' }),
       'ends_at',
     ],
   ])('%s', (_, value, field) => {
     expect(m.ruleProblems(value)).toHaveProperty(field);
   });
 
-  it('the input sends the scope and the window as instants; the patch never sends the scope', () => {
-    const input = m.draftToInput(draft({ starts_at: '2026-12-01T10:00' }));
+  it('the input sends the scope; the window goes as the instants it was given, byte for byte', () => {
+    const input = m.draftToInput(
+      draft({ starts_at: '2026-12-01T09:00:30Z', ends_at: '2026-12-31T23:00:00+09:00' }),
+    );
     expect(input.scope).toEqual({ type: 'category', category_id: CAT });
-    expect(input.starts_at).toBe(new Date('2026-12-01T10:00').toISOString());
-    expect(input.ends_at).toBeNull();
+    expect(input.starts_at).toBe('2026-12-01T09:00:30Z');
+    expect(input.ends_at).toBe('2026-12-31T23:00:00+09:00');
     expect(m.draftToPatch(draft())).not.toHaveProperty('scope');
+  });
+
+  it('#963 review: a time without its zone is refused, here and by the action before the API', async () => {
+    for (const zoneless of [
+      '2026-12-01T10:00',
+      '2026-12-01T10:00:00',
+      '2026-12-01 10:00Z',
+      'tomorrow',
+    ]) {
+      expect(m.ruleProblems(draft({ starts_at: zoneless })), zoneless).toHaveProperty('starts_at');
+      expect(m.ruleProblems(draft({ ends_at: zoneless })), zoneless).toHaveProperty('ends_at');
+    }
+    expect(m.ruleProblems(draft({ starts_at: '2026-12-01T10:00:00+05:30' }))).toEqual({});
+    expect(
+      await actions.createRuleAction(STORE, draft({ starts_at: '2026-12-01T10:00' })),
+    ).toMatchObject({
+      status: 'error',
+      fieldErrors: { starts_at: 'Not a date and time with its time zone.' },
+    });
+    expect(
+      await actions.updateRuleAction(
+        STORE,
+        '30000000-0000-4000-8000-000000000501',
+        draft({ ends_at: '2026-12-01T10:00' }),
+      ),
+    ).toMatchObject({
+      status: 'error',
+      fieldErrors: { ends_at: 'Not a date and time with its time zone.' },
+    });
+    expect(api.createMerchandisingRule).not.toHaveBeenCalled();
+    expect(api.updateMerchandisingRule).not.toHaveBeenCalled();
+  });
+
+  it('end after start compares instants, whatever their offsets', () => {
+    // 10:00+02:00 is 08:00Z: an end at 09:00Z is after it, although "09" < "10".
+    expect(
+      m.ruleProblems(
+        draft({ starts_at: '2026-12-01T10:00:00+02:00', ends_at: '2026-12-01T09:00:00Z' }),
+      ),
+    ).toEqual({});
+    expect(
+      m.ruleProblems(
+        draft({ starts_at: '2026-12-01T10:00:00Z', ends_at: '2026-12-01T11:00:00+02:00' }),
+      ),
+    ).toHaveProperty('ends_at');
   });
 });
 
@@ -173,8 +220,9 @@ describe('"Publish to search", honest per rule', () => {
       'skipped',
     ]);
     expect(report.rows[2]!.why).toBe('Disabled.');
-    expect(report.rows[3]!.why).toContain('Not started');
-    expect(report.rows[4]!.why).toContain('Ended');
+    expect(report.rows[3]!.why).toBe('Not started: starts 2026-12-01 00:00 UTC.');
+    expect(report.rows[4]!.why).toBe('Ended 2026-11-01 00:00 UTC.');
+    expect(report.rows[0]!.why).toBe('In the index since 2026-11-25 12:00 UTC.');
     // The API said 2 published; only 1 is confirmed: said, never papered over.
     expect(report.mismatch).toContain('counted 2 published and 3 skipped');
     expect(report.mismatch).toContain('show 1 published and 3 skipped');
@@ -196,6 +244,27 @@ describe('"Publish to search", honest per rule', () => {
         NOW,
       ),
     ).toEqual({ live: 1, skipped: 2 });
+  });
+});
+
+describe('times are said with their zone', () => {
+  it('utcLabel and the CSV: UTC, said, whatever offset the API used', () => {
+    expect(m.utcLabel('2026-12-01T09:00:00+09:00')).toBe('2026-12-01 00:00 UTC');
+    expect(m.utcLabel(null)).toBe('—');
+    const row = m.ruleCsvRow(
+      rule({
+        starts_at: '2026-12-01T09:00:00+09:00',
+        ends_at: null,
+        published_at: '2026-11-20T00:00:00Z',
+      }),
+      { categories: { [CAT]: 'Kitchen' }, products: {} },
+      NOW,
+    );
+    const at = (name: string) =>
+      row[m.RULES_CSV_HEADER.indexOf(name as (typeof m.RULES_CSV_HEADER)[number])];
+    expect(at('starts_at')).toBe('2026-12-01T00:00:00.000Z');
+    expect(at('ends_at')).toBe('');
+    expect(at('published_at')).toBe('2026-11-20T00:00:00.000Z');
   });
 });
 

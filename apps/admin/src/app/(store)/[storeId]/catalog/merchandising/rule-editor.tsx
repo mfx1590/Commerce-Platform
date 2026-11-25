@@ -12,7 +12,9 @@ import {
   BOOSTS_MAX,
   BURIES_MAX,
   PINS_MAX,
+  isoToLocalInput,
   ruleProblems,
+  scheduleValue,
   scopeLabel,
   type MerchandisingRule,
   type RuleDraft,
@@ -20,15 +22,6 @@ import {
 import type { ActionRefusalInfo } from '@/lib/forms/action-result';
 
 const control = 'border-line bg-surface h-9 rounded-md border px-2 text-sm';
-
-/** An ISO instant as a `datetime-local` value in the person's own time zone. */
-function toLocalInput(iso: string | null): string {
-  if (iso === null) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 
 function draftOf(rule: MerchandisingRule | null): RuleDraft {
   return rule === null
@@ -38,8 +31,8 @@ function draftOf(rule: MerchandisingRule | null): RuleDraft {
         boosts: [],
         buries: [],
         enabled: true,
-        starts_at: '',
-        ends_at: '',
+        starts_at: null,
+        ends_at: null,
       }
     : {
         scope: {
@@ -51,8 +44,8 @@ function draftOf(rule: MerchandisingRule | null): RuleDraft {
         boosts: rule.boosts.map((b) => ({ ...b })),
         buries: [...rule.buries],
         enabled: rule.enabled,
-        starts_at: toLocalInput(rule.starts_at),
-        ends_at: toLocalInput(rule.ends_at),
+        starts_at: rule.starts_at,
+        ends_at: rule.ends_at,
       };
 }
 
@@ -84,7 +77,20 @@ export function RuleEditor({
     message: string | null;
     refusal?: ActionRefusalInfo | undefined;
   } | null>(null);
-  const local = ruleProblems(draft);
+  // The schedule as typed (the person's own time) and as it was opened (#963 review). The
+  // instants sent are made HERE, in the browser, where the typed time's zone is known: an
+  // untouched field sends the API's own value, byte for byte.
+  const [opened] = useState(() => ({
+    starts: isoToLocalInput(rule?.starts_at ?? null),
+    ends: isoToLocalInput(rule?.ends_at ?? null),
+  }));
+  const [times, setTimes] = useState(opened);
+  const startsSent = scheduleValue(rule?.starts_at ?? null, opened.starts, times.starts);
+  const endsSent = scheduleValue(rule?.ends_at ?? null, opened.ends, times.ends);
+  const sent: RuleDraft = { ...draft, starts_at: startsSent ?? null, ends_at: endsSent ?? null };
+  const local = ruleProblems(sent);
+  if (startsSent === undefined) local['starts_at'] = 'Not a date and time.';
+  if (endsSent === undefined) local['ends_at'] = 'Not a date and time.';
   if (rule !== null) delete local['scope'];
   const problem = (field: string) => server?.fields[field] ?? local[field] ?? null;
   const categoryNames = Object.fromEntries(categories.map((c) => [c.id, c.name]));
@@ -119,8 +125,8 @@ export function RuleEditor({
     startTransition(async () => {
       const result =
         rule === null
-          ? await createRuleAction(storeId, draft)
-          : await updateRuleAction(storeId, rule.id, draft);
+          ? await createRuleAction(storeId, sent)
+          : await updateRuleAction(storeId, rule.id, sent);
       if (result.status === 'success') {
         onDone();
         return;
@@ -345,11 +351,18 @@ export function RuleEditor({
           Enabled
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-muted text-xs">Starts (your local time; empty = now)</span>
+          <span className="text-muted text-xs">
+            Starts (your local time, {Intl.DateTimeFormat().resolvedOptions().timeZone}; empty =
+            now)
+          </span>
           <input
             type="datetime-local"
-            value={draft.starts_at}
-            onChange={(e) => setDraft({ ...draft, starts_at: e.currentTarget.value })}
+            aria-label="Starts"
+            value={times.starts}
+            onChange={(e) => {
+              const starts = e.currentTarget.value;
+              setTimes((current) => ({ ...current, starts }));
+            }}
             className={control}
           />
         </label>
@@ -357,8 +370,12 @@ export function RuleEditor({
           <span className="text-muted text-xs">Ends (empty = no end)</span>
           <input
             type="datetime-local"
-            value={draft.ends_at}
-            onChange={(e) => setDraft({ ...draft, ends_at: e.currentTarget.value })}
+            aria-label="Ends"
+            value={times.ends}
+            onChange={(e) => {
+              const ends = e.currentTarget.value;
+              setTimes((current) => ({ ...current, ends }));
+            }}
             className={control}
           />
         </label>

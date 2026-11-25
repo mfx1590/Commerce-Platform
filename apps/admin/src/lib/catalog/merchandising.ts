@@ -112,18 +112,77 @@ export interface RuleDraft {
   boosts: { product_id: string; weight: number }[];
   buries: string[];
   enabled: boolean;
-  /** `datetime-local` values (the person's local time) or ''. */
-  starts_at: string;
-  ends_at: string;
+  /**
+   * ISO instants WITH their zone, or null (#963 review): the browser converts what the person typed
+   * in their own time (`localToIso`) before the action is called. The server never reads a
+   * zone-less time — it would read it in the SERVER's zone — and refuses one (`instantProblem`).
+   */
+  starts_at: string | null;
+  ends_at: string | null;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** A `datetime-local` value as an ISO instant, '' as null; undefined when it is not a date. */
+// ---------------------------------------------------------------------------- times (#963 review)
+
+/** An ISO date-time that names its zone: `Z` or an offset. */
+const ZONED_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
+
+/** Why a schedule time cannot be sent: not an instant, or no zone. Null when it can. */
+export function instantProblem(value: string | null): string | null {
+  if (value === null) return null;
+  if (!ZONED_INSTANT.test(value) || Number.isNaN(Date.parse(value))) {
+    return 'Not a date and time with its time zone.';
+  }
+  return null;
+}
+
+/**
+ * BROWSER ONLY: a `datetime-local` value, read in the person's own zone, as a UTC instant; ''
+ * as null; undefined when it is not a date and time. Never call it on the server: there the
+ * zone-less value would be read in the server's zone.
+ */
 export function localToIso(value: string): string | null | undefined {
   if (value.trim() === '') return null;
-  const t = Date.parse(value);
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(value)) return undefined;
+  const t = new Date(value).getTime();
   return Number.isNaN(t) ? undefined : new Date(t).toISOString();
+}
+
+/** BROWSER ONLY: an instant as a `datetime-local` value in the person's own zone (minutes). */
+export function isoToLocalInput(iso: string | null): string {
+  if (iso === null) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * BROWSER ONLY: what a schedule field sends. Untouched (the input still shows what it was opened
+ * with) → the API's own value, byte for byte: the input has minutes only, so converting it back
+ * would drop seconds and move the time. Changed → the typed local time as a UTC instant.
+ */
+export function scheduleValue(
+  original: string | null,
+  openedWith: string,
+  input: string,
+): string | null | undefined {
+  return input === openedWith ? original : localToIso(input);
+}
+
+/** An instant for people: `2026-12-01 09:00 UTC` (always UTC, always said). */
+export function utcLabel(iso: string | null): string {
+  if (iso === null) return '—';
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? iso : `${new Date(t).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+}
+
+/** An instant for a file: ISO 8601 in UTC with its `Z`. */
+function utcIso(iso: string | null): string {
+  if (iso === null) return '';
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? iso : new Date(t).toISOString();
 }
 
 /** Problems with a draft, by field; empty when it may be sent. */
@@ -151,11 +210,17 @@ export function ruleProblems(draft: RuleDraft): Record<string, string> {
     problems['form'] =
       'A product is in more than one list (or twice in one): pin, boost or bury it, once.';
   }
-  const starts = localToIso(draft.starts_at);
-  const ends = localToIso(draft.ends_at);
-  if (starts === undefined) problems['starts_at'] = 'Not a date and time.';
-  if (ends === undefined) problems['ends_at'] = 'Not a date and time.';
-  if (typeof starts === 'string' && typeof ends === 'string' && ends <= starts) {
+  const startsProblem = instantProblem(draft.starts_at);
+  const endsProblem = instantProblem(draft.ends_at);
+  if (startsProblem !== null) problems['starts_at'] = startsProblem;
+  if (endsProblem !== null) problems['ends_at'] = endsProblem;
+  if (
+    startsProblem === null &&
+    endsProblem === null &&
+    draft.starts_at !== null &&
+    draft.ends_at !== null &&
+    Date.parse(draft.ends_at) <= Date.parse(draft.starts_at)
+  ) {
     problems['ends_at'] = 'The end must be after the start.';
   }
   return problems;
@@ -195,15 +260,23 @@ export function publishOutcomes(
     const state = ruleState(rule, startedAt);
     if (state === 'disabled') return { id: rule.id, outcome: 'skipped', why: 'Disabled.' };
     if (state === 'scheduled') {
-      return { id: rule.id, outcome: 'skipped', why: `Not started: starts ${rule.starts_at}.` };
+      return {
+        id: rule.id,
+        outcome: 'skipped',
+        why: `Not started: starts ${utcLabel(rule.starts_at)}.`,
+      };
     }
     if (state === 'ended') {
-      return { id: rule.id, outcome: 'skipped', why: `Ended ${rule.ends_at}.` };
+      return { id: rule.id, outcome: 'skipped', why: `Ended ${utcLabel(rule.ends_at)}.` };
     }
     const stamped = time(rule.published_at);
     // A small allowance for the clocks of this server and the API's.
     return stamped !== null && stamped >= startedAt.getTime() - 5_000
-      ? { id: rule.id, outcome: 'published', why: `In the index since ${rule.published_at}.` }
+      ? {
+          id: rule.id,
+          outcome: 'published',
+          why: `In the index since ${utcLabel(rule.published_at)}.`,
+        }
       : {
           id: rule.id,
           outcome: 'not-confirmed',
@@ -262,9 +335,9 @@ export function ruleCsvRow(
     rule.scope.query ?? '',
     RULE_STATE_LABEL[ruleState(rule, now)],
     rule.enabled,
-    rule.starts_at ?? '',
-    rule.ends_at ?? '',
-    rule.published_at ?? '',
+    utcIso(rule.starts_at),
+    utcIso(rule.ends_at),
+    utcIso(rule.published_at),
     unpublishedChange(rule) ?? '',
     rule.pins.map(product).join(' | '),
     rule.boosts.map((b) => `${product(b.product_id)} (${b.weight})`).join(' | '),
@@ -281,8 +354,9 @@ export function draftToPatch(draft: RuleDraft): AdminComponents['MerchandisingRu
     boosts: draft.boosts.map((b) => ({ product_id: b.product_id, weight: b.weight })),
     buries: [...draft.buries],
     enabled: draft.enabled,
-    starts_at: localToIso(draft.starts_at) ?? null,
-    ends_at: localToIso(draft.ends_at) ?? null,
+    // Sent as they are: instants the browser made (or the API's own, untouched).
+    starts_at: draft.starts_at,
+    ends_at: draft.ends_at,
   };
 }
 
