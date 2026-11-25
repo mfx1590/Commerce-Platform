@@ -179,6 +179,7 @@ describe('the variant editor', () => {
 
 describe('the product form: tags, SEO and attributes', () => {
   it('saves them merged with what the product already had; a non-text attribute is kept', async () => {
+    // Values pasted, not typed key by key (#948 follow-up): ~90 re-renders ran past 5 s under a loaded run.
     const user = userEvent.setup();
     const action = vi.fn().mockResolvedValue({ status: 'success', data: { id: 'p1' } });
     render(
@@ -199,7 +200,8 @@ describe('the product form: tags, SEO and attributes', () => {
     );
     const tags = screen.getByLabelText('Tags, separated by commas');
     await user.clear(tags);
-    await user.type(tags, 'linen, kitchen, linen');
+    await user.click(tags);
+    await user.paste('linen, kitchen, linen');
     expect(
       within(screen.getByRole('list', { name: 'Tags' })).getAllByRole('listitem'),
     ).toHaveLength(2);
@@ -207,16 +209,20 @@ describe('the product form: tags, SEO and attributes', () => {
     const seo = screen.getByRole('region', { name: 'Search engines' });
     const title = within(seo).getByLabelText('SEO title');
     await user.clear(title);
-    await user.type(title, 'Linen tea towel — woven in Portugal');
-    await user.type(within(seo).getByLabelText('SEO description'), 'Heavy linen, washed twice.');
+    await user.click(title);
+    await user.paste('Linen tea towel — woven in Portugal');
+    await user.click(within(seo).getByLabelText('SEO description'));
+    await user.paste('Heavy linen, washed twice.');
 
     const attributes = screen.getByRole('region', { name: 'Attributes' });
     expect(attributes).toHaveTextContent(
       'Kept as they are (not text, so not editable here): colours.',
     );
     await user.click(within(attributes).getByRole('button', { name: 'Add attribute' }));
-    await user.type(within(attributes).getByLabelText('Attribute 2 name'), 'care');
-    await user.type(within(attributes).getByLabelText('Attribute 2 value'), '40°C');
+    await user.click(within(attributes).getByLabelText('Attribute 2 name'));
+    await user.paste('care');
+    await user.click(within(attributes).getByLabelText('Attribute 2 value'));
+    await user.paste('40°C');
 
     await user.click(screen.getByRole('button', { name: 'Save product' }));
     expect(action).toHaveBeenCalledWith(
@@ -233,6 +239,7 @@ describe('the product form: tags, SEO and attributes', () => {
   });
 
   it('a long SEO title is warned about; a bad canonical is said', async () => {
+    // Values pasted, not typed key by key (#948 follow-up): ~90 re-renders ran past 5 s under a loaded run.
     const user = userEvent.setup();
     render(
       <ProductForm
@@ -245,7 +252,8 @@ describe('the product form: tags, SEO and attributes', () => {
     const seo = screen.getByRole('region', { name: 'Search engines' });
     await user.type(within(seo).getByLabelText('SEO title'), 'x'.repeat(61));
     expect(seo).toHaveTextContent('61 / 60 characters — search engines usually cut the rest.');
-    await user.type(within(seo).getByLabelText('Canonical URL (optional)'), 'http://elsewhere');
+    await user.click(within(seo).getByLabelText('Canonical URL (optional)'));
+    await user.paste('http://elsewhere');
     expect(within(seo).getByRole('alert')).toHaveTextContent(
       'Use an https:// address or a path starting with /.',
     );
