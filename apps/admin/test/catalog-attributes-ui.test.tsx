@@ -119,15 +119,21 @@ describe('the variant editor', () => {
   it('sends every attribute, normalised: HS dots stripped, country upper case, whole mm and g', async () => {
     const { user, form } = await open();
     const f = within(form);
-    await user.type(f.getByLabelText('Barcode (EAN / UPC / GTIN)'), ' 4006381333931 ');
+    // Each value arrives in one paste, not keystroke by keystroke: what is sent is the point here,
+    // and ~50 re-renders of the panel ran past the 5 s timeout under a loaded full run (#948).
+    const fill = async (label: string, text: string) => {
+      await user.click(f.getByLabelText(label));
+      await user.paste(text);
+    };
+    await fill('Barcode (EAN / UPC / GTIN)', ' 4006381333931 ');
     await user.click(f.getByLabelText('Sell when out of stock (backorder)'));
-    await user.type(f.getByLabelText('Weight (g)'), '120');
-    await user.type(f.getByLabelText('Length (mm)'), '400');
-    await user.type(f.getByLabelText('Width (mm)'), '300');
-    await user.type(f.getByLabelText('Height (mm)'), '20');
-    await user.type(f.getByLabelText('HS code'), '6302.60.00');
-    await user.type(f.getByLabelText('Country of origin'), 'pt');
-    await user.type(f.getByLabelText('Compare-at (EUR)'), '24.99');
+    await fill('Weight (g)', '120');
+    await fill('Length (mm)', '400');
+    await fill('Width (mm)', '300');
+    await fill('Height (mm)', '20');
+    await fill('HS code', '6302.60.00');
+    await fill('Country of origin', 'pt');
+    await fill('Compare-at (EUR)', '24.99');
     await user.click(f.getByRole('button', { name: 'Save' }));
     expect(updateVariantAction).toHaveBeenCalledWith('s1', 'v1', {
       sku: 'TOWEL-1',
