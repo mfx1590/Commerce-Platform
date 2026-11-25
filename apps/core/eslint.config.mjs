@@ -1,5 +1,7 @@
-// apps/core ESLint config: the root rules plus this app's own guard. Run with `pnpm --filter @platform/core lint`
-// (the root `pnpm lint` uses only the root config; nested flat configs are not picked up automatically).
+// apps/core ESLint config: the root rules plus this app's own guards. Since ESLint 10 the config is resolved from
+// each linted file's directory, so the root `pnpm lint` applies this file to apps/core too, as does
+// `pnpm --filter @platform/core lint`. It must keep spreading `root`: for files under apps/core this config
+// REPLACES the root one, it does not add to it.
 import root from '../../eslint.config.mjs';
 
 export default [
