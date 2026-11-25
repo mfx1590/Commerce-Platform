@@ -81,7 +81,7 @@ export async function exportBiCsvAction(
   const scope = storeId ?? undefined;
 
   let path: '/admin/metrics/query' | '/admin/metrics/inventory' = '/admin/metrics/query';
-  let body: MetricQuery | InventoryQuery | null = null;
+  let body: MetricQuery | InventoryQuery | null;
   if (block === 'inventory') {
     path = '/admin/metrics/inventory';
     body = {

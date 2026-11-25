@@ -92,7 +92,7 @@ async function json<T>(
   what: string,
 ): Promise<T> {
   if (!response.ok()) {
-    let reason = '';
+    let reason: string;
     try {
       const body = (await response.json()) as { code?: unknown; message?: unknown };
       reason = [body.code, body.message].filter((part) => typeof part === 'string').join(': ');

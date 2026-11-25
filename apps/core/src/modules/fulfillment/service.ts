@@ -263,7 +263,7 @@ export async function applyFulfillmentUpdate(
 
   // The shipment moves FIRST. Writing the reference first would leave it advanced when the move fails for a
   // real reason, and the provider's retry would then find "already at this state" and do nothing.
-  let shipment: StoreShipment | null = null;
+  let shipment: StoreShipment | null;
   switch (update.state) {
     // A consumer must not be able to tell whether a warehouse or an operator moved the shipment: both go
     // through the same lifecycle call, so both write the same `fulfillment.*` event.

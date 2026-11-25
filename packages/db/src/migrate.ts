@@ -21,7 +21,7 @@ export async function listMigrations(
 ): Promise<MigrationFile[]> {
   const files: MigrationFile[] = [];
   for (const dir of dirs) {
-    let entries: string[] = [];
+    let entries: string[];
     try {
       entries = await readdir(dir);
     } catch {
@@ -101,7 +101,7 @@ export async function migrate(
       result.applied.push(m.name);
     } catch (err) {
       await client.query('ROLLBACK');
-      throw new Error(`migration ${m.name} failed: ${(err as Error).message}`);
+      throw new Error(`migration ${m.name} failed: ${(err as Error).message}`, { cause: err });
     } finally {
       client.release();
     }

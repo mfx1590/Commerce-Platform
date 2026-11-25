@@ -1105,6 +1105,10 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   getMiddlewareMatchers (next/dist/build/analysis/get-page-static-info). Mutation-checked (scratchpad
   mutate-949.cjs). Fable review.
   - Gotcha: shell-quoted regex escapes get eaten (`favicon\.ico`): write such edits as a script file.
+- **#959 + #956 queued. integration/eslint-10, 2026-11-25:** eslint 10.15 + @eslint/js 10 + root engines >=22.22.2 <23;
+  the 23 findings fixed (20 dead initialisers removed; migrate.ts gets { cause }; replay.ts and dlq.ts keep error-CLASS-only
+  redaction with a line disable + reason, since a cause would carry the message). Owners per file in the PR body. Opus review.
+  - Gotcha: no-useless-assignment line numbers point at the variable, not always the one you expect (BI was body, not path).
 ## Brand D pre-flight (admin side; input for window 10's wave-3 D8 task — brand D = Japan)
 
 Written 2026-11-10 and extended 2026-11-11 for **brand D = Japan** (JPY, ja-JP, ships to JP). Read-only, on

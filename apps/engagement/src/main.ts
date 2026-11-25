@@ -308,7 +308,7 @@ async function runDrain(deps: {
 
   const started: { stop(): Promise<void> }[] = [];
   const startedAt = Date.now();
-  let stop: Awaited<ReturnType<typeof waitForIdle>> = 'empty';
+  let stop: Awaited<ReturnType<typeof waitForIdle>>;
   try {
     await ops.start();
     started.push(ops);

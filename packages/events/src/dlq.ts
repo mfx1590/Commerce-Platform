@@ -291,7 +291,8 @@ export async function readErasedSet(opts: {
         try {
           ({ envelope } = decodeMessage({ key: m.key, value: m.value, headers: m.headers }));
         } catch (err) {
-          // by offset and class only: a parser message can quote the value
+          // by offset and class only: a parser message can quote the value, so no `cause` either
+          // eslint-disable-next-line preserve-caught-error -- redaction is the point; see the line above.
           throw new Error(
             `the message at offset ${m.offset} does not decode (${errorClassOf(err)})`,
           );

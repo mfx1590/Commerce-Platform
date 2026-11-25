@@ -269,7 +269,7 @@ test('account pages run under the nonce CSP with no violation (Keycloak)', async
   page,
   baseURL,
 }) => {
-  let reachable = false;
+  let reachable: boolean;
   try {
     reachable = (
       await page.request.get(`${KEYCLOAK_URL}/realms/${REALM}/.well-known/openid-configuration`, {
