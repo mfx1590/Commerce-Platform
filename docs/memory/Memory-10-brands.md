@@ -480,10 +480,44 @@ the manager said, because PR B must move `shipping.*` and `fulfillment.*` out of
 exist, so "from main" would have meant re-creating A's work inside B. Flagged to the manager with
 the reason; retarget when A merges.
 
-**Scope note, surfaced not decided:** this branch has the two settings cards. The **shipping-option
-fields** (carrier, service, sales_channel_id and the four `rules` keys) are NOT in it — a different
-component tree and a comparable chunk of work. I asked the manager whether to fold them in before
-review or do them as B2 rather than quietly shipping two thirds of a PR.
+**Scope settled (manager, 2026-11-26): the shipping-option fields are B2**, a separate PR after B,
+so the Fable reviews stay small and the `live` ⇒ `service` guard gets its own look. B is the two
+settings cards only.
+
+### Done (2026-11-26): the two cards are built on A's rules
+
+Admin suite **1794 / 98**; lint, typecheck 30/30, format:check, ownership green. The merge of A's
+`2c68171f` and the rebuild are one commit, because the resolution WAS the rebuild: B's own
+"empty integer means not set" branch became dead code under A's generic clear, and its tests still
+passed a boolean confirmation.
+
+### The plan that produced it, after merging A's review fixes in (2026-11-26)
+
+A's head `2c68171f` is merged into this branch (README and the card form conflicted; A's rules won
+and B's two kinds were re-applied on top, and B's integer-specific "empty means not set" branch
+became dead code because A's clear is now generic). What remains:
+
+1. a `defaultLabel` for all eleven new fields — **required** since A's review, and traced from
+   `apps/core/src/modules/shipping/config.ts` / the fulfilment router, never guessed;
+2. the three findings below, which change what the cards offer;
+3. tests for `textList` / `countryMap` under the three-state rule, the drift guard extension, then
+   CHANGELOG / README / this file, and one push.
+
+### Three findings from the core, before writing the cards
+
+- **`shipping.label_format` is an enum, not free text.** `labelFormatOf` accepts only `pdf`, `png`,
+  `zpl` and **silently falls back to `pdf`** for anything else, so a free-text box would let someone
+  type `PDF417` and see it accepted while the core ignores it. It becomes an enum.
+- **`shipping.default_parcel` is all-or-nothing.** `parcelOf` returns `null` unless **all four** of
+  length / width / height / weight are present and positive, and then the whole parcel falls back
+  to 30×20×10 cm / 1000 g. So filling three boxes changes **nothing** — the worst kind of silent
+  no-op. The card says so, and the action refuses a partial parcel rather than writing one.
+- **Empty `services` / `carrier_account_ids` are not "none".** `services` is a **narrowing filter**:
+  empty means every service the carrier returns is offered, and listing some keeps only those
+  (`easypost-provider.ts` line ~272, and the manual provider the same way). Empty
+  `carrier_account_ids` means no `carrier_accounts` key is sent, so EasyPost uses the account's own
+  default. Both default labels say that, because "empty" reading as "nothing offered" is exactly
+  backwards.
 
 ### What the research gave
 
@@ -514,12 +548,50 @@ the recorded rule again: for generated code, prefer line-range edits and build e
 
 ## In progress — #870 item 7 PR A, store settings (2026-11-25)
 
-**PR #968**, branch `integration/admin-store-settings` from main `43cefd80` (code commit
-`940a2fb7`; head = this memory commit). Tax, Fraud, Refunds, Brand voice — eleven settings paths.
+**PR #968**, branch `integration/admin-store-settings`. Tax, Fraud, Refunds, Brand voice — eleven
+settings paths. Fable's **BLOCK review fixed in one push** (see below), with `origin/main` merged in
+the same push because #962 and #965 had landed and made the PR conflicting; the merge was clean and
+`pnpm install` ran after it (merged lockfile). CONTRACT CHANGE **#967** filed for the settings
+paths, issue **#969** for the refund limit's missing currency.
 **PR B (shipping defaults, fulfilment routing, shipping-option carrier/service/channel/rules) is
-next and not started.** Admin suite **1752 / 97**; lint, format:check, typecheck 30/30, ownership
-green. CONTRACT CHANGE **#967** filed for the settings paths. (This branch predates item 4's #962 /
-#965, so their Memory-10 entries arrive when those merge.)
+next; WIP commit `c050bd2c` on `integration/admin-store-settings-shipping`, not pushed — and it
+must be rebuilt on the "send only changed paths" rule from the start, because its `textList` /
+`countryMap` fields have exactly the same absent-vs-empty trap.**
+
+### The review's finding, which was a real defect: an absent setting is not an empty one
+
+The first cut submitted **every field on the card**. An untouched, **absent** `fraud.providers`
+therefore went out as `[]` — and the core reads an absent `providers` as **both checks run**
+(`DEFAULT_FRAUD_SETTINGS`). So opening the Fraud card and pressing Save would have switched fraud
+checking **off** on any store nobody had configured. The fix is three rules, and they generalise to
+every settings form:
+
+1. **send only the paths that differ** from what the page rendered (the footer says how many);
+2. **show an absent path as "not set (default: …)"**, naming what the core does without it — traced
+   from each owning module's reader, never guessed (absent `radar_highest` **refuses** the payment;
+   absent `support_refund_limit_minor` is **no ceiling**);
+3. **clearing a field deletes the path**, never `''` / `0` / `[]`.
+
+A test then found a second bug behind the same confusion: an unset integer rendered as `''`, parsed
+back as `0`, failed its own minimum — a card with any unset number could not be saved at all.
+**Lesson: a form over optional server-side settings has three states, not two, and "the default" is
+a value only the owning module can tell you.**
+
+### The confirmation had to name what it confirmed
+
+It was a bare `boolean`, so a confirmation for €500 could save €5,000. It is now the
+`[{path, to}]` list the dialog showed, and the action refuses unless it matches the changes it
+recomputes from the store it just re-read; an edit after the dialog opens withdraws it.
+**Lesson: a confirmation flag proves someone clicked, not what they agreed to.**
+
+### What the manager asked me to trace, and the answer
+
+`support_refund_limit_minor` is compared in **no currency at all**: `refunds.ts` does
+`input.amountMinor > input.limitMinor`, and its own error message prints the limit bare. So on an
+order in another currency the ceiling is that many minor units of **that** currency. The card now
+says this to every reader, since it changes what the number means; issue **#969** carries the four
+options for fixing it in the core. **Lesson: when a number crosses a module boundary, find the
+comparison, not the field.**
 
 ### The finding that shaped the PR
 
@@ -632,6 +704,40 @@ table. All of them are role-scoped (`getByRole('list', { name: 'Payments' })`,
 `getByRole('table', { name: 'Order lines' })`, `getByTestId('order-status-meaning')`), and
 "Order lines" is not a substring of "Activity on this order" — `getByRole`'s `name` matches a
 substring by default, which is the trap #896 hit.
+
+## In progress — #870 item 4 PR C, the GDPR export trail (2026-11-25)
+
+**PR #962**, branch `integration/admin-customers-export` (code commit `4890c7da`; head = this
+memory commit). **Stacked on PR B (#958)**, base `integration/admin-customers-detail` — not main:
+the panel goes on the page B rewrites, so building it on main would have guaranteed a `page.tsx`
+conflict. Retarget to main once B merges. Admin suite **1732 / 94** at `--maxWorkers=2`; lint,
+format:check, typecheck 30/30, ownership green. Item 4 is now complete pending review.
+
+**The contract contradicted the plan, and reading it was the whole job.** The plan (and the
+manager's note) said the trail shows who asked and when, "never the bundle" — and listed
+`getCustomerExport` among the operations to use. But that operation's 200 **is** the bundle:
+"Downloads one ready export bundle … as an attachment", 410 when expired. So "use
+getCustomerExport" and "never the bundle" cannot both hold. I shipped the trail, did **not wrap**
+`getCustomerExport` at all, asserted in a test that no download link or button exists, and put the
+choice in the PR body with the 60-line route-handler shape if they want it. **A plan that names an
+operation is not a decision about what that operation does.**
+
+**Found my own inconsistency mid-build.** I had the export panel call `listUsers` (owner on
+organization:hq) whenever the trail loaded — a certain 403 for the store admin who is the panel's
+main reader, which is exactly the "don't ask what will be refused" rule I had just applied to the
+identity panel one PR earlier. Gated it on `owner`.
+
+**A test that told me something true instead of what I expected.** My first assertion was
+"`listUsers` is never called for a store admin". It failed: `loadActivity` (#896) calls it
+unconditionally and survives the refusal by design. So every non-owner pays one refused request per
+detail page view. Gating that needs the principal threaded into `loadActivity` and four pages — out
+of this PR's scope — so the test now asserts the exact count (1, from the activity loader, none
+from the trail) and names the cause. **When a count assertion fails, read it before weakening it:
+it was describing the page, not my code.**
+
+Stacking also meant two mock gaps of my own making: `customers-detail` and `customers-list` mock
+`@/lib/api/admin` wholesale, so each new operation the page reads must be added there or every test
+rendering that page throws. Second time this bit me; it is the cost of whole-module API mocks.
 
 ## In progress — #870 item 4 PR B, customer detail (2026-11-25)
 

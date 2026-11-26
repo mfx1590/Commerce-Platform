@@ -560,6 +560,14 @@ customer ids, so the panel names the stores, links to each record, and says that
 records' names are not shown — reading one would be a second `getCustomer` behind a gate the
 reader may not hold on that store.
 
+**The GDPR export trail is shown; the bundle is not served.** `exportCustomer` and
+`listCustomerExports` are both `store_admin`, so a `support` reader is told as much and the trail is
+not fetched for them. `getCustomerExport` is deliberately not wrapped in `src/lib/api/admin.ts`:
+its 200 response _is_ one person's whole record as an attachment, so nothing in this app can pull
+it. The trail says who asked (a customer's self-service request is labelled, never named), what
+became of the bundle, and how often it was downloaded. The staff-name lookup is `owner` on
+`organization:hq`, so it is skipped for a store admin instead of fetching a certain 403.
+
 **A group is assigned by name**, through the same schema and the same action; the action's own
 `refuseUnlessPermitted('updateCustomer', storeId)` is the server-side check, and the core writes
 the audit row that then appears in the customer's Activity panel.
@@ -698,22 +706,48 @@ A card that sent only its own group would delete every other module's keys. The 
 admin's change; one request's worth of window remains between the re-read and the PATCH, because
 the contract has no `If-Match`.
 
-**Consequential changes are confirmed against a diff**: money (`support_refund_limit_minor`,
-`tax.prices_include_tax`) plus the fraud rules and `shipping.carrier_account_ids`. The dialog is in
-the form, but the **action** refuses an unconfirmed change to those paths — the check is not the UI.
+**Only the fields someone changed are sent.** An absent path is not "off" or "empty" — the core
+has a default for it, and for `fraud.providers` that default is **both checks run**. A card that
+submitted every field would write `[]` for an absent `providers` the moment anyone pressed Save,
+switching fraud checking off on a store nobody had configured. So each field carries a
+`defaultLabel` (traced from the owning module's reader, not guessed), an absent value is shown as
+**"not set (default: …)"** rather than as a value, clearing a field **deletes the path**, and the
+request contains only the paths that differ from what the page rendered. The footer says how many.
 
 A **list** field (`shipping.services`, `shipping.carrier_account_ids`) is one entry per line and a
 **country map** (`fulfillment.routing.countries`) is `NL = wh-eu` per line; a line that parses as
-neither names itself rather than being dropped. `fulfillment.routing.default` is a typed warehouse
-**code**, not a picker, because listing warehouses needs `operations` on the organization and a
-store admin would get a 403.
+neither names itself rather than being dropped. An emptied list or map **clears the path** like
+every other kind, and that distinction carries weight here: `shipping.services` **narrows** what
+the carrier returns, so absent offers everything it quotes while `[]` would be a value meaning
+"narrow to nothing". `fulfillment.routing.default` is a typed warehouse **code**, not a picker,
+because listing warehouses needs `operations` on the organization and a store admin would get a 403.
 
-An **empty number box means "not set"**, not zero: the core keeps its own default for an absent
-path, and for `support_refund_limit_minor` that is the only way to say "no ceiling". Because that
-path is confirmed, the diff says "→ not set" before it is saved.
+**The loose shapes are not the semantics, so the guard reads the owning module.**
+`settings-schema.ts` says `shipping.label_format` is a non-empty string and each parcel dimension a
+positive integer. What the core DOES with them is in `shipping/config.ts`: `labelFormatOf` accepts
+only `pdf` / `png` / `zpl` and silently falls back to `pdf` (so the field is an enum, not a text
+box), and `parcelOf` returns `null` unless **all four** dimensions are set, falling back to
+30×20×10 cm / 1000 g (so three of four is a silent no-op, and the action refuses a partial parcel
+while still allowing the one field that completes one). Every `defaultLabel` is a claim about
+another module, so `test/store-settings-drift.test.ts` pins those readers too —
+`shipping/config.ts`, `easypost-provider.ts` and `fulfillment/registry.ts` — and fails when one
+moves.
 
-Money is minor units on the wire and an amount on screen, in the store's currency. Below
-`store_admin` every value is still shown, read-only, with the relation needed to change it.
+**Consequential changes are confirmed against a diff**: money (`support_refund_limit_minor`,
+`tax.prices_include_tax`), `tax.shipping_taxable`, the fraud rules and
+`shipping.carrier_account_ids`. The dialog is in the form, but the **action** refuses an
+unconfirmed change to those paths — the check is not the UI. The confirmation is the
+`[{path, to}]` list the dialog showed, and the action refuses unless it matches the changes it
+recomputes from the store it just re-read, so a confirmation cannot be reused for a different
+value; editing any field withdraws it.
+
+Money is minor units on the wire and an amount on screen, in the store's currency. The refund
+ceiling is the exception worth knowing: the core compares it against the refund amount as a plain
+integer **without converting** (`apps/core/src/modules/payments/refunds.ts`), so on an order in
+another currency it means that many minor units of _that_ currency. The card says so; issue #969
+asks for the comparison to carry a currency.
+
+Below `store_admin` every value is still shown, read-only, with the relation needed to change it.
 
 ## HQ › Finance (issue #851; Accounting API 0.1.0)
 

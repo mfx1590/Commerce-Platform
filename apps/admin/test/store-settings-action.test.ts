@@ -76,7 +76,8 @@ describe('what reaches the API', () => {
       'tax',
       { 'tax.shipping_taxable': false },
       LOADED,
-      false,
+      // Since the #968 review this path is confirmed, so the list has to name it.
+      [{ path: 'tax.shipping_taxable', to: false }],
     );
     expect(result.status).toBe('success');
 
@@ -107,7 +108,7 @@ describe('what reaches the API', () => {
         'fraud.providers': [],
       },
       LOADED,
-      true,
+      [{ path: 'tax.shipping_taxable', to: false }],
     );
     const sent = sentSettings();
     expect(sent['support_refund_limit_minor']).toBe(5000);
@@ -118,9 +119,39 @@ describe('what reaches the API', () => {
   it('clears a text setting by deleting the path, not by storing an empty string', async () => {
     // The core refuses `''` for `content.brand_voice` (1–500 characters) but treats absent as
     // "not set" and keeps its own default.
-    await saveStoreSettingsAction(STORE, 'content', { 'content.brand_voice': '  ' }, LOADED, false);
+    await saveStoreSettingsAction(STORE, 'content', { 'content.brand_voice': '  ' }, LOADED, []);
     const sent = sentSettings() as { content: Record<string, unknown> };
     expect('brand_voice' in sent.content).toBe(false);
+  });
+
+  it('clears a NUMBER by deleting the path, which is the only way to say "no ceiling"', async () => {
+    // `z.number()` refuses `undefined`, so an earlier cut turned "no ceiling" into a field error
+    // and the one state the core reads as "no limit" could not be saved at all. The form test
+    // could not catch it: there the action is a mock.
+    const result = await saveStoreSettingsAction(
+      STORE,
+      'refunds',
+      { support_refund_limit_minor: undefined },
+      LOADED,
+      [{ path: 'support_refund_limit_minor', to: undefined }],
+    );
+    expect(result.status).toBe('success');
+    expect('support_refund_limit_minor' in sentSettings()).toBe(false);
+  });
+
+  it('clears an enum and an array the same way, without storing a falsy value', async () => {
+    const result = await saveStoreSettingsAction(
+      STORE,
+      'fraud',
+      { 'fraud.providers': undefined, 'fraud.country_mismatch': '' },
+      LOADED,
+      [{ path: 'fraud.providers', to: undefined }],
+    );
+    expect(result.status).toBe('success');
+    const fraud = sentSettings()['fraud'] as Record<string, unknown>;
+    // Not `[]`: the core reads an absent `providers` as "run both checks", and `[]` as "run none".
+    expect('providers' in fraud).toBe(false);
+    expect('country_mismatch' in fraud).toBe(false);
   });
 
   it('writes nothing when nothing changed', async () => {
@@ -129,7 +160,7 @@ describe('what reaches the API', () => {
       'tax',
       { 'tax.provider': 'table', 'tax.shipping_taxable': true },
       LOADED,
-      false,
+      [],
     );
     expect(result.status).toBe('success');
     expect(api.updateStore).not.toHaveBeenCalled();
@@ -144,7 +175,7 @@ describe('the guards', () => {
       'tax',
       { 'tax.shipping_taxable': false },
       LOADED,
-      false,
+      [],
     );
     expect(result.status).toBe('error');
     expect(api.getStore).not.toHaveBeenCalled();
@@ -158,7 +189,7 @@ describe('the guards', () => {
       'tax',
       { 'tax.shipping_taxable': false },
       LOADED,
-      false,
+      [],
     );
     expect(result.status).toBe('error');
     if (result.status === 'error') expect(result.formError).toMatch(/Reload the page/);
@@ -171,10 +202,69 @@ describe('the guards', () => {
     ['fraud.providers', 'fraud', { 'fraud.providers': [] }],
     ['fraud.radar_highest', 'fraud', { 'fraud.radar_highest': 'review' }],
   ] as const)('refuses an unconfirmed change to %s', async (_path, card, values) => {
-    const result = await saveStoreSettingsAction(STORE, card, values, LOADED, false);
+    const result = await saveStoreSettingsAction(STORE, card, values, LOADED, []);
     expect(result.status).toBe('error');
-    if (result.status === 'error') expect(result.formError).toMatch(/has to be confirmed/);
+    if (result.status === 'error')
+      expect(result.formError).toMatch(/not the one that was confirmed/);
     expect(api.updateStore).not.toHaveBeenCalled();
+  });
+
+  it('refuses a confirmation for a DIFFERENT value than the one being saved (#968 review)', async () => {
+    // The dialog said €500; the request carries €5,000. A boolean could not tell the difference.
+    const result = await saveStoreSettingsAction(
+      STORE,
+      'refunds',
+      { support_refund_limit_minor: 500_000 },
+      LOADED,
+      [{ path: 'support_refund_limit_minor', to: 50_000 }],
+    );
+    expect(result.status).toBe('error');
+    expect(api.updateStore).not.toHaveBeenCalled();
+  });
+
+  it('refuses when one of two consequential changes was never confirmed', async () => {
+    const result = await saveStoreSettingsAction(
+      STORE,
+      'tax',
+      { 'tax.prices_include_tax': true, 'tax.shipping_taxable': false },
+      LOADED,
+      [{ path: 'tax.prices_include_tax', to: true }],
+    );
+    expect(result.status).toBe('error');
+    expect(api.updateStore).not.toHaveBeenCalled();
+  });
+
+  it('refuses a confirmation that names a path this save does not change', async () => {
+    const result = await saveStoreSettingsAction(
+      STORE,
+      'tax',
+      { 'tax.prices_include_tax': true },
+      LOADED,
+      [
+        { path: 'tax.prices_include_tax', to: true },
+        { path: 'tax.shipping_taxable', to: false },
+      ],
+    );
+    expect(result.status).toBe('error');
+    expect(api.updateStore).not.toHaveBeenCalled();
+  });
+
+  it('accepts both consequential changes when both were confirmed', async () => {
+    const result = await saveStoreSettingsAction(
+      STORE,
+      'tax',
+      { 'tax.prices_include_tax': true, 'tax.shipping_taxable': false },
+      LOADED,
+      [
+        // Order does not matter; the comparison sorts by path.
+        { path: 'tax.shipping_taxable', to: false },
+        { path: 'tax.prices_include_tax', to: true },
+      ],
+    );
+    expect(result.status).toBe('success');
+    const sent = sentSettings()['tax'] as Record<string, unknown>;
+    expect(sent['prices_include_tax']).toBe(true);
+    expect(sent['shipping_taxable']).toBe(false);
   });
 
   it('saves the same change once it is confirmed', async () => {
@@ -183,7 +273,7 @@ describe('the guards', () => {
       'refunds',
       { support_refund_limit_minor: 50_000 },
       LOADED,
-      true,
+      [{ path: 'support_refund_limit_minor', to: 50_000 }],
     );
     expect(result.status).toBe('success');
     expect(sentSettings()['support_refund_limit_minor']).toBe(50_000);
@@ -195,7 +285,7 @@ describe('the guards', () => {
       'content',
       { 'content.audience': 'Trade buyers' },
       LOADED,
-      false,
+      [],
     );
     expect(result.status).toBe('success');
   });
@@ -206,7 +296,7 @@ describe('the guards', () => {
       'fraud',
       { 'fraud.velocity.max_orders': 0, 'fraud.country_mismatch': 'whatever' },
       LOADED,
-      true,
+      [],
     );
     expect(result.status).toBe('error');
     if (result.status === 'error') {
@@ -233,7 +323,7 @@ describe('the guards', () => {
       'tax',
       { 'tax.prices_include_tax': true },
       LOADED,
-      true,
+      [{ path: 'tax.prices_include_tax', to: true }],
     );
     expect(result.status).toBe('error');
     if (result.status === 'error') {
@@ -242,13 +332,128 @@ describe('the guards', () => {
     }
   });
 
+  it('refuses a parcel with three of its four numbers (#870 item 7 PR B)', async () => {
+    // `parcelOf` in the core returns null unless all four are present and positive, and the whole
+    // parcel then falls back to 30x20x10 / 1000g. Writing three would be a silent no-op, so it is
+    // refused here rather than stored.
+    const result = await saveStoreSettingsAction(
+      STORE,
+      'shipping',
+      {
+        'shipping.default_parcel.length_cm': 40,
+        'shipping.default_parcel.width_cm': 30,
+        'shipping.default_parcel.height_cm': 20,
+      },
+      LOADED,
+      [],
+    );
+    expect(result.status).toBe('error');
+    if (result.status === 'error') expect(result.formError).toMatch(/all four/);
+    expect(api.updateStore).not.toHaveBeenCalled();
+  });
+
+  it('allows the one field that COMPLETES a parcel, because only changed fields are sent', async () => {
+    api.getStore.mockResolvedValue(
+      ok(
+        store({
+          settings: {
+            ...SETTINGS,
+            shipping: {
+              ...SETTINGS.shipping,
+              default_parcel: { length_cm: 40, width_cm: 30, height_cm: 20 },
+            },
+          },
+        }),
+      ),
+    );
+    const result = await saveStoreSettingsAction(
+      STORE,
+      'shipping',
+      { 'shipping.default_parcel.weight_g': 2000 },
+      LOADED,
+      [],
+    );
+    expect(result.status).toBe('success');
+    const parcel = (sentSettings()['shipping'] as Record<string, unknown>)['default_parcel'];
+    expect(parcel).toEqual({ length_cm: 40, width_cm: 30, height_cm: 20, weight_g: 2000 });
+  });
+
+  it('clearing the whole parcel is allowed: none is as valid as four', async () => {
+    api.getStore.mockResolvedValue(
+      ok(
+        store({
+          settings: {
+            ...SETTINGS,
+            shipping: {
+              ...SETTINGS.shipping,
+              default_parcel: { length_cm: 40, width_cm: 30, height_cm: 20, weight_g: 2000 },
+            },
+          },
+        }),
+      ),
+    );
+    const result = await saveStoreSettingsAction(
+      STORE,
+      'shipping',
+      {
+        'shipping.default_parcel.length_cm': undefined,
+        'shipping.default_parcel.width_cm': undefined,
+        'shipping.default_parcel.height_cm': undefined,
+        'shipping.default_parcel.weight_g': undefined,
+      },
+      LOADED,
+      [],
+    );
+    expect(result.status).toBe('success');
+    expect((sentSettings()['shipping'] as Record<string, unknown>)['default_parcel']).toEqual({});
+  });
+
+  it('refuses a label format the core would silently ignore', async () => {
+    const result = await saveStoreSettingsAction(
+      STORE,
+      'shipping',
+      { 'shipping.label_format': 'PDF417' },
+      LOADED,
+      [],
+    );
+    expect(result.status).toBe('error');
+    if (result.status === 'error') {
+      expect(Object.keys(result.fieldErrors ?? {})).toEqual(['shipping.label_format']);
+    }
+    expect(api.updateStore).not.toHaveBeenCalled();
+  });
+
+  it('refuses an empty entry in a list rather than storing a code that matches nothing', async () => {
+    const result = await saveStoreSettingsAction(
+      STORE,
+      'shipping',
+      { 'shipping.services': ['ups_ground', '  '] },
+      LOADED,
+      [],
+    );
+    expect(result.status).toBe('error');
+    expect(api.updateStore).not.toHaveBeenCalled();
+  });
+
+  it('refuses a country map key that is not a country', async () => {
+    const result = await saveStoreSettingsAction(
+      STORE,
+      'fulfillment',
+      { 'fulfillment.routing.countries': { Netherlands: 'wh-eu' } },
+      LOADED,
+      [],
+    );
+    expect(result.status).toBe('error');
+    expect(api.updateStore).not.toHaveBeenCalled();
+  });
+
   it('refuses an unknown card', async () => {
     const result = await saveStoreSettingsAction(
       STORE,
       'nonsense' as never,
       { 'tax.provider': 'stripe' },
       LOADED,
-      true,
+      [],
     );
     expect(result.status).toBe('error');
     expect(api.getStore).not.toHaveBeenCalled();

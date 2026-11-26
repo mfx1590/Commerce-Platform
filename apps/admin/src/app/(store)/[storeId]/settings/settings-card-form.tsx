@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState, useTransition } from 'react';
+import { useMemo, useState, useTransition } from 'react';
 import { saveStoreSettingsAction } from '@/app/actions/store-settings';
 import { Field, FormError, SelectField, TextField } from '@/components/form/fields';
 import { ActionRefusal } from '@/components/states/action-refusal';
@@ -21,15 +21,27 @@ import {
 /** The card's current values, by dotted path. Settings are configuration, never personal data. */
 export type CardValues = Readonly<Record<string, unknown>>;
 
+/** What was confirmed: the paths and the values the reader was shown and agreed to. */
+type Confirmed = { path: string; to: unknown }[];
+
+const NOT_SET = '';
+
 /**
  * One `store.settings` card: every field with its current value, and a **diff before the save** for
  * the changes that matter (#870 item 7).
  *
- * The diff is shown for money (`support_refund_limit_minor`, `tax.prices_include_tax`) and — the
- * manager's decision — for the fraud rules and the carrier accounts, because loosening a fraud rule
- * is as consequential as a number with a currency on it. It is computed here from the values the
- * page rendered, so there is no round trip to find out what would change; the **action refuses an
- * unconfirmed consequential change anyway**, so this dialog is the courtesy and that is the rule.
+ * **Only fields the reader actually touched are sent** (#968 review). An absent path is not "off"
+ * or "empty": an absent `fraud.providers` means **both** fraud checks run, an absent
+ * `support_refund_limit_minor` means no ceiling at all, and an absent `tax.shipping_taxable`
+ * depends on the legal entity's country. The first version submitted every field on the card, so
+ * saving an untouched Fraud card would have sent `providers: []` and switched fraud checking
+ * **off**. Now the form compares the draft against the draft it rendered and sends only the
+ * difference: an untouched field is not in the request at all, and an absent one reads "not set
+ * (default: …)" rather than as a value.
+ *
+ * **The confirmation names what was confirmed.** The dialog snapshots the `{ path, to }` entries it
+ * showed, the action recomputes them and requires an exact match, and any edit after the dialog
+ * opens clears it — so a confirmation cannot authorise a change the reader never saw.
  *
  * Money is shown as an amount in the store's currency and sent as minor units: ¥1,980 is 1980, and
  * a store with a zero-decimal currency must never see "19.80".
@@ -53,10 +65,14 @@ export function SettingsCardForm({
   const card = SETTINGS_CARDS.find((candidate) => candidate.id === cardId)!;
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [draft, setDraft] = useState<Record<string, string>>(() =>
-    initialDraft(card.fields, current, currency),
+  const initial = useMemo(
+    () => initialDraft(card.fields, current, currency),
+    [card.fields, current, currency],
   );
-  const [pending, setPending] = useState<SettingChange[] | null>(null);
+  const [draft, setDraft] = useState<Record<string, string>>(initial);
+  const [pending, setPending] = useState<{ changes: SettingChange[]; confirmed: Confirmed } | null>(
+    null,
+  );
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<ActionRefusalInfo | undefined>(undefined);
@@ -64,19 +80,22 @@ export function SettingsCardForm({
 
   const money = (amountMinor: number) => formatMoney(amountMinor, currency, locale);
 
-  /** The draft as the action wants it: typed values by path, or a per-field message. */
-  function parseDraft(): { values: Record<string, unknown>; errors: Record<string, string> } {
+  /** Exactly the fields whose box differs from the one this page rendered. */
+  const touched = card.fields.filter((field) => draft[field.path] !== initial[field.path]);
+
+  /** The touched fields as the action wants them: typed values by path, or a per-field message. */
+  function parseTouched(): { values: Record<string, unknown>; errors: Record<string, string> } {
     const values: Record<string, unknown> = {};
     const errors: Record<string, string> = {};
-    for (const field of card.fields) {
-      const raw = draft[field.path] ?? '';
+    for (const field of touched) {
+      const raw = draft[field.path] ?? NOT_SET;
+      // "not set" on any kind clears the path: the core keeps its own default for an absent one.
+      if (raw.trim() === NOT_SET) {
+        values[field.path] = undefined;
+        continue;
+      }
       if (field.kind === 'boolean') {
         values[field.path] = raw === 'true';
-      } else if (field.kind === 'integer' && raw.trim() === '') {
-        // Empty means "not set", not zero and not invalid: the core keeps its own default for an
-        // absent path. For the refund ceiling that is the only way to say "no limit at all", and
-        // because the path is confirmed the diff spells it out as "→ not set" first.
-        values[field.path] = undefined;
       } else if (field.kind === 'integer' && field.money === true) {
         const parsed = parseMoney(raw, currency);
         if (!parsed.ok) errors[field.path] = 'That is not an amount in this currency.';
@@ -87,8 +106,9 @@ export function SettingsCardForm({
           errors[field.path] = `A whole number, ${field.min ?? 0} or more.`;
         } else values[field.path] = parsed;
       } else if (field.kind === 'enumArray') {
-        values[field.path] = raw === '' ? [] : raw.split(',');
+        values[field.path] = raw.split(',').filter((item) => item !== '');
       } else if (field.kind === 'textList') {
+        // An emptied box never reaches here: the clear above took it, so never `[]`.
         values[field.path] = lines(raw);
       } else if (field.kind === 'countryMap') {
         const map: Record<string, string> = {};
@@ -110,12 +130,20 @@ export function SettingsCardForm({
     return { values, errors };
   }
 
-  function submit(confirmed: boolean) {
+  function submit(confirmed: Confirmed | null) {
     setFormError(null);
     setRefusal(undefined);
-    const { values, errors } = parseDraft();
+    const { values, errors } = parseTouched();
     setFieldErrors(errors);
-    if (Object.keys(errors).length > 0) return;
+    if (Object.keys(errors).length > 0) {
+      setPending(null);
+      return;
+    }
+    if (Object.keys(values).length === 0) {
+      setPending(null);
+      setSaved(true);
+      return;
+    }
 
     const changes = changesOf(card.fields, unflatten(current), values, money);
     if (changes.length === 0) {
@@ -123,13 +151,25 @@ export function SettingsCardForm({
       setSaved(true);
       return;
     }
-    if (!confirmed && needsConfirmation(changes)) {
-      setPending(changes);
+    if (confirmed === null && needsConfirmation(changes)) {
+      setPending({
+        changes,
+        // Bound to the values being sent, not a boolean: this is what the reader agrees to.
+        confirmed: changes
+          .filter((change) => change.confirm)
+          .map((change) => ({ path: change.path, to: values[change.path] })),
+      });
       return;
     }
 
     startTransition(async () => {
-      const result = await saveStoreSettingsAction(storeId, cardId, values, updatedAt, confirmed);
+      const result = await saveStoreSettingsAction(
+        storeId,
+        cardId,
+        values,
+        updatedAt,
+        confirmed ?? [],
+      );
       if (result.status === 'success') {
         setPending(null);
         setSaved(true);
@@ -149,7 +189,7 @@ export function SettingsCardForm({
       aria-label={`${card.title} settings`}
       onSubmit={(event) => {
         event.preventDefault();
-        submit(false);
+        submit(null);
       }}
     >
       <ActionRefusal refusal={refusal} message={null} />
@@ -160,11 +200,13 @@ export function SettingsCardForm({
           <FieldInput
             key={field.path}
             field={field}
-            value={draft[field.path] ?? ''}
+            value={draft[field.path] ?? NOT_SET}
             error={fieldErrors[field.path]}
             currency={currency}
             onChange={(value) => {
               setSaved(false);
+              // Any edit invalidates a confirmation asked for the previous values.
+              setPending(null);
               setDraft((previous) => ({ ...previous, [field.path]: value }));
             }}
           />
@@ -179,7 +221,7 @@ export function SettingsCardForm({
         >
           <p className="text-sm font-medium">Confirm this change</p>
           <ul className="space-y-1 text-sm">
-            {pending.map((change) => (
+            {pending.changes.map((change) => (
               <li key={change.path}>
                 {change.label}: <span className="line-through">{change.from}</span>{' '}
                 <span aria-hidden>→</span> <span className="font-medium">{change.to}</span>
@@ -187,7 +229,12 @@ export function SettingsCardForm({
             ))}
           </ul>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" disabled={isPending} onClick={() => submit(true)} type="button">
+            <Button
+              size="sm"
+              disabled={isPending}
+              onClick={() => submit(pending.confirmed)}
+              type="button"
+            >
               Yes, save it
             </Button>
             <Button
@@ -206,6 +253,12 @@ export function SettingsCardForm({
           <Button type="submit" size="sm" disabled={isPending}>
             Save {card.title.toLowerCase()}
           </Button>
+          {touched.length > 0 && (
+            <span className="text-muted text-xs">
+              {touched.length} field{touched.length === 1 ? '' : 's'} changed; the rest are not
+              sent.
+            </span>
+          )}
           {saved && (
             <span role="status" className="text-success text-sm">
               Saved.
@@ -230,38 +283,26 @@ function FieldInput({
   currency: string;
   onChange: (value: string) => void;
 }) {
-  const hint = field.money === true ? `${field.hint ?? ''} In ${currency}.`.trim() : field.hint;
-
+  const notSet = `not set (default: ${field.defaultLabel})`;
+  const base = field.money === true ? `${field.hint ?? ''} In ${currency}.`.trim() : field.hint;
+  // The default belongs on the field, not in a footnote: "off" and "not set" are different states.
+  const hint = value === NOT_SET ? `${base ?? ''} ${notSet}.`.trim() : base;
   const id = `setting-${field.path.replaceAll('.', '-')}`;
 
-  if (field.kind === 'boolean') {
-    return (
-      <Field
-        label={field.label}
-        htmlFor={id}
-        {...(hint === undefined ? {} : { hint })}
-        error={error}
-      >
-        <select
-          id={id}
-          value={value}
-          onChange={(event) => onChange(event.currentTarget.value)}
-          className="border-line bg-surface h-9 rounded-md border px-2"
-        >
-          <option value="false">off</option>
-          <option value="true">on</option>
-        </select>
-      </Field>
-    );
-  }
-
-  if (field.kind === 'enum') {
+  if (field.kind === 'boolean' || field.kind === 'enum') {
+    const options = field.kind === 'boolean' ? ['true', 'false'] : [...(field.options ?? [])];
     return (
       <SelectField
         label={field.label}
         {...(hint === undefined ? {} : { hint })}
         error={error}
-        options={(field.options ?? []).map((option) => ({ value: option, label: option }))}
+        options={[
+          { value: NOT_SET, label: notSet },
+          ...options.map((option) => ({
+            value: option,
+            label: field.kind === 'boolean' ? (option === 'true' ? 'on' : 'off') : option,
+          })),
+        ]}
         value={value}
         onChange={(event) => onChange(event.currentTarget.value)}
       />
@@ -269,7 +310,7 @@ function FieldInput({
   }
 
   if (field.kind === 'enumArray') {
-    const selected = value === '' ? [] : value.split(',');
+    const selected = value === NOT_SET ? [] : value.split(',');
     return (
       <Field
         label={field.label}
@@ -338,7 +379,12 @@ const lines = (raw: string): string[] =>
     .map((line) => line.trim())
     .filter((line) => line !== '');
 
-/** The form's string state, from the values the page rendered. */
+/**
+ * The form's string state, from the values the page rendered.
+ *
+ * An absent path becomes `''` — "not set" — and stays that way unless the reader changes it, which
+ * is what keeps an untouched absent field out of the request.
+ */
 function initialDraft(
   fields: readonly SettingField[],
   current: CardValues,
@@ -347,11 +393,12 @@ function initialDraft(
   const draft: Record<string, string> = {};
   for (const field of fields) {
     const value = current[field.path];
-    if (field.kind === 'boolean') draft[field.path] = value === true ? 'true' : 'false';
+    if (value === undefined || value === null) draft[field.path] = NOT_SET;
+    else if (field.kind === 'boolean') draft[field.path] = value === true ? 'true' : 'false';
     else if (field.kind === 'enumArray')
-      draft[field.path] = Array.isArray(value) ? value.join(',') : '';
+      draft[field.path] = Array.isArray(value) ? value.join(',') : NOT_SET;
     else if (field.kind === 'textList')
-      draft[field.path] = Array.isArray(value) ? value.join('\n') : '';
+      draft[field.path] = Array.isArray(value) ? value.join('\n') : NOT_SET;
     else if (field.kind === 'countryMap')
       draft[field.path] =
         typeof value === 'object' && value !== null
@@ -359,10 +406,9 @@ function initialDraft(
               .map(([country, code]) => `${country} = ${String(code)}`)
               .sort()
               .join('\n')
-          : '';
+          : NOT_SET;
     else if (field.money === true && typeof value === 'number')
       draft[field.path] = formatMoneyInput(value, currency);
-    else if (value === undefined || value === null) draft[field.path] = '';
     else draft[field.path] = String(value);
   }
   return draft;

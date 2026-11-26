@@ -1527,34 +1527,131 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   #967 asks for the paths to be described in the yaml; the guard then reads that instead.
 - `theme` stays read-only (a free-form object with no shape to validate), and `payment.methods` is
   shown as derived and never offered as an input.
-- Tests: `store-settings-action.test.ts` (15) — only the card's paths written, other modules' keys
+- **Only the fields someone changed are sent, and an absent one reads "not set" (review of #968).**
+  The first cut submitted every field on the card, so an untouched **absent** `fraud.providers`
+  went out as `[]` — and the core reads an absent `providers` as **both checks run**, so opening a
+  card and pressing Save would have switched fraud checking **off** on any store nobody had
+  configured. Now:
+  - the form sends **only the paths whose value differs from what the page rendered** ("N fields
+    changed; the rest are not sent." under each card), so a card can never write a default it
+    merely displayed;
+  - an absent path is shown as **"not set (default: …)"** naming what the **core** does without it —
+    traced from each owning module's reader, not guessed: `fraud.providers` absent runs **both**
+    checks, `fraud.radar_highest` absent **refuses** the payment, `support_refund_limit_minor`
+    absent is **no ceiling at all**, `tax.shipping_taxable` absent is taxable only for an EU legal
+    entity;
+  - clearing a field **deletes the path** rather than storing `''`, `0` or `[]`, which is the only
+    way to say "no ceiling" and the only value the core reads as "use my default". (Two bugs lived
+    here. An unset integer rendered as `''` parsed back as `0` and failed its own minimum, so a
+    card with any unset number could not be saved at all; and the action cleared only `text`
+    fields, so `z.number()` refused the `undefined` a cleared amount sends — "support has no
+    ceiling" was unsayable. The form test could not see the second one: there the action is a mock.
+    It took an action test to find it.)
+  - unchecking every fraud check therefore leaves the path **not set**, and the hint says so:
+    switching fraud checking off is deliberately not reachable from a checkbox.
+- **`tax.shipping_taxable` joined the confirmed set** — it changes what every order is taxed on and
+  its default depends on the legal entity's country, so flipping it is never obviously right.
+- **The confirmation is bound to the values that were shown, not a boolean (review of #968).** The
+  form sends the `[{path, to}]` list the dialog displayed, and the action recomputes the
+  consequential changes from the store it just re-read and **refuses unless the two match exactly**
+  — a confirmation for €500 cannot save €5,000, a confirmation naming a path this save does not
+  change is refused, and one of two changes left unconfirmed refuses the whole save. Editing any
+  field after the dialog opens withdraws the confirmation.
+- **The refund card says which currency the limit is compared in.** The core compares
+  `support_refund_limit_minor` against the refund amount as a **plain integer, without converting**
+  (`refunds.ts`; its own error prints the limit with no currency at all), so on an order in another
+  currency it acts as that many minor units of **that** currency. The card says this to every
+  reader, because it changes what the number means. Issue #969 asks for the comparison to carry a
+  currency; this PR does not change the core.
+- Tests: `store-settings-action.test.ts` (21) — only the card's paths written, other modules' keys
   preserved, the stale-`updated_at` refusal, the unconfirmed-change refusal per consequential path,
-  the core's 422 said in words; `store-settings-form.test.tsx` (8) — the diff shown before a save,
-  cancel, an ordinary change not interrupted, and money in EUR and JPY;
+  the four binding cases above, clearing a number / an enum / an array by **deleting the path**, the
+  core's 422 said in words;
+  `store-settings-form.test.tsx` (12) — the diff shown before a save, cancel, an ordinary change
+  not interrupted, money in EUR and JPY, **only the touched field sent**, an edit withdrawing the
+  confirmation, a cleared limit reading "not set", and the core default shown for an unset field;
   `store-settings-drift.test.ts` (7); three more in `settings.test.tsx`. Grepped `apps/*/e2e`: the
   settings assertions are scoped forms and specific text, and no form name collides.
 
 ### Added — #870 wave 1 item 7 (PR B): shipping defaults and fulfilment routing
 
-- **Two more settings cards**, on PR A's pattern: **Shipping defaults** (`shipping.provider`,
-  `shipping.carrier_account_ids`, `shipping.services`, the four `shipping.default_parcel.*`
-  dimensions, `shipping.label_format`) and **Fulfilment routing** (`fulfillment.provider`,
-  `fulfillment.routing.default`, `fulfillment.routing.countries`). Every path moved out of
-  `NOT_EDITED_PATHS` into a card, and the drift guard — which accounts for **every** path the core
-  reads — is what proves nothing was dropped on the way.
+- **Two more settings cards**, on PR A's pattern and under its rules (only changed fields sent, an
+  absent path shown as "not set (default: …)", clearing deletes the path): **Shipping defaults**
+  (`shipping.provider`, `shipping.carrier_account_ids`, `shipping.services`, the four
+  `shipping.default_parcel.*` dimensions, `shipping.label_format`) and **Fulfilment routing**
+  (`fulfillment.provider`, `fulfillment.routing.default`, `fulfillment.routing.countries`). Every
+  path moved out of `NOT_EDITED_PATHS` into a card, and the drift guard — which accounts for
+  **every** path the core reads — is what proves nothing was dropped on the way.
 - **Two new field kinds, both with their format explained** rather than guessable: a **list** one
   per line (`services`, `carrier_account_ids`) and a **country map** written `NL = wh-eu`. A colon
   is accepted too because somebody will type one, a lower-case country is upper-cased, and a line
   that is neither says **which line** rather than being dropped. The drift guard requires a hint on
   both kinds, since nothing about "one per line" is discoverable from the field itself.
+- **Three things the core does with these values that the first cut got wrong.** The shapes in
+  `settings-schema.ts` are deliberately loose, so what a value MEANS lives in the owning module,
+  and reading it changed the cards:
+  - **`shipping.label_format` is an enum, not free text.** `labelFormatOf` accepts only `pdf`,
+    `png` and `zpl` and **silently falls back to `pdf`** for anything else — a text box would have
+    accepted `PDF417` and looked saved while the core ignored it. It is now a select of three.
+  - **`shipping.default_parcel` is all-or-nothing.** `parcelOf` returns `null` unless length,
+    width, height and weight are **all** present and positive, and the whole parcel then falls back
+    to 30×20×10 cm / 1000 g — so filling three boxes changes **nothing**. The card says so and the
+    **action refuses a partial parcel**, while still allowing the one field that completes one
+    (which matters precisely because only changed fields are now sent) and allowing all four to be
+    cleared together.
+  - **An empty list is not "none".** `shipping.services` is a **narrowing** filter: absent or empty
+    offers every service the carrier quotes, and listing some keeps only those. An empty
+    `carrier_account_ids` means no account list is sent at all, so the carrier's own default
+    applies. Reading either as "nothing enabled" is exactly backwards, so both default labels say
+    what absent really does.
+- **The drift guard now reads the owning modules too.** Every `defaultLabel` is a claim about
+  another module, so `store-settings-drift.test.ts` also pins `shipping/config.ts` (the three label
+  formats, `parcelOf`'s all-four line, `DEFAULT_PARCEL`'s numbers, the `?? 'manual'` and `?? 'pdf'`
+  fallbacks), `easypost-provider.ts` (that `services` narrows and an empty account list is not
+  sent) and `fulfillment/registry.ts` (`DEFAULT_FULFILLMENT_PROVIDER`). If window 8 adds a label
+  format or makes the parcel per-field, this fails instead of the card quietly lying.
 - **`fulfillment.routing.default` is a typed warehouse CODE, not a picker.** Listing warehouses
   needs `operations` on the organization, which a store admin does not have, so a picker would be a
-  certain 403 — the hint says where the codes come from instead.
+  certain 403 — the hint says where the codes come from instead. The card also says what these two
+  fields really do: they override only the front of the core's order (country, then this default,
+  then destination country, then region, then lowest priority), so clearing them hands the decision
+  back to the last three rules rather than switching routing off.
 - **Swapping `shipping.carrier_account_ids` is confirmed against a diff**, with the manager's
   reasoning: it changes who is billed, which is as consequential as a number with a currency on it.
-- **Bug found by its own test: an unset number could not be saved.** An empty integer box parsed as
-  `0` and failed its minimum, so a card with any unset dimension refused to save at all. Empty now
-  means **"not set"** — the core keeps its own default for an absent path — and for
-  `support_refund_limit_minor` that is the only way to express "no ceiling at all", which the
-  confirm dialog now spells out as "€50.00 → not set" before it is saved.
 - The settings tests derive the card list from the catalogue, so adding a card no longer edits them.
+- Tests: `store-settings-action.test.ts` 21 → **27** (the partial-parcel refusal, the field that
+  completes a parcel, clearing all four, a label format the core would ignore, an empty list entry,
+  a country-map key that is not a country); `store-settings-form.test.tsx` 12 → **18** (a list
+  shown one per line and sent as an array, an emptied list clearing the path instead of sending
+  `[]`, the country map read from lines and upper-cased, the wrong line named, the carrier-account
+  confirmation, and the core defaults shown for an unset list and format);
+  `store-settings-drift.test.ts` 7 → **11**. Grepped `apps/*/e2e`: no spec touches these cards.
+
+### Added — #870 wave 1 item 4 (PR C): the GDPR export trail, beside erase
+
+- **Request an export** (`exportCustomer`, 202) and **the trail of every request**
+  (`listCustomerExports`): when it was asked for, by whom, what became of the bundle, its size, and
+  how many times it has been downloaded. Both are `store_admin`, so a `support` reader — who may
+  read the record on screen — is told it is store-admin work and **the trail is never fetched**.
+  `requestCustomerExportAction` is guarded by `refuseUnlessPermitted('exportCustomer', storeId)`;
+  the rule is in `CUSTOMER_PERMISSIONS`, which `test/action-permissions.test.ts` pins against the
+  `x-permission` in `admin-api.yaml` and now exercises for this action too.
+- **The bundle is not served from this screen, and `getCustomerExport` is not even wrapped.** That
+  operation's 200 _is_ the bundle — the whole of one person's record as an attachment. The panel
+  says so in a sentence, and a test asserts there is no download link or button anywhere in it. See
+  the PR for the question this leaves open.
+- **The states read as what they are.** "pending" is being built, "expired" is a purge and not a
+  failure, and the contract's two `reason` values are said in words ("the customer was erased
+  before the bundle was", "too large"). An empty trail says no export has ever been requested.
+- **Who asked, where that is knowable.** A customer's own self-service request is labelled as one
+  and never named. A staff id is resolved against `listUsers` — which is `owner` on
+  `organization:hq`, so the lookup is **skipped** for a store admin rather than fetching a certain
+  403, and the row reads "Staff (ab12cd34)". The one `listUsers` call a store admin still pays on
+  this page is the Activity panel's from #896, which asks unconditionally by design; gating that
+  would mean threading the principal into `loadActivity` and four pages, so it is named rather than
+  changed here.
+- An **erased** customer is not offered an export: there is nothing left to bundle.
+- Tests: `test/customers-export.test.tsx` (12) — no download anywhere, the two "do not ask what
+  would be refused" cases, the owner path naming the asker, the erased and empty states, a refused
+  trail, and the pure wording/size/count helpers. `test/action-permissions.test.ts` gained the
+  export action. Grepped `apps/*/e2e`: no spec touches exports or the new table.

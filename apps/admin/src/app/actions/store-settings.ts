@@ -29,6 +29,14 @@ function failure(formError: string): ActionResult<never> {
 }
 
 /** Per-field validation built from the catalogue, which mirrors what the core enforces. */
+/** The four paths the core reads as one parcel, or not at all. */
+const PARCEL_PATHS: readonly string[] = [
+  'shipping.default_parcel.length_cm',
+  'shipping.default_parcel.width_cm',
+  'shipping.default_parcel.height_cm',
+  'shipping.default_parcel.weight_g',
+];
+
 function schemaFor(field: SettingField): z.ZodTypeAny {
   switch (field.kind) {
     case 'boolean':
@@ -80,16 +88,20 @@ function schemaFor(field: SettingField): z.ZodTypeAny {
  * the re-read and the PATCH — the contract has no `If-Match` — and the merge preserves every key
  * read in that same breath, so the exposure is one card's fields, not the whole object.
  *
- * **A consequential change must arrive confirmed.** The UI shows a diff first, but that is UI: any
- * change to a `CONFIRM_PATHS` path is refused here unless `confirmed` is true, so skipping the
- * dialog does not skip the check.
+ * **A consequential change must arrive confirmed, and the confirmation names what was confirmed**
+ * (#968 review). `confirmed` is not a boolean: it is the list of `{ path, to }` the reader was
+ * shown and agreed to. This recomputes the consequential changes from the store as it is now and
+ * requires the submitted list to match **exactly** — same paths, same values. So a confirmation
+ * cannot authorise a change the reader never saw: not a stale snapshot (the value moved under
+ * them), not a wider one (an extra path slipped in afterwards), and not a forged `true`.
  */
 export async function saveStoreSettingsAction(
   storeId: string,
   cardId: CardId,
   values: Readonly<Record<string, unknown>>,
   loadedUpdatedAt: string,
-  confirmed: boolean,
+  /** The `{ path, to }` entries the reader was shown and agreed to; `[]` when none were needed. */
+  confirmed: readonly { path: string; to: unknown }[],
 ): Promise<ActionResult<{ updated_at: string }>> {
   const refused = await refuseUnlessPermitted('updateStore', storeId);
   if (refused) return refused;
@@ -103,22 +115,12 @@ export async function saveStoreSettingsAction(
   for (const field of card.fields) {
     if (!(field.path in values)) continue;
     const raw = values[field.path];
-    // An empty text box clears the setting: the core treats absent as "not set" and keeps its own
-    // default, which is a different thing from storing an empty string (it would refuse that).
-    if (field.kind === 'text' && typeof raw === 'string' && raw.trim() === '') {
-      updates[field.path] = undefined;
-      continue;
-    }
-    // An emptied list or map clears the setting rather than storing `[]` / `{}`: the core treats
-    // absent as "not set", and an empty `shipping.services` would mean "no option may price live".
-    if (
-      (field.kind === 'integer' && raw === undefined) ||
-      (field.kind === 'textList' && Array.isArray(raw) && raw.length === 0) ||
-      (field.kind === 'countryMap' &&
-        typeof raw === 'object' &&
-        raw !== null &&
-        Object.keys(raw).length === 0)
-    ) {
+    // "Not set" clears the setting, whatever its kind: the core treats an absent path as not set
+    // and keeps its own default, which is a different thing from storing `''`, `0` or `[]` — it
+    // would refuse the first and honour the others as values. For `support_refund_limit_minor`
+    // clearing is the ONLY way to say "support has no ceiling", so a schema that rejected
+    // `undefined` here would make that unsayable (and it did: `z.number()` refuses it).
+    if (raw === undefined || (typeof raw === 'string' && raw.trim() === '')) {
       updates[field.path] = undefined;
       continue;
     }
@@ -150,13 +152,43 @@ export async function saveStoreSettingsAction(
   );
   if (changed.length === 0) return { status: 'success', data: { updated_at: store.updated_at } };
 
-  if (!confirmed && changed.some(([path]) => CONFIRM_PATHS.includes(path))) {
-    return failure('That change has to be confirmed before it can be saved. Nothing was saved.');
+  // Exactly the consequential changes this save would make, as the reader must have seen them.
+  const needConfirming = changed.filter(([path]) => CONFIRM_PATHS.includes(path));
+  if (needConfirming.length > 0) {
+    const asked = JSON.stringify(
+      needConfirming
+        .map(([path, to]) => [path, to ?? null])
+        .sort((a, b) => (a[0] as string).localeCompare(b[0] as string)),
+    );
+    const agreed = JSON.stringify(
+      [...confirmed]
+        .map((entry) => [entry.path, entry.to ?? null])
+        .sort((a, b) => (a[0] as string).localeCompare(b[0] as string)),
+    );
+    if (asked !== agreed) {
+      return failure(
+        'This change is not the one that was confirmed — it may have moved since you were asked. Nothing was saved; reload and try again.',
+      );
+    }
   }
 
-  const result = await updateStore(storeId, {
-    settings: withPaths(store.settings, Object.fromEntries(changed)),
-  });
+  const next = withPaths(store.settings, Object.fromEntries(changed));
+
+  // The default parcel is all-or-nothing in the core: `parcelOf` returns null unless length, width,
+  // height and weight are ALL present and positive, and the whole parcel then falls back to
+  // 30x20x10 cm / 1000 g. Three of four is not a smaller parcel, it is no parcel — a silent no-op.
+  // Checked on the MERGED settings, not on what was submitted: since only changed fields are sent,
+  // filling the last box is a one-field save that completes a parcel, and that must be allowed.
+  const parcel = PARCEL_PATHS.map((path) => valueAt(next, path)).filter(
+    (value) => value !== undefined && value !== null,
+  );
+  if (parcel.length > 0 && parcel.length < PARCEL_PATHS.length) {
+    return failure(
+      'The default parcel needs all four of length, width, height and weight, or none of them: the core ignores a partial one and quotes 30×20×10 cm at 1000 g instead. Nothing was saved.',
+    );
+  }
+
+  const result = await updateStore(storeId, { settings: next });
   if (!result.ok) {
     return actionError(
       { fieldErrors: {}, formError: describeSettingsError(result) },

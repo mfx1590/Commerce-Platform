@@ -32,6 +32,15 @@ import {
 } from '@/lib/settings/fields';
 
 const SCHEMA = resolve(process.cwd(), '../../apps/core/src/modules/registry/settings-schema.ts');
+const CARRIER_CONFIG = resolve(process.cwd(), '../../apps/core/src/modules/shipping/config.ts');
+const EASYPOST_PROVIDER = resolve(
+  process.cwd(),
+  '../../apps/core/src/modules/shipping/easypost-provider.ts',
+);
+const FULFILLMENT_REGISTRY = resolve(
+  process.cwd(),
+  '../../apps/core/src/modules/fulfillment/registry.ts',
+);
 
 /** The quoted keys of `STORE_SETTINGS_SHAPES`, in the order the core lists them. */
 function corePaths(): string[] {
@@ -128,5 +137,68 @@ describe('the admin and the core agree about store.settings', () => {
     expect(byPath.get('fraud.radar_highest')?.options).toEqual(['block', 'review']);
     expect(byPath.get('content.brand_voice')?.maxLength).toBe(500);
     expect(byPath.get('content.audience')?.maxLength).toBe(200);
+  });
+});
+
+/**
+ * The shapes in `settings-schema.ts` are deliberately loose — `shipping.label_format` is just
+ * `nonEmptyString` there, and each parcel field just `positiveInt`. What the core actually DOES
+ * with those values lives in the owning module, and this app's cards make three claims about it:
+ * the label format is one of three words, the parcel is all-or-nothing, and an absent field means a
+ * specific default (every `defaultLabel`). A claim about another module with no guard is the same
+ * mirror-shaped lie the block above exists to prevent, so these read that module too.
+ */
+describe('the cards tell the truth about what the core does with these values', () => {
+  const byPath = new Map(SETTINGS_CARDS.flatMap((card) => card.fields).map((f) => [f.path, f]));
+
+  it('offers exactly the label formats the core accepts', () => {
+    const source = readFileSync(CARRIER_CONFIG, 'utf8');
+    // Anything else is silently ignored and quoted as `pdf`, so a free-text box would lie.
+    expect(source).toContain(
+      "const LABEL_FORMATS: readonly LabelFormat[] = ['pdf', 'png', 'zpl'];",
+    );
+    expect(byPath.get('shipping.label_format')?.options).toEqual(['pdf', 'png', 'zpl']);
+    expect(byPath.get('shipping.label_format')?.kind).toBe('enum');
+  });
+
+  it('still needs all four parcel numbers, or the all-or-nothing refusal is wrong', () => {
+    const source = readFileSync(CARRIER_CONFIG, 'utf8');
+    expect(source).toContain(
+      'if (length === null || width === null || height === null || weight === null) return null;',
+    );
+    expect(source).toContain('parcelOf(shipping?.default_parcel) ?? DEFAULT_PARCEL');
+    expect(source).toContain(
+      'export const DEFAULT_PARCEL: Parcel = { lengthCm: 30, widthCm: 20, heightCm: 10, weightG: 1000 };',
+    );
+  });
+
+  it('names the same fallbacks the core uses when a path is absent', () => {
+    const carrier = readFileSync(CARRIER_CONFIG, 'utf8');
+    expect(carrier).toContain("stringOf(shipping?.provider) ?? 'manual'");
+    expect(carrier).toContain("labelFormatOf(shipping?.label_format) ?? 'pdf'");
+    expect(byPath.get('shipping.provider')?.defaultLabel).toMatch(/^manual /);
+    expect(byPath.get('shipping.label_format')?.defaultLabel).toBe('pdf');
+
+    expect(readFileSync(FULFILLMENT_REGISTRY, 'utf8')).toContain(
+      "export const DEFAULT_FULFILLMENT_PROVIDER = 'memory';",
+    );
+    expect(byPath.get('fulfillment.provider')?.defaultLabel).toMatch(/^memory /);
+
+    // An empty list is NOT "none": `stringArray` gives `[]`, and the providers read `[]` as "do
+    // not narrow", while an empty account list is simply not sent. If either ever becomes a
+    // filter instead, these two labels are backwards and this fails.
+    const easypost = readFileSync(EASYPOST_PROVIDER, 'utf8');
+    expect(easypost).toContain(
+      'if (wanted.length > 0 && !wanted.includes(rate.service)) continue;',
+    );
+    expect(easypost).toContain('request.carrierAccountIds && request.carrierAccountIds.length > 0');
+    expect(byPath.get('shipping.services')?.defaultLabel).toMatch(/no narrowing/);
+    expect(byPath.get('shipping.carrier_account_ids')?.defaultLabel).toMatch(/none sent/);
+  });
+
+  it('gives every field a default label, since an absent path is never blank on screen', () => {
+    for (const field of byPath.values()) {
+      expect(field.defaultLabel, `${field.path} needs a defaultLabel`).toBeTruthy();
+    }
   });
 });

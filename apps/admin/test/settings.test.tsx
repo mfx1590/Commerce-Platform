@@ -606,10 +606,16 @@ describe('the settings `updateStore` has always accepted (#870 item 7)', () => {
     for (const card of SETTINGS_CARDS) {
       expect(screen.getByRole('form', { name: `${card.title} settings` })).toBeTruthy();
     }
-    // `tax.provider` is absent from the fixture, so the select shows the empty choice rather than
-    // inventing `table` — the core keeps its own default for an unset path.
+    // Nothing under `tax` is in the fixture, so every tax field reads "not set (default: …)" —
+    // NOT "off" and not `table`. The #968 review made this the point: an absent path means the
+    // core's own default, and displaying it as a value is how a card ends up writing one.
     const tax = screen.getByRole('form', { name: 'Tax settings' });
-    expect(within(tax).getByLabelText('Prices include tax')).toHaveValue('false');
+    const inclusive = within(tax).getByLabelText('Prices include tax');
+    expect(inclusive).toHaveValue('');
+    expect(within(inclusive).getByRole('option', { selected: true })).toHaveTextContent(
+      /not set \(default: off/,
+    );
+    expect(within(tax).getByLabelText('Calculated by')).toHaveValue('');
     // The refund ceiling is money: 5000 minor units in EUR, shown as an amount.
     const refunds = screen.getByRole('form', { name: 'Refunds settings' });
     expect(within(refunds).getByLabelText(/Support refund limit/)).toHaveValue('50.00');

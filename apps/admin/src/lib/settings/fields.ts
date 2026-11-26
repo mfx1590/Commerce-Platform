@@ -47,6 +47,16 @@ export interface SettingField {
    * than a bare number — ¥1,980 is 1980, not 19.80 (zero-decimal currencies).
    */
   money?: boolean;
+  /**
+   * What the **core** does when this path is absent, in words (#968 review).
+   *
+   * An unset path is not "off" or "empty": `fraud.providers` absent means **both checks run**
+   * (`DEFAULT_FRAUD_SETTINGS`), and an absent `support_refund_limit_minor` means no ceiling at all.
+   * So an absent value is shown as "not set (default: …)" rather than as a value, and the form
+   * never sends a field the reader did not touch. Traced from the reader in each owning module, not
+   * guessed: `fraud/types.ts`, `tax/types.ts`, `payments/refund-router.ts`.
+   */
+  defaultLabel: string;
 }
 
 export type CardId = 'tax' | 'fraud' | 'refunds' | 'content' | 'shipping' | 'fulfillment';
@@ -55,6 +65,11 @@ export interface SettingsCard {
   id: CardId;
   title: string;
   description: string;
+  /**
+   * Something true about this card that the reader cannot see from the fields, shown under the
+   * description. Today: which currency the refund limit is actually compared in (#968 review).
+   */
+  note?: string;
   fields: readonly SettingField[];
 }
 
@@ -69,6 +84,9 @@ export interface SettingsCard {
 export const CONFIRM_PATHS: readonly string[] = [
   'support_refund_limit_minor',
   'tax.prices_include_tax',
+  // #968 review: it changes what every order is taxed on, and its default is conditional on
+  // the legal entity's country — so flipping it is never obviously right.
+  'tax.shipping_taxable',
   'fraud.providers',
   'fraud.velocity.max_orders',
   'fraud.velocity.window_minutes',
@@ -86,6 +104,7 @@ export const SETTINGS_CARDS: readonly SettingsCard[] = [
     fields: [
       {
         path: 'tax.provider',
+        defaultLabel: 'table — the tax rates of this store, offline',
         label: 'Calculated by',
         kind: 'enum',
         options: ['table', 'stripe'],
@@ -93,12 +112,14 @@ export const SETTINGS_CARDS: readonly SettingsCard[] = [
       },
       {
         path: 'tax.prices_include_tax',
+        defaultLabel: 'off — prices are net and tax is added at checkout',
         label: 'Prices include tax',
         kind: 'boolean',
         hint: 'Off means every price is net and tax is added at checkout. Turning this on reinterprets every price in the store.',
       },
       {
         path: 'tax.shipping_taxable',
+        defaultLabel: 'taxable when the legal entity is in the EU, otherwise not',
         label: 'Shipping is taxable',
         kind: 'boolean',
       },
@@ -112,31 +133,36 @@ export const SETTINGS_CARDS: readonly SettingsCard[] = [
     fields: [
       {
         path: 'fraud.providers',
+        defaultLabel: 'BOTH checks run — rules and radar',
         label: 'Checks to run',
         kind: 'enumArray',
         options: ['rules', 'radar'],
-        hint: '`rules` are the local checks below; `radar` is Stripe Radar. None selected means nothing is checked.',
+        hint: '`rules` are the local checks below; `radar` is Stripe Radar. Unchecking both leaves this NOT SET, which means the core runs both — this card cannot switch fraud checking off, because doing that is not a checkbox.',
       },
       {
         path: 'fraud.velocity.max_orders',
+        defaultLabel: '3',
         label: 'Orders allowed per window',
         kind: 'integer',
         min: 1,
       },
       {
         path: 'fraud.velocity.window_minutes',
+        defaultLabel: '60',
         label: 'Window (minutes)',
         kind: 'integer',
         min: 1,
       },
       {
         path: 'fraud.country_mismatch',
+        defaultLabel: 'review',
         label: 'Billing and shipping countries differ',
         kind: 'enum',
         options: ['review', 'allow'],
       },
       {
         path: 'fraud.radar_highest',
+        defaultLabel: 'block — the payment is refused',
         label: 'Radar’s highest risk',
         kind: 'enum',
         options: ['block', 'review'],
@@ -149,14 +175,16 @@ export const SETTINGS_CARDS: readonly SettingsCard[] = [
     title: 'Refunds',
     description:
       'The ceiling on what a support user may refund without a store admin. It does not limit a store admin. Changing this needs store admin.',
+    note: 'Entered in this store’s default currency. The core compares it against the refund amount as a plain number, without converting: on an order in another currency it acts as that many minor units of THAT currency. Issue #969 asks for the comparison to carry a currency.',
     fields: [
       {
         path: 'support_refund_limit_minor',
+        defaultLabel: 'no ceiling at all',
         label: 'Support refund limit',
         kind: 'integer',
         min: 0,
         money: true,
-        hint: 'Per refund. Absent means support has no ceiling at all.',
+        hint: 'Per refund, not per order and not per day. Absent means support has no ceiling at all.',
       },
     ],
   },
@@ -165,85 +193,98 @@ export const SETTINGS_CARDS: readonly SettingsCard[] = [
     title: 'Shipping defaults',
     description:
       'The carrier integration and the parcel a rate is quoted for when a product carries no dimensions of its own. Changing this needs store admin.',
+    note: 'The four parcel boxes are all-or-nothing: the core reads the parcel only when length, width, height and weight are ALL set and positive, and otherwise uses 30×20×10 cm / 1000 g. Three of four changes nothing, so this card refuses a partial parcel rather than writing one.',
     fields: [
       {
         path: 'shipping.provider',
+        defaultLabel: 'manual — this store’s own shipping_option table, no carrier call',
         label: 'Carrier integration',
         kind: 'text',
         minLength: 1,
         maxLength: 60,
-        hint: 'The registered provider, e.g. `manual` or `easypost`. An unknown name falls back to the table rates.',
+        hint: 'The registered provider, e.g. `manual` or `easypost`. A name nothing is registered under falls back to the table rates rather than failing a cart.',
       },
       {
         path: 'shipping.carrier_account_ids',
+        defaultLabel: 'none sent — the carrier account’s own default accounts are used',
         label: 'Carrier accounts',
         kind: 'textList',
-        hint: 'The carrier account ids rates may be bought against, one per line. Swapping these changes who is billed.',
+        hint: 'The carrier account ids rates are bought against, one per line. Swapping these changes who is billed. Empty is not "no accounts": no account list is sent at all, so the carrier uses its own default.',
       },
       {
         path: 'shipping.services',
+        defaultLabel: 'no narrowing — every service the carrier returns is offered',
         label: 'Services offered',
         kind: 'textList',
-        hint: 'Carrier service codes, one per line. A shipping option prices live only if its service is one of these.',
+        hint: 'Carrier service codes, one per line. This NARROWS what the carrier returns: empty offers everything it quotes, and listing some keeps only those. It is not a list of services to enable.',
       },
       {
         path: 'shipping.default_parcel.length_cm',
+        defaultLabel: '30 (only when all four are set)',
         label: 'Parcel length (cm)',
         kind: 'integer',
         min: 1,
       },
       {
         path: 'shipping.default_parcel.width_cm',
+        defaultLabel: '20 (only when all four are set)',
         label: 'Parcel width (cm)',
         kind: 'integer',
         min: 1,
       },
       {
         path: 'shipping.default_parcel.height_cm',
+        defaultLabel: '10 (only when all four are set)',
         label: 'Parcel height (cm)',
         kind: 'integer',
         min: 1,
       },
       {
         path: 'shipping.default_parcel.weight_g',
+        defaultLabel: '1000 (only when all four are set)',
         label: 'Parcel weight (g)',
         kind: 'integer',
         min: 1,
       },
       {
         path: 'shipping.label_format',
+        defaultLabel: 'pdf',
         label: 'Label format',
-        kind: 'text',
-        minLength: 1,
-        maxLength: 20,
-        hint: 'What the carrier is asked for, e.g. `PDF` or `ZPL`.',
+        kind: 'enum',
+        // The core accepts ONLY these three (`labelFormatOf`) and silently falls back to `pdf` for
+        // anything else, so a free-text box would accept `PDF417` and quietly ignore it.
+        options: ['pdf', 'png', 'zpl'],
       },
     ],
   },
   {
     id: 'fulfillment',
     title: 'Fulfilment routing',
-    description:
-      'Which warehouse an order is sent to. Without an override the core routes by destination country, then region, then priority. Changing this needs store admin.',
+    description: 'Which warehouse an order is sent to. Changing this needs store admin.',
+    note: 'These two only override the front of the core’s order: a country override first, then this default, then a warehouse in the destination country, then one in its region, then the lowest priority. Clearing them does not stop routing — it hands the decision back to those last three rules.',
     fields: [
       {
         path: 'fulfillment.provider',
+        defaultLabel: 'memory — the built-in provider, which forgets every job on restart',
         label: '3PL integration',
         kind: 'text',
         minLength: 1,
         maxLength: 60,
-        hint: 'The registered fulfilment provider, e.g. `memory` for the built-in one.',
+        hint: 'The registered fulfilment provider. A name nothing is registered under also falls back to `memory`, so a typo here is silent: the orders keep fulfilling against the built-in provider.',
       },
       {
         path: 'fulfillment.routing.default',
+        defaultLabel:
+          'no store default — the core routes by destination, then region, then priority',
         label: 'Default warehouse code',
         kind: 'text',
         minLength: 1,
         maxLength: 60,
-        hint: 'A warehouse CODE, not an id. Codes are listed in HQ › Warehouse, which needs `operations` on the organization — so this is typed, not picked.',
+        hint: 'A warehouse CODE, not an id. Codes are listed in HQ › Warehouse, which needs `operations` on the organization — so this is typed, not picked. A code no warehouse has is not refused here and falls through to the core’s own rules.',
       },
       {
         path: 'fulfillment.routing.countries',
+        defaultLabel: 'no per-country overrides',
         label: 'Per-country overrides',
         kind: 'countryMap',
         hint: 'One per line, `NL = wh-eu`. A destination not listed falls through to the default and then to the core’s own order.',
@@ -258,6 +299,7 @@ export const SETTINGS_CARDS: readonly SettingsCard[] = [
     fields: [
       {
         path: 'content.brand_voice',
+        defaultLabel: 'a neutral voice chosen by the drafting template',
         label: 'Brand voice',
         kind: 'text',
         minLength: 1,
@@ -265,6 +307,7 @@ export const SETTINGS_CARDS: readonly SettingsCard[] = [
       },
       {
         path: 'content.audience',
+        defaultLabel: 'no audience given to the template',
         label: 'Audience',
         kind: 'text',
         minLength: 1,
@@ -380,6 +423,14 @@ export function describeValue(
   if (typeof value === 'boolean') return value ? 'on' : 'off';
   if (typeof value === 'string') return value.trim() === '' ? 'empty' : value;
   if (typeof value === 'number') return String(value);
+  // A country map: `NL = wh-eu, DE = wh-de`. Sorted, so a diff never reads as a change because the
+  // API returned the keys in another order.
+  if (isRecord(value)) {
+    const pairs = Object.entries(value)
+      .map(([country, code]) => `${country} = ${String(code)}`)
+      .sort();
+    return pairs.length === 0 ? 'none' : pairs.join(', ');
+  }
   return 'not shown';
 }
 
