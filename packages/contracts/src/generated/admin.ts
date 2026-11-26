@@ -2011,9 +2011,19 @@ export interface paths {
          *     then the requested metrics in request order. One header line, one line per row, no totals line; integers as
          *     integers (money in minor units), an empty cell for null. RFC 4180: CRLF line ends, every text cell quoted,
          *     `"` doubled. CSV injection: a text cell starting with `=`, `+`, `-`, `@`, a tab or a CR gets a leading `'`.
-         *     At most `limit` (≤ 1000) rows: there is no export-everything path; `X-Truncated: true` says more rows matched.
+         *     At most `limit` rows: JSON at most 1 000, `text/csv` up to 10 000 (0.4.31); `X-Truncated: true` says more
+         *     rows matched.
          *     The 0.4.30 dimensions map to the columns `country`, `sales_channel_id`, `category_id`, `customer_type` and
-         *     `warehouse_id` (in request order, like the others).
+         *     `warehouse_id` (in request order, like the others); the 0.4.31 ones to `customer_group_id`, `utm_source`,
+         *     `utm_medium`, `utm_campaign`, `campaign_id`, `promotion_id`, `carrier` and `failure_reason`.
+         *
+         *     0.4.31 (catalogue version 3, #935): customers, marketing and operations metrics. Customer figures are per
+         *     store (a customer of two brands is two customers); a customer group is the customer's CURRENT group. Any
+         *     value computed from fewer than 5 customers is null with `suppressed: true` on its row, and so is a
+         *     complementary cell. Promotion metrics come from the orders' frozen promotion allocation (automatic and
+         *     code promotions alike) and are labelled by name, never by code. Attribution metrics read one touch model
+         *     (`filters.touch`, `last` by default). utm values past the answer's top 50, or shaped like personal data,
+         *     are `other`.
          *
          *     `compare` answers the previous range too (see MetricQuery.compare). With `Accept: text/csv`, `labels=true`
          *     (query parameter) appends one `<dimension>_label` column per dimension AFTER the documented columns; without
@@ -2073,6 +2083,79 @@ export interface paths {
          *     null, `stock_out` still set.
          */
         post: operations["getInventoryHealth"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/metrics/cohorts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Customer cohorts — retention and net sales per customer to date, by first-order month (0.4.31)
+         * @description A cohort = the UTC month of a customer's FIRST order in a store (a customer of two brands is two customers;
+         *     no customer id or key ever leaves the server). Per cohort × months since: the active customers (with an
+         *     order counted in sales that month), the retention (active ÷ cohort size) and the LTV to date (the cohort's
+         *     cumulative net sales ÷ its size), in ONE currency per answer. A cohort under 5 customers is suppressed whole
+         *     (`size` null); a cell with 1–4 active customers is suppressed. Scope as queryMetrics: `store_ids` outside the
+         *     caller's stores is a 403.
+         */
+        post: operations["getCustomerCohorts"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/metrics/operations/backlog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * What is stuck now, by age — unassigned paid orders, shipments not shipped, returns not received (0.4.31)
+         * @description Read NOW from the order, shipment and return tables under the caller's scope (`store_ids` outside it is a
+         *     403). Kinds: `unassigned` (paid orders — authorised or captured, not cancelled — with no shipment and so no
+         *     warehouse), `shipment_not_shipped` (pending, picking, packed or label created) and `return_not_received`
+         *     (requested or approved). Age buckets from placement / creation / request: `lt_1d`, `d1_2` (1–2 days),
+         *     `d3_7` and `gt_7d`. The drill to the records needs the list operations of #940 and #941.
+         */
+        post: operations["getOperationsBacklog"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/metrics/dimension-values": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The values a caller may filter a dimension by — the BI pickers (0.4.31)
+         * @description Ids and labels from the caller's stores only (Postgres under the caller's scope for stores, sales channels,
+         *     categories, products, warehouses, customer groups, campaigns and promotions; the analytics store, scoped
+         *     the same, for countries, carriers and utm values). `store_ids` outside the caller's scope is a 403. A
+         *     promotion is matched by `q` and labelled by its NAME only, never its code. utm values are a store's top 50,
+         *     and a value shaped like personal data is never offered.
+         */
+        get: operations["listMetricDimensionValues"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3702,9 +3785,9 @@ export interface components {
             })[];
         };
         /** @enum {string} */
-        MetricId: "orders" | "bookings_minor" | "net_bookings_minor" | "aov_minor" | "refunds_minor" | "refund_rate_bp" | "units" | "product_net_minor" | "new_customers" | "returning_customers" | "captured_minor" | "fee_minor" | "recognised_minor" | "live_orders" | "live_placed_minor" | "net_sales_minor" | "gross_sales_minor" | "discounts_minor" | "shipping_minor" | "tax_minor" | "items_per_order_bp" | "placed_orders" | "cancelled_orders" | "cancellation_rate_bp" | "returned_units" | "return_rate_bp" | "product_net_ex_tax_minor" | "product_gross_minor" | "product_discount_minor" | "product_orders" | "product_returned_units" | "product_return_rate_bp" | "stock_on_hand" | "stock_reserved" | "stock_available" | "stock_incoming" | "units_sold_per_day_milli" | "days_of_cover" | "suggested_reorder_units" | "stockout_events" | "units_received" | "units_adjusted";
+        MetricId: "orders" | "bookings_minor" | "net_bookings_minor" | "aov_minor" | "refunds_minor" | "refund_rate_bp" | "units" | "product_net_minor" | "new_customers" | "returning_customers" | "captured_minor" | "fee_minor" | "recognised_minor" | "live_orders" | "live_placed_minor" | "net_sales_minor" | "gross_sales_minor" | "discounts_minor" | "shipping_minor" | "tax_minor" | "items_per_order_bp" | "placed_orders" | "cancelled_orders" | "cancellation_rate_bp" | "returned_units" | "return_rate_bp" | "product_net_ex_tax_minor" | "product_gross_minor" | "product_discount_minor" | "product_orders" | "product_returned_units" | "product_return_rate_bp" | "stock_on_hand" | "stock_reserved" | "stock_available" | "stock_incoming" | "units_sold_per_day_milli" | "days_of_cover" | "suggested_reorder_units" | "stockout_events" | "units_received" | "units_adjusted" | "customers" | "repeat_customers" | "customer_orders" | "customer_net_sales_minor" | "repeat_rate_bp" | "orders_per_customer_bp" | "revenue_per_customer_minor" | "unknown_customer_orders" | "attributed_orders" | "attributed_net_sales_minor" | "unattributed_orders" | "campaign_net_sales_minor" | "campaign_budget_minor" | "promotion_orders" | "promotion_discount_minor" | "abandoned_carts" | "abandoned_value_minor" | "orders_shipped" | "hours_to_ship_p50" | "hours_to_ship_p90" | "orders_delivered" | "hours_to_deliver_p50" | "hours_to_deliver_p90" | "shipping_cost_minor" | "shipping_cost_unknown" | "return_requests" | "payments_authorized" | "payments_captured" | "payments_failed" | "payments_with_outcome" | "payment_failure_rate_bp" | "refunds_failed";
         /** @enum {string} */
-        MetricDimension: "store" | "product" | "refund_reason" | "provider" | "country" | "sales_channel" | "category" | "customer_type" | "warehouse";
+        MetricDimension: "store" | "product" | "refund_reason" | "provider" | "country" | "sales_channel" | "category" | "customer_type" | "warehouse" | "customer_group" | "utm_source" | "utm_medium" | "utm_campaign" | "campaign" | "promotion" | "carrier" | "failure_reason";
         /**
          * @description UTC calendar days; weeks are ISO (Monday); `total` = one period for the whole range.
          * @enum {string}
@@ -3715,10 +3798,10 @@ export interface components {
             label: string;
             description: string;
             /**
-             * @description `minor` = integer minor units of the row currency; `bp` = basis points (1/10 000); `milli` = × 1 000.
+             * @description `minor` = integer minor units of the row currency; `bp` = basis points (1/10 000); `milli` = × 1 000; `hours` = hours with one decimal (distribution metrics, no currency).
              * @enum {string}
              */
-            unit: "minor" | "count" | "bp" | "milli";
+            unit: "minor" | "count" | "bp" | "milli" | "hours";
             /** @description true for money metrics; their rows always carry `currency`. */
             currency_bound: boolean;
             /** @description true when `finance` on `organization:hq` is required. */
@@ -3728,10 +3811,13 @@ export interface components {
             dimensions: components["schemas"]["MetricDimension"][];
             /**
              * @description `snapshot` metrics describe now (inventory) and are served by getInventoryHealth, not queryMetrics.
+             *     `distribution` metrics (0.4.31) are a quantile over each row's group, in hours with one decimal and no
+             *     currency; their total is its own quantile over every row in scope, never a sum or an average of rows;
+             *     `compare` gives the difference in hours and no % (`change_bp` null); listMetricMovers refuses them.
              * @default series
              * @enum {string}
              */
-            kind: "series" | "snapshot";
+            kind: "series" | "snapshot" | "distribution";
             /** @description true when the metric is a sum (unit minor or count, not derived); only these accept listMetricMovers. */
             additive?: boolean;
             /** @description The calculation in plain words, shown with the definition. */
@@ -3796,6 +3882,21 @@ export interface components {
                 category_ids?: string[];
                 customer_types?: ("new" | "returning" | "unknown")[];
                 warehouse_ids?: string[];
+                /** @description The customer's CURRENT group (no group history). */
+                customer_group_ids?: string[];
+                campaign_ids?: string[];
+                promotion_ids?: string[];
+                /** @description As stored (lower-case, trimmed, at most 64 characters). */
+                utm_sources?: string[];
+                utm_mediums?: string[];
+                utm_campaigns?: string[];
+                carriers?: string[];
+                providers?: string[];
+                /**
+                 * @description The attribution touch model; attribution metrics only (400 otherwise); `last` when omitted.
+                 * @enum {string}
+                 */
+                touch?: "first" | "last";
             };
             /**
              * @description Also answers the comparison range, matched by OFFSET (never by key):
@@ -3817,7 +3918,10 @@ export interface components {
                  */
                 direction: "desc" | "asc";
             };
-            /** @default 1000 */
+            /**
+             * @description At most 1 000 for a JSON answer (400 above); up to 10 000 with `Accept: text/csv`.
+             * @default 1000
+             */
             limit: number;
         };
         MetricRow: {
@@ -3844,7 +3948,30 @@ export interface components {
             customer_type: "new" | "returning" | "unknown" | null;
             /** Format: uuid */
             warehouse_id: string | null;
-            /** @description One entry per requested metric; integers (minor units, counts or basis points); null when undefined (e.g. aov with 0 orders). */
+            /**
+             * Format: uuid
+             * @description The customer's CURRENT group.
+             */
+            customer_group_id: string | null;
+            /** @description Normalised; `other` = past the answer's top 50, or looked like personal data. */
+            utm_source: string | null;
+            utm_medium: string | null;
+            utm_campaign: string | null;
+            /** Format: uuid */
+            campaign_id: string | null;
+            /** Format: uuid */
+            promotion_id: string | null;
+            carrier: string | null;
+            /** @description A PSP failure code, or `other`. */
+            failure_reason: string | null;
+            /**
+             * @description true when EVERY value of the row is null (#951 rule: no figure of one answer, alone or added to /
+             *     subtracted from others, reveals a value resting on fewer than 5 customers). On an answer resting on
+             *     customers, a row of fewer than 5 customers is hidden, with the smallest other rows of its period and
+             *     currency until the hidden rows cover 5 customers together.
+             */
+            suppressed: boolean;
+            /** @description One entry per requested metric; integers (minor units, counts or basis points), and hours with one decimal for distribution metrics; null when undefined (e.g. aov with 0 orders) or suppressed. */
             values: {
                 [key: string]: number | null;
             };
@@ -3867,6 +3994,8 @@ export interface components {
                 values: {
                     [key: string]: number | null;
                 };
+                /** @description true when every total of the currency is null (a period of the answer covers fewer than 5 customers in all). */
+                suppressed?: boolean;
             }[];
             compare?: {
                 /** @enum {string} */
@@ -3905,15 +4034,83 @@ export interface components {
             category?: components["schemas"]["LabelMap"];
             sales_channel?: components["schemas"]["LabelMap"];
             warehouse?: components["schemas"]["LabelMap"];
+            customer_group?: components["schemas"]["LabelMap"];
+            campaign?: components["schemas"]["LabelMap"];
+            /** @description A promotion's NAME, never its code. */
+            promotion?: components["schemas"]["LabelMap"];
         };
         LabelMap: {
             [key: string]: string;
         };
+        CustomerCohortQuery: {
+            store_ids?: string[];
+            from_month: string;
+            /** @description Inclusive; at most 24 cohorts. */
+            to_month: string;
+            /** @default 12 */
+            months: number;
+            customer_group_ids?: string[];
+            currency: string;
+        };
+        CustomerCohorts: {
+            query: components["schemas"]["CustomerCohortQuery"];
+            /** Format: date-time */
+            generated_at: string;
+            currency: string;
+            cohorts: {
+                cohort_month: string;
+                size: number | null;
+                suppressed: boolean;
+                cells: {
+                    month_offset: number;
+                    active: number | null;
+                    retention_bp: number | null;
+                    ltv_to_date_minor: number | null;
+                    suppressed: boolean;
+                }[];
+            }[];
+        };
+        OperationsBacklogQuery: {
+            store_ids?: string[];
+        };
+        OperationsBacklog: {
+            /** Format: date-time */
+            generated_at: string;
+            buckets: ("lt_1d" | "d1_2" | "d3_7" | "gt_7d")[];
+            rows: {
+                /** @enum {string} */
+                kind: "unassigned" | "shipment_not_shipped" | "return_not_received";
+                /** Format: uuid */
+                store_id: string;
+                /** Format: uuid */
+                warehouse_id: string | null;
+                /** @enum {string} */
+                bucket: "lt_1d" | "d1_2" | "d3_7" | "gt_7d";
+                count: number;
+            }[];
+            totals: {
+                kind: string;
+                bucket: string;
+                count: number;
+            }[];
+            labels?: components["schemas"]["MetricLabels"];
+        };
+        MetricDimensionValues: {
+            dimension: string;
+            values: {
+                /** @description A uuid, or the value itself (country, carrier, utm). */
+                id: string;
+                label: string;
+            }[];
+        };
         MetricMoversQuery: {
             /** @description Additive series metrics only (catalogue `additive`); else 400. */
             metric: components["schemas"]["MetricId"];
-            /** @enum {string} */
-            dimension: "store" | "country" | "sales_channel" | "product" | "category";
+            /**
+             * @description 0.4.31 (#935): customer_type, customer_group (the CURRENT group) and warehouse.
+             * @enum {string}
+             */
+            dimension: "store" | "country" | "sales_channel" | "product" | "category" | "customer_type" | "customer_group" | "warehouse";
             /** Format: date */
             from: string;
             /** Format: date */
@@ -4002,7 +4199,10 @@ export interface components {
             direction: "asc" | "desc";
             /** @default 1 */
             page: number;
-            /** @default 100 */
+            /**
+             * @description At most 500 for a JSON answer (400 above); up to 10 000 with `Accept: text/csv` (0.4.31).
+             * @default 100
+             */
             limit: number;
         };
         /** @enum {string} */
@@ -4121,6 +4321,23 @@ export interface components {
                 ref: string;
                 query: components["schemas"]["InventoryHealthQuery"];
                 result?: components["schemas"]["InventoryHealth"];
+            }[];
+            /**
+             * @description 0.4.31 (#935 e): the customer_cohorts calls the answer cites (k1, k2 …), each with its query and the
+             *     CustomerCohorts it returned. Absent when the question made none.
+             */
+            cohorts?: {
+                ref: string;
+                query: components["schemas"]["CustomerCohortQuery"];
+                result: components["schemas"]["CustomerCohorts"];
+            }[];
+            /**
+             * @description 0.4.31 (#935 e): the operations_backlog calls the answer cites (b1, b2 …), each with the OperationsBacklog
+             *     it returned. Absent when the question made none.
+             */
+            backlog?: {
+                ref: string;
+                result: components["schemas"]["OperationsBacklog"];
             }[];
             /**
              * @description alias → name for every alias the question issued (p1 products, c1 categories, ch1 sales channels,
@@ -10514,6 +10731,15 @@ export interface operations {
                      *           "category_id": null,
                      *           "customer_type": null,
                      *           "warehouse_id": null,
+                     *           "customer_group_id": null,
+                     *           "utm_source": null,
+                     *           "utm_medium": null,
+                     *           "utm_campaign": null,
+                     *           "campaign_id": null,
+                     *           "promotion_id": null,
+                     *           "carrier": null,
+                     *           "failure_reason": null,
+                     *           "suppressed": false,
                      *           "values": {
                      *             "bookings_minor": 12200,
                      *             "orders": 2
@@ -10531,6 +10757,15 @@ export interface operations {
                      *           "category_id": null,
                      *           "customer_type": null,
                      *           "warehouse_id": null,
+                     *           "customer_group_id": null,
+                     *           "utm_source": null,
+                     *           "utm_medium": null,
+                     *           "utm_campaign": null,
+                     *           "campaign_id": null,
+                     *           "promotion_id": null,
+                     *           "carrier": null,
+                     *           "failure_reason": null,
+                     *           "suppressed": false,
                      *           "values": {
                      *             "bookings_minor": 6000,
                      *             "orders": 1
@@ -10766,6 +11001,202 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    getCustomerCohorts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "from_month": "2026-01",
+                 *       "to_month": "2026-06",
+                 *       "months": 6,
+                 *       "currency": "EUR"
+                 *     }
+                 */
+                "application/json": components["schemas"]["CustomerCohortQuery"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "query": {
+                     *         "from_month": "2026-01",
+                     *         "to_month": "2026-02",
+                     *         "months": 3,
+                     *         "currency": "EUR"
+                     *       },
+                     *       "generated_at": "2026-11-19T09:00:00Z",
+                     *       "currency": "EUR",
+                     *       "cohorts": [
+                     *         {
+                     *           "cohort_month": "2026-01",
+                     *           "size": 120,
+                     *           "suppressed": false,
+                     *           "cells": [
+                     *             {
+                     *               "month_offset": 0,
+                     *               "active": 120,
+                     *               "retention_bp": 10000,
+                     *               "ltv_to_date_minor": 6450,
+                     *               "suppressed": false
+                     *             },
+                     *             {
+                     *               "month_offset": 1,
+                     *               "active": 31,
+                     *               "retention_bp": 2583,
+                     *               "ltv_to_date_minor": 8120,
+                     *               "suppressed": false
+                     *             },
+                     *             {
+                     *               "month_offset": 2,
+                     *               "active": 4,
+                     *               "retention_bp": null,
+                     *               "ltv_to_date_minor": null,
+                     *               "suppressed": true
+                     *             }
+                     *           ]
+                     *         },
+                     *         {
+                     *           "cohort_month": "2026-02",
+                     *           "size": null,
+                     *           "suppressed": true,
+                     *           "cells": []
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["CustomerCohorts"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    getOperationsBacklog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["OperationsBacklogQuery"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "generated_at": "2026-11-19T09:00:00Z",
+                     *       "buckets": [
+                     *         "lt_1d",
+                     *         "d1_2",
+                     *         "d3_7",
+                     *         "gt_7d"
+                     *       ],
+                     *       "rows": [
+                     *         {
+                     *           "kind": "unassigned",
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "warehouse_id": null,
+                     *           "bucket": "d1_2",
+                     *           "count": 4
+                     *         },
+                     *         {
+                     *           "kind": "shipment_not_shipped",
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "warehouse_id": "00000000-0000-4000-8000-0000000000a1",
+                     *           "bucket": "d3_7",
+                     *           "count": 2
+                     *         },
+                     *         {
+                     *           "kind": "return_not_received",
+                     *           "store_id": "00000000-0000-4000-8000-000000000031",
+                     *           "warehouse_id": null,
+                     *           "bucket": "gt_7d",
+                     *           "count": 1
+                     *         }
+                     *       ],
+                     *       "totals": [
+                     *         {
+                     *           "kind": "unassigned",
+                     *           "bucket": "d1_2",
+                     *           "count": 4
+                     *         },
+                     *         {
+                     *           "kind": "shipment_not_shipped",
+                     *           "bucket": "d3_7",
+                     *           "count": 2
+                     *         },
+                     *         {
+                     *           "kind": "return_not_received",
+                     *           "bucket": "gt_7d",
+                     *           "count": 1
+                     *         }
+                     *       ],
+                     *       "labels": {
+                     *         "warehouse": {
+                     *           "00000000-0000-4000-8000-0000000000a1": "BER"
+                     *         }
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["OperationsBacklog"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listMetricDimensionValues: {
+        parameters: {
+            query: {
+                dimension: "store" | "country" | "sales_channel" | "category" | "product" | "warehouse" | "customer_group" | "campaign" | "promotion" | "carrier" | "utm_source" | "utm_medium" | "utm_campaign";
+                q?: string;
+                store_ids?: string[];
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricDimensionValues"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
     askMetrics: {
         parameters: {
             query?: never;
@@ -10842,6 +11273,15 @@ export interface operations {
                      *                 "category_id": null,
                      *                 "customer_type": null,
                      *                 "warehouse_id": null,
+                     *                 "customer_group_id": null,
+                     *                 "utm_source": null,
+                     *                 "utm_medium": null,
+                     *                 "utm_campaign": null,
+                     *                 "campaign_id": null,
+                     *                 "promotion_id": null,
+                     *                 "carrier": null,
+                     *                 "failure_reason": null,
+                     *                 "suppressed": false,
                      *                 "values": {
                      *                   "bookings_minor": 1234500
                      *                 }
@@ -10895,6 +11335,15 @@ export interface operations {
                      *                 "category_id": null,
                      *                 "customer_type": null,
                      *                 "warehouse_id": null,
+                     *                 "customer_group_id": null,
+                     *                 "utm_source": null,
+                     *                 "utm_medium": null,
+                     *                 "utm_campaign": null,
+                     *                 "campaign_id": null,
+                     *                 "promotion_id": null,
+                     *                 "carrier": null,
+                     *                 "failure_reason": null,
+                     *                 "suppressed": false,
                      *                 "values": {
                      *                   "refunds_minor": 41000
                      *                 }

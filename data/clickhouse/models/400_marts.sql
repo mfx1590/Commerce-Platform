@@ -109,7 +109,9 @@ SELECT
     sumIf(coalesce(r.refunded_minor, 0), o.order_status != 'cancelled')            AS refunded_minor,
     sumIf(o.total_minor - coalesce(r.refunded_minor, 0), o.order_status != 'cancelled') AS net_minor,
     countIf(o.order_status = 'cancelled')                                          AS cancelled_orders,
-    count()                                                                        AS placed_orders
+    count()                                                                        AS placed_orders,
+    -- BI v2 wave 2 (#935): the customer's CURRENT group (a key, appended)
+    o.customer_group_id                                                            AS customer_group_id
 FROM fct_order AS o
 LEFT JOIN
 (
@@ -121,7 +123,7 @@ WHERE o.order_id NOT IN
       WHERE status = 'failed'
         AND order_id NOT IN (SELECT order_id FROM fct_payment WHERE status = 'captured')
   )
-GROUP BY organization_id, store_id, day, currency, country, sales_channel_id, customer_type
+GROUP BY organization_id, store_id, day, currency, country, sales_channel_id, customer_type, customer_group_id
 SETTINGS join_algorithm = 'hash';
 
 -- mart_stock_daily (BI v2, #871): stock movements per warehouse × stock item × UTC day. Before the pool (#456,

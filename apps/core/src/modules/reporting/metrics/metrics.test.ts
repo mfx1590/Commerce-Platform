@@ -249,6 +249,7 @@ describe('executeMetricQuery', () => {
       if (METRICS[m].kind === 'snapshot') continue;
       const r = await executeMetricQuery(reader, q({ metrics: [m] }), [A], {
         stock: { organizationId: A },
+        promotions: async () => [], // #935: the Postgres source (promotions.ts)
       });
       expect(r.rows, m).toEqual([]);
     }

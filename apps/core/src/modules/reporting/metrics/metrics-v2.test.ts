@@ -41,7 +41,7 @@ describe('catalogue v2', () => {
       expect(m.description.length, id).toBeGreaterThan(20);
     }
     const c = catalogueFor({ finance: false, stores: [{ id: A, code: 'brand-a' }] });
-    expect(c.version).toBe(2);
+    expect(c.version).toBe(3); // #935: catalogue version 3
     expect(c.inventory_defaults).toEqual({
       velocity_days: 28,
       lead_time_days: 14,

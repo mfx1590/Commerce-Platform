@@ -4,9 +4,21 @@
 // failure is a 503 that returns nothing partial (fail closed).
 // BI v2 (#871): the new row keys (country, sales channel, category, customer type, warehouse), the stock scope, and
 // `compare` — the comparison range runs as a second query and is matched by OFFSET (comparisonRange), never by key.
+// BI v2 wave 2 (#935): the new row keys; distribution metrics (quantiles, one decimal, never summed); totals of
+// `total: 'query'` metrics from their own query over every row in scope; per-customer values suppressed under
+// MIN_CUSTOMERS customers, with a complementary cell; utm values past the answer's top 50, or PII-shaped, → `other`;
+// promotions from Postgres through `ExecuteOptions.promotions`.
 import { AppError } from '../../../lib/errors';
-import { METRICS, type MetricId } from './catalogue';
-import { compileMetricQuery, type Compiled, type StockScope } from './compile';
+import { LIMITS, METRICS, MIN_CUSTOMERS, type MetricId } from './catalogue';
+import {
+  additiveMetrics,
+  compileMetricQuery,
+  partitionsCustomers,
+  POSTGRES_SOURCES,
+  restsOnCustomers,
+  type Compiled,
+  type StockScope,
+} from './compile';
 import { comparisonRange, type CompareMode, type MetricQuery } from './query';
 
 /** The read path: the `analytics_ro` user, no per-query settings (a readonly user is refused any). */
@@ -32,6 +44,17 @@ export interface MetricRow {
   category_id: string | null;
   customer_type: string | null;
   warehouse_id: string | null;
+  // BI v2 wave 2 (#935)
+  customer_group_id: string | null;
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  campaign_id: string | null;
+  promotion_id: string | null;
+  carrier: string | null;
+  failure_reason: string | null;
+  /** Per-customer values of this row are null: fewer than MIN_CUSTOMERS customers, or its complementary cell. */
+  suppressed: boolean;
   values: Record<string, number | null>;
 }
 
@@ -45,7 +68,15 @@ export type DimensionColumn =
   | 'sales_channel_id'
   | 'category_id'
   | 'customer_type'
-  | 'warehouse_id';
+  | 'warehouse_id'
+  | 'customer_group_id'
+  | 'utm_source'
+  | 'utm_medium'
+  | 'utm_campaign'
+  | 'campaign_id'
+  | 'promotion_id'
+  | 'carrier'
+  | 'failure_reason';
 
 /** Display names for the ids an answer holds (#871 a3), resolved by the route under the caller's scope. */
 export interface MetricLabels {
@@ -54,9 +85,18 @@ export interface MetricLabels {
   category?: Record<string, string>;
   sales_channel?: Record<string, string>;
   warehouse?: Record<string, string>;
+  // BI v2 wave 2 (#935)
+  customer_group?: Record<string, string>;
+  campaign?: Record<string, string>;
+  promotion?: Record<string, string>;
 }
 
-type CurrencyTotals = { currency: string | null; values: Record<string, number | null> }[];
+type CurrencyTotals = {
+  currency: string | null;
+  values: Record<string, number | null>;
+  /** #935: per-customer totals are suppressed under MIN_CUSTOMERS customers too. */
+  suppressed?: boolean;
+}[];
 
 export interface MetricComparison {
   mode: CompareMode;
@@ -117,6 +157,18 @@ function derive(
       out[m] = ratio(values.returned_units ?? 0, values.units ?? 0, 10_000);
     else if (m === 'product_return_rate_bp')
       out[m] = ratio(values.product_returned_units ?? 0, values.units ?? 0, 10_000);
+    // BI v2 wave 2 (#935)
+    else if (m === 'repeat_rate_bp')
+      out[m] = ratio(values.repeat_customers ?? 0, values.customers ?? 0, 10_000);
+    else if (m === 'orders_per_customer_bp')
+      out[m] = ratio(values.customer_orders ?? 0, values.customers ?? 0, 10_000);
+    else if (m === 'revenue_per_customer_minor')
+      out[m] = ratio(values.customer_net_sales_minor ?? 0, values.customers ?? 0);
+    else if (m === 'payment_failure_rate_bp')
+      out[m] = ratio(values.payments_failed ?? 0, values.payments_with_outcome ?? 0, 10_000);
+    else if (METRICS[m].kind === 'distribution') out[m] = values[m] ?? null;
+    // a campaign with no planned budget in the range has none: null, never 0 (#951 review 5)
+    else if (m === 'campaign_budget_minor') out[m] = values[m] ?? null;
     else out[m] = values[m] ?? 0;
   }
   return out;
@@ -132,6 +184,54 @@ const int = (v: unknown): number => {
   if (!Number.isSafeInteger(n)) throw new Error(`metrics: a non-integer aggregate (${String(v)})`);
   return n;
 };
+/** A distribution value (#935): hours with one decimal; null when ClickHouse has none (nan on an empty group). */
+const hours = (v: unknown): number | null => {
+  const n = typeof v === 'string' ? Number(v) : (v as number);
+  return v === null || v === undefined || !Number.isFinite(n) ? null : Math.round(n * 10) / 10;
+};
+const valueOf = (m: MetricId, v: unknown): number | null =>
+  METRICS[m].kind === 'distribution' ? hours(v) : int(v);
+
+/** The row key a compiled source's raw row maps to (every source answers in the same `out_*` columns). */
+function rowOf(r: Raw, currencyKey: boolean): Omit<MetricRow, 'values' | 'suppressed'> {
+  return {
+    period: str(r.out_period),
+    currency: currencyKey ? str(r.out_currency) : null,
+    store_id: str(r.out_store),
+    product_id: str(r.out_product),
+    refund_reason: str(r.out_reason),
+    provider: str(r.out_provider),
+    country: dimKey(r.out_country),
+    sales_channel_id: dimKey(r.out_channel),
+    category_id: dimKey(r.out_category),
+    customer_type: dimKey(r.out_ctype),
+    warehouse_id: dimKey(r.out_warehouse),
+    customer_group_id: dimKey(r.out_cgroup),
+    utm_source: dimKey(r.out_utm_source),
+    utm_medium: dimKey(r.out_utm_medium),
+    utm_campaign: dimKey(r.out_utm_campaign),
+    campaign_id: dimKey(r.out_campaign),
+    promotion_id: dimKey(r.out_promotion),
+    carrier: dimKey(r.out_carrier),
+    failure_reason: dimKey(r.out_failure),
+  };
+}
+
+// ---- utm values (#935 decision 5) ----------------------------------------------------------------------------------
+const UTM_COLUMNS = ['utm_source', 'utm_medium', 'utm_campaign'] as const;
+/** PII shapes (the ingest sweep's families, by shape): e-mail, phone-like or long digit runs, token-like strings. */
+const PII_SHAPES = [/@/, /\d[\d\s().+-]{6,}\d/, /\d{6,}/, /[a-z0-9_-]{24,}/i, /%40|%2b/i];
+export function utmValue(v: string): string {
+  return PII_SHAPES.some((re) => re.test(v)) ? 'other' : v;
+}
+
+/** The loader of the Postgres sources (#935 promotions): raw rows in the compiled `out_*` / `m_*` shape. */
+export type PostgresSourceLoader = (
+  q: MetricQuery,
+  scope: readonly string[],
+  metrics: readonly MetricId[],
+  currencyKey: boolean,
+) => Promise<Raw[]>;
 
 export interface ExecuteOptions {
   now?: () => Date;
@@ -142,6 +242,10 @@ export interface ExecuteOptions {
    * slice (#924 review). Its callers bound what they show themselves.
    */
   noLimit?: boolean;
+  /** Postgres-backed metrics (#935 promotions); a query asking for them without a loader is a 503. */
+  promotions?: PostgresSourceLoader;
+  /** The row cap instead of `q.limit` (#935: CSV up to LIMITS.max_csv_rows). */
+  limit?: number;
 }
 
 export async function executeMetricQuery(
@@ -173,8 +277,11 @@ export async function executeMetricQuery(
         current: cur,
         previous: prev,
         change,
+        // a distribution's change is a difference in hours, never a % (#935 a1)
         change_bp:
-          change === null || prev === null || prev === 0 ? null : ratio(change, prev, 10_000),
+          change === null || prev === null || prev === 0 || METRICS[m].kind === 'distribution'
+            ? null
+            : ratio(change, prev, 10_000),
       });
     }
   return {
@@ -203,22 +310,42 @@ async function runOne(
   now: () => Date,
 ): Promise<MetricResult> {
   const compiled: Compiled = compileMetricQuery(q, scope, o.stock ? { stock: o.stock } : {});
+  const additive = additiveMetrics(q.metrics, q);
+  const pgMetrics = additive.filter((m) => POSTGRES_SOURCES.has(METRICS[m].source!.id));
+  // #935: metrics whose total is a query of its own (distinct counts, quantiles), asked again over every row in scope
+  const queryTotals = additive.filter((m) => METRICS[m].total === 'query');
+  const totalsCompiled =
+    queryTotals.length > 0
+      ? compileMetricQuery({ ...q, metrics: queryTotals, dimensions: [], grain: 'total' }, scope, {
+          ...(o.stock ? { stock: o.stock } : {}),
+          currencyKey: compiled.currencyKey,
+        })
+      : null;
+  const run = (c: Compiled) =>
+    Promise.all(
+      c.sources.map(async (s) =>
+        (
+          await reader.query({
+            query: s.sql,
+            format: 'JSONEachRow',
+            query_params: s.params,
+            use_multipart_params: true,
+          })
+        ).json<Raw>(),
+      ),
+    );
+  if (pgMetrics.length > 0 && !o.promotions)
+    throw new AppError('unavailable', 'promotion metrics are not available here', {
+      metrics: pgMetrics,
+    });
   let results: Raw[][];
+  let totalsRaw: Raw[][];
+  let pgRows: Raw[];
   let asOf: { t: string | null }[];
   try {
-    [results, asOf] = await Promise.all([
-      Promise.all(
-        compiled.sources.map(async (s) =>
-          (
-            await reader.query({
-              query: s.sql,
-              format: 'JSONEachRow',
-              query_params: s.params,
-              use_multipart_params: true,
-            })
-          ).json<Raw>(),
-        ),
-      ),
+    [results, totalsRaw, asOf, pgRows] = await Promise.all([
+      run(compiled),
+      totalsCompiled ? run(totalsCompiled) : Promise.resolve([]),
       // a promise, not an `await` inside the array: awaiting here would leave the sources' rejection unhandled
       // (Node's default kills the process) whenever ClickHouse is down
       (async () =>
@@ -228,44 +355,57 @@ async function runOne(
             format: 'JSONEachRow',
           })
         ).json<{ t: string | null }>())(),
+      pgMetrics.length > 0
+        ? o.promotions!(q, scope, pgMetrics, compiled.currencyKey)
+        : Promise.resolve([]),
     ]);
   } catch (err) {
+    if (err instanceof AppError) throw err;
     throw new AppError('unavailable', 'Analytics store unavailable', {
       reason: (err as Error).name,
     });
   }
 
+  // utm values (#935 decision 5): PII-shaped → `other`, then only the answer's top values by attributed orders
+  const utmTop = topUtmValues([...results.flat()]);
+
   // merge the sources by key
   const merged = new Map<
     string,
-    { row: Omit<MetricRow, 'values'>; values: Record<string, number | null> }
+    { row: Omit<MetricRow, 'values' | 'suppressed'>; values: Record<string, number | null> }
   >();
-  compiled.sources.forEach((s, i) => {
-    for (const r of results[i]!) {
-      const row = {
-        period: str(r.out_period),
-        currency: compiled.currencyKey ? str(r.out_currency) : null,
-        store_id: str(r.out_store),
-        product_id: str(r.out_product),
-        refund_reason: str(r.out_reason),
-        provider: str(r.out_provider),
-        country: dimKey(r.out_country),
-        sales_channel_id: dimKey(r.out_channel),
-        category_id: dimKey(r.out_category),
-        customer_type: dimKey(r.out_ctype),
-        warehouse_id: dimKey(r.out_warehouse),
-      };
-      const key = JSON.stringify(row);
-      const cur = merged.get(key) ?? { row, values: {} };
-      for (const m of s.metrics) cur.values[m] = (cur.values[m] ?? 0) + int(r[`m_${m}`]);
-      merged.set(key, cur);
+  const add = (r: Raw, metrics: readonly MetricId[]) => {
+    const row = rowOf(r, compiled.currencyKey);
+    for (const c of UTM_COLUMNS) {
+      const v = row[c];
+      if (v !== null) row[c] = utmTop[c].has(utmValue(v)) ? utmValue(v) : 'other';
     }
-  });
+    const key = JSON.stringify(row);
+    const cur = merged.get(key) ?? { row, values: {} };
+    for (const m of metrics) {
+      const v = valueOf(m, r[`m_${m}`]);
+      // a distribution is never summed: one source row per key (utm folding only ever merges sums)
+      cur.values[m] =
+        METRICS[m].kind === 'distribution' ? v : ((cur.values[m] ?? 0) as number) + (v ?? 0);
+    }
+    merged.set(key, cur);
+  };
+  compiled.sources.forEach((s, i) => results[i]!.forEach((r) => add(r, s.metrics)));
+  pgRows.forEach((r) => add(r, pgMetrics));
 
   let rows: MetricRow[] = [...merged.values()].map(({ row, values }) => ({
     ...row,
+    suppressed: false,
     values: derive(values, q.metrics),
   }));
+  // small cells (#935 c, the #951 review rule): on an answer resting on customers
+  const unsafe = restsOnCustomers(q)
+    ? suppressSmallCells(
+        rows,
+        [...merged.values()].map((x) => x.values),
+        partitionsCustomers(q),
+      )
+    : new Set<string | null>();
   const keyOf = (r: MetricRow) =>
     [
       r.period,
@@ -279,6 +419,14 @@ async function runOne(
       r.category_id,
       r.customer_type,
       r.warehouse_id,
+      r.customer_group_id,
+      r.utm_source,
+      r.utm_medium,
+      r.utm_campaign,
+      r.campaign_id,
+      r.promotion_id,
+      r.carrier,
+      r.failure_reason,
     ]
       .map((x) => x ?? '')
       .join('|');
@@ -295,8 +443,9 @@ async function runOne(
       return (x - y) * sign;
     });
   }
-  const truncated = !o.noLimit && rows.length > q.limit;
-  if (truncated) rows = rows.slice(0, q.limit);
+  const limit = o.limit ?? q.limit;
+  const truncated = !o.noLimit && rows.length > limit;
+  if (truncated) rows = rows.slice(0, limit);
 
   // per currency over every merged row (not only the shown ones); ratios recomputed from the totals
   const totals = new Map<string | null, Record<string, number | null>>();
@@ -305,13 +454,29 @@ async function runOne(
     for (const [m, v] of Object.entries(values)) t[m] = (t[m] ?? 0) + (v ?? 0);
     totals.set(row.currency, t);
   }
+  // #935: the `total: 'query'` metrics come from their own query, never from the rows
+  if (totalsCompiled) {
+    for (const t of totals.values()) for (const m of queryTotals) t[m] = null;
+    totalsCompiled.sources.forEach((s, i) => {
+      for (const r of totalsRaw[i]!) {
+        const currency = compiled.currencyKey ? str(r.out_currency) : null;
+        const t = totals.get(currency) ?? {};
+        for (const m of s.metrics) t[m] = valueOf(m, r[`m_${m}`]);
+        totals.set(currency, t);
+      }
+    });
+  }
   const currency_totals = [...totals.entries()]
     .sort(([a], [b]) => String(a ?? '').localeCompare(String(b ?? '')))
     .map(([currency, values]) => {
       const v = derive(values, q.metrics);
       // a distinct count (product_orders) is not the sum of its rows: no total rather than a wrong one
       for (const m of q.metrics) if (METRICS[m].total === 'none') v[m] = null;
-      return { currency, values: v };
+      // a total is shown only when what it adds beyond the visible rows covers MIN_CUSTOMERS customers or more
+      const small =
+        unsafe.has(currency) || (restsOnCustomers(q) && (values.customers ?? 0) < MIN_CUSTOMERS);
+      if (small) for (const m of q.metrics) v[m] = null;
+      return { currency, values: v, ...(small ? { suppressed: true } : {}) };
     });
 
   return {
@@ -322,6 +487,80 @@ async function runOne(
     rows,
     currency_totals,
   };
+}
+
+/** The utm values an answer shows per column (#935): its top LIMITS.utm_top by attributed orders, PII-shaped out. */
+function topUtmValues(raw: readonly Raw[]): Record<(typeof UTM_COLUMNS)[number], Set<string>> {
+  const out = {} as Record<(typeof UTM_COLUMNS)[number], Set<string>>;
+  const col = {
+    utm_source: 'out_utm_source',
+    utm_medium: 'out_utm_medium',
+    utm_campaign: 'out_utm_campaign',
+  };
+  for (const c of UTM_COLUMNS) {
+    const weight = new Map<string, number>();
+    for (const r of raw) {
+      const v = dimKey(r[col[c]]);
+      if (v === null) continue;
+      const u = utmValue(v);
+      if (u === 'other') continue;
+      const w = Number(r.m_attributed_orders ?? r.m_attributed_net_sales_minor ?? 1);
+      weight.set(u, (weight.get(u) ?? 0) + (Number.isFinite(w) ? w : 1));
+    }
+    out[c] = new Set(
+      [...weight.entries()]
+        .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+        .slice(0, LIMITS.utm_top)
+        .map(([v]) => v),
+    );
+  }
+  return out;
+}
+
+/**
+ * Small cells (#935 c; the rule of the #951 review): no figure in one answer, alone or added to / subtracted from the
+ * other figures of the same answer, may reveal a value resting on fewer than MIN_CUSTOMERS customers.
+ *   * A row of fewer than MIN_CUSTOMERS customers is hidden WHOLE (every value null: money, counts, ratios — the same
+ *     figure under another metric id is no way round it).
+ *   * Within each (period, currency) group the hidden rows must together cover at least MIN_CUSTOMERS customers: the
+ *     smallest visible rows are hidden with them until they do. Then a total minus the visible rows is an aggregate
+ *     of at least MIN_CUSTOMERS customers.
+ *   * When even the whole group covers fewer, every row of it is hidden and its currency's totals are hidden too
+ *     (returned: the currencies whose totals must not show).
+ * `partitioned`: rows are disjoint in customers (store, customer group), so their customers add up; otherwise one
+ * customer can sit in two rows, and only the largest row is a safe lower bound of what several cover.
+ */
+export function suppressSmallCells(
+  rows: MetricRow[],
+  raw: readonly Record<string, number | null>[],
+  partitioned: boolean,
+): Set<string | null> {
+  const customers = raw.map((v) => v.customers ?? 0);
+  const hide = (i: number) => {
+    rows[i]!.suppressed = true;
+    for (const m of Object.keys(rows[i]!.values)) rows[i]!.values[m] = null;
+  };
+  const cover = (idx: readonly number[]) =>
+    partitioned
+      ? idx.reduce((n, i) => n + customers[i]!, 0)
+      : idx.reduce((n, i) => Math.max(n, customers[i]!), 0);
+  const unsafe = new Set<string | null>();
+  const groups = new Map<string, number[]>();
+  rows.forEach((r, i) => {
+    const k = JSON.stringify([r.period, r.currency]);
+    groups.set(k, [...(groups.get(k) ?? []), i]);
+  });
+  for (const idx of groups.values()) {
+    const hidden = idx.filter((i) => customers[i]! < MIN_CUSTOMERS);
+    if (hidden.length === 0) continue;
+    const visible = idx
+      .filter((i) => !hidden.includes(i))
+      .sort((a, b) => customers[a]! - customers[b]! || a - b);
+    while (cover(hidden) < MIN_CUSTOMERS && visible.length > 0) hidden.push(visible.shift()!);
+    hidden.forEach(hide);
+    if (cover(hidden) < MIN_CUSTOMERS) unsafe.add(rows[idx[0]!]!.currency);
+  }
+  return unsafe;
 }
 
 /** For a test or a log line: whether every compiled statement carries the scope predicate. */
