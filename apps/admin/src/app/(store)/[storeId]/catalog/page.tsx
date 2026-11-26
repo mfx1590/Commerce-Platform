@@ -51,6 +51,11 @@ export default async function CatalogPage({
                   Categories
                 </Button>
               </Link>
+              <Link href={`/${storeId}/catalog/merchandising`}>
+                <Button size="sm" variant="secondary">
+                  Search merchandising
+                </Button>
+              </Link>
               <Link href={`/${storeId}/catalog/new`}>
                 <Button size="sm">New product</Button>
               </Link>

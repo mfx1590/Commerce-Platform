@@ -410,6 +410,61 @@ export async function deleteProductMedia(
   });
 }
 
+// ---------------------------------------------------------------------------- merchandising rules (#870 item 5, PR C)
+
+/** Every rule of the store, all scopes. The operation has no filters and no paging. */
+export async function listMerchandisingRules(
+  storeId: string,
+): Promise<ApiResult<AdminResponse<'listMerchandisingRules'>>> {
+  return adminCall<'listMerchandisingRules'>({
+    path: buildPath('/admin/stores/{storeId}/merchandising/rules', { storeId }),
+  });
+}
+
+export async function createMerchandisingRule(
+  storeId: string,
+  body: AdminComponents['MerchandisingRuleInput'],
+): Promise<ApiResult<AdminResponse<'createMerchandisingRule'>>> {
+  return adminCall<'createMerchandisingRule'>({
+    path: buildPath('/admin/stores/{storeId}/merchandising/rules', { storeId }),
+    method: 'POST',
+    body,
+  });
+}
+
+/** Scope is immutable; pins/boosts/buries replace the whole list when given. */
+export async function updateMerchandisingRule(
+  storeId: string,
+  ruleId: string,
+  body: AdminComponents['MerchandisingRulePatch'],
+): Promise<ApiResult<AdminResponse<'updateMerchandisingRule'>>> {
+  return adminCall<'updateMerchandisingRule'>({
+    path: buildPath('/admin/stores/{storeId}/merchandising/rules/{ruleId}', { storeId, ruleId }),
+    method: 'PATCH',
+    body,
+  });
+}
+
+export async function deleteMerchandisingRule(
+  storeId: string,
+  ruleId: string,
+): Promise<ApiResult<AdminResponse<'deleteMerchandisingRule'>>> {
+  return adminCall<'deleteMerchandisingRule'>({
+    path: buildPath('/admin/stores/{storeId}/merchandising/rules/{ruleId}', { storeId, ruleId }),
+    method: 'DELETE',
+  });
+}
+
+/** Replaces the index's rules with every enabled, in-window rule; answers with counts only. */
+export async function publishMerchandisingRules(
+  storeId: string,
+): Promise<ApiResult<AdminResponse<'publishMerchandisingRules'>>> {
+  return adminCall<'publishMerchandisingRules'>({
+    path: buildPath('/admin/stores/{storeId}/merchandising/publish', { storeId }),
+    method: 'POST',
+  });
+}
+
 // ---------------------------------------------------------------------------- orders (task 2.2)
 
 /**

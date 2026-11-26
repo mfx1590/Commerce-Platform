@@ -1443,6 +1443,16 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
 - **Tests:** `media-actions.test.ts` (sniffing, hosts, limits pinned to the core's `UPLOAD_MAX_BYTES`, every refusal before the API, the upload's FormData, no signature in the result) and `media-panel.test.tsx`. Mutation-checked: removing the magic-byte check, either host check, `redirect: 'error'`, or the form's `media` strip each fails a test.
 - **Copy-link test (#947 follow-up):** renders `CopyLink` alone and awaits the status with `findByRole`; no full Overview render, no fixed wait.
 
+### Changed — test infrastructure: 15 s per-test timeout; one Prism port per contract suite
+
+- **Per-test timeout:** `vitest.config.ts` sets `testTimeout: 15_000`. Full local runs on a loaded laptop
+  failed with dozens of 5 s timeouts across unrelated files, and passed with `--maxWorkers=2`.
+- **Contract suite ports:** `test-contract/settings.test.tsx` moves from :4217 (the BI suite's) to :4223, so
+  the contract suites run together without EADDRINUSE. Verified with all 13 suites, 133 tests, in one run.
+  `test/contract-ports.test.ts` keeps the ports distinct and clear of :4011 and :4013.
+- **CLAUDE.md:** a red run made only of timeouts during a stack boot or heavy load is a load signature;
+  classify it before believing it.
+
 ### Added — #870 wave 1 item 4 (PR B): addresses, the consent ledger, cross-brand identity, a group by name
 
 - **Addresses** (`listCustomerAddresses`), defaults first, blank parts omitted. Rendered on the
@@ -1476,6 +1486,21 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   to the `Consent by channel` table, which this PR does not touch and whose name is not a substring
   of `Consent history`; no spec reads the group field by label, and none touches addresses or
   identity. Nothing to update.
+
+### Added — #870 wave 1 item 5 (PR C): search merchandising rules (window 3; Opus review)
+
+- **Catalog › Search merchandising** (`/{storeId}/catalog/merchandising`): every pin / boost / bury rule of the store, per category or per whole search query. Reading needs store_staff; creating, editing, bulk changes and publishing need store_admin, checked server-side before the API (bulk: again per row).
+- **Each rule says what it is now:** Live, Disabled, Scheduled (not started) or Ended — the same rule a publish applies; "never published" / "changed since" when shoppers do not see it as it is; and when it names products shoppers would not see as intended (deleted, draft or archived).
+- **Filters in the URL** (scope, state, category, query text). The Admin API returns every rule at once with no filters or paging, so they apply to that full list; the screen says so.
+- **Editor:** scope (fixed once the rule exists — the API does not change it), pins in order (move up / down), boosts with a weight 1–100, buries, enabled, a start and end (local time). Products are chosen by name through a search (`listProducts` q, 20 at a time); a product already in a list is not offered again; draft or archived matches are marked. Checked here and again on the server: a category or a query, the contract's limits (50 / 200 / 200), whole weights 1–100, a product in one list once, the end after the start. A scope that already has a rule is said on the scope (409).
+- **Bulk Enable / Disable / Delete…** on ticked rules, every row reported (an already-enabled rule is "skipped"), results downloadable.
+- **Publish to search** (store_admin): first says what a publish now does (N live rules in, M skipped; how many have changes shoppers do not see), then asks. The API answers with counts only, so the rules are read back and **each rule is reported**: _Published_ only when this run stamped its publish time, _Skipped_ with the reason (disabled, starts …, ended …), otherwise _Not confirmed_. When the API's counts and the rules read back disagree, both are shown. No index (409): "Nothing was published". No answer (5xx / network): "the index may or may not have the rules — check the publish times before running it again". Rules not read back: the per-rule result is said to be unknown.
+- **Export CSV** of the rules shown (scope, state, window, publish time, pins / boosts / buries by product name).
+- **Not possible (said on screen; #870 gaps):** a preview of the ranked search result for a rule (no operation); server-side filtering or paging of rules.
+- Product names for the rules are read one product at a time (the API lists products by search, not by id), at most 300 per page view; any beyond that are said and show their id.
+- **Tests:** `merchandising-actions.test.ts` (states, filters, every save check, the per-rule publish report and its mismatch, store_staff refused before the API, 409 / 5xx / read-back failure, bulk skip and labels, the product search's section check) and `merchandising-screen.test.tsx`. The permissions are pinned to `admin-api.yaml` by the existing catalog loop. Mutation-checked (see the PR).
+- **Test fix (#948 follow-up):** the variant editor's "sends every attribute" test and the two product-form tests ("saves them merged…", "a long SEO title…") paste each value instead of typing it key by key; they ran past 5 s under loaded full runs. Their imports were already at module top.
+- **Schedule times (#963 review):** the browser turns the typed local time into a UTC instant before the action is called; an untouched start or end is sent back byte for byte (the input has minutes only); the server checks instants and refuses a time without its zone (it would be read in the server's zone); end-after-start compares instants. Times are said in UTC (table, skip reasons) and the CSV has ISO UTC. Tested with the zone pinned to New York; mutation-checked.
 
 ### Added — #870 wave 1 item 4 (PR C): the GDPR export trail, beside erase
 

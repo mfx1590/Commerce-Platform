@@ -20,6 +20,8 @@ import { sharedMetricsReader } from '../metrics/reader';
 import { computeInventoryHealth, loadInventoryInputs } from '../metrics/inventory';
 import { resolveLabels } from '../metrics/labels';
 import { organizationClient } from '../../../lib/db';
+import { getCustomerCohorts, getOperationsBacklog } from '../metrics/operations';
+import { promotionsLoader } from '../metrics/promotions';
 import { metricsScope, operationGuard, stockScopeFor, type MetricsSpec } from '../metrics/routes';
 import { defaultGatewayFor } from './ai';
 import { askMetrics } from './ask';
@@ -96,6 +98,9 @@ export function askAdminRouter(opts: AskRouterOptions = {}): Router {
             // are out of its pooled rate too), and the names the answer's aliases stand for
             stockScope: (ids) =>
               stockScopeFor(p, ids, !hasOrganizationAccess(p) || ids.length < stores.length),
+            promotions: promotionsLoader(visibleStoresClientFor(p)),
+            cohorts: (ids, q) => getCustomerCohorts(opts.reader ?? sharedMetricsReader(), q, ids),
+            backlog: (ids) => getOperationsBacklog(visibleStoresClientFor(p), ids),
             inventory: async (ids, q) => {
               const organization = hasOrganizationAccess(p);
               const now = new Date();

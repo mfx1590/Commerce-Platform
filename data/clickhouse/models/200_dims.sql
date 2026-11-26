@@ -67,3 +67,29 @@ FROM
     FROM stg_store_updated_v1
 )
 GROUP BY store_id;
+
+-- dim_customer (BI v2 wave 2, #935): the CURRENT group and status per store × customer key; the latest customer.*
+-- event wins. There is no group history: a group on an order is the customer's group NOW, not at the time of the
+-- order. An erased customer has no key (the ingest scrubs it), so no group. customer_key never leaves the models.
+CREATE OR REPLACE VIEW dim_customer AS
+SELECT
+    store_id,
+    customer_key,
+    argMax(customer_group_id, (occurred_at, event_id))  AS customer_group_id,
+    argMax(status, (occurred_at, event_id))             AS status
+FROM (SELECT * FROM stg_customer_v1 WHERE customer_key IS NOT NULL)
+GROUP BY store_id, customer_key;
+
+-- dim_campaign (#935): name, type, planned budget and dates per campaign; the latest launched / ended event wins.
+CREATE OR REPLACE VIEW dim_campaign AS
+SELECT
+    store_id,
+    campaign_id,
+    argMax(name, (occurred_at, event_id))             AS name,
+    argMax(type, (occurred_at, event_id))             AS type,
+    argMax(budget_minor, (occurred_at, event_id))     AS budget_minor,
+    argMax(budget_currency, (occurred_at, event_id))  AS budget_currency,
+    argMax(starts_at, (occurred_at, event_id))        AS starts_at,
+    argMax(ends_at, (occurred_at, event_id))          AS ends_at
+FROM stg_campaign_v1
+GROUP BY store_id, campaign_id;

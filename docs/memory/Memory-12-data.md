@@ -52,6 +52,65 @@ checks → admin `(hq)/bi` section. NO Metabase in v1 (12.4 sandbox deferred unt
   FINAL per topic, 0 dead letters, replay unchanged.
 
 ## In progress — Phase 5
+- BI v2 PHASE A WAVE 2 (2026-11-19, Manager session FOURTEEN local_66534535…). #935 rev 2 ACCEPTED (design +
+  ledger in the issue body; linked #937 reason_code, #938 listOrders filters, #939 saved views, #940–#943 list
+  REQUESTs). GO: branch `integration/bi-v2-wave2` (from origin/main 84be39d0, --no-track; push explicitly), build
+  ORDER: (1) models: stg_customer_v1 → dim_customer (store_id + email_hash, current group; named system.columns
+  exception dim_customer.customer_key; identity_id/customer_id NOT staged), mart_customer_orders (cohort month),
+  stg_attribution_v1 → fct_attribution (utm normalised), stg_campaign_v1 → dim_campaign, stg_cart_abandoned_v1,
+  fct_shipment + fct_order_fulfilment, fct_payment_event (normalised failure code); (2) core: catalogue v3 (a1),
+  compiler (distribution kind = quantileTDigest per group + separate overall query; small-cell < 5 + complementary
+  suppression), getCustomerCohorts, getOperationsBacklog (Postgres, unassigned bucket), listMetricDimensionValues
+  (RLS, 403 foreign store, utm top 50 + PII → other, promotion names only), promotions from Postgres
+  order.metadata.promotions, queryMetrics CSV ≤ 10 000 + X-Truncated (JSON 1 000), Ask alias inputs (same question
+  only) + cohorts/backlog tools; local yaml overlay for route tests (as wave 1); access-matrix + contract tests.
+  (3) live blocks (reconcile / leak / PII) before the PR. Send the manager the exact yaml text when final; he lands
+  the contracts commit on the branch. Push after each green step, `pnpm format:check` first. Shared-stack writes →
+  stop and tell the manager.
+  DONE 11-19 (pushed, no PR): f2cec4bf models; ac8daeda core catalogue v3 (32 metrics, 8 dims, per-key customers,
+  query totals, small cells + complement, utm top 50 / PII → other, promotions from Postgres, JSON 1 000 / CSV 10 000,
+  Ask aliases g/cp/pr/u); 6989ff72 operations (cohorts CH, backlog PG, dimension-values) + Ask alias inputs + tools
+  customer_cohorts / operations_backlog; eada5e43 inventory CSV 10 000, contract-wave2 test, README. YAML: overlay in
+  the WORKING TREE only (packages/contracts/openapi/admin-api.yaml 0.4.31 + apps/core/test/access-matrix.test.ts 3
+  rows, both uncommitted) — exact diffs posted on #935 (comment 7009530289) for the manager's contracts commit; spec
+  test pins to move: version, 147 ops, 17 dims, 74 ids, 17 filter arrays. Live, with the overlay: reporting + matrix
+  388 passed / 1 skipped (metrics-live leak 300 queries incl. wave 2, every metric × grain 264); wave2-live 7/7;
+  routes-wave2 9/9 on real Postgres; analytics-ingest 198/198 (erasure convergence budget 120 s, 43 s measured).
+  GOTCHAS: bash heredocs with quotes/backslashes break → Write a .py and run it (yaml backslashes: chr(92));
+  customer keys must be per store (concat(store_id, ':', key)) or one e-mail at two brands counts once; a
+  totals-only compile must take the answer's currencyKey; YAML plain scalars cannot hold "Accept: text/csv".
+  MANAGER 11-19 (after the yaml): contracts commit being assembled by him on top of my branch (he sends the head);
+  integer→number widening accepted (say "widening" in PR + CHANGELOG). Before the PR: 8 golden owner questions
+  (acceptance), movers by customer_type/group/warehouse, refunds by product/category, p95 cohorts/backlog/pickers.
+  DONE since: 04b26f0d exact-set system.columns test; d26ee601 admin BI `hours` display unit (test/bi/hours.test.ts);
+  5e242cdd movers dims (+ yaml overlay MetricMoversQuery enum — TELL the manager, it is not in the #935 comment);
+  WORKING TREE (uncommitted when written): fct_refund_line (refund split over returned lines by paid value, remainder
+  on heaviest; no return → one order-level row; refunds source + refunds_minor dims product/category), staging +
+  fct_refund return_id appended, operations.ts picker alias vid, p95 blocks in metrics-wave2-live + routes-wave2.
+  11-19 later: manager's contracts commit f131713b (Admin API 0.4.31 / contracts 0.4.38) merged (head 30c2b2e8 →
+  my 0f38e770 merge). Then 0bf30f1e: yaml follow-up (movers enum, cohorts/backlog examples, Prism walks them 200,
+  CHANGELOG paragraph under 0.4.38), NO view sets join_use_nulls (a view reading another joining view must share
+  the setting: fct_refund_line over fct_refund failed with "returned Nullable column"), admin fixtures +9 keys.
+  p95 (seeded): cohorts 75 ms, CH pickers 22–34 ms, backlog 22 ms (HTTP), PG picker 17 ms (HTTP).
+  GOLDEN DONE: ask/golden/wave2.test.ts — the 8 owner questions, exact answers + checkOwnerAnswer (caveat, numbers
+  backed, no alias), negative controls. Root lint + typecheck 0.
+  STATE AT STOP (2026-11-19, owner finished for the day; manager resumes me tomorrow):
+  PR #951 (https://github.com/mfx1590/Commerce-Platform/pull/951) open from integration/bi-v2-wave2 → main,
+  head 759d9dec (pushed). CI was PENDING at last read (8 pass, 0 fail, 10 pending); no CI monitor on this session and
+  I may not poll — read get_status on resume and report the result to the manager. Fable code review NOT started (it
+  starts after the 5-hour reset; it checks no operation/CSV returns a customer key and erasure clears every new view).
+  Final local live run: core reporting + access matrix 402 passed / 1 skipped (readonly live test waits on
+  ch:migrate). `ch:migrate` on the SHARED analytics DB is OWNER-TYPED after merge; then the manager may ask me to run
+  the skipped readonly live test. This memory commit is LOCAL ONLY (not pushed: a push restarts CI on #951 — push
+  only when the manager agrees). Idle: no new work until the manager writes.
+  GOLDEN PLAN (done, kept for the record): golden/wave2.ts + wave2.test.ts like golden/stock.ts — a fixture reader answering by
+  source table (fct_order_sales, fct_order_touch, dim_campaign, fct_order_fulfilment, fct_payment_event, cohorts),
+  one scripted tool step per question, final text from the tool result, CONCRETE expected answers + checks (numbers
+  only from results, no alias left, the caveat per question: planned budget not spend; default-currency carts;
+  current group; < 5 suppressed; failure codes; time to deliver excludes undelivered).
+  NOT DONE (older note): cohort / backlog / pickers p95 not measured separately (wave2-live: >200 queries in 17.6 s ≈ 80 ms
+  each); movers by customer_type / customer_group / warehouse (#935 a2) not wired yet; refunds by product/category
+  not done; golden owner questions (#935 e, 8) not written. NEXT: manager lands contracts → PR → those gaps.
 - BI v2 PHASE A (2026-11-13, Manager session THIRTEEN local_a8e32bd9…; replaces eleven; owner rule: everything to the
   manager, never the owner; paused messages → "FOR THE MANAGER:" in the reply). Issues #869 (BI v2) + #870 (admin
   standard). Node 22 required (v22.23.5 ok). Main 71b0c625: contracts release 0.4.35 = admin-api.yaml 0.4.28.
