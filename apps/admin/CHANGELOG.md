@@ -1501,6 +1501,7 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
 - **Tests:** `merchandising-actions.test.ts` (states, filters, every save check, the per-rule publish report and its mismatch, store_staff refused before the API, 409 / 5xx / read-back failure, bulk skip and labels, the product search's section check) and `merchandising-screen.test.tsx`. The permissions are pinned to `admin-api.yaml` by the existing catalog loop. Mutation-checked (see the PR).
 - **Test fix (#948 follow-up):** the variant editor's "sends every attribute" test and the two product-form tests ("saves them merged…", "a long SEO title…") paste each value instead of typing it key by key; they ran past 5 s under loaded full runs. Their imports were already at module top.
 - **Schedule times (#963 review):** the browser turns the typed local time into a UTC instant before the action is called; an untouched start or end is sent back byte for byte (the input has minutes only); the server checks instants and refuses a time without its zone (it would be read in the server's zone); end-after-start compares instants. Times are said in UTC (table, skip reasons) and the CSV has ISO UTC. Tested with the zone pinned to New York; mutation-checked.
+
 ### Added — #870 wave 1 item 4 (PR C): the GDPR export trail, beside erase
 
 - **Request an export** (`exportCustomer`, 202) and **the trail of every request**
