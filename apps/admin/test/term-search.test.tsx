@@ -350,8 +350,8 @@ describe('the orders table: the term reaches export and bulk only by POST', () =
     );
     await user.type(screen.getByRole('searchbox'), TERM);
     await user.click(screen.getByRole('button', { name: 'Search' }));
-    // The searched rows first: ticking the URL rows and then receiving the answer would (rightly) reset
-    // the selection, because what is being matched changed.
+    // The searched rows first: the row checkboxes are disabled while the search is pending, and an answer
+    // clears any selection made before it (#970 review), so ticking has to wait for the searched rows.
     expect(await screen.findByText('jane@example.com')).toBeInTheDocument();
     await user.click(screen.getByRole('checkbox', { name: /Select all 1 rows on this page/ }));
     await user.click(screen.getByRole('button', { name: 'Select all 30 matching' }));
@@ -366,8 +366,48 @@ describe('the orders table: the term reaches export and bulk only by POST', () =
       mode: 'all-matching',
       filters: { status: 'confirmed', q: TERM },
     });
+    // #970 review: closing the results runs the search again (router.refresh reloads only the URL rows).
+    const before = api.listOrders.mock.calls.length;
+    await user.click(await screen.findByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(api.listOrders.mock.calls.length).toBe(before + 1));
+    expect(api.listOrders).toHaveBeenLastCalledWith(STORE, expect.objectContaining({ q: TERM }));
     expect(push).not.toHaveBeenCalled();
     expect(leaks(everyAddress(container))).toEqual([]);
+  });
+
+  it('rows cannot be ticked while a search is pending; the answer drops an earlier selection (#970 review)', async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    api.listOrders.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    const user = userEvent.setup();
+    render(
+      <OrdersTable
+        storeId={STORE}
+        locale="en-GB"
+        canCancel
+        rows={forOrderRows([order({ email: 'listed@example.com' })])}
+        total={1}
+        query={{ ...urlQuery(), sort: 'placed_at' }}
+      />,
+    );
+    await user.click(screen.getByRole('checkbox', { name: /Select all 1 rows on this page/ }));
+    expect(screen.getByText('1 row selected')).toBeInTheDocument();
+    await user.type(screen.getByRole('searchbox'), TERM);
+    await user.click(screen.getByRole('button', { name: 'Search' }));
+    // Pending: nothing can be ticked. (The form action is a transition, so the term and the selection
+    // reset commit together with the answer.)
+    await waitFor(() =>
+      expect(
+        screen.getByRole('checkbox', { name: /Select all 1 rows on this page/ }),
+      ).toBeDisabled(),
+    );
+    answer({ ok: true, status: 200, data: { page: 1, limit: 20, total: 1, items: [order()] } });
+    expect(await screen.findByText('jane@example.com')).toBeInTheDocument();
+    expect(screen.queryByText('1 row selected')).toBeNull();
+    await waitFor(() =>
+      expect(
+        screen.getByRole('checkbox', { name: /Select all 1 rows on this page/ }),
+      ).toBeEnabled(),
+    );
   });
 
   it('Export CSV during a search sends the term in the action body; the URL never holds it', async () => {

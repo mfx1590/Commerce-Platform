@@ -1115,6 +1115,9 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   the effective filters by POST. PermissionRule.relation widened to EffectiveRelation (viewer). Logging
   evidence: nothing logs query strings (no next logging, no telemetry, no CSP report-uri, ALB without access
   logs). Catalog / price-list q left in URL (product terms). Mutation-checked (scratchpad mutate-946.cjs).
+- **#970 Fable MERGE; review items folded in 2026-11-26** (merge main; autoComplete off; checkboxes disabled while a search is
+  pending, rather than clearing on every answer, which would break cross-page selection; bulk close re-runs the search;
+  test comment). Gotcha: a form `action` is a transition, so its state commits WITH the awaited answer, not before.
 ## Brand D pre-flight (admin side; input for window 10's wave-3 D8 task — brand D = Japan)
 
 Written 2026-11-10 and extended 2026-11-11 for **brand D = Japan** (JPY, ja-JP, ships to JP). Read-only, on

@@ -29,6 +29,8 @@ export interface TermSearchControl {
   pending: boolean;
   /** The search could not run: an invalid term, or a failure that is not a refusal. Never "no match". */
   message: string | null;
+  /** Run the active search again, unchanged: after a bulk action changed the rows it matched. */
+  refresh: () => void;
 }
 
 export interface TermSearchState<T> {
@@ -103,6 +105,9 @@ export function useTermSearch<T>({
     term,
     pending,
     message: failedMessage,
+    refresh: () => {
+      if (term !== null) execute(term, local);
+    },
     submit: (value) => {
       const trimmed = value?.trim() ?? '';
       if (trimmed === '') {

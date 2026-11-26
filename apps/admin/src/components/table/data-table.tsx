@@ -121,6 +121,10 @@ export function DataTable<T>({
       setSelection(EMPTY_SELECTION);
     }
   }, [filterSignature]);
+  // While a search is pending the rows on screen are about to be replaced, so nothing can be ticked
+  // (#970 review): a selection is always made on the rows it names. Submitting a term already resets the
+  // selection (the effective filters gain `q`); paging within a search keeps it, as paging always does.
+  const selectionLocked = termSearch?.pending === true;
 
   const searching = termSearch !== undefined && termSearch.term !== null;
   const navigate = (next: TableQuery) => {
@@ -166,6 +170,8 @@ export function DataTable<T>({
               id={`${caption}-search`}
               name="search"
               type="search"
+              // #970 review: the browser must not remember typed emails as form history either.
+              autoComplete="off"
               key={termSearch === undefined ? undefined : (termSearch.term ?? '')}
               defaultValue={
                 termSearch === undefined
@@ -244,7 +250,12 @@ export function DataTable<T>({
           </Button>
           {bulkActions !== undefined && (
             <div className="ml-auto flex items-center gap-2">
-              {bulkActions(selection, { clear: () => setSelection(clearSelection()) })}
+              {bulkActions(selection, {
+                clear: () => {
+                  setSelection(clearSelection());
+                  if (searching) termSearch.refresh();
+                },
+              })}
             </div>
           )}
         </div>
@@ -281,6 +292,7 @@ export function DataTable<T>({
                         type="checkbox"
                         aria-label={`Select all ${rows.length} rows on this page`}
                         checked={isPageFullySelected(selection, pageIds)}
+                        disabled={selectionLocked}
                         onChange={() => setSelection(togglePage(selection, pageIds))}
                       />
                     </th>
@@ -328,6 +340,7 @@ export function DataTable<T>({
                         type="checkbox"
                         aria-label={`Select row ${row.id}`}
                         checked={isRowSelected(selection, row.id)}
+                        disabled={selectionLocked}
                         onChange={() => setSelection(toggleRow(selection, row.id))}
                       />
                     </td>
