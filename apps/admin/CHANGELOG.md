@@ -1206,6 +1206,42 @@
   - `finance-payouts-screens` (JPY payout and lines, verdicts, ERP gaps, parked links; 7).
   - `finance` grew to 22: every operation gated, the payouts query never carries a currency.
 
+### Added — #921: the order's own history, now that #920 writes it
+
+- **The order detail page has an Activity panel of its own**, beside Payment activity. #920 (the
+  REQUEST this screen filed, #887) writes nine order actions and the panel names every one:
+  `place`, `status_change`, `update`, `cancel`, `line_item_update`, `line_item_cancel`, `ship`,
+  `return`, `exchange_link`. The two panels stay separate because a merge would have to invent an
+  ordering across two paged queries.
+- `order` is in the HQ › Audit entity filter (26 types now), so "who cancelled this order" is
+  answerable across the organization.
+- **The `order` allow-list was read off the four writers**, not off the issue:
+  `checkout/service.ts` (`order.place`), `orders/service.ts` (`transition` and `auditOrder`),
+  `orders/edits.ts` and `returns/service.ts`. Shown: the three status fields, `display_id`,
+  `total_minor`, `currency`, `line_count`, `payment_provider`, `line_item_id`, `from_quantity`,
+  `to_quantity`, `return_id`, `exchanged_order_id`.
+- **`reason` is NOT shown.** It is `order.cancel_reason` — free text somebody typed, and the one
+  field on an order where a customer's name or a complaint lands. It stays a field NAME until #922
+  decides. `cart_id` is withheld too: a uuid of a thing this screen cannot open.
+- **Two array fields are summarised rather than printed**, through a new `SHAPES` table: `lines`
+  (`[{line_item_id, quantity}]`) reads "2 lines, 3 units" and `refund_ids` reads "2 refunds". A
+  renderer fails closed itself — one element that is not the shape the core writes and the field
+  goes back to being a name — and it cannot smuggle a field past the allow-list, which a test pins.
+- **"Absent from the body" is no longer rendered as "none".** `order.ship` writes `before: {}`, so
+  the old code printed "lines: none → 2 lines", asserting the order had no lines before — which
+  the row never said. A field the body does not record now shows only what the row does say; an
+  explicitly null value still reads "none".
+- Tests: `test/audit-redaction.test.ts` is 35 cases and `test/audit-screens.test.tsx` 18 — the nine
+  verbs, the withheld reason, both shapes and their malformed forms, the allow-list guard, the three
+  renderings of a change, the prototype-chain guard, and the order panel's two cases. Admin suite
+  **1495 / 82 files** at this branch's head, which includes #926 merged in from main.
+- #933 review (Fable): `isSafeField` and the `SHAPES` lookup use `Object.hasOwn`. Both keys come
+  from the API, and `SAFE_VALUE_FIELDS['__proto__']` is `Object.prototype` (no `.includes`) while
+  `shapes['toString']` is a function — an `entity_type` borrowed from the prototype chain would
+  have thrown inside the panel rather than being redacted. The shape lookup also requires
+  `isSafeField` first, so the allow-list stays the single gate and a shape is only presentation
+  behind it.
+
 ### Security — #903, #900: every server action and BI route refuses before the Admin API
 
 - **#903:** the six actions without their own check now refuse first, with the contract's 403, unless the
@@ -1276,3 +1312,206 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   - **Inventory defaults to most urgent first**: out of stock, then low by days of cover, then the rest by cover; items without a cover last (`byUrgency`, tested).
   - Where an item's parameters came from is in words ("the platform default", "the store's setting", "set on this page").
   - An id the API didn't label reads "unknown" (the API itself says "(deleted)"), never an id prefix.
+
+### Added — #870 wave 1 item 4 (PR A): the customer group picker, and an email out of a URL
+
+- **A group picker on the customers list**, which keeps a promise the page's own docstring had been
+  making: it said there would be no picker "until a customer-groups operation exists", and
+  `listCustomerGroups` arrived in Admin API 0.4.7. `group_id` was always honoured from the URL;
+  now it is choosable, and the server does the filtering (`listCustomers` takes the parameter).
+  The groups read is `viewer` while the list is `support`, so it cannot widen what anyone sees.
+- **The Group column shows the group's name**, not the first eight characters of a uuid. A group
+  that cannot be named — a failed read, or one removed since — keeps its id rather than reading as
+  "no group", and a refused groups read leaves the table working with a note saying so.
+- **Defect fixed: a customer's email address travelled in a URL.** "Orders by this customer" linked
+  `/orders?q=<email>`, which puts personal data into browser history, into the referrer of anything
+  the orders page loads, and into any log that records paths. `listOrders` has taken an exact
+  `customer_id` since Admin API 0.4.24 (#569), so the link uses that. It is also more accurate: `q`
+  matches a display id too, and the same address can exist in more than one store.
+  - `customer_id` had to be added to `ORDER_FILTER_KEYS`: a key the orders page does not parse is
+    dropped, so the new link would otherwise have shown **every** order while looking filtered.
+  - The orders list now says when it is showing one customer's orders, with links to that customer
+    and back to the unfiltered list — a filtered list that looks unfiltered is a trap.
+- **No CSV export of the customer list**, deliberately: that is a bulk extraction of emails, phones
+  and addresses and needs its own decision (store_admin, audited, with a stated reason), not a
+  button added while building a filter. A test asserts the list offers none.
+- Tests: `test/customers-list.test.tsx` (9) — the picker's options and the parameter sent, the group
+  name and both fallbacks, the refused read, the absent CSV, and the privacy assertion that **no
+  href on the customer page contains the address** in any encoding.
+- **The e2e asserted the old link, and I had not grepped for it.** `e2e/store-admin.spec.ts:268`
+  pinned the `?q=jane%40example.com` href, so both e2e jobs on this PR failed on that one line —
+  the same single cause in each, with every unit suite green. The spec now takes the customer id
+  from the address it is already on, asserts the real `?customer_id=` link, and asserts the href
+  contains the email in **no** encoding. Other specs were grepped for `q=` and email expectations:
+  the only other hits are a product handle in `catalog-core` and a staff email rendered on HQ ›
+  Roles, neither of which this change touches.
+
+### Fixed — #910: an active store that loses a prerequisite no longer reads "customers can place an order"
+
+- `canSell` requires `missing` to be empty.
+- The readiness panel shows, for an ACTIVE store too, "Customers cannot currently order: … missing" with
+  links to fix each gap, instead of "Active — the store is live".
+- The can-sell box answers "No — the store is active, but customers cannot currently order".
+- A failed readiness read says "Could not check whether this store can sell (status)" instead of hiding the
+  box silently.
+- `parseReadiness` keeps a warning the contract does not declare yet in `other_warnings`, listed
+  generically, instead of a 502 that hid the box. The rest of the body is still strict, and the contract
+  shape is still pinned with `satisfies`.
+- Tests:
+  - `readiness-active`: the panel, the box and the page's failed read.
+  - `readiness`: `canSell` with `missing`, `missingLabels`, the tolerant warnings and the wrapper.
+- Mutation-checked: dropping the `missing` check, the active branch, or the tolerant warnings each fails
+  tests.
+
+### Security — #925: the Marketing server actions refuse before the Admin API
+
+- The nine actions in `(store)/[storeId]/marketing/_actions.ts` (campaigns create / launch / end, segments
+  create / update / preview / materialize, feeds create / publish) start with `refuseUnlessPermitted`: the
+  contract's 403 unless the principal holds the operation's `x-permission` on the URL's store, before any request.
+- `MARKETING_PERMISSIONS` (`src/lib/marketing/permissions.ts`) is pinned to `admin-api.yaml` and added to the
+  guard: `previewSegment` store_staff, the other eight store_admin.
+- Tests (`test/marketing/action-permissions`), per action:
+  - refused before the API;
+  - a store the principal holds nothing on;
+  - 401;
+  - a store id that isn't a uuid;
+  - allowed;
+  - the yaml pin.
+- Mutation-checked: removing any one of the nine guards fails its tests.
+- Window 17's files, landed on `integration/admin-marketing-guards`.
+
+### Security — #949: the middleware matcher's exclusions are anchored
+
+- **Before:** `/((?!api/auth|health|_next/static|_next/image|favicon.ico).*)` excluded by prefix, so
+  `/healthx`, `/health/anything` and `/api/authxyz` skipped the session gate.
+- **Now:** `/((?!api/auth/|health/?$|_next/static/|_next/image$|favicon\\.ico$).*)`. Only `/api/auth/…`,
+  `/health`, the static assets and the favicon stay outside.
+- **Tests**, compiled with Next's `getMiddlewareMatchers`:
+  - every exclusion stays open;
+  - twelve look-alikes are matched;
+  - `/healthx`, `/api/authx` and `/health/anything` without a session get a 307 to sign-in, for GET and
+    for a `Next-Action` POST;
+  - `/health` still answers 200.
+- The security-headers test checks the error page through the same compiler, and that a look-alike is matched
+  (so it gets the CSP).
+- **Mutation-checked:** the old matcher, an unanchored `health`, and `api/auth` without its slash each
+  fail tests.
+
+### Added — #870 wave 1 item 5 (PR A): variant and product attributes (window 3)
+
+- **Variant editor**: every attribute `updateVariant` takes.
+  - Title, SKU, barcode; tracking stock and selling when out of stock (backorder).
+  - Weight (g) and dimensions (mm, all three sides or none).
+  - HS code (6, 8 or 10 digits; dots and spaces typed are stripped) and country of origin (ISO alpha-2, upper-cased).
+  - Per currency, the price **and its compare-at price**. Editing a price used to drop the compare-at; now it travels with it.
+  - A compare-at that shows no saving is a **warning, not a block**.
+  - The contract declares no format for these fields, so the admin checks them as typed and again in the server action, through the shared schema. The core itself checks only the origin and a non-negative weight.
+- **The variant list** says per variant what shipping and customs data is missing ("missing: barcode, weight, …"), and that a variant can't be deleted (there is no API operation; #870 gap).
+- **Product form**:
+  - **tags** as chips;
+  - **SEO**: title and description with length hints, and a canonical that must be https or a store path (refused on the server too). These are the keys the storefront's product page reads, and every other `seo` key already present is kept;
+  - **attributes** as key/value rows. Values that aren't text or numbers are kept, read-only; a duplicate key is said.
+- **Catalog list**: a "Variant data" column ("2 lack weight · 1 lacks HS code" / complete), and the CSV gains one column per kind (`variants_missing_barcode`, `…_weight`, `…_dimensions`, `…_hs_code`, `…_origin`). `listProducts` can't filter on these, so there's no URL filter (#870 gap).
+- Tests: `test/catalog-attributes.test.ts` (13), `test/catalog-attributes-ui.test.tsx` (6). `variants-panel.test.tsx` now expects the fuller save body and the per-row "Edit <SKU>" button. Mutation-checked: loosening the HS code pattern or dropping the all-three-sides rule fails the suite.
+- #947 review (Opus), item 5 PR A:
+  - **MONEY.** `updateVariant` writes `prices` to the default price list at quantity 1, the last one winning, so the variant editor now edits **only the default-list price at quantity 1** (one per currency).
+    - Tiers and sale, override or group-list prices are shown **read-only with their list and minimum quantity**.
+    - `prices` is sent **only when a default price or compare-at changed**: a barcode-only save sends none.
+    - If the price lists can't be read, no price is editable, and the editor says so.
+    - Clearing a price says it isn't removed (the current price stays).
+  - A canonical starting `//` or `/\` (another site) is refused, on the server too.
+  - The server schema takes all three dimensions or none.
+  - Dimensions, HS code and origin are checked and sent **only when changed**, so a legacy value never blocks another save.
+  - Tests: default + tier + sale-list rows in one currency (in any order); prices omitted on a barcode-only save; unreadable lists; cleared price; legacy values; `//` and `/\` canonicals; partial dimensions. Mutation-checked: making every price editable fails 1 test; always sending prices fails 4.
+
+### Added — #870 wave 1 item 5: product images (window 3; security, Fable review)
+
+- **Images** card on the product page: upload one image at a time, edit its alt text, tie it to a variant ("Shown for"), move it earlier or later (the first is the thumbnail), delete it behind a confirmation. Without `store_staff` on the store the card is read-only; the server decides either way.
+- **The upload is a server action** (`uploadProductMediaAction`), not a route, so it keeps Next's CSRF protection. In order, each step refusing before the next:
+  - permission for `createMediaUploadParams` and `addProductMedia`; product and variant ids;
+  - alt text required;
+  - the file: present, not empty, at most 10 MiB (from its size, before any byte is read);
+  - its type from its first bytes (JPEG, PNG, GIF, WebP, AVIF), never the name or the browser's MIME type;
+  - the signed parameters from `createMediaUploadParams`, server-side only — the signature never reaches the browser; then the size against that upload's `max_bytes` and the format against its `allowed_formats`;
+  - the upload URL must be exactly `https://api.cloudinary.com/v1_1/<cloud>/image/upload`; the file is posted there with no redirect followed and a 60 s timeout;
+  - the answer's `secure_url` must be on `https://res.cloudinary.com`; then `addProductMedia` attaches it. When that fails, the message says the image is on the image host but not on the product.
+  - No URL anyone types is ever fetched (no SSRF).
+- **Body limit:** `experimental.serverActions.bodySizeLimit` = the 10 MiB ceiling + a 64 KiB multipart envelope (`src/lib/catalog/media-limits.mjs`). Next parses the body before the action runs, so this is the cap on the stream itself; the envelope is what a 10 MiB file needs to arrive at all. It applies to every server action of the app (it was 1 MB).
+- **CSP:** `img-src 'self' data: blob: https://res.cloudinary.com` — exactly that host, no wildcard; pinned by the headers test.
+- **Alt text:** required on upload and on edit; the panel says how many images lack it and marks each one.
+- **Data-loss fix:** the edit page's Details form no longer sends `media`. `updateProduct` replaces the whole set when `media` is sent, so a stale list would have undone the panel's uploads. The create page keeps its URL list.
+- **Tests:** `media-actions.test.ts` (sniffing, hosts, limits pinned to the core's `UPLOAD_MAX_BYTES`, every refusal before the API, the upload's FormData, no signature in the result) and `media-panel.test.tsx`. Mutation-checked: removing the magic-byte check, either host check, `redirect: 'error'`, or the form's `media` strip each fails a test.
+- **Copy-link test (#947 follow-up):** renders `CopyLink` alone and awaits the status with `findByRole`; no full Overview render, no fixed wait.
+
+### Changed — test infrastructure: 15 s per-test timeout; one Prism port per contract suite
+
+- **Per-test timeout:** `vitest.config.ts` sets `testTimeout: 15_000`. Full local runs on a loaded laptop
+  failed with dozens of 5 s timeouts across unrelated files, and passed with `--maxWorkers=2`.
+- **Contract suite ports:** `test-contract/settings.test.tsx` moves from :4217 (the BI suite's) to :4223, so
+  the contract suites run together without EADDRINUSE. Verified with all 13 suites, 133 tests, in one run.
+  `test/contract-ports.test.ts` keeps the ports distinct and clear of :4011 and :4013.
+- **CLAUDE.md:** a red run made only of timeouts during a stack boot or heavy load is a load signature;
+  classify it before believing it.
+
+### Added — #870 wave 1 item 4 (PR B): addresses, the consent ledger, cross-brand identity, a group by name
+
+- **Addresses** (`listCustomerAddresses`), defaults first, blank parts omitted. Rendered on the
+  server: `Address` is one of the records `src/lib/client-safe.ts` polices, the panel needs no
+  interactivity, so **no projection of an address exists** and none can reach the browser. An
+  address's own phone is labelled "Contact on this address" so nobody reads it as the customer's.
+  An address whose every field is blank says so instead of rendering an empty box.
+- **Consent history** (`listCustomerConsents`) beside the existing current-state table, because
+  "is she opted in?" and "when did she say so, and where?" are different questions. Each row
+  carries the decision, the source (storefront / admin / import), the policy version and when it
+  was recorded. "Never asked" is worded so it cannot be read as a refusal.
+- **Across the organization** (`getCustomerIdentity`): whether this person shops under more than
+  one brand. **HQ-only and asked for only when it can be answered** — the operation needs `support`
+  on `organization:hq`, which no relation on a single store grants, so a store-scoped reader is told
+  that in a sentence instead of being shown a 403, and the call is never made for them. The answer
+  is **ids only**; the panel names the stores and links to each sibling record, and says plainly
+  that the other records' names and emails are not shown, because resolving one would be a second
+  `getCustomer` behind a gate this reader may not hold. A test pins that the page makes exactly
+  **one** `getCustomer` call.
+- **A group is assigned by name.** The field was a free-text box for a uuid ("The group's id (a
+  uuid)"), which is the junior-owner experience #870 is about. It is now a select of the store's
+  groups with an explicit "No group", through the same schema and the same server action —
+  `updateCustomerAction` already re-checks `refuseUnlessPermitted('updateCustomer', storeId)`, which
+  this PR verified rather than added. If the groups cannot be read the id box returns, because a
+  select with no options would make an existing group unchangeable.
+- Tests: `test/customers-detail.test.tsx` (13) — address order, omission and the blank-address
+  state; a refused read showing the refusal rather than a missing panel; both consent tables
+  coexisting; the identity panel in all three states with the call-count assertion; the group select
+  and its fallback. `test/customers-list.test.tsx` gained the detail page's new reads.
+- Grepped `apps/*/e2e` before pushing, as the rule now says: the only consent assertions are scoped
+  to the `Consent by channel` table, which this PR does not touch and whose name is not a substring
+  of `Consent history`; no spec reads the group field by label, and none touches addresses or
+  identity. Nothing to update.
+
+### Added — #870 wave 1 item 4 (PR C): the GDPR export trail, beside erase
+
+- **Request an export** (`exportCustomer`, 202) and **the trail of every request**
+  (`listCustomerExports`): when it was asked for, by whom, what became of the bundle, its size, and
+  how many times it has been downloaded. Both are `store_admin`, so a `support` reader — who may
+  read the record on screen — is told it is store-admin work and **the trail is never fetched**.
+  `requestCustomerExportAction` is guarded by `refuseUnlessPermitted('exportCustomer', storeId)`;
+  the rule is in `CUSTOMER_PERMISSIONS`, which `test/action-permissions.test.ts` pins against the
+  `x-permission` in `admin-api.yaml` and now exercises for this action too.
+- **The bundle is not served from this screen, and `getCustomerExport` is not even wrapped.** That
+  operation's 200 _is_ the bundle — the whole of one person's record as an attachment. The panel
+  says so in a sentence, and a test asserts there is no download link or button anywhere in it. See
+  the PR for the question this leaves open.
+- **The states read as what they are.** "pending" is being built, "expired" is a purge and not a
+  failure, and the contract's two `reason` values are said in words ("the customer was erased
+  before the bundle was", "too large"). An empty trail says no export has ever been requested.
+- **Who asked, where that is knowable.** A customer's own self-service request is labelled as one
+  and never named. A staff id is resolved against `listUsers` — which is `owner` on
+  `organization:hq`, so the lookup is **skipped** for a store admin rather than fetching a certain
+  403, and the row reads "Staff (ab12cd34)". The one `listUsers` call a store admin still pays on
+  this page is the Activity panel's from #896, which asks unconditionally by design; gating that
+  would mean threading the principal into `loadActivity` and four pages, so it is named rather than
+  changed here.
+- An **erased** customer is not offered an export: there is nothing left to bundle.
+- Tests: `test/customers-export.test.tsx` (12) — no download anywhere, the two "do not ask what
+  would be refused" cases, the owner path naming the asker, the erased and empty states, a refused
+  trail, and the pure wording/size/count helpers. `test/action-permissions.test.ts` gained the
+  export action. Grepped `apps/*/e2e`: no spec touches exports or the new table.

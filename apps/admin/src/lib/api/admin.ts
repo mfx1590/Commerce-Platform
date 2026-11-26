@@ -340,6 +340,76 @@ export async function updateVariant(
   });
 }
 
+// ---------------------------------------------------------------------------- product media (#870 item 5)
+
+/**
+ * Signed parameters for ONE upload of a product image to Cloudinary (store_staff). The signature
+ * and api_key stay on the server: the upload action posts the file itself and never echoes them.
+ */
+export async function createMediaUploadParams(
+  storeId: string,
+  body: AdminComponents['MediaUploadRequest'],
+): Promise<ApiResult<AdminResponse<'createMediaUploadParams'>>> {
+  return adminCall<'createMediaUploadParams'>({
+    path: buildPath('/admin/stores/{storeId}/media/upload-params', { storeId }),
+    method: 'POST',
+    body,
+  });
+}
+
+export async function listProductMedia(
+  storeId: string,
+  productId: string,
+): Promise<ApiResult<AdminResponse<'listProductMedia'>>> {
+  return adminCall<'listProductMedia'>({
+    path: buildPath('/admin/stores/{storeId}/products/{productId}/media', { storeId, productId }),
+  });
+}
+
+export async function addProductMedia(
+  storeId: string,
+  productId: string,
+  body: AdminComponents['ProductMediaInput'],
+): Promise<ApiResult<AdminResponse<'addProductMedia'>>> {
+  return adminCall<'addProductMedia'>({
+    path: buildPath('/admin/stores/{storeId}/products/{productId}/media', { storeId, productId }),
+    method: 'POST',
+    body,
+  });
+}
+
+export async function updateProductMedia(
+  storeId: string,
+  productId: string,
+  mediaId: string,
+  body: AdminComponents['ProductMediaPatch'],
+): Promise<ApiResult<AdminResponse<'updateProductMedia'>>> {
+  return adminCall<'updateProductMedia'>({
+    path: buildPath('/admin/stores/{storeId}/products/{productId}/media/{mediaId}', {
+      storeId,
+      productId,
+      mediaId,
+    }),
+    method: 'PATCH',
+    body,
+  });
+}
+
+export async function deleteProductMedia(
+  storeId: string,
+  productId: string,
+  mediaId: string,
+): Promise<ApiResult<AdminResponse<'deleteProductMedia'>>> {
+  return adminCall<'deleteProductMedia'>({
+    path: buildPath('/admin/stores/{storeId}/products/{productId}/media/{mediaId}', {
+      storeId,
+      productId,
+      mediaId,
+    }),
+    method: 'DELETE',
+  });
+}
+
 // ---------------------------------------------------------------------------- orders (task 2.2)
 
 /**
@@ -576,6 +646,104 @@ export async function listCustomers(
   return adminCall<'listCustomers'>({
     path: buildPath('/admin/stores/{storeId}/customers', { storeId }),
     query,
+  });
+}
+
+/**
+ * The store's customer groups (`viewer` on the store — the lightest gate in the customers area,
+ * because a group is a name, not personal data). Admin API 0.4.7; the list has no paging.
+ */
+export async function listCustomerGroups(
+  storeId: string,
+): Promise<ApiResult<AdminResponse<'listCustomerGroups'>>> {
+  return adminCall<'listCustomerGroups'>({
+    path: buildPath('/admin/stores/{storeId}/customer-groups', { storeId }),
+  });
+}
+
+/**
+ * The customer's addresses (`support` on the store — the same gate as the record itself, because an
+ * address is personal data). Each item is an `Address` plus its id and the two default flags.
+ */
+export async function listCustomerAddresses(
+  storeId: string,
+  customerId: string,
+): Promise<ApiResult<AdminResponse<'listCustomerAddresses'>>> {
+  return adminCall<'listCustomerAddresses'>({
+    path: buildPath('/admin/stores/{storeId}/customers/{customerId}/addresses', {
+      storeId,
+      customerId,
+    }),
+  });
+}
+
+/**
+ * The consent LEDGER — every recorded decision, newest first (`support` on the store). Different
+ * from `Customer.consent`, which is only the current state: this answers when a decision was made,
+ * where it came from (storefront / admin / import) and under which policy version.
+ */
+export async function listCustomerConsents(
+  storeId: string,
+  customerId: string,
+): Promise<ApiResult<AdminResponse<'listCustomerConsents'>>> {
+  return adminCall<'listCustomerConsents'>({
+    path: buildPath('/admin/stores/{storeId}/customers/{customerId}/consents', {
+      storeId,
+      customerId,
+    }),
+  });
+}
+
+/**
+ * Schedules a GDPR export (`store_admin`; 202 with no body). The core builds the bundle and owns
+ * its delivery, and emits `customer.export_requested`.
+ */
+export async function exportCustomer(
+  storeId: string,
+  customerId: string,
+): Promise<ApiResult<AdminResponse<'exportCustomer'>>> {
+  return adminCall<'exportCustomer'>({
+    path: buildPath('/admin/stores/{storeId}/customers/{customerId}/export', {
+      storeId,
+      customerId,
+    }),
+    method: 'POST',
+  });
+}
+
+/**
+ * The customer's export REQUESTS in this store, newest first — ids, status, timestamps, sizes, who
+ * asked, and how often each bundle has been downloaded. Never the bundle itself (`store_admin`).
+ *
+ * **`getCustomerExport` is deliberately not wrapped.** That operation's 200 *is* the bundle — the
+ * whole of one person's data as an attachment — so nothing in this app can pull it until someone
+ * decides it should be able to. See the PR for #870 item 4 PR C.
+ */
+export async function listCustomerExports(
+  storeId: string,
+  customerId: string,
+): Promise<ApiResult<AdminResponse<'listCustomerExports'>>> {
+  return adminCall<'listCustomerExports'>({
+    path: buildPath('/admin/stores/{storeId}/customers/{customerId}/exports', {
+      storeId,
+      customerId,
+    }),
+  });
+}
+
+/**
+ * One person's rows across the organization's stores — **ids only**, no email, no subject, no hash.
+ *
+ * `support` on **organization:hq**, not on a store: a store admin with every relation on their own
+ * stores is refused (403), which is the contract's intent and not an error to render. Call it only
+ * for a principal that holds the organization relation, so a store-scoped reader never generates a
+ * refusal the screen then has to explain away.
+ */
+export async function getCustomerIdentity(
+  identityId: string,
+): Promise<ApiResult<AdminResponse<'getCustomerIdentity'>>> {
+  return adminCall<'getCustomerIdentity'>({
+    path: buildPath('/admin/customer-identities/{identityId}', { identityId }),
   });
 }
 

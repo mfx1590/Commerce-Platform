@@ -1091,6 +1091,24 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   Marketing (window 17, 9 actions) is unguarded, filed as REQUEST #925. BI paths are window 12's in ownership.md;
   edited on the manager's assignment (#900 names window 4), noted in the PR. #859 approved, in the merge queue
   (no pushes there). Follow-ups parked.
+- **#910 (active store readiness), 2026-11-19:** branch `admin/phase6-910-active-readiness` from main 84be39d0.
+  canSell needs missing=[]; ActivatePanel for ACTIVE + missing → "Customers cannot currently order: …" with fix
+  links; CanSellBox "No — the store is active …"; page "Could not check…" on a failed read; parseReadiness
+  tolerant of unknown warnings (other_warnings, shown generically). Opus review. Specialist version (stores
+  list column/filter, alert, history) not in scope: follow-up.
+- **#926 MERGED** (490b48aa). **#925 (Marketing guards), 2026-11-19:** branch `integration/admin-marketing-guards`
+  from main 84be39d0 (window 17's files → integration branch, rule E). MARKETING_PERMISSIONS in src/lib/marketing,
+  9 guards, tests per action, mutation-checked (scratchpad mutate-925.cjs). Fable review. Next: #910 (active store
+  losing a prerequisite) on an admin branch, Opus review.
+- **#936 (#925) MERGED; #944 (#910) re-merged with main, head 51da1ac3. #949 (middleware matcher), 2026-11-19:**
+  branch `admin/phase6-949-middleware-matcher` from main d5751d7a. Anchored exclusions; tests use Next's
+  getMiddlewareMatchers (next/dist/build/analysis/get-page-static-info). Mutation-checked (scratchpad
+  mutate-949.cjs). Fable review.
+  - Gotcha: shell-quoted regex escapes get eaten (`favicon\.ico`): write such edits as a script file.
+- **#944, #950 MERGED. Test infra, 2026-11-25:** branch `admin/phase6-test-infra` from main 9f319921.
+  testTimeout 15 s; settings contract suite :4217 → :4223 (bi kept 4217; roles was already on 4218);
+  test/contract-ports.test.ts guards it; CLAUDE.md load-signature line. Then evaluate Dependabot #956
+  (@hookform/resolvers 7) and #955 (ESLint 10): report, do not merge.
 ## Brand D pre-flight (admin side; input for window 10's wave-3 D8 task — brand D = Japan)
 
 Written 2026-11-10 and extended 2026-11-11 for **brand D = Japan** (JPY, ja-JP, ships to JP). Read-only, on

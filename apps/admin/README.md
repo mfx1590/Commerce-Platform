@@ -420,8 +420,12 @@ why the reveal carries a warning and a copy button rather than a "show again" co
 (`q`, `status`) and sort; `/{storeId}/catalog/new` and `/{storeId}/catalog/{id}` are the same form,
 which previews the variant matrix as options are typed — `variantMatrix` is a pure function with its
 own tests, because 3 sizes × 2 colours must be 6 variants and quietly producing 3 would corrupt a
-catalog. Media is an ordered list of URLs (row 1 is the thumbnail) with move up / move down; the
-server action renumbers `position` from the array order, so the form never sets one. Publish and
+catalog. On the create page, media is an ordered list of URLs (row 1 is the thumbnail) with move up /
+move down; the server action renumbers `position` from the array order. On the product page the
+**Images** card owns the images instead (#870 item 5): upload through a server action that checks the
+type from the file's bytes and signs the Cloudinary upload server-side, alt text required, reorder,
+variant, delete — and the Details form there never sends `media`, because `updateProduct` replaces
+the whole set. Publish and
 archive each sit behind an inline confirmation — publish because it emits `product.published` and
 makes the product visible to shoppers, archive because `DELETE` is the verb even though the
 contract archives rather than hard-deletes — and both render what the server returned (`status`,
@@ -528,6 +532,45 @@ read-only. Addresses, a GDPR **export** and a customer-groups picker wait on CON
 **401** for the unmounted route (Medusa's admin auth catches unmatched `/admin/*` paths — #265),
 so the screen shows the session-ended panel (`docs/customers/core-unimplemented.png`); once the
 core answers the contract's 404, task 2.6 turns that into a "not implemented yet" panel.
+
+### Customers as a specialist's tool (#870 wave 1 item 4)
+
+**The list** has a group picker over `listCustomerGroups` (`viewer`, against the list's `support`,
+so it cannot widen anything) and shows each group's name rather than a uuid fragment. There is
+**no CSV export**, deliberately: a customer-list export is a bulk extraction of emails, phones and
+addresses and needs its own decision (store_admin, audited, with a stated reason). A test asserts
+the list offers none.
+
+**The orders link carries `customer_id`, never the email.** A URL reaches browser history, the
+referrer of whatever loads next, and any log that records paths. `listOrders` has taken an exact
+`customer_id` since Admin API 0.4.24 (#569). `ORDER_FILTER_KEYS` has to list it or
+`parseTableQuery` drops it and the link shows every order while looking filtered; the orders list
+also states when it is showing one customer.
+
+**The detail page** renders addresses and the consent ledger on the server. `Address` is a record
+`src/lib/client-safe.ts` polices, and these panels need no interactivity, so no projection of an
+address exists at all. The consent ledger (`listCustomerConsents`) sits beside the current-state
+table: the embedded `Customer.consent` is what is true now, the ledger is who decided what, when,
+from where, and under which policy version.
+
+**Cross-brand identity is HQ-only and ids-only.** `getCustomerIdentity` needs `support` on
+`organization:hq`; a store admin with every relation on their own stores is refused by design, so
+the page tells them that in a sentence and never makes the call. The answer carries store and
+customer ids, so the panel names the stores, links to each record, and says that the other
+records' names are not shown — reading one would be a second `getCustomer` behind a gate the
+reader may not hold on that store.
+
+**The GDPR export trail is shown; the bundle is not served.** `exportCustomer` and
+`listCustomerExports` are both `store_admin`, so a `support` reader is told as much and the trail is
+not fetched for them. `getCustomerExport` is deliberately not wrapped in `src/lib/api/admin.ts`:
+its 200 response _is_ one person's whole record as an attachment, so nothing in this app can pull
+it. The trail says who asked (a customer's self-service request is labelled, never named), what
+became of the bundle, and how often it was downloaded. The staff-name lookup is `owner` on
+`organization:hq`, so it is skipped for a store admin instead of fetching a certain 403.
+
+**A group is assigned by name**, through the same schema and the same action; the action's own
+`refuseUnlessPermitted('updateCustomer', storeId)` is the server-side check, and the core writes
+the audit row that then appears in the customer's Activity panel.
 
 ## Promotions and price lists (task 2.4, issue #116)
 
@@ -1028,10 +1071,33 @@ API call — 401 without a session, the status of a failed `/admin/me` forwarded
 without the relation. Whenever a screen's data is also reachable as a route handler, the handler
 needs the screen's gate written out again; the guard component cannot reach it.
 
-**There are two audit writers.** `apps/core/src/lib/audit.ts` (`writeAudit`, 54 call sites, 23
-entity types) and `packages/auth-sdk/src/audit/write.ts` (`audit`), which is where
-`role_assignment` and `staff_user` come from — the role grants and revokes. 25 entity types in
-total, and the first version of this screen offered 22.
+**The order has two panels** (#921). #920 writes nine `order` actions, so the order page shows its
+own Activity next to Payment activity rather than one merged list: `listAuditLog` takes a single
+entity id, and merging two paged queries would mean inventing an ordering. The `order` allow-list
+was read off the four writers (`checkout/service.ts`, `orders/service.ts`, `orders/edits.ts`,
+`returns/service.ts`), not off the issue that asked for it.
+
+**`order.cancel_reason` is never shown.** It is free text somebody typed — the one field on an
+order where a customer's name or a complaint lands — so it stays a field NAME until #922 decides.
+
+**Two array fields are summarised, not printed.** `SHAPES` in `redaction.ts` holds a renderer per
+reviewed `(entity_type, field)` whose value is not a scalar: `lines` reads "2 lines, 3 units",
+`refund_ids` reads "2 refunds". `formatValue` still refuses every object and array by default; a
+renderer fails closed on anything that is not the shape the core writes, and it cannot put a field
+past the allow-list.
+
+**"Not recorded" is not "none".** `order.ship` writes `before: {}`. A field the body does not
+record shows only the value the row does carry; the word "none" is reserved for a value that is
+explicitly null.
+
+**There are two audit writers.** `apps/core/src/lib/audit.ts` (`writeAudit`, 58 call sites, 24
+entity types since #920 added `order`) and `packages/auth-sdk/src/audit/write.ts` (`audit`), which
+is where `role_assignment` and `staff_user` come from — the role grants and revokes. **26** entity
+types in total; the first version of this screen offered 22, having found only the first writer.
+
+The filter list is checked against the writers rather than remembered: grep
+`entityType: '…'` across `apps/core/src` and `packages/auth-sdk/src` (excluding tests) and the two
+sets are equal, 26 each way.
 
 ## Security headers (Phase 6 D4, #731)
 
@@ -1189,5 +1255,57 @@ public endpoint: a section guard or a hidden button does nothing for a crafted P
   None of them reaches the API, so HQ Ask spends no AI tokens for a non-analyst. The audit export (#896)
   works the same way.
 - **Not gated on purpose:** `api/auth/{login,callback,logout}` (the sign-in flow itself) and `health`.
-- **Known gap, not window 4's:** the nine Marketing actions (`(store)/[storeId]/marketing/_actions.ts`, window
-  17). They're filed as REQUEST #925 with the same fix.
+- **Marketing** (`(store)/[storeId]/marketing/_actions.ts`, window 17's files, landed on an integration branch):
+  all nine actions refuse first through `MARKETING_PERMISSIONS` (`src/lib/marketing/permissions.ts`, pinned to
+  the yaml; `previewSegment` is store_staff, the rest store_admin) since #925.
+
+## Readiness for an ACTIVE store (#910)
+
+ACTIVE is not "fine". A store can go live and later lose a prerequisite: its tax rate, its shipping option or
+its payment method. The readiness page (`/onboarding/<storeId>`) reads `getStoreReadiness` for every
+status, not only for drafts.
+
+- **`canSell` honours `missing`.** An active store with anything missing is not selling, however many
+  products it has.
+- **The panel says so.** An active store with something missing reads "Customers cannot currently order:
+  … missing", in words and with countries where the core gave them (`missingLabels`), with a link to where
+  each gap is fixed. It does not say "the store is live", and it changes nothing: the store stays active.
+- **A failed readiness read is said.** "Could not check whether this store can sell (status)": unknown, not
+  fine. Before, the box just disappeared.
+- **Unknown warnings are tolerated.** A warning the contract does not declare yet goes to `other_warnings`
+  and is listed generically. Before, it was a 502 that hid the whole box, including what is missing.
+  Everything else in the body is still parsed strictly, and the contract shape stays pinned with
+  `satisfies`.
+- **Not done here** (the specialist version in #910, for later):
+  - a readiness column and filter on the stores list;
+  - an alert when an active store loses a prerequisite;
+  - card and key status;
+  - drill-down from "0 purchasable";
+  - readiness history.
+
+## What the session gate covers (#949)
+
+`src/middleware.ts` is the session gate, and it is the CSP. Its `matcher` decides which paths it runs on,
+and each exclusion is **anchored**:
+
+- `/api/auth/…` (login, callback, logout);
+- `/health` (an optional trailing slash);
+- `/_next/static/…` and `/_next/image`;
+- `/favicon.ico`.
+
+Every other path goes through the gate, look-alikes included (`/healthx`, `/health/anything`, `/api/auth`,
+`/api/authx`). Before #949 the exclusions were prefixes, so those skipped it. `test/middleware.test.ts` pins
+the matcher with Next's own compiler (`getMiddlewareMatchers`), not a hand-built regex, and checks that a
+look-alike without a session is redirected to sign in, a `Next-Action` POST included.
+
+## Test runs on a loaded machine
+
+- **Per-test timeout:** the unit suite's is 15 s (`vitest.config.ts`), not vitest's 5 s default.
+  - With a stack booting or other windows' suites running, user-event screen tests missed 5 s across
+    unrelated files.
+  - The same runs passed with `--maxWorkers=2`.
+- **Before believing a red run:** a run made only of timeouts is a load signature. Rerun the failing files
+  alone, or the suite with `--maxWorkers=2`.
+- **Contract suites:** each starts its own Prism on its own port. `test/contract-ports.test.ts` fails when two
+  suites share one; bi and settings both took :4217 and failed with EADDRINUSE together. It also fails on
+  :4011 (`pnpm mock`) or :4013 (the accounting e2e mock).

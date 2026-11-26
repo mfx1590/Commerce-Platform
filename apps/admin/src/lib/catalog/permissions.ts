@@ -14,4 +14,9 @@ export const CATALOG_PERMISSIONS = {
   createCategory: { relation: 'store_staff', object: 'store' },
   publishProduct: { relation: 'store_staff', object: 'store' },
   archiveProduct: { relation: 'store_admin', object: 'store' },
+  // Product media (#870 item 5, PR B).
+  createMediaUploadParams: { relation: 'store_staff', object: 'store' },
+  addProductMedia: { relation: 'store_staff', object: 'store' },
+  updateProductMedia: { relation: 'store_staff', object: 'store' },
+  deleteProductMedia: { relation: 'store_staff', object: 'store' },
 } as const satisfies Record<string, PermissionRule>;

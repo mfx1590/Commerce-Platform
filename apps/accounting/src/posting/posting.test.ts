@@ -14,6 +14,9 @@ import {
   STORE_A,
 } from './fixtures.js';
 import { postEvent } from './index.js';
+import { SEED_IDS } from '@platform/db';
+
+const SEED_LE_D = SEED_IDS.legalEntities.brandD;
 import type { JournalEntry, JournalLine, OrderProjection } from './types.js';
 
 const dr = (account: string, amount: number, currency = 'EUR'): JournalLine => ({
@@ -656,5 +659,307 @@ describe('a zero-base order (every net 0, tax > 0) cancelled: the VAT does not d
     expect(net([e, ship, cancel])).toEqual({ '1200': 300, '2200': -300 });
     expect(net([e, cancel, ship])).toEqual(net([e, ship, cancel]));
     expect(net([e, cancel])).toEqual({});
+  });
+});
+
+// #919: a refund that reversed revenue and VAT before the order was cancelled. The cancellation reversed the VAT a
+// second time and credited the receivable for money the customer already had back (1200 ended at −refund). The cancel
+// now leaves out what earlier refunds already reversed beyond the shipped value (O): Dr 2200 tax − O tax, Cr 4090 O
+// net, Cr 1200 the rest; a refund arriving after the cancel settles the credit instead; a late shipment moves O.
+describe('#919: a refund before a cancellation is not reversed twice', () => {
+  const FEE = 300;
+  /** the netted balance per account of a sequence of events, through the pure posting with the projection carried */
+  const netOf = (events: Parameters<typeof postEvent>[0][]) => {
+    let order: OrderProjection | null = null;
+    const lines: JournalLine[] = [];
+    for (const ev of events) {
+      const r = postEvent(ev, order);
+      if (r.order) order = r.order;
+      for (const en of r.entries) lines.push(...en.lines);
+    }
+    return Object.fromEntries(
+      aggregateLines(lines).map((l) => [l.account_code, l.debit_minor - l.credit_minor]),
+    );
+  };
+  const eur = () =>
+    orderPlaced({
+      lines: [{ quantity: 2, unit_price_minor: 5_000, tax_rate_bp: 2000 }],
+      shipping_minor: 1_000,
+      shipping_tax_minor: 200,
+      placed_at: '2026-10-05T10:00:00.000Z',
+    }); // total 13 200, VAT 2 200
+  const cancelOf = (e: ReturnType<typeof eur>) =>
+    orderCancelled(e, { cancelled_at: '2026-10-08T09:00:00.000Z' });
+  const cancelRefund = (
+    e: ReturnType<typeof eur>,
+    pay: ReturnType<typeof paymentCaptured>,
+    amount: number,
+  ) =>
+    refundIssued(e, pay, {
+      amount_minor: amount,
+      reason: 'cancellation',
+      issued_at: '2026-10-08T09:30:00.000Z',
+    });
+  const goodwill = (
+    e: ReturnType<typeof eur>,
+    pay: ReturnType<typeof paymentCaptured>,
+    amount: number,
+    day = 6,
+  ) =>
+    refundIssued(e, pay, {
+      amount_minor: amount,
+      reason: 'goodwill',
+      issued_at: `2026-10-0${day}T12:00:00.000Z`,
+    });
+  /** a fully refunded cancelled order leaves only the PSP's fee: nothing in AR, VAT, liabilities or allowances */
+  const SETTLED = { '1100': -FEE, '6100': FEE };
+
+  it('full capture then cancel: unchanged — the cancel reverses the whole placed entry, the refund settles AR', () => {
+    const e = eur();
+    const pay = paymentCaptured(e, { fee_minor: FEE });
+    const cancel = postEvent(
+      cancelOf(e),
+      postEvent(pay, postEvent(e, null).order!).order ?? postEvent(e, null).order!,
+    );
+    expectLines(cancel.entries[0], [
+      dr('2300', 10_000),
+      dr('2310', 1_000),
+      dr('2200', 2_200),
+      cr('1200', 13_200),
+    ]);
+    expect(netOf([e, pay, cancelOf(e), cancelRefund(e, pay, 13_200)])).toEqual(SETTLED);
+  });
+
+  it('goodwill X then cancel: 1200 = 0 and VAT exact, in BOTH arrival orders (the refund before or after the cancel)', () => {
+    const e = eur();
+    const pay = paymentCaptured(e, { fee_minor: FEE });
+    const gw = goodwill(e, pay, 2_640); // VAT part 440
+    const cancel = cancelOf(e);
+    const rest = cancelRefund(e, pay, 13_200 - 2_640);
+    // the cancel entry in fact order: what the goodwill reversed is not reversed again
+    let order = postEvent(e, null).order!;
+    order = postEvent(gw, order).order!;
+    expectLines(postEvent(cancel, order).entries[0], [
+      dr('2300', 10_000),
+      dr('2310', 1_000),
+      dr('2200', 2_200 - 440),
+      cr('4090', 2_640 - 440),
+      cr('1200', 13_200 - 2_640),
+    ]);
+    expect(netOf([e, pay, gw, cancel, rest])).toEqual(SETTLED);
+    expect(netOf([e, pay, cancel, gw, rest])).toEqual(SETTLED); // the goodwill consumed after the cancel: Dr 1200
+  });
+
+  it('two goodwill refunds then cancel, in three arrival orders: settled, VAT exact', () => {
+    const e = eur();
+    const pay = paymentCaptured(e, { fee_minor: FEE });
+    const g1 = goodwill(e, pay, 1_320, 6); // VAT 220
+    const g2 = goodwill(e, pay, 1_980, 7); // VAT 330
+    const cancel = cancelOf(e);
+    const rest = cancelRefund(e, pay, 13_200 - 1_320 - 1_980);
+    expect(netOf([e, pay, g1, g2, cancel, rest])).toEqual(SETTLED);
+    expect(netOf([e, pay, g1, cancel, g2, rest])).toEqual(SETTLED);
+    expect(netOf([e, pay, cancel, g1, g2, rest])).toEqual(SETTLED);
+  });
+
+  it('JPY (whole yen): goodwill then cancel, both arrival orders', () => {
+    const e = orderPlaced({
+      legalEntityId: SEED_LE_D,
+      currency: 'JPY',
+      lines: [{ quantity: 2, unit_price_minor: 1_980, tax_rate_bp: 1000 }],
+      shipping_minor: 990,
+      shipping_tax_minor: 99,
+      placed_at: '2026-10-05T10:00:00.000Z',
+    }); // total 5 445 yen, VAT 495
+    expect(e.payload.totals).toMatchObject({ total_minor: 5_445, tax_minor: 495 });
+    const pay = paymentCaptured(e, { fee_minor: FEE });
+    const gw = refundIssued(e, pay, {
+      amount_minor: 1_089,
+      reason: 'goodwill',
+      issued_at: '2026-10-06T12:00:00.000Z',
+    }); // VAT 99
+    const cancel = orderCancelled(e, { cancelled_at: '2026-10-08T09:00:00.000Z' });
+    const rest = refundIssued(e, pay, {
+      amount_minor: 5_445 - 1_089,
+      reason: 'cancellation',
+      issued_at: '2026-10-08T09:30:00.000Z',
+    });
+    let order = postEvent(e, null).order!;
+    order = postEvent(gw, order).order!;
+    expect(sorted(postEvent(cancel, order).entries[0]!.lines)).toEqual(
+      sorted([
+        dr('2300', 3_960, 'JPY'),
+        dr('2310', 990, 'JPY'),
+        dr('2200', 495 - 99, 'JPY'),
+        cr('4090', 1_089 - 99, 'JPY'),
+        cr('1200', 5_445 - 1_089, 'JPY'),
+      ]),
+    );
+    expect(netOf([e, pay, gw, cancel, rest])).toEqual(SETTLED);
+    expect(netOf([e, pay, cancel, gw, rest])).toEqual(SETTLED);
+  });
+
+  it('a partial shipment, a goodwill above the shipped value, then cancel: the same books whether the shipment is consumed before or after the cancel', () => {
+    const e = orderPlaced({
+      lines: [{ quantity: 2, unit_price_minor: 5_000, tax_rate_bp: 2000 }],
+      placed_at: '2026-10-05T10:00:00.000Z',
+    }); // total 12 000, VAT 2 000, no shipping
+    const lineId = e.payload.line_items[0]!.order_line_item_id;
+    const pay = paymentCaptured(e, { fee_minor: FEE });
+    const ship = shipmentShipped(e, [{ order_line_item_id: lineId, quantity: 1 }], {
+      cost_minor: 0,
+      shipped_at: '2026-10-06T08:00:00.000Z',
+    }); // shipped value 6 000
+    const gw = goodwill(e, pay, 8_400, 7); // VAT 1 400; 2 400 of it beyond the shipped value
+    const cancel = cancelOf(e);
+    const rest = cancelRefund(e, pay, 12_000 - 8_400);
+    // the shipped unit is fully refunded: revenue 5 000 against an allowance of 5 000, nothing else
+    const expected = { '4000': -5_000, '4090': 5_000, ...SETTLED };
+    expect(netOf([e, pay, ship, gw, cancel, rest])).toEqual(expected);
+    expect(netOf([e, pay, gw, cancel, ship, rest])).toEqual(expected); // the late shipment moves O
+  });
+
+  it('a return of the shipped unit then cancel: the return is a real allowance (O = 0), in both arrival orders', () => {
+    const e = orderPlaced({
+      lines: [{ quantity: 2, unit_price_minor: 5_000, tax_rate_bp: 2000 }],
+      placed_at: '2026-10-05T10:00:00.000Z',
+    });
+    const lineId = e.payload.line_items[0]!.order_line_item_id;
+    const pay = paymentCaptured(e, { fee_minor: FEE });
+    const ship = shipmentShipped(e, [{ order_line_item_id: lineId, quantity: 1 }], {
+      cost_minor: 0,
+      shipped_at: '2026-10-06T08:00:00.000Z',
+    });
+    const ret = refundIssued(e, pay, {
+      amount_minor: 6_000,
+      reason: 'return',
+      issued_at: '2026-10-07T12:00:00.000Z',
+    });
+    const cancel = cancelOf(e);
+    const rest = cancelRefund(e, pay, 6_000);
+    let order = postEvent(e, null).order!;
+    order = postEvent(ship, order).order!;
+    order = postEvent(ret, order).order!;
+    expectLines(postEvent(cancel, order).entries[0], [
+      dr('2300', 5_000),
+      dr('2200', 1_000),
+      cr('1200', 6_000),
+    ]);
+    const expected = { '4000': -5_000, '4090': 5_000, ...SETTLED };
+    expect(netOf([e, pay, ship, ret, cancel, rest])).toEqual(expected);
+    expect(netOf([e, pay, ship, cancel, ret, rest])).toEqual(expected);
+  });
+});
+
+// #919 review (Fable BLOCK on #931): the cancel consumed FIRST, then a refund, then a shipment dated before the cancel.
+// The refund's excess over the shipped value then known sat on 1200 and the late shipment never moved it back; O is now
+// computed from the refunds' GROSS amounts, so the late shipment moves it whichever came first.
+describe('#919 review: cancel → refund → late shipment converges to the fact-order books', () => {
+  const FEE = 300;
+  const netOf = (events: Parameters<typeof postEvent>[0][]) => {
+    let order: OrderProjection | null = null;
+    const lines: JournalLine[] = [];
+    for (const ev of events) {
+      const r = postEvent(ev, order);
+      if (r.order) order = r.order;
+      for (const en of r.entries) lines.push(...en.lines);
+    }
+    return Object.fromEntries(
+      aggregateLines(lines).map((l) => [l.account_code, l.debit_minor - l.credit_minor]),
+    );
+  };
+  const SETTLED = { '1100': -FEE, '6100': FEE };
+  /** placed, captured, one unit shipped (dated before the cancel), a refund, the cancel, the cancellation refund */
+  const world = (opts: {
+    jpy?: boolean;
+    reason: 'return' | 'goodwill';
+    amount: number;
+    rest: number;
+  }) => {
+    const e = opts.jpy
+      ? orderPlaced({
+          legalEntityId: SEED_LE_D,
+          currency: 'JPY',
+          lines: [{ quantity: 2, unit_price_minor: 1_980, tax_rate_bp: 1000 }],
+          shipping_minor: 990,
+          shipping_tax_minor: 99,
+          placed_at: '2026-10-05T10:00:00.000Z',
+        })
+      : orderPlaced({
+          lines: [{ quantity: 2, unit_price_minor: 5_000, tax_rate_bp: 2000 }],
+          placed_at: '2026-10-05T10:00:00.000Z',
+        });
+    const pay = paymentCaptured(e, { fee_minor: FEE });
+    const ship = shipmentShipped(
+      e,
+      [{ order_line_item_id: e.payload.line_items[0]!.order_line_item_id, quantity: 1 }],
+      {
+        cost_minor: 0,
+        shipped_at: '2026-10-06T08:00:00.000Z',
+      },
+    );
+    const ref = refundIssued(e, pay, {
+      amount_minor: opts.amount,
+      reason: opts.reason,
+      issued_at: '2026-10-07T12:00:00.000Z',
+    });
+    const cancel = orderCancelled(e, { cancelled_at: '2026-10-08T09:00:00.000Z' });
+    const rest = refundIssued(e, pay, {
+      amount_minor: opts.rest,
+      reason: 'cancellation',
+      issued_at: '2026-10-08T09:30:00.000Z',
+    });
+    return { e, pay, ship, ref, cancel, rest };
+  };
+  /** every arrival order of shipment, refund and cancel (the order first, the cancellation refund last) */
+  const orders = (w: ReturnType<typeof world>) =>
+    [
+      [w.ship, w.ref, w.cancel],
+      [w.ship, w.cancel, w.ref],
+      [w.ref, w.ship, w.cancel],
+      [w.ref, w.cancel, w.ship],
+      [w.cancel, w.ship, w.ref],
+      [w.cancel, w.ref, w.ship],
+    ].map((mid) => [w.e, w.pay, ...mid, w.rest]);
+
+  it("the reviewer's case: return of the shipped unit (60.00), cancel, ship — 1200 = 0, 2200 = 0, 4090 = 50.00", () => {
+    const w = world({ reason: 'return', amount: 6_000, rest: 6_000 });
+    const expected = { '4000': -5_000, '4090': 5_000, ...SETTLED };
+    for (const seq of orders(w)) expect(netOf(seq)).toEqual(expected);
+  });
+
+  it('goodwill above the shipped value (84.00): every arrival order, incl. cancel → goodwill → ship', () => {
+    const w = world({ reason: 'goodwill', amount: 8_400, rest: 3_600 });
+    const expected = { '4000': -5_000, '4090': 5_000, ...SETTLED };
+    for (const seq of orders(w)) expect(netOf(seq)).toEqual(expected);
+  });
+
+  it('goodwill within the shipped value (30.00): an allowance of 25.00 and its VAT 5.00 stay, in every arrival order', () => {
+    const w = world({ reason: 'goodwill', amount: 3_000, rest: 6_000 });
+    // the customer keeps a 60.00 unit and paid 30.00 net: 1100 holds 30.00 less the PSP's fee; 1200 is settled
+    const expected = {
+      '1100': 3_000 - FEE,
+      '2200': -500,
+      '4000': -5_000,
+      '4090': 2_500,
+      '6100': FEE,
+    };
+    for (const seq of orders(w)) expect(netOf(seq)).toEqual(expected);
+  });
+
+  it('JPY (whole yen): return and goodwill (partial overlap), every arrival order to the yen, 1200 = 0', () => {
+    // total 5 445, VAT 495; one unit + shipping shipped: unreleased 1 980 + VAT 198 = 2 178, shipped value 3 267
+    for (const w of [
+      world({ jpy: true, reason: 'return', amount: 3_267, rest: 2_178 }),
+      world({ jpy: true, reason: 'goodwill', amount: 4_000, rest: 1_445 }),
+    ]) {
+      const results = orders(w).map(netOf);
+      for (const r of results) {
+        expect(r).toEqual(results[0]);
+        expect(r['1200']).toBeUndefined();
+        expect(r['2300']).toBeUndefined();
+        expect(r['2310']).toBeUndefined();
+      }
+    }
   });
 });

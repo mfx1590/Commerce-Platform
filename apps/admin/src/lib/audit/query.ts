@@ -15,17 +15,17 @@ export const MAX_LIMIT = 100;
 export const DEFAULT_LIMIT = 50;
 
 /**
- * The entity types that are written today: **25**.
+ * The entity types that are written today: **26**.
  *
  * Two writers, not one — the first pass of this screen missed the second and the filter was short
  * by three types (#896 review). `apps/core/src/lib/audit.ts` (`writeAudit`, 54 call sites) accounts
- * for 23, and `packages/auth-sdk/src/audit/write.ts` (`audit`) adds `role_assignment` and
+ * for 24, and `packages/auth-sdk/src/audit/write.ts` (`audit`) adds `role_assignment` and
  * `staff_user` — the role grants and revokes, which are the rows an owner is most likely to come
  * here for.
  *
  * A filter the API would accept but nothing ever wrote is a dead end for the reader, so the select
- * offers exactly these. `order` is deliberately absent: nothing writes an order row yet (REQUEST
- * #887).
+ * offers exactly these. `order` arrived with #920 (the REQUEST this screen filed, #887) and is in
+ * the list now — nine actions, from placement to an exchange link.
  */
 export const AUDITED_ENTITY_TYPES = [
   'campaign',
@@ -35,6 +35,7 @@ export const AUDITED_ENTITY_TYPES = [
   'customer_address',
   'customer_export',
   'cycle_count',
+  'order',
   'payment',
   'price_list',
   'product',

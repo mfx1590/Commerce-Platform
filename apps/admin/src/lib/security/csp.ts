@@ -69,8 +69,9 @@ export function contentSecurityPolicy({ nonce, keycloakUrl, production }: CspInp
     // Styles stay 'unsafe-inline': React writes style="" attributes (chart legends, the rail).
     // Inline style is not script execution; stated, not implied.
     "style-src 'self' 'unsafe-inline'",
-    // The rail's head is /medusa-face.jpg; data:/blob: for canvas and inlined SVG.
-    "img-src 'self' data: blob:",
+    // The rail's head is /medusa-face.jpg; data:/blob: for canvas and inlined SVG; product media
+    // thumbnails from Cloudinary's delivery host — that exact origin, no wildcard (#870 item 5).
+    "img-src 'self' data: blob: https://res.cloudinary.com",
     // next/font/local serves the fonts from /_next/static/media.
     "font-src 'self'",
     "connect-src 'self'",

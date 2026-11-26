@@ -410,6 +410,225 @@ branch), dropping versions from the manifest (`--check`'s drift report needs the
 `bump-starter-dep.mjs` as the primary path — **a script of mine cannot make a starter edit legal**;
 bumping the starter on a `brands/` branch fails `check-ownership`, correctly.
 
+## Done — #870 item 4 PR A, customers list (2026-11-19); **PR B is next and NOT started**
+
+**PR #945 MERGED** (`11b1f196`), branch `integration/admin-customers-list` from main `38bfa8c3`,
+code commit `62f9e6cc`. #933 (order history) merged before it, so the #921 entry is in this file
+too. Admin suite at the merged head **1605 / 87 files**; lint, format:check, typecheck 30/30 and
+ownership green.
+
+### State at the stop (owner finished for the day, 2026-11-19)
+
+**Next: #870 item 4 PR B, not started** — addresses (`listCustomerAddresses`), consents
+(`listCustomerConsents`, already rendered on the detail page), group **assignment** through
+`updateCustomer` (it accepts `customer_group_id`; the manager asked that its own permission check
+be verified and that the core's audit row then show up in the customer Activity panel), and the
+**HQ-only identity panel** (`getCustomerIdentity` from `Customer.identity_id` — `support` on
+`organization:hq`, **ids only**, and a store admin gets 403, so the panel must read "HQ only"
+rather than render an error). Then **PR C**: the GDPR export trail (`exportCustomer` 202 +
+`listCustomerExports` + `getCustomerExport`, who requested and when, never the bundle) beside
+erase, which stays `store_admin` behind its typed confirmation.
+
+Standing constraints for both, from the manager: **no customer-list CSV** in this wave (a bulk PII
+export needs its own decision — store_admin, audited, with a reason; if one is ever added: ids,
+group, order counts and dates only), mask by relation, nothing cached client-side beyond
+`ClientSafe`, no PII in logs, URLs or error messages, a Fable review per PR, and root
+`pnpm format:check` before every push.
+
+Also still parked, deliberately off every branch: the #896 follow-up on the local branch
+**`wip/admin-history-entity-links`** (`22b769ef`) — `entityHref` plus the HQ › Audit page-size
+picker and row→entity link. `git cherry-pick 22b769ef` resumes it.
+
+**The privacy defect was already in the code, and reading the yaml is what found it.** "Orders by
+this customer" linked `/orders?q=<email>`: a customer's email address in a URL, so in browser
+history, in the referrer of whatever the orders page loads next, and in any log that records paths.
+`listOrders` has taken an exact `customer_id` since 0.4.24 and nobody had switched to it.
+
+**And the obvious fix was a trap.** `ORDER_FILTER_KEYS` did not include `customer_id`, and
+`parseTableQuery` drops a key the page does not list — so the new link would have shown **every
+order while looking filtered**, which is worse than the email it replaced. I caught it by checking
+the filter keys before trusting my own link. **A URL parameter is only real if the page parses it.**
+The orders list now also says when it is showing one customer, because a filtered list that looks
+unfiltered is the same trap wearing a different hat.
+
+**Said no to the CSV.** The manager's note and my own reading agree: a customer-list export is a
+bulk extraction of emails, phones and addresses. PR A ships none, a test asserts none, and the
+docstring says why — cheaper than arguing about it after somebody adds a button.
+
+**CI caught what I should have: the e2e asserted the old href.** `store-admin.spec.ts:268` pinned
+`?q=jane%40example.com`, so both e2e jobs failed on that single line (I read both logs: identical
+spec, identical assertion, every unit suite green, and the kafkajs errors in the live-auth log are
+an intentional consumer test). The spec now derives the customer id from the address it is on and
+asserts the email appears in no encoding.
+
+**This is the second time an e2e locator broke on my change** — #896 was a strict-mode text
+collision from the Activity panel, this one an href assertion. The rule is therefore wider than I
+first wrote it: **when a change alters anything a spec can assert — rendered text, an href, a role
+name, a testid — grep `apps/*/e2e` before pushing.** Unit tests cannot see any of it. I grepped the
+other specs this time: the only `q=` hits left are a product handle and a staff email rendered on
+HQ › Roles, neither affected.
+
+**A flake to pass on, not to fix:** `test/bi-v2-views.test.tsx` → "Copy link to this view" timed
+out at 5 s in the full parallel run and passes 19/19 alone. Window 12's file, and nothing in my diff
+touches BI. Re-ran the suite green and reported it rather than touching another window's test.
+
+## In progress — #921, the order's own history (2026-11-19)
+
+**PR #933**, branch `integration/admin-order-history` from main `74d8c474` (code commit
+`db236ec7`; head = this memory commit). #896 merged 11-17 and **#920** (order audit rows, the
+REQUEST this screen filed as #887) merged 11-19.
+Admin suite **1409 / 80 files**; lint, format:check, typecheck 30/30, ownership all green.
+
+**Read the four writers, not the issue — and this time it mattered twice.** The issue and its
+comment listed the fields; grepping `entityType: 'order'` gave the truth: `checkout/service.ts`
+(`order.place`), `orders/service.ts` (`transition` for status_change / update / cancel, plus
+`auditOrder` for ship / return), `orders/edits.ts` (the two line edits) and `returns/service.ts`
+(`order.exchange_link`). Nine actions. Two things the field list could not have told me:
+
+- **`lines` and `refund_ids` are ARRAYS.** `formatValue` refuses every object and array by design,
+  so allow-listing them as asked would have printed nothing — the same dead-entry failure as
+  `stock_movement.quantity` in #896, which is exactly the mistake I had already recorded. New
+  `SHAPES` table: a reviewed `(entity_type, field)` may declare a summary written against the
+  shape the core writes (`lines` → "2 lines, 3 units", `refund_ids` → "2 refunds"). Each renderer
+  fails closed itself, prints no free text, and cannot put a field past the allow-list — a test
+  walks `SHAPES` and asserts every field in it is also allow-listed.
+- **`order.ship` writes `before: {}`.** The old code read that as "the value was none" and printed
+  "lines: none → 2 lines", asserting the order had no lines before — which the row never said.
+  "Absent from the body" and "recorded as null" are different facts and now render differently.
+  This was only visible because a test asserted the exact `FieldChange`; a looser assertion would
+  have shipped it.
+
+**`reason` is withheld deliberately.** It is `order.cancel_reason`, free text somebody typed, and
+the one field on an order where a customer's name or a complaint lands. Name-only until #922
+decides; the manager set that and I pinned it with a test that plants a name in the reason and
+asserts it reaches neither the change nor the row.
+
+**The stale-dist trap cost me a detour.** `pnpm --filter @platform/admin typecheck` reported three
+errors in `test/bi/**` about a `country` dimension, which looked like main being red. It is the
+trap `apps/admin/CLAUDE.md` documents: running a package script directly needs the workspace
+packages built first. The root `pnpm typecheck` goes through turbo, builds `@platform/contracts`
+and passes 30/30. **Use the root gate; a filtered typecheck can report another window's code as
+broken when it is only stale.** I nearly reported main as red on someone else's work.
+
+**CHANGELOG appended at the END of `## Unreleased`,** not inserted at the top — the rule recorded
+11-19 after #926 was skipped by the merge queue. The file has no release headings, so the end of
+the file is the end of Unreleased.
+
+### #933 Fable review: MERGE on the code, one prototype guard and four stale numbers (2026-11-19)
+
+**The real finding: `Object.hasOwn`.** Both keys into my lookup tables come from the API. A row
+with `entity_type: '__proto__'` made `SAFE_VALUE_FIELDS['__proto__']` return `Object.prototype`,
+which has no `.includes` — so the panel would have **thrown** instead of redacting. And
+`SHAPES['order']['toString']` is a function, so a field name borrowed from the prototype chain
+would have been **called as a renderer**. Both lookups are now `Object.hasOwn`-guarded, and the
+shape path requires `isSafeField` first so the allow-list stays the single gate. The lesson:
+**a plain object literal used as a lookup is attacker-reachable the moment its key comes from
+data** — every one of these tables takes `entity_type` and a field name straight off an audit row.
+
+**And four statements that were false again** — the same failure mode as the #896 review, which I
+had already written a lesson about: a CHANGELOG suite total (1407 vs 1409), the README's entity-type
+counts (still 23/25 after #920 made them 24/26), `load.ts`'s docstring still saying nothing writes
+an `entity_type: 'order'` row, and the panel's empty state telling an ORDER reader about "a
+product's variants or its media". Three of the four were prose I wrote while describing work that
+was itself correct.
+
+So the numbers are no longer written by hand: the README now says how to check the filter against
+the writers (grep both writer trees, compare the sets — 26 each way, verified), and the CHANGELOG
+quotes the counts the test run printed rather than arithmetic. **If a number in prose cannot be
+re-derived by a command, it will be wrong within two PRs.**
+
+Suite after the fixes: **1495 / 82 files**.
+
+**The append rule paid off within the hour.** #926 merged into main while this PR was open and
+touched the same `apps/admin/CHANGELOG.md`; the merge came through **clean**, because my entry is
+at the end of `## Unreleased` and theirs is not. Merged `origin/main` (`490b48aa`) in, no rebase,
+no force-push; prettier wanted one blank line in the merged CHANGELOG, which is exactly what the
+root `format:check`-before-push rule is for. Suite after the merge: **1491 / 82 files**.
+
+Worth noting: #926 is window 4's permission-gap work, and it adds `(hq)/bi/_lib/gate.ts` and
+`test/bi-route-gate.test.ts` — the BI route handlers I flagged to the manager after the #896
+review, when the same screen-versus-handler hole turned up in my own export route. The report
+travelled.
+
+E2e: checked the order detail specs again for strict-mode collisions, since the page gained a
+table. All of them are role-scoped (`getByRole('list', { name: 'Payments' })`,
+`getByRole('table', { name: 'Order lines' })`, `getByTestId('order-status-meaning')`), and
+"Order lines" is not a substring of "Activity on this order" — `getByRole`'s `name` matches a
+substring by default, which is the trap #896 hit.
+
+## In progress — #870 item 4 PR C, the GDPR export trail (2026-11-25)
+
+**PR #962**, branch `integration/admin-customers-export` (code commit `4890c7da`; head = this
+memory commit). **Stacked on PR B (#958)**, base `integration/admin-customers-detail` — not main:
+the panel goes on the page B rewrites, so building it on main would have guaranteed a `page.tsx`
+conflict. Retarget to main once B merges. Admin suite **1732 / 94** at `--maxWorkers=2`; lint,
+format:check, typecheck 30/30, ownership green. Item 4 is now complete pending review.
+
+**The contract contradicted the plan, and reading it was the whole job.** The plan (and the
+manager's note) said the trail shows who asked and when, "never the bundle" — and listed
+`getCustomerExport` among the operations to use. But that operation's 200 **is** the bundle:
+"Downloads one ready export bundle … as an attachment", 410 when expired. So "use
+getCustomerExport" and "never the bundle" cannot both hold. I shipped the trail, did **not wrap**
+`getCustomerExport` at all, asserted in a test that no download link or button exists, and put the
+choice in the PR body with the 60-line route-handler shape if they want it. **A plan that names an
+operation is not a decision about what that operation does.**
+
+**Found my own inconsistency mid-build.** I had the export panel call `listUsers` (owner on
+organization:hq) whenever the trail loaded — a certain 403 for the store admin who is the panel's
+main reader, which is exactly the "don't ask what will be refused" rule I had just applied to the
+identity panel one PR earlier. Gated it on `owner`.
+
+**A test that told me something true instead of what I expected.** My first assertion was
+"`listUsers` is never called for a store admin". It failed: `loadActivity` (#896) calls it
+unconditionally and survives the refusal by design. So every non-owner pays one refused request per
+detail page view. Gating that needs the principal threaded into `loadActivity` and four pages — out
+of this PR's scope — so the test now asserts the exact count (1, from the activity loader, none
+from the trail) and names the cause. **When a count assertion fails, read it before weakening it:
+it was describing the page, not my code.**
+
+Stacking also meant two mock gaps of my own making: `customers-detail` and `customers-list` mock
+`@/lib/api/admin` wholesale, so each new operation the page reads must be added there or every test
+rendering that page throws. Second time this bit me; it is the cost of whole-module API mocks.
+
+## In progress — #870 item 4 PR B, customer detail (2026-11-25)
+
+**PR #958**, branch `integration/admin-customers-detail` from main `f47683d7` (code commit
+`f1ce54e2`; head = this memory commit). PR A merged as #945; **PR C (GDPR export beside erase) is
+next and not started**. Admin suite **1716 / 93 files**, lint, format:check, typecheck 30/30,
+ownership green.
+
+Built: addresses (server-rendered, no projection of an `Address` exists at all), the consent
+**ledger** beside the current-state table, cross-brand identity (HQ-only, ids-only, never called
+for a reader the contract would refuse), and a group **select** in place of a uuid text box.
+
+**Verified instead of adding:** `updateCustomerAction` already re-checks
+`refuseUnlessPermitted('updateCustomer', storeId)`, so group assignment inherits a real
+server-side check. The manager asked me to confirm it; confirming beat writing a second one.
+
+**The privacy property I could actually test.** The identity answer is ids, and naming a sibling
+would cost one `getCustomer` per store behind that store's own `support`. So the test asserts the
+page makes **exactly one** `getCustomer` call — a count assertion is a better guard here than any
+string assertion, because it fails the moment someone "improves" the panel by resolving names.
+
+### A red suite that was the laptop, not the code — and how I established that
+
+Two full runs on this commit failed, 53 tests then 22, and **every failure was
+`Test timed out in 5000ms`** (90 then 36 timeout lines) across files this branch does not touch: BI,
+bulk capture, catalog attributes, copy drafts, registry, onboarding, tax rates. No customers file
+ever failed. Docker's 15 containers came up during the first run. Re-running the identical commit
+with `npx vitest run --maxWorkers=2` gave **1716/1716**.
+
+**The method, which is the keeper:** classify the failures before believing them. All-timeouts,
+spread across unrelated files, with my own files green, is a load signature, not a breakage. Same
+commit + fewer workers = green proves it in one command. I did **not** raise the vitest timeout to
+make my run look green — that is a repo-wide decision, and patching it for my own convenience
+would have hidden the real finding: the admin suite's default 5 s does not survive a stack boot on
+this machine. Reported to the manager as a decision for them (raise the default, or do not start
+suites during a boot).
+
+Earlier in the day I also declined to run `fga:seed` when the manager said Docker was back: PR B is
+hermetic, so seeding would have been a write to the shared OpenFGA store for no reason.
+
 ## In progress — #870 wave 1 item 3, admin history (2026-11-13)
 
 ### The e2e my own panel broke, and why unit gates could not see it (2026-11-17)

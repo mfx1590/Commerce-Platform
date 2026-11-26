@@ -64,6 +64,23 @@ export default async function OrdersPage({
             : {})}
         />
         <CardBody className="space-y-3">
+          {query.filters['customer_id'] !== undefined && (
+            <p
+              role="note"
+              className="border-line flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm"
+            >
+              <span>Showing one customer&rsquo;s orders.</span>
+              <Link
+                href={`/${storeId}/customers/${query.filters['customer_id']}`}
+                className="text-accent hover:underline"
+              >
+                Open the customer
+              </Link>
+              <Link href={`/${storeId}/orders`} className="text-accent hover:underline">
+                Show all orders
+              </Link>
+            </p>
+          )}
           <OrderFilters query={query} />
           <DateRangeFilter
             query={query}

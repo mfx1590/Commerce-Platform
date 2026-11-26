@@ -14,6 +14,7 @@ import { compact, compactList } from '@/lib/api/payload';
 import type { AdminComponents } from '@/lib/api/admin-client';
 import { toActionResult, type ActionResult } from '@/lib/forms/action-result';
 import { refuseUnlessPermitted } from '@/lib/permissions/guard';
+import { canonicalProblem } from '@/lib/catalog/attributes';
 import {
   categoryCreateSchema,
   fieldNames,
@@ -44,6 +45,19 @@ function revalidateProduct(storeId: string, productId?: string): void {
  * that was already taken. Whatever orders images downstream would then be working from duplicates.
  * The array order is the only thing the user actually sees, so it is what gets sent.
  */
+/**
+ * `seo` is an open object in the contract; the one key with a format the storefront relies on is
+ * `canonical` (an https URL or a store path). Refused here too, not only in the form.
+ */
+function seoRefusal(values: ProductCreateValues): ActionResult<never> | null {
+  const canonical = values.seo?.['canonical'];
+  if (canonical === undefined) return null;
+  const problem = typeof canonical === 'string' ? canonicalProblem(canonical) : 'Not a URL.';
+  return problem === null
+    ? null
+    : { status: 'error', fieldErrors: {}, formError: `Canonical URL: ${problem}` };
+}
+
 function toProductBody(values: ProductCreateValues) {
   const { media, ...rest } = values;
   return {
@@ -62,6 +76,8 @@ export async function createProductAction(
   if (refused !== null) return refused;
   const parsed = productCreateSchema.safeParse(values);
   if (!parsed.success) return invalid();
+  const seoRefused = seoRefusal(parsed.data);
+  if (seoRefused !== null) return seoRefused;
 
   const result = await createProduct(storeId, toProductBody(parsed.data));
   if (result.ok) revalidateProduct(storeId);
@@ -77,6 +93,8 @@ export async function updateProductAction(
   if (refused !== null) return refused;
   const parsed = productCreateSchema.safeParse(values);
   if (!parsed.success) return invalid();
+  const seoRefused = seoRefusal(parsed.data);
+  if (seoRefused !== null) return seoRefused;
 
   const result = await updateProduct(storeId, productId, toProductBody(parsed.data));
   if (result.ok) revalidateProduct(storeId, productId);
@@ -124,10 +142,14 @@ export async function createVariantAction(
   if (!parsed.success) return invalid();
 
   // `compact` is shallow, and each price is its own object with an optional `compare_at_minor`.
-  const { prices, ...rest } = parsed.data;
+  const { prices, dimensions_mm, ...rest } = parsed.data;
   const result = await createVariant(storeId, productId, {
     ...compact(rest),
     ...(prices === undefined ? {} : { prices: prices.map((price) => compact(price)) }),
+    // Nested, so compacted too: an unset side is left out, not sent as undefined.
+    ...(dimensions_mm === undefined
+      ? {}
+      : { dimensions_mm: dimensions_mm === null ? null : compact(dimensions_mm) }),
   });
   if (result.ok) revalidateProduct(storeId, productId);
   return toActionResult(result, fieldNames(variantCreateSchema));
@@ -147,10 +169,14 @@ export async function updateVariantAction(
   const parsed = variantCreateSchema.safeParse(values);
   if (!parsed.success) return invalid();
 
-  const { prices, ...rest } = parsed.data;
+  const { prices, dimensions_mm, ...rest } = parsed.data;
   const result = await updateVariant(storeId, variantId, {
     ...compact(rest),
     ...(prices === undefined ? {} : { prices: prices.map((price) => compact(price)) }),
+    // Nested, so compacted too: an unset side is left out, not sent as undefined.
+    ...(dimensions_mm === undefined
+      ? {}
+      : { dimensions_mm: dimensions_mm === null ? null : compact(dimensions_mm) }),
   });
   if (result.ok) revalidatePath(`/${storeId}/catalog`);
   return toActionResult(result, fieldNames(variantCreateSchema));

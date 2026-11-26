@@ -10,6 +10,7 @@ import type { AdminComponents } from '@/lib/api/admin-client';
 import type { ActionResult } from '@/lib/forms/action-result';
 import { productCreateSchema, type ProductCreateValues } from '@/lib/forms/schemas';
 import { variantMatrix, variantTitle, suggestSku } from '@/lib/forms/variant-matrix';
+import { ProductDetailsFields } from './product-details-fields';
 
 type Product = AdminComponents['Product'];
 type Category = AdminComponents['Category'];
@@ -28,6 +29,7 @@ export function ProductForm({
   categories,
   submitLabel,
   redirectBase,
+  mediaInPanel = false,
 }: {
   action: (values: ProductCreateValues) => Promise<ActionResult<Product>>;
   defaultValues: ProductCreateValues;
@@ -35,6 +37,11 @@ export function ProductForm({
   submitLabel: string;
   /** Path prefix; the new product id is appended. See the note in `store-form.tsx`. */
   redirectBase?: string;
+  /**
+   * The media panel owns the images (the edit page, #870 item 5): no URL list here, and `media` is
+   * never sent — `updateProduct` replaces the whole set when it is.
+   */
+  mediaInPanel?: boolean;
 }) {
   const router = useRouter();
   const { form, submit, formError, refusal, isSubmitting } = useContractForm<
@@ -42,7 +49,13 @@ export function ProductForm({
     Product
   >({
     schema: productCreateSchema,
-    action,
+    action: mediaInPanel
+      ? (values) => {
+          const { media: _ignored, ...rest } = values;
+          void _ignored;
+          return action(rest);
+        }
+      : action,
     defaultValues,
     onSuccess: (product) => {
       if (redirectBase !== undefined) router.push(`${redirectBase}/${product.id}`);
@@ -114,6 +127,8 @@ export function ProductForm({
         />
       </div>
 
+      <ProductDetailsFields form={form} />
+
       <section className="space-y-3">
         <div className="flex items-center gap-3">
           <h2 className="text-base font-semibold">Options</h2>
@@ -174,88 +189,90 @@ export function ProductForm({
         )}
       </section>
 
-      <section className="space-y-3">
-        <div className="flex items-center gap-3">
-          <h2 className="text-base font-semibold">Media</h2>
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            // `position` is omitted on purpose: the server renumbers from the array order, so a
-            // number set here would only be a second source of truth that could disagree.
-            onClick={() => media.append({ url: '', alt: null })}
-          >
-            Add image
-          </Button>
-        </div>
+      {!mediaInPanel && (
+        <section className="space-y-3">
+          <div className="flex items-center gap-3">
+            <h2 className="text-base font-semibold">Media</h2>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              // `position` is omitted on purpose: the server renumbers from the array order, so a
+              // number set here would only be a second source of truth that could disagree.
+              onClick={() => media.append({ url: '', alt: null })}
+            >
+              Add image
+            </Button>
+          </div>
 
-        {media.fields.length === 0 ? (
-          <p className="text-muted text-sm">
-            No images. The first one becomes the product thumbnail.
-          </p>
-        ) : (
-          <ul className="space-y-3">
-            {media.fields.map((field, index) => (
-              <li key={field.id} className="flex flex-wrap items-end gap-3">
-                <div className="min-w-72 flex-1">
-                  <TextField
-                    label={index === 0 ? 'Image URL (thumbnail)' : 'Image URL'}
-                    placeholder="https://cdn.example.com/front.jpg"
-                    error={errorMessage(errors.media?.[index]?.url)}
-                    {...form.register(`media.${index}.url`)}
-                  />
-                </div>
-                <div className="min-w-48 flex-1">
-                  <TextField
-                    label="Alt text"
-                    hint="Describe the image for screen readers and search."
-                    error={errorMessage(errors.media?.[index]?.alt)}
-                    {...form.register(`media.${index}.alt`)}
-                  />
-                </div>
-                <div className="flex items-center gap-1">
-                  {/*
+          {media.fields.length === 0 ? (
+            <p className="text-muted text-sm">
+              No images. The first one becomes the product thumbnail.
+            </p>
+          ) : (
+            <ul className="space-y-3">
+              {media.fields.map((field, index) => (
+                <li key={field.id} className="flex flex-wrap items-end gap-3">
+                  <div className="min-w-72 flex-1">
+                    <TextField
+                      label={index === 0 ? 'Image URL (thumbnail)' : 'Image URL'}
+                      placeholder="https://cdn.example.com/front.jpg"
+                      error={errorMessage(errors.media?.[index]?.url)}
+                      {...form.register(`media.${index}.url`)}
+                    />
+                  </div>
+                  <div className="min-w-48 flex-1">
+                    <TextField
+                      label="Alt text"
+                      hint="Describe the image for screen readers and search."
+                      error={errorMessage(errors.media?.[index]?.alt)}
+                      {...form.register(`media.${index}.alt`)}
+                    />
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {/*
                     Order is the whole point of this list: the first image is the thumbnail and the
                     rest is gallery order, so being able to say "this one first" without deleting
                     and retyping a URL is the difference between a usable editor and a chore.
                     `position` is renumbered from the array order server-side, so moving a row here
                     is the only thing that has to happen.
                   */}
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    aria-label={`Move image ${index + 1} up`}
-                    disabled={index === 0}
-                    onClick={() => media.move(index, index - 1)}
-                  >
-                    ↑
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    aria-label={`Move image ${index + 1} down`}
-                    disabled={index === media.fields.length - 1}
-                    onClick={() => media.move(index, index + 1)}
-                  >
-                    ↓
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    aria-label={`Remove image ${index + 1}`}
-                    onClick={() => media.remove(index)}
-                  >
-                    Remove
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      aria-label={`Move image ${index + 1} up`}
+                      disabled={index === 0}
+                      onClick={() => media.move(index, index - 1)}
+                    >
+                      ↑
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      aria-label={`Move image ${index + 1} down`}
+                      disabled={index === media.fields.length - 1}
+                      onClick={() => media.move(index, index + 1)}
+                    >
+                      ↓
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      aria-label={`Remove image ${index + 1}`}
+                      onClick={() => media.remove(index)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       <section className="space-y-2" aria-live="polite">
         <h2 className="text-base font-semibold">
