@@ -50,6 +50,16 @@ function schemaFor(field: SettingField): z.ZodTypeAny {
         .trim()
         .min(field.minLength ?? 1)
         .max(field.maxLength ?? 500);
+    case 'textList':
+      // The core checks "array of strings"; an empty entry would be stored and read as a service
+      // or an account id that matches nothing, so it is refused here rather than silently kept.
+      return z.array(z.string().trim().min(1)).max(50);
+    case 'countryMap':
+      // `{ NL: 'wh-eu' }` — the core requires an ISO-3166-1 alpha-2 key and a non-empty code.
+      return z.record(
+        z.string().regex(/^[A-Za-z]{2}$/, 'A two-letter country code.'),
+        z.string().trim().min(1),
+      );
   }
 }
 
@@ -96,6 +106,19 @@ export async function saveStoreSettingsAction(
     // An empty text box clears the setting: the core treats absent as "not set" and keeps its own
     // default, which is a different thing from storing an empty string (it would refuse that).
     if (field.kind === 'text' && typeof raw === 'string' && raw.trim() === '') {
+      updates[field.path] = undefined;
+      continue;
+    }
+    // An emptied list or map clears the setting rather than storing `[]` / `{}`: the core treats
+    // absent as "not set", and an empty `shipping.services` would mean "no option may price live".
+    if (
+      (field.kind === 'integer' && raw === undefined) ||
+      (field.kind === 'textList' && Array.isArray(raw) && raw.length === 0) ||
+      (field.kind === 'countryMap' &&
+        typeof raw === 'object' &&
+        raw !== null &&
+        Object.keys(raw).length === 0)
+    ) {
       updates[field.path] = undefined;
       continue;
     }

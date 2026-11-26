@@ -18,7 +18,16 @@
  * Pure: no `next/*`, no React, no I/O.
  */
 
-export type SettingKind = 'boolean' | 'integer' | 'enum' | 'text' | 'enumArray';
+export type SettingKind =
+  | 'boolean'
+  | 'integer'
+  | 'enum'
+  | 'text'
+  | 'enumArray'
+  /** Free strings, one per line: `shipping.services`, `shipping.carrier_account_ids`. */
+  | 'textList'
+  /** `{ NL: 'wh-eu' }` — `fulfillment.routing.countries`, written `NL = wh-eu` per line. */
+  | 'countryMap';
 
 export interface SettingField {
   /** Dotted path inside `store.settings`, exactly as the core reads it. */
@@ -40,7 +49,7 @@ export interface SettingField {
   money?: boolean;
 }
 
-export type CardId = 'tax' | 'fraud' | 'refunds' | 'content';
+export type CardId = 'tax' | 'fraud' | 'refunds' | 'content' | 'shipping' | 'fulfillment';
 
 export interface SettingsCard {
   id: CardId;
@@ -152,6 +161,96 @@ export const SETTINGS_CARDS: readonly SettingsCard[] = [
     ],
   },
   {
+    id: 'shipping',
+    title: 'Shipping defaults',
+    description:
+      'The carrier integration and the parcel a rate is quoted for when a product carries no dimensions of its own. Changing this needs store admin.',
+    fields: [
+      {
+        path: 'shipping.provider',
+        label: 'Carrier integration',
+        kind: 'text',
+        minLength: 1,
+        maxLength: 60,
+        hint: 'The registered provider, e.g. `manual` or `easypost`. An unknown name falls back to the table rates.',
+      },
+      {
+        path: 'shipping.carrier_account_ids',
+        label: 'Carrier accounts',
+        kind: 'textList',
+        hint: 'The carrier account ids rates may be bought against, one per line. Swapping these changes who is billed.',
+      },
+      {
+        path: 'shipping.services',
+        label: 'Services offered',
+        kind: 'textList',
+        hint: 'Carrier service codes, one per line. A shipping option prices live only if its service is one of these.',
+      },
+      {
+        path: 'shipping.default_parcel.length_cm',
+        label: 'Parcel length (cm)',
+        kind: 'integer',
+        min: 1,
+      },
+      {
+        path: 'shipping.default_parcel.width_cm',
+        label: 'Parcel width (cm)',
+        kind: 'integer',
+        min: 1,
+      },
+      {
+        path: 'shipping.default_parcel.height_cm',
+        label: 'Parcel height (cm)',
+        kind: 'integer',
+        min: 1,
+      },
+      {
+        path: 'shipping.default_parcel.weight_g',
+        label: 'Parcel weight (g)',
+        kind: 'integer',
+        min: 1,
+      },
+      {
+        path: 'shipping.label_format',
+        label: 'Label format',
+        kind: 'text',
+        minLength: 1,
+        maxLength: 20,
+        hint: 'What the carrier is asked for, e.g. `PDF` or `ZPL`.',
+      },
+    ],
+  },
+  {
+    id: 'fulfillment',
+    title: 'Fulfilment routing',
+    description:
+      'Which warehouse an order is sent to. Without an override the core routes by destination country, then region, then priority. Changing this needs store admin.',
+    fields: [
+      {
+        path: 'fulfillment.provider',
+        label: '3PL integration',
+        kind: 'text',
+        minLength: 1,
+        maxLength: 60,
+        hint: 'The registered fulfilment provider, e.g. `memory` for the built-in one.',
+      },
+      {
+        path: 'fulfillment.routing.default',
+        label: 'Default warehouse code',
+        kind: 'text',
+        minLength: 1,
+        maxLength: 60,
+        hint: 'A warehouse CODE, not an id. Codes are listed in HQ › Warehouse, which needs `operations` on the organization — so this is typed, not picked.',
+      },
+      {
+        path: 'fulfillment.routing.countries',
+        label: 'Per-country overrides',
+        kind: 'countryMap',
+        hint: 'One per line, `NL = wh-eu`. A destination not listed falls through to the default and then to the core’s own order.',
+      },
+    ],
+  },
+  {
     id: 'content',
     title: 'Brand voice',
     description:
@@ -197,21 +296,11 @@ export const NOT_EDITED_PATHS: readonly string[] = [
   'fraud',
   'fraud.velocity',
   'content',
+  // Group keys: the core's own "this must be an object" checks, not fields.
   'shipping',
-  'shipping.provider',
-  'shipping.carrier_account_ids',
-  'shipping.services',
   'shipping.default_parcel',
-  'shipping.default_parcel.length_cm',
-  'shipping.default_parcel.width_cm',
-  'shipping.default_parcel.height_cm',
-  'shipping.default_parcel.weight_g',
-  'shipping.label_format',
   'fulfillment',
-  'fulfillment.provider',
   'fulfillment.routing',
-  'fulfillment.routing.default',
-  'fulfillment.routing.countries',
 ];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -279,6 +368,15 @@ export function describeValue(
   if (value === undefined || value === null) return 'not set';
   if (field.money && typeof value === 'number') return money(value);
   if (Array.isArray(value)) return value.length === 0 ? 'none' : value.join(', ');
+  if (field.kind === 'countryMap' && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>);
+    return entries.length === 0
+      ? 'none'
+      : entries
+          .map(([country, warehouse]) => `${country} → ${String(warehouse)}`)
+          .sort()
+          .join(', ');
+  }
   if (typeof value === 'boolean') return value ? 'on' : 'off';
   if (typeof value === 'string') return value.trim() === '' ? 'empty' : value;
   if (typeof value === 'number') return String(value);

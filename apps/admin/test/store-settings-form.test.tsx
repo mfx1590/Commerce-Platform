@@ -171,6 +171,135 @@ describe('money is the store’s own', () => {
     expect(save).not.toHaveBeenCalled();
     expect(screen.getByText(/not an amount in this currency/)).toBeTruthy();
   });
+
+  it('an emptied limit means "no ceiling", and the diff says so before it is saved', async () => {
+    // The hint says an absent limit is no limit at all, so emptying the box must be expressible —
+    // and because the path is confirmed, the reader is told what they are about to remove.
+    const user = userEvent.setup();
+    render(form('refunds'));
+    await user.clear(screen.getByLabelText(/Support refund limit/));
+    await user.click(screen.getByRole('button', { name: /Save refunds/ }));
+
+    const dialog = screen.getByRole('group', { name: /Confirm the refunds change/ });
+    expect(within(dialog).getByText('€50.00')).toBeTruthy();
+    expect(within(dialog).getByText('not set')).toBeTruthy();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Yes, save it' }));
+    expect(save).toHaveBeenCalledWith(
+      STORE,
+      'refunds',
+      { support_refund_limit_minor: undefined },
+      LOADED,
+      true,
+    );
+  });
+});
+
+describe('lists and the country map (#870 item 7 PR B)', () => {
+  const shipping = (over: Record<string, unknown> = {}) => (
+    <SettingsCardForm
+      storeId={STORE}
+      cardId="shipping"
+      current={cardValues('shipping', {
+        shipping: {
+          provider: 'easypost',
+          services: ['ups_ground', 'usps_priority'],
+          carrier_account_ids: ['ca_1'],
+          ...over,
+        },
+      })}
+      updatedAt={LOADED}
+      currency="EUR"
+      locale="en-GB"
+    />
+  );
+
+  it('shows a list one per line and sends it as an array', async () => {
+    const user = userEvent.setup();
+    render(shipping());
+
+    const services = screen.getByLabelText(/Services offered/);
+    expect(services).toHaveValue('ups_ground\nusps_priority');
+    await user.clear(services);
+    await user.type(services, 'ups_ground');
+    await user.click(screen.getByRole('button', { name: /Save shipping/ }));
+
+    expect(save).toHaveBeenCalledWith(
+      STORE,
+      'shipping',
+      expect.objectContaining({ 'shipping.services': ['ups_ground'] }),
+      LOADED,
+      false,
+    );
+  });
+
+  it('asks before swapping carrier accounts, because that changes who is billed', async () => {
+    const user = userEvent.setup();
+    render(shipping());
+
+    const accounts = screen.getByLabelText(/Carrier accounts/);
+    await user.clear(accounts);
+    await user.type(accounts, 'ca_2');
+    await user.click(screen.getByRole('button', { name: /Save shipping/ }));
+
+    const dialog = screen.getByRole('group', { name: /Confirm the shipping defaults change/ });
+    expect(within(dialog).getByText('ca_1')).toBeTruthy();
+    expect(within(dialog).getByText('ca_2')).toBeTruthy();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('reads the country map as lines and sends it as an object', async () => {
+    const user = userEvent.setup();
+    render(
+      <SettingsCardForm
+        storeId={STORE}
+        cardId="fulfillment"
+        current={cardValues('fulfillment', {
+          fulfillment: { routing: { countries: { NL: 'wh-eu' } } },
+        })}
+        updatedAt={LOADED}
+        currency="EUR"
+        locale="en-GB"
+      />,
+    );
+
+    const map = screen.getByLabelText(/Per-country overrides/);
+    expect(map).toHaveValue('NL = wh-eu');
+    await user.clear(map);
+    await user.type(map, 'NL = wh-eu\njp: wh-jp');
+    await user.click(screen.getByRole('button', { name: /Save fulfilment/ }));
+
+    expect(save).toHaveBeenCalledWith(
+      STORE,
+      'fulfillment',
+      // A lower-case country is upper-cased, and a colon is accepted because somebody will type one.
+      expect.objectContaining({
+        'fulfillment.routing.countries': { NL: 'wh-eu', JP: 'wh-jp' },
+      }),
+      LOADED,
+      false,
+    );
+  });
+
+  it('says which line is wrong rather than dropping it', async () => {
+    const user = userEvent.setup();
+    render(
+      <SettingsCardForm
+        storeId={STORE}
+        cardId="fulfillment"
+        current={cardValues('fulfillment', {})}
+        updatedAt={LOADED}
+        currency="EUR"
+        locale="en-GB"
+      />,
+    );
+
+    await user.type(screen.getByLabelText(/Per-country overrides/), 'Netherlands = wh-eu');
+    await user.click(screen.getByRole('button', { name: /Save fulfilment/ }));
+
+    expect(save).not.toHaveBeenCalled();
+    expect(screen.getByText(/"Netherlands = wh-eu" is not/)).toBeTruthy();
+  });
 });
 
 describe('what the action says comes back to the field', () => {

@@ -472,6 +472,46 @@ HQ › Roles, neither affected.
 out at 5 s in the full parallel run and passes 19/19 alone. Window 12's file, and nothing in my diff
 touches BI. Re-ran the suite green and reported it rather than touching another window's test.
 
+## In progress — #870 item 7 PR B, shipping and fulfilment settings (2026-11-25)
+
+Branch `integration/admin-store-settings-shipping`, **stacked on PR A (#968)** — not from main as
+the manager said, because PR B must move `shipping.*` and `fulfillment.*` out of
+`NOT_EDITED_PATHS` into new cards, i.e. edit the file PR A creates. From main that file does not
+exist, so "from main" would have meant re-creating A's work inside B. Flagged to the manager with
+the reason; retarget when A merges.
+
+**Scope note, surfaced not decided:** this branch has the two settings cards. The **shipping-option
+fields** (carrier, service, sales_channel_id and the four `rules` keys) are NOT in it — a different
+component tree and a comparable chunk of work. I asked the manager whether to fold them in before
+review or do them as B2 rather than quietly shipping two thirds of a PR.
+
+### What the research gave
+
+`ShippingOptionPatch.rules` is `additionalProperties: true` — free-form again — and the keys are
+documented in **window 8's README**, not the contract: `min_subtotal_minor`, `max_weight_g`,
+`free_over_subtotal_minor`, `live`. And `live: true` **requires a `service`**, otherwise the option
+opts into carrier pricing with nothing to match. That interaction is the guard worth building when
+the option fields land. Third surface in a row where the shape lives in code rather than the
+contract (settings, order audit payloads, these rules).
+
+### A bug my own test found
+
+An unset integer rendered as an empty box, my parser read `''` as `0`, and `0` failed the minimum —
+so a card with **any** unset number could not be saved at all. Empty now means "not set", which the
+core already treats as "keep my default", and for `support_refund_limit_minor` that is the only way
+to express "no ceiling". Because that path is confirmed, the diff spells it out as
+"€50.00 → not set" first. **The test I wrote to check a list round-trip is what caught it**, two
+fields away from what it was testing — an argument for testing the card as a whole rather than each
+parser in isolation.
+
+### Two escaping traps, same family as before
+
+`
+` inside a Python heredoc collapsed into real newlines in the generated TS, giving unterminated
+string literals; repaired by building the escape as `chr(92) + 'n'`. And a prettier reflow had
+already broken a multi-line anchor, so I replaced that block **by line range** instead. Both are
+the recorded rule again: for generated code, prefer line-range edits and build escapes explicitly.
+
 ## In progress — #870 item 7 PR A, store settings (2026-11-25)
 
 **PR #968**, branch `integration/admin-store-settings` from main `43cefd80` (code commit

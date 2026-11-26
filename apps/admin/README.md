@@ -702,6 +702,16 @@ the contract has no `If-Match`.
 `tax.prices_include_tax`) plus the fraud rules and `shipping.carrier_account_ids`. The dialog is in
 the form, but the **action** refuses an unconfirmed change to those paths — the check is not the UI.
 
+A **list** field (`shipping.services`, `shipping.carrier_account_ids`) is one entry per line and a
+**country map** (`fulfillment.routing.countries`) is `NL = wh-eu` per line; a line that parses as
+neither names itself rather than being dropped. `fulfillment.routing.default` is a typed warehouse
+**code**, not a picker, because listing warehouses needs `operations` on the organization and a
+store admin would get a 403.
+
+An **empty number box means "not set"**, not zero: the core keeps its own default for an absent
+path, and for `support_refund_limit_minor` that is the only way to say "no ceiling". Because that
+path is confirmed, the diff says "→ not set" before it is saved.
+
 Money is minor units on the wire and an amount on screen, in the store's currency. Below
 `store_admin` every value is still shown, read-only, with the relation needed to change it.
 

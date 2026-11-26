@@ -1533,3 +1533,28 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   cancel, an ordinary change not interrupted, and money in EUR and JPY;
   `store-settings-drift.test.ts` (7); three more in `settings.test.tsx`. Grepped `apps/*/e2e`: the
   settings assertions are scoped forms and specific text, and no form name collides.
+
+### Added — #870 wave 1 item 7 (PR B): shipping defaults and fulfilment routing
+
+- **Two more settings cards**, on PR A's pattern: **Shipping defaults** (`shipping.provider`,
+  `shipping.carrier_account_ids`, `shipping.services`, the four `shipping.default_parcel.*`
+  dimensions, `shipping.label_format`) and **Fulfilment routing** (`fulfillment.provider`,
+  `fulfillment.routing.default`, `fulfillment.routing.countries`). Every path moved out of
+  `NOT_EDITED_PATHS` into a card, and the drift guard — which accounts for **every** path the core
+  reads — is what proves nothing was dropped on the way.
+- **Two new field kinds, both with their format explained** rather than guessable: a **list** one
+  per line (`services`, `carrier_account_ids`) and a **country map** written `NL = wh-eu`. A colon
+  is accepted too because somebody will type one, a lower-case country is upper-cased, and a line
+  that is neither says **which line** rather than being dropped. The drift guard requires a hint on
+  both kinds, since nothing about "one per line" is discoverable from the field itself.
+- **`fulfillment.routing.default` is a typed warehouse CODE, not a picker.** Listing warehouses
+  needs `operations` on the organization, which a store admin does not have, so a picker would be a
+  certain 403 — the hint says where the codes come from instead.
+- **Swapping `shipping.carrier_account_ids` is confirmed against a diff**, with the manager's
+  reasoning: it changes who is billed, which is as consequential as a number with a currency on it.
+- **Bug found by its own test: an unset number could not be saved.** An empty integer box parsed as
+  `0` and failed its minimum, so a card with any unset dimension refused to save at all. Empty now
+  means **"not set"** — the core keeps its own default for an absent path — and for
+  `support_refund_limit_minor` that is the only way to express "no ceiling at all", which the
+  confirm dialog now spells out as "€50.00 → not set" before it is saved.
+- The settings tests derive the card list from the catalogue, so adding a card no longer edits them.

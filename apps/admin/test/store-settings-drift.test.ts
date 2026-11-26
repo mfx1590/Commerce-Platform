@@ -99,6 +99,12 @@ describe('the admin and the core agree about store.settings', () => {
         if (field.kind === 'text') {
           expect(typeof field.maxLength, `${field.path} needs a maximum length`).toBe('number');
         }
+        // `textList` and `countryMap` are free-form by the core's own check (array of strings /
+        // object of country -> code), so they carry no bounds — but they must carry a hint, because
+        // nothing about "one per line" or "NL = wh-eu" is guessable.
+        if (field.kind === 'textList' || field.kind === 'countryMap') {
+          expect(field.hint, `${field.path} needs a hint explaining its format`).toBeTruthy();
+        }
       }
     }
   });
