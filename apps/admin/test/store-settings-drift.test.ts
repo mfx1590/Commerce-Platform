@@ -32,6 +32,7 @@ import {
 } from '@/lib/settings/fields';
 
 const SCHEMA = resolve(process.cwd(), '../../apps/core/src/modules/registry/settings-schema.ts');
+const SETTINGS_DIR = resolve(process.cwd(), 'src/app/(store)/[storeId]/settings');
 
 /** The quoted keys of `STORE_SETTINGS_SHAPES`, in the order the core lists them. */
 function corePaths(): string[] {
@@ -122,5 +123,29 @@ describe('the admin and the core agree about store.settings', () => {
     expect(byPath.get('fraud.radar_highest')?.options).toEqual(['block', 'review']);
     expect(byPath.get('content.brand_voice')?.maxLength).toBe(500);
     expect(byPath.get('content.audience')?.maxLength).toBe(200);
+  });
+});
+
+describe('the settings page stays on its side of the client boundary', () => {
+  it('takes nothing but the component out of the client form module', () => {
+    // `cardValues` was exported from the `'use client'` form file and called by the server
+    // component. It type-checked, every unit test passed (they import the function directly), and
+    // then a PRODUCTION build threw "Attempted to call cardValues() from the server", taking the
+    // whole settings page down — the pre-existing General settings and API-key cards with it.
+    // `next dev` tolerated it; the e2e, which builds for real, did not. The helper now lives in
+    // `src/lib/settings/fields.ts`, and this keeps it out of the client module.
+    const page = readFileSync(resolve(SETTINGS_DIR, 'page.tsx'), 'utf8');
+    const imported = /import\s*\{([^}]*)\}\s*from\s*'\.\/settings-card-form'/.exec(page);
+    expect(imported, 'the settings page no longer imports the card form').not.toBeNull();
+    const names = (imported?.[1] ?? '')
+      .split(',')
+      .map((name) => name.trim())
+      .filter((name) => name !== '');
+    // Only components (or types) may cross: a function a server component CALLS must not live in
+    // a client module.
+    expect(names).toEqual(['SettingsCardForm']);
+    expect(readFileSync(resolve(SETTINGS_DIR, 'settings-card-form.tsx'), 'utf8')).toContain(
+      "'use client'",
+    );
   });
 });

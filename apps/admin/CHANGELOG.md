@@ -1563,6 +1563,15 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   currency it acts as that many minor units of **that** currency. The card says this to every
   reader, because it changes what the number means. Issue #969 asks for the comparison to carry a
   currency; this PR does not change the core.
+- **Fixed before merge: the settings page crashed in a production build.** `cardValues` — the pure
+  helper the **server** component uses to build each card's props — was exported from the
+  `'use client'` form module. It type-checked, every unit test passed (they import the function
+  directly) and `next dev` ran it happily; a real build threw _"Attempted to call cardValues() from
+  the server"_ and took the **whole** settings page down, the pre-existing General settings and
+  API-key cards with it. Only the e2e caught it, because that is the one gate that builds for real.
+  The helper now lives in `src/lib/settings/fields.ts`, and a test asserts the page imports nothing
+  but the component itself out of the client module. **A function a server component calls must not
+  live in a client file, and `pnpm --filter @platform/admin build` is the gate that proves it.**
 - Tests: `store-settings-action.test.ts` (21) — only the card's paths written, other modules' keys
   preserved, the stale-`updated_at` refusal, the unconfirmed-change refusal per consequential path,
   the four binding cases above, clearing a number / an enum / an array by **deleting the path**, the
@@ -1572,6 +1581,7 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   confirmation, a cleared limit reading "not set", and the core default shown for an unset field;
   `store-settings-drift.test.ts` (7); three more in `settings.test.tsx`. Grepped `apps/*/e2e`: the
   settings assertions are scoped forms and specific text, and no form name collides.
+
 ### Added — #870 wave 1 item 5 (PR C): search merchandising rules (window 3; Opus review)
 
 - **Catalog › Search merchandising** (`/{storeId}/catalog/merchandising`): every pin / boost / bury rule of the store, per category or per whole search query. Reading needs store_staff; creating, editing, bulk changes and publishing need store_admin, checked server-side before the API (bulk: again per row).

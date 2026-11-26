@@ -12,14 +12,11 @@ import {
   SETTINGS_CARDS,
   changesOf,
   needsConfirmation,
-  valueAt,
   type CardId,
+  type CardValues,
   type SettingChange,
   type SettingField,
 } from '@/lib/settings/fields';
-
-/** The card's current values, by dotted path. Settings are configuration, never personal data. */
-export type CardValues = Readonly<Record<string, unknown>>;
 
 /** What was confirmed: the paths and the values the reader was shown and agreed to. */
 type Confirmed = { path: string; to: unknown }[];
@@ -375,12 +372,4 @@ function unflatten(current: CardValues): Record<string, unknown> {
     node[parts[parts.length - 1]!] = value;
   }
   return root;
-}
-
-/** Only this card's paths, read off the store — what the form is given. */
-export function cardValues(cardId: CardId, settings: unknown): CardValues {
-  const card = SETTINGS_CARDS.find((candidate) => candidate.id === cardId)!;
-  return Object.fromEntries(
-    card.fields.map((field) => [field.path, valueAt(settings, field.path)]),
-  );
 }

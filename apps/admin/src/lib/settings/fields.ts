@@ -345,3 +345,24 @@ export function changesOf(
 /** True when a save needs the confirm step: any changed path is in `CONFIRM_PATHS`. */
 export const needsConfirmation = (changes: readonly SettingChange[]): boolean =>
   changes.some((change) => change.confirm);
+
+/** A card's current values by path, as the page read them out of `store.settings`. */
+export type CardValues = Readonly<Record<string, unknown>>;
+
+/** Only this card's paths, read off the store — what the form is given. */
+/**
+ * A card's values out of a store's settings.
+ *
+ * It lives HERE, in a pure module, and not next to the form, because the **server** component
+ * builds the props with it. Exporting it from the `'use client'` form file type-checked, passed
+ * every unit test (they import the function directly) and then threw
+ * "Attempted to call cardValues() from the server" in a PRODUCTION build — taking the whole
+ * settings page down, pre-existing cards included. `next dev` tolerated it; the e2e, which builds
+ * for real, did not. Nothing that a server component calls belongs in a client module.
+ */
+export function cardValues(cardId: CardId, settings: unknown): CardValues {
+  const card = SETTINGS_CARDS.find((candidate) => candidate.id === cardId)!;
+  return Object.fromEntries(
+    card.fields.map((field) => [field.path, valueAt(settings, field.path)]),
+  );
+}

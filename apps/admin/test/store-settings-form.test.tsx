@@ -9,7 +9,8 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { SettingsCardForm, cardValues } from '@/app/(store)/[storeId]/settings/settings-card-form';
+import { SettingsCardForm } from '@/app/(store)/[storeId]/settings/settings-card-form';
+import { cardValues } from '@/lib/settings/fields';
 import { SEED } from './fixtures/principals';
 
 vi.mock('next/navigation', () => ({

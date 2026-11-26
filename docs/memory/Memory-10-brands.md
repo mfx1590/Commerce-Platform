@@ -510,6 +510,26 @@ It was a bare `boolean`, so a confirmation for €500 could save €5,000. It is
 recomputes from the store it just re-read; an edit after the dialog opens withdraws it.
 **Lesson: a confirmation flag proves someone clicked, not what they agreed to.**
 
+### The one CI caught that no local gate would have (2026-11-26)
+
+#968's first review-fix head went red on the live e2e, and the cause was mine and bad: the settings
+page **500s in a production build**. `cardValues`, the pure helper the **server** component calls to
+build each card's props, was exported from the `'use client'` form module. tsc was happy, all 1778
+unit tests passed (they import the function directly), `next dev` ran it — and `next build` threw
+"Attempted to call cardValues() from the server", taking the whole page down including the
+General settings and API-key cards that had worked for weeks. The e2e caught it because the e2e is
+the only gate that **builds for real** (which is exactly why the admin README insists on a
+production build there).
+
+**Lessons, both recorded as rules for me:**
+
+- a function a server component CALLS must not live in a `'use client'` file — exporting a pure
+  helper from a client module next to the component that uses it is the trap, and the fix is a pure
+  module both sides import;
+- **run `pnpm --filter @platform/admin build` before pushing anything that adds a page or moves a
+  helper across the client boundary.** lint + typecheck + test cannot see this class of bug; a
+  30-second build can. A guard test now pins the page's import list, but the build is the real gate.
+
 ### What the manager asked me to trace, and the answer
 
 `support_refund_limit_minor` is compared in **no currency at all**: `refunds.ts` does

@@ -6,9 +6,9 @@ import Link from 'next/link';
 import { ActivityPanel, activityPage } from '@/components/audit/activity-panel';
 import { loadActivity } from '@/lib/audit/load';
 import { StoreSectionGuard } from '@/components/shell/section-guard';
-import { SETTINGS_CARDS, describeValue, valueAt } from '@/lib/settings/fields';
+import { SETTINGS_CARDS, cardValues, describeValue, valueAt } from '@/lib/settings/fields';
 import { formatMoney } from '@/lib/forms/money';
-import { SettingsCardForm, cardValues } from './settings-card-form';
+import { SettingsCardForm } from './settings-card-form';
 import {
   ApiStatePanel,
   ForbiddenPanel,
