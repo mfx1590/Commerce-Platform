@@ -560,6 +560,14 @@ customer ids, so the panel names the stores, links to each record, and says that
 records' names are not shown — reading one would be a second `getCustomer` behind a gate the
 reader may not hold on that store.
 
+**The GDPR export trail is shown; the bundle is not served.** `exportCustomer` and
+`listCustomerExports` are both `store_admin`, so a `support` reader is told as much and the trail is
+not fetched for them. `getCustomerExport` is deliberately not wrapped in `src/lib/api/admin.ts`:
+its 200 response _is_ one person's whole record as an attachment, so nothing in this app can pull
+it. The trail says who asked (a customer's self-service request is labelled, never named), what
+became of the bundle, and how often it was downloaded. The staff-name lookup is `owner` on
+`organization:hq`, so it is skipped for a store admin instead of fetching a certain 403.
+
 **A group is assigned by name**, through the same schema and the same action; the action's own
 `refuseUnlessPermitted('updateCustomer', storeId)` is the server-side check, and the core writes
 the audit row that then appears in the customer's Activity panel.

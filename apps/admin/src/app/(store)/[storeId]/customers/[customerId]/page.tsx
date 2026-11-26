@@ -9,9 +9,19 @@ import {
   getCustomerIdentity,
   listCustomerAddresses,
   listCustomerConsents,
+  listCustomerExports,
   listCustomerGroups,
   listStores,
+  listUsers,
 } from '@/lib/api/admin';
+import {
+  describeDownloads,
+  describeExport,
+  exportTone,
+  formatBytes,
+  requesterLabel,
+  type ExportRequest,
+} from '@/lib/customers/exports';
 import {
   addressLines,
   addressPhone,
@@ -27,6 +37,7 @@ import { loadPrincipal } from '@/lib/principal';
 import { customerTone, displayName } from '../customers-table.config';
 import { CustomerForm } from './customer-form';
 import { EraseControl } from './erase-control';
+import { ExportControl } from './export-control';
 import { ActivityPanel, activityPage } from '@/components/audit/activity-panel';
 import { loadActivity } from '@/lib/audit/load';
 
@@ -125,7 +136,23 @@ export default async function CustomerDetailPage({
     : [];
   const erased = current.status === 'erased';
   const consent = consentRows(current.consent);
-  const mayErase = principal.ok && canErase(principal.data, storeId) && !erased;
+  // Both GDPR operations are `store_admin`. `support` can read this page, so the trail is fetched
+  // only for a reader who may have it — a 403 the screen would then have to excuse is worse than
+  // not asking (#870 item 4 PR C).
+  const mayAdminister = principal.ok && canErase(principal.data, storeId);
+  const mayErase = mayAdminister && !erased;
+  const exports = mayAdminister ? await listCustomerExports(storeId, customerId) : null;
+  // `listUsers` is `owner` on organization:hq. A store admin reading their own store's trail would
+  // be refused, so the call is made only by a reader who holds that relation — the same rule as the
+  // identity panel above. Without it the trail says "Staff (ab12cd34)", which is never a blocker.
+  const mayReadStaff =
+    principal.ok &&
+    expandOrganizationRelations(principal.data.organization_relations as Relation[]).has('owner');
+  const staff =
+    exports !== null && exports.ok && mayReadStaff ? await listUsers({ limit: 100 }) : null;
+  const staffNames = new Map<string, string>(
+    staff !== null && staff.ok ? staff.data.items.map((user) => [user.id, user.display_name]) : [],
+  );
 
   return (
     <StoreSectionGuard storeId={storeId} id="customers">
@@ -448,6 +475,83 @@ export default async function CustomerDetailPage({
             </CardBody>
           </Card>
         </div>
+
+        <Card>
+          <CardHeader
+            title="Data exports (GDPR)"
+            description="Every export request for this customer in this store: who asked, when, and what became of the bundle. The bundle itself is not served here."
+          />
+          <CardBody className="space-y-4">
+            {!mayAdminister ? (
+              <p className="text-muted text-sm">
+                Only a store admin can request or see data exports. Ask one, or an organization
+                owner.
+              </p>
+            ) : (
+              <>
+                {erased ? (
+                  <p className="text-muted text-sm">
+                    This customer is erased, so there is nothing left to export.
+                  </p>
+                ) : (
+                  <ExportControl storeId={storeId} customerId={current.id} />
+                )}
+                {exports === null || !exports.ok ? (
+                  <RequestErrorPanel
+                    status={exports?.status ?? 0}
+                    error={exports?.error ?? { code: 'unavailable', message: 'No answer' }}
+                  />
+                ) : exports.data.items.length === 0 ? (
+                  <p className="text-muted text-sm">
+                    No export has been requested for this customer. Requesting one is recorded here.
+                  </p>
+                ) : (
+                  <table className="w-full text-sm" aria-label="Data export requests">
+                    <thead className="border-line text-muted border-b text-left text-xs">
+                      <tr>
+                        <th className="px-3 py-2">Requested</th>
+                        <th className="px-3 py-2">By</th>
+                        <th className="px-3 py-2">State</th>
+                        <th className="px-3 py-2">Bundle</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-line divide-y align-top">
+                      {(exports.data.items as ExportRequest[]).map((entry) => {
+                        const downloads = describeDownloads(entry.download_count);
+                        return (
+                          <tr key={entry.id}>
+                            <td className="text-muted px-3 py-2 font-mono text-xs">
+                              {formatAt(entry.requested_at)}
+                            </td>
+                            <td className="px-3 py-2">
+                              {requesterLabel(entry, (id) => staffNames.get(id))}
+                            </td>
+                            <td className="px-3 py-2">
+                              <Badge tone={exportTone(entry.status)}>{entry.status}</Badge>
+                              <span className="text-muted mt-1 block text-xs">
+                                {describeExport(entry)}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2">
+                              <span>{formatBytes(entry.size_bytes)}</span>
+                              {downloads !== null && (
+                                <span className="text-muted mt-1 block text-xs">{downloads}</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+                <p className="text-muted text-xs">
+                  The bundle is not downloadable from this screen. Handing one over is the
+                  core&rsquo;s job, and every download it serves is audited.
+                </p>
+              </>
+            )}
+          </CardBody>
+        </Card>
 
         <ActivityPanel
           activity={activity}

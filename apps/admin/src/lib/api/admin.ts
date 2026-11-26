@@ -695,6 +695,43 @@ export async function listCustomerConsents(
 }
 
 /**
+ * Schedules a GDPR export (`store_admin`; 202 with no body). The core builds the bundle and owns
+ * its delivery, and emits `customer.export_requested`.
+ */
+export async function exportCustomer(
+  storeId: string,
+  customerId: string,
+): Promise<ApiResult<AdminResponse<'exportCustomer'>>> {
+  return adminCall<'exportCustomer'>({
+    path: buildPath('/admin/stores/{storeId}/customers/{customerId}/export', {
+      storeId,
+      customerId,
+    }),
+    method: 'POST',
+  });
+}
+
+/**
+ * The customer's export REQUESTS in this store, newest first — ids, status, timestamps, sizes, who
+ * asked, and how often each bundle has been downloaded. Never the bundle itself (`store_admin`).
+ *
+ * **`getCustomerExport` is deliberately not wrapped.** That operation's 200 *is* the bundle — the
+ * whole of one person's data as an attachment — so nothing in this app can pull it until someone
+ * decides it should be able to. See the PR for #870 item 4 PR C.
+ */
+export async function listCustomerExports(
+  storeId: string,
+  customerId: string,
+): Promise<ApiResult<AdminResponse<'listCustomerExports'>>> {
+  return adminCall<'listCustomerExports'>({
+    path: buildPath('/admin/stores/{storeId}/customers/{customerId}/exports', {
+      storeId,
+      customerId,
+    }),
+  });
+}
+
+/**
  * One person's rows across the organization's stores — **ids only**, no email, no subject, no hash.
  *
  * `support` on **organization:hq**, not on a store: a store admin with every relation on their own

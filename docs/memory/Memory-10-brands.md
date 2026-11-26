@@ -593,6 +593,40 @@ table. All of them are role-scoped (`getByRole('list', { name: 'Payments' })`,
 "Order lines" is not a substring of "Activity on this order" — `getByRole`'s `name` matches a
 substring by default, which is the trap #896 hit.
 
+## In progress — #870 item 4 PR C, the GDPR export trail (2026-11-25)
+
+**PR #962**, branch `integration/admin-customers-export` (code commit `4890c7da`; head = this
+memory commit). **Stacked on PR B (#958)**, base `integration/admin-customers-detail` — not main:
+the panel goes on the page B rewrites, so building it on main would have guaranteed a `page.tsx`
+conflict. Retarget to main once B merges. Admin suite **1732 / 94** at `--maxWorkers=2`; lint,
+format:check, typecheck 30/30, ownership green. Item 4 is now complete pending review.
+
+**The contract contradicted the plan, and reading it was the whole job.** The plan (and the
+manager's note) said the trail shows who asked and when, "never the bundle" — and listed
+`getCustomerExport` among the operations to use. But that operation's 200 **is** the bundle:
+"Downloads one ready export bundle … as an attachment", 410 when expired. So "use
+getCustomerExport" and "never the bundle" cannot both hold. I shipped the trail, did **not wrap**
+`getCustomerExport` at all, asserted in a test that no download link or button exists, and put the
+choice in the PR body with the 60-line route-handler shape if they want it. **A plan that names an
+operation is not a decision about what that operation does.**
+
+**Found my own inconsistency mid-build.** I had the export panel call `listUsers` (owner on
+organization:hq) whenever the trail loaded — a certain 403 for the store admin who is the panel's
+main reader, which is exactly the "don't ask what will be refused" rule I had just applied to the
+identity panel one PR earlier. Gated it on `owner`.
+
+**A test that told me something true instead of what I expected.** My first assertion was
+"`listUsers` is never called for a store admin". It failed: `loadActivity` (#896) calls it
+unconditionally and survives the refusal by design. So every non-owner pays one refused request per
+detail page view. Gating that needs the principal threaded into `loadActivity` and four pages — out
+of this PR's scope — so the test now asserts the exact count (1, from the activity loader, none
+from the trail) and names the cause. **When a count assertion fails, read it before weakening it:
+it was describing the page, not my code.**
+
+Stacking also meant two mock gaps of my own making: `customers-detail` and `customers-list` mock
+`@/lib/api/admin` wholesale, so each new operation the page reads must be added there or every test
+rendering that page throws. Second time this bit me; it is the cost of whole-module API mocks.
+
 ## In progress — #870 item 4 PR B, customer detail (2026-11-25)
 
 **PR #958**, branch `integration/admin-customers-detail` from main `f47683d7` (code commit

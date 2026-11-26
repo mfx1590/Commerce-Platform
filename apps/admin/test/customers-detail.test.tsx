@@ -47,6 +47,8 @@ const api = vi.hoisted(() => ({
   listCustomerGroups: vi.fn(),
   getCustomerIdentity: vi.fn(),
   listStores: vi.fn(),
+  // PR C: the page reads the export trail for a store_admin.
+  listCustomerExports: vi.fn(),
   listAuditLog: vi.fn(),
   listUsers: vi.fn(),
 }));
@@ -135,6 +137,7 @@ beforeEach(() => {
     }),
   );
   api.listAuditLog.mockResolvedValue(ok({ page: 1, limit: 20, total: 0, items: [] }));
+  api.listCustomerExports.mockResolvedValue(ok({ items: [] }));
   api.listUsers.mockResolvedValue(ok({ page: 1, limit: 100, total: 0, items: [] }));
 });
 
