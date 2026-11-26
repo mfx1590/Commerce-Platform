@@ -145,7 +145,8 @@ describe.runIf(skip === null)('metrics API on ClickHouse (#603)', () => {
           reader,
           parseMetricQuery({ metrics: [m], grain, from: '2026-10-01', to: '2026-11-01' }),
           [A],
-          { stock: { stockItemIds: [] } },
+          // #935: the Postgres promotions source answers nothing here (its SQL is the routes' live test's)
+          { stock: { stockItemIds: [] }, promotions: async () => [] },
         );
         runs += 1;
       }

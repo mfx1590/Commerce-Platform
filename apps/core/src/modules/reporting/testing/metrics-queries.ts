@@ -1,6 +1,7 @@
 // Test helper (#603): seeded random queries that the validator and the compiler accept. Shared by the unit property
 // test and the ClickHouse leak and latency tests; never imported by production code.
 import { DIMENSIONS, GRAINS, METRIC_IDS, METRICS, type Dimension } from '../metrics/catalogue';
+import { POSTGRES_SOURCES } from '../metrics/compile';
 import { compileMetricQuery } from '../metrics/compile';
 import { parseMetricQuery, type MetricQuery } from '../metrics/query';
 
@@ -15,12 +16,15 @@ export function rng(seed: number): () => number {
   };
 }
 
+/** The metrics ClickHouse answers (#935: the promotions source is Postgres, never in a ClickHouse-only test). */
+const CH_METRICS = METRIC_IDS.filter((m) => !POSTGRES_SOURCES.has(METRICS[m].source?.id as never));
+
 /** A random query the validator accepts (metrics sharing a dimension set; filters that apply). */
 export function randomQuery(random: () => number, stores: readonly string[]): MetricQuery {
   const pick = <T>(xs: readonly T[]): T => xs[Math.floor(random() * xs.length)]!;
   for (;;) {
     const metrics = [
-      ...new Set(Array.from({ length: 1 + Math.floor(random() * 3) }, () => pick(METRIC_IDS))),
+      ...new Set(Array.from({ length: 1 + Math.floor(random() * 3) }, () => pick(CH_METRICS))),
     ];
     const shared = DIMENSIONS.filter((d) =>
       metrics.every((m) => METRICS[m].dimensions.includes(d)),

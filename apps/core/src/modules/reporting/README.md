@@ -87,6 +87,46 @@ Tests:
   store → 403, (b) no filter → exactly its own totals, (c) a store dimension → only its own store, (d) finance → 403,
   and an organization principal sees all three brands.
 
+### BI v2 wave 2 (#935, catalogue version 3, Admin API 0.4.31)
+
+- **Customers** (`customers_v2` = `fct_order_sales`): the source aggregates PER CUSTOMER KEY inside ClickHouse (the key
+  is per store: a customer of two brands is two customers) and counts keys outside it, so distinct customers, repeat
+  customers and per-customer sums come from one statement and no key ever leaves ClickHouse. A customer group is the
+  customer's CURRENT group (`dim_customer`; no history).
+- **Totals** of distinct counts and quantiles (`total: 'query'`) come from their own query over every row in scope,
+  never from the rows. **Distribution** metrics (`kind: 'distribution'`, `unit: 'hours'`): one decimal, no currency,
+  no % in `compare`, refused by movers.
+- **Small cells** (`execute.ts` `suppressSmallCells`, the #951 review rule): no figure in one answer, alone or added
+  to / subtracted from other figures of the same answer, may reveal a value resting on fewer than 5 customers. An
+  answer RESTS ON CUSTOMERS when it asks a customers metric or cuts by customer group / customer type (dimension or
+  filter); it then carries a hidden customer count per row (a dimension or filter the customers source cannot cut is
+  a 400 `small_cell_unverifiable`). A row of fewer than 5 customers is hidden WHOLE (every value null); within each
+  period × currency the smallest other rows are hidden with it until the hidden rows cover 5 customers together
+  (summed for store / customer group, which partition customers; otherwise only the largest row counts); when even
+  the whole group covers fewer, the currency's totals are hidden too. Cohorts: a cohort under 5 is hidden whole, a
+  cell of 1–4 active customers is hidden, and the LTV is withheld from the first hidden cell on. Property tests
+  (`metrics-wave2.test.ts`) enumerate every signed sum of the visible figures and assert none equals a hidden value.
+  Known limit (#961): the rule holds within ONE answer; differencing two answers (with and without a narrow filter,
+  overlapping ranges) is not prevented yet. Movers skip a key hidden in either range and keep a hidden total null.
+- **utm values**: lower-cased, trimmed, ≤ 64 characters in the models; per answer, the top 50 by attributed orders are
+  shown and the rest — and anything PII-shaped (`utmValue`) — are `other`.
+- **Promotions** (`promotions.ts`): Postgres `order.metadata.promotions` (the frozen per-promotion allocation:
+  automatic and code promotions, stacked ones each with its own share), through the caller's scoped client; the code
+  is never selected. The executor asks `ExecuteOptions.promotions` for them.
+- **Limits**: JSON at most 1 000 rows; `text/csv` up to 10 000 (`queryMetrics` and `getInventoryHealth`).
+- **Operations** (`operations.ts`): `getCustomerCohorts` (`POST /admin/metrics/cohorts`, ClickHouse, one currency,
+  small cells), `getOperationsBacklog` (`POST /admin/metrics/operations/backlog`, Postgres now: unassigned paid orders,
+  shipments not shipped, returns not received, by age), `listMetricDimensionValues` (`GET /admin/metrics/dimension-values`,
+  the pickers; a promotion by its name only). All `viewer` on `store:*`; `store_ids` outside the scope is a 403; they
+  fail closed (503) until the contract has them.
+- **Ask**: aliases for customer groups (g), campaigns (cp), promotions (pr) and utm values (u); a filter may name an
+  alias THIS question issued (`resolveAliasInputs`); the closed tools `customer_cohorts` and `operations_backlog`.
+
+Tests: `metrics/metrics-wave2.test.ts` (pure), `metrics/metrics-wave2-live.test.ts` (ClickHouse: every new metric ×
+dimension × grain × filter, and exact figures on a built store), `metrics/routes-wave2.test.ts` (Postgres: access,
+the backlog, the pickers, promotions over HTTP), `metrics/contract-wave2.test.ts` (shapes = admin-api.yaml 0.4.31),
+`ask/ask-wave2.test.ts`.
+
 ## BI Q&A (#606, D9) — `ask/`
 
 A question in words, answered with AI tool use over the metrics API. **No SQL is generated or accepted anywhere.**

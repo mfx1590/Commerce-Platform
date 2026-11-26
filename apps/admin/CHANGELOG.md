@@ -1501,3 +1501,31 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
 - **Tests:** `merchandising-actions.test.ts` (states, filters, every save check, the per-rule publish report and its mismatch, store_staff refused before the API, 409 / 5xx / read-back failure, bulk skip and labels, the product search's section check) and `merchandising-screen.test.tsx`. The permissions are pinned to `admin-api.yaml` by the existing catalog loop. Mutation-checked (see the PR).
 - **Test fix (#948 follow-up):** the variant editor's "sends every attribute" test and the two product-form tests ("saves them merged…", "a long SEO title…") paste each value instead of typing it key by key; they ran past 5 s under loaded full runs. Their imports were already at module top.
 - **Schedule times (#963 review):** the browser turns the typed local time into a UTC instant before the action is called; an untouched start or end is sent back byte for byte (the input has minutes only); the server checks instants and refuses a time without its zone (it would be read in the server's zone); end-after-start compares instants. Times are said in UTC (table, skip reasons) and the CSV has ISO UTC. Tested with the zone pinned to New York; mutation-checked.
+### Added — #870 wave 1 item 4 (PR C): the GDPR export trail, beside erase
+
+- **Request an export** (`exportCustomer`, 202) and **the trail of every request**
+  (`listCustomerExports`): when it was asked for, by whom, what became of the bundle, its size, and
+  how many times it has been downloaded. Both are `store_admin`, so a `support` reader — who may
+  read the record on screen — is told it is store-admin work and **the trail is never fetched**.
+  `requestCustomerExportAction` is guarded by `refuseUnlessPermitted('exportCustomer', storeId)`;
+  the rule is in `CUSTOMER_PERMISSIONS`, which `test/action-permissions.test.ts` pins against the
+  `x-permission` in `admin-api.yaml` and now exercises for this action too.
+- **The bundle is not served from this screen, and `getCustomerExport` is not even wrapped.** That
+  operation's 200 _is_ the bundle — the whole of one person's record as an attachment. The panel
+  says so in a sentence, and a test asserts there is no download link or button anywhere in it. See
+  the PR for the question this leaves open.
+- **The states read as what they are.** "pending" is being built, "expired" is a purge and not a
+  failure, and the contract's two `reason` values are said in words ("the customer was erased
+  before the bundle was", "too large"). An empty trail says no export has ever been requested.
+- **Who asked, where that is knowable.** A customer's own self-service request is labelled as one
+  and never named. A staff id is resolved against `listUsers` — which is `owner` on
+  `organization:hq`, so the lookup is **skipped** for a store admin rather than fetching a certain
+  403, and the row reads "Staff (ab12cd34)". The one `listUsers` call a store admin still pays on
+  this page is the Activity panel's from #896, which asks unconditionally by design; gating that
+  would mean threading the principal into `loadActivity` and four pages, so it is named rather than
+  changed here.
+- An **erased** customer is not offered an export: there is nothing left to bundle.
+- Tests: `test/customers-export.test.tsx` (12) — no download anywhere, the two "do not ask what
+  would be refused" cases, the owner path naming the asker, the erased and empty states, a refused
+  trail, and the pure wording/size/count helpers. `test/action-permissions.test.ts` gained the
+  export action. Grepped `apps/*/e2e`: no spec touches exports or the new table.

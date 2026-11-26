@@ -221,10 +221,12 @@ export const GOLDEN: readonly GoldenCase[] = [
     id: 25,
     principal: 'storeAdminA',
     question: 'Units of one product?',
-    calls: (e) => [
-      q(['units'], { dimensions: ['product'], filters: { product_ids: [e.product] } }),
+    // #951 review 7: a filter names an alias THIS question issued (p1 from the first result), never a raw id
+    calls: () => [
+      q(['units'], { dimensions: ['product'], order_by: { metric: 'units' }, limit: 1 }),
+      q(['units'], { dimensions: ['product'], filters: { product_ids: ['p1'] } }),
     ],
-    expect: { ran: 1 },
+    expect: { ran: 2 },
   },
   {
     id: 26,

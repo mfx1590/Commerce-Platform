@@ -51,6 +51,15 @@ const row = (
   category_id: null,
   customer_type: null,
   warehouse_id: null,
+  customer_group_id: null,
+  utm_source: null,
+  utm_medium: null,
+  utm_campaign: null,
+  campaign_id: null,
+  promotion_id: null,
+  carrier: null,
+  failure_reason: null,
+  suppressed: false,
   values,
 });
 

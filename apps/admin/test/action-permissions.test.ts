@@ -35,6 +35,7 @@ vi.mock('@/lib/principal', () => ({
 const api = vi.hoisted(() => ({
   updateCustomer: vi.fn(),
   eraseCustomer: vi.fn(),
+  exportCustomer: vi.fn(),
   createPriceList: vi.fn(),
   upsertPrices: vi.fn(),
   createPromotion: vi.fn(),
@@ -42,7 +43,8 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/api/admin', () => api);
 
-const { eraseCustomerAction, updateCustomerAction } = await import('@/app/actions/customers');
+const { eraseCustomerAction, requestCustomerExportAction, updateCustomerAction } =
+  await import('@/app/actions/customers');
 const { createPriceListAction, upsertPricesAction } = await import('@/app/actions/pricing');
 const { createPromotionAction, updatePromotionAction } = await import('@/app/actions/promotions');
 const { CUSTOMER_PERMISSIONS } = await import('@/lib/customers/permissions');
@@ -73,6 +75,15 @@ interface Case {
 }
 
 const CASES: Case[] = [
+  {
+    // A GDPR export builds a bundle of everything held about one person, so `support` — which may
+    // read the record on screen — is refused (#870 item 4 PR C).
+    operation: 'exportCustomer',
+    call: () => requestCustomerExportAction(STORE, CUSTOMER),
+    allowed: 'storeAdmin',
+    refused: 'support',
+    api: api.exportCustomer,
+  },
   {
     operation: 'eraseCustomer',
     call: () => eraseCustomerAction(STORE, CUSTOMER),
@@ -197,7 +208,7 @@ describe('the #903 permission tables', () => {
     }
   });
 
-  it('cover exactly the six actions of #903', () => {
+  it('cover exactly the guarded actions this file exercises — a new one must be added here', () => {
     expect(Object.keys(tables).sort()).toEqual(CASES.map((c) => c.operation).sort());
   });
 });
