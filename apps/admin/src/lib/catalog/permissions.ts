@@ -19,4 +19,10 @@ export const CATALOG_PERMISSIONS = {
   addProductMedia: { relation: 'store_staff', object: 'store' },
   updateProductMedia: { relation: 'store_staff', object: 'store' },
   deleteProductMedia: { relation: 'store_staff', object: 'store' },
+  // Search merchandising rules (#870 item 5, PR C): reading is store_staff, every change store_admin.
+  listMerchandisingRules: { relation: 'store_staff', object: 'store' },
+  createMerchandisingRule: { relation: 'store_admin', object: 'store' },
+  updateMerchandisingRule: { relation: 'store_admin', object: 'store' },
+  deleteMerchandisingRule: { relation: 'store_admin', object: 'store' },
+  publishMerchandisingRules: { relation: 'store_admin', object: 'store' },
 } as const satisfies Record<string, PermissionRule>;
