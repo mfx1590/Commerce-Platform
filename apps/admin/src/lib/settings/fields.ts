@@ -38,6 +38,16 @@ export interface SettingField {
    * than a bare number — ¥1,980 is 1980, not 19.80 (zero-decimal currencies).
    */
   money?: boolean;
+  /**
+   * What the **core** does when this path is absent, in words (#968 review).
+   *
+   * An unset path is not "off" or "empty": `fraud.providers` absent means **both checks run**
+   * (`DEFAULT_FRAUD_SETTINGS`), and an absent `support_refund_limit_minor` means no ceiling at all.
+   * So an absent value is shown as "not set (default: …)" rather than as a value, and the form
+   * never sends a field the reader did not touch. Traced from the reader in each owning module, not
+   * guessed: `fraud/types.ts`, `tax/types.ts`, `payments/refund-router.ts`.
+   */
+  defaultLabel: string;
 }
 
 export type CardId = 'tax' | 'fraud' | 'refunds' | 'content';
@@ -46,6 +56,11 @@ export interface SettingsCard {
   id: CardId;
   title: string;
   description: string;
+  /**
+   * Something true about this card that the reader cannot see from the fields, shown under the
+   * description. Today: which currency the refund limit is actually compared in (#968 review).
+   */
+  note?: string;
   fields: readonly SettingField[];
 }
 
@@ -60,6 +75,9 @@ export interface SettingsCard {
 export const CONFIRM_PATHS: readonly string[] = [
   'support_refund_limit_minor',
   'tax.prices_include_tax',
+  // #968 review: it changes what every order is taxed on, and its default is conditional on
+  // the legal entity's country — so flipping it is never obviously right.
+  'tax.shipping_taxable',
   'fraud.providers',
   'fraud.velocity.max_orders',
   'fraud.velocity.window_minutes',
@@ -77,6 +95,7 @@ export const SETTINGS_CARDS: readonly SettingsCard[] = [
     fields: [
       {
         path: 'tax.provider',
+        defaultLabel: 'table — the tax rates of this store, offline',
         label: 'Calculated by',
         kind: 'enum',
         options: ['table', 'stripe'],
@@ -84,12 +103,14 @@ export const SETTINGS_CARDS: readonly SettingsCard[] = [
       },
       {
         path: 'tax.prices_include_tax',
+        defaultLabel: 'off — prices are net and tax is added at checkout',
         label: 'Prices include tax',
         kind: 'boolean',
         hint: 'Off means every price is net and tax is added at checkout. Turning this on reinterprets every price in the store.',
       },
       {
         path: 'tax.shipping_taxable',
+        defaultLabel: 'taxable when the legal entity is in the EU, otherwise not',
         label: 'Shipping is taxable',
         kind: 'boolean',
       },
@@ -103,31 +124,36 @@ export const SETTINGS_CARDS: readonly SettingsCard[] = [
     fields: [
       {
         path: 'fraud.providers',
+        defaultLabel: 'BOTH checks run — rules and radar',
         label: 'Checks to run',
         kind: 'enumArray',
         options: ['rules', 'radar'],
-        hint: '`rules` are the local checks below; `radar` is Stripe Radar. None selected means nothing is checked.',
+        hint: '`rules` are the local checks below; `radar` is Stripe Radar. Unchecking both leaves this NOT SET, which means the core runs both — this card cannot switch fraud checking off, because doing that is not a checkbox.',
       },
       {
         path: 'fraud.velocity.max_orders',
+        defaultLabel: '3',
         label: 'Orders allowed per window',
         kind: 'integer',
         min: 1,
       },
       {
         path: 'fraud.velocity.window_minutes',
+        defaultLabel: '60',
         label: 'Window (minutes)',
         kind: 'integer',
         min: 1,
       },
       {
         path: 'fraud.country_mismatch',
+        defaultLabel: 'review',
         label: 'Billing and shipping countries differ',
         kind: 'enum',
         options: ['review', 'allow'],
       },
       {
         path: 'fraud.radar_highest',
+        defaultLabel: 'block — the payment is refused',
         label: 'Radar’s highest risk',
         kind: 'enum',
         options: ['block', 'review'],
@@ -140,14 +166,16 @@ export const SETTINGS_CARDS: readonly SettingsCard[] = [
     title: 'Refunds',
     description:
       'The ceiling on what a support user may refund without a store admin. It does not limit a store admin. Changing this needs store admin.',
+    note: 'Entered in this store’s default currency. The core compares it against the refund amount as a plain number, without converting: on an order in another currency it acts as that many minor units of THAT currency. Issue #969 asks for the comparison to carry a currency.',
     fields: [
       {
         path: 'support_refund_limit_minor',
+        defaultLabel: 'no ceiling at all',
         label: 'Support refund limit',
         kind: 'integer',
         min: 0,
         money: true,
-        hint: 'Per refund. Absent means support has no ceiling at all.',
+        hint: 'Per refund, not per order and not per day. Absent means support has no ceiling at all.',
       },
     ],
   },
@@ -159,6 +187,7 @@ export const SETTINGS_CARDS: readonly SettingsCard[] = [
     fields: [
       {
         path: 'content.brand_voice',
+        defaultLabel: 'a neutral voice chosen by the drafting template',
         label: 'Brand voice',
         kind: 'text',
         minLength: 1,
@@ -166,6 +195,7 @@ export const SETTINGS_CARDS: readonly SettingsCard[] = [
       },
       {
         path: 'content.audience',
+        defaultLabel: 'no audience given to the template',
         label: 'Audience',
         kind: 'text',
         minLength: 1,

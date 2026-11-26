@@ -1527,12 +1527,52 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   #967 asks for the paths to be described in the yaml; the guard then reads that instead.
 - `theme` stays read-only (a free-form object with no shape to validate), and `payment.methods` is
   shown as derived and never offered as an input.
-- Tests: `store-settings-action.test.ts` (15) — only the card's paths written, other modules' keys
+- **Only the fields someone changed are sent, and an absent one reads "not set" (review of #968).**
+  The first cut submitted every field on the card, so an untouched **absent** `fraud.providers`
+  went out as `[]` — and the core reads an absent `providers` as **both checks run**, so opening a
+  card and pressing Save would have switched fraud checking **off** on any store nobody had
+  configured. Now:
+  - the form sends **only the paths whose value differs from what the page rendered** ("N fields
+    changed; the rest are not sent." under each card), so a card can never write a default it
+    merely displayed;
+  - an absent path is shown as **"not set (default: …)"** naming what the **core** does without it —
+    traced from each owning module's reader, not guessed: `fraud.providers` absent runs **both**
+    checks, `fraud.radar_highest` absent **refuses** the payment, `support_refund_limit_minor`
+    absent is **no ceiling at all**, `tax.shipping_taxable` absent is taxable only for an EU legal
+    entity;
+  - clearing a field **deletes the path** rather than storing `''`, `0` or `[]`, which is the only
+    way to say "no ceiling" and the only value the core reads as "use my default". (Two bugs lived
+    here. An unset integer rendered as `''` parsed back as `0` and failed its own minimum, so a
+    card with any unset number could not be saved at all; and the action cleared only `text`
+    fields, so `z.number()` refused the `undefined` a cleared amount sends — "support has no
+    ceiling" was unsayable. The form test could not see the second one: there the action is a mock.
+    It took an action test to find it.)
+  - unchecking every fraud check therefore leaves the path **not set**, and the hint says so:
+    switching fraud checking off is deliberately not reachable from a checkbox.
+- **`tax.shipping_taxable` joined the confirmed set** — it changes what every order is taxed on and
+  its default depends on the legal entity's country, so flipping it is never obviously right.
+- **The confirmation is bound to the values that were shown, not a boolean (review of #968).** The
+  form sends the `[{path, to}]` list the dialog displayed, and the action recomputes the
+  consequential changes from the store it just re-read and **refuses unless the two match exactly**
+  — a confirmation for €500 cannot save €5,000, a confirmation naming a path this save does not
+  change is refused, and one of two changes left unconfirmed refuses the whole save. Editing any
+  field after the dialog opens withdraws the confirmation.
+- **The refund card says which currency the limit is compared in.** The core compares
+  `support_refund_limit_minor` against the refund amount as a **plain integer, without converting**
+  (`refunds.ts`; its own error prints the limit with no currency at all), so on an order in another
+  currency it acts as that many minor units of **that** currency. The card says this to every
+  reader, because it changes what the number means. Issue #969 asks for the comparison to carry a
+  currency; this PR does not change the core.
+- Tests: `store-settings-action.test.ts` (21) — only the card's paths written, other modules' keys
   preserved, the stale-`updated_at` refusal, the unconfirmed-change refusal per consequential path,
-  the core's 422 said in words; `store-settings-form.test.tsx` (8) — the diff shown before a save,
-  cancel, an ordinary change not interrupted, and money in EUR and JPY;
+  the four binding cases above, clearing a number / an enum / an array by **deleting the path**, the
+  core's 422 said in words;
+  `store-settings-form.test.tsx` (12) — the diff shown before a save, cancel, an ordinary change
+  not interrupted, money in EUR and JPY, **only the touched field sent**, an edit withdrawing the
+  confirmation, a cleared limit reading "not set", and the core default shown for an unset field;
   `store-settings-drift.test.ts` (7); three more in `settings.test.tsx`. Grepped `apps/*/e2e`: the
   settings assertions are scoped forms and specific text, and no form name collides.
+
 ### Added — #870 wave 1 item 4 (PR C): the GDPR export trail, beside erase
 
 - **Request an export** (`exportCustomer`, 202) and **the trail of every request**

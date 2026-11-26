@@ -474,12 +474,50 @@ touches BI. Re-ran the suite green and reported it rather than touching another 
 
 ## In progress — #870 item 7 PR A, store settings (2026-11-25)
 
-**PR #968**, branch `integration/admin-store-settings` from main `43cefd80` (code commit
-`940a2fb7`; head = this memory commit). Tax, Fraud, Refunds, Brand voice — eleven settings paths.
+**PR #968**, branch `integration/admin-store-settings`. Tax, Fraud, Refunds, Brand voice — eleven
+settings paths. Fable's **BLOCK review fixed in one push** (see below), with `origin/main` merged in
+the same push because #962 and #965 had landed and made the PR conflicting; the merge was clean and
+`pnpm install` ran after it (merged lockfile). CONTRACT CHANGE **#967** filed for the settings
+paths, issue **#969** for the refund limit's missing currency.
 **PR B (shipping defaults, fulfilment routing, shipping-option carrier/service/channel/rules) is
-next and not started.** Admin suite **1752 / 97**; lint, format:check, typecheck 30/30, ownership
-green. CONTRACT CHANGE **#967** filed for the settings paths. (This branch predates item 4's #962 /
-#965, so their Memory-10 entries arrive when those merge.)
+next; WIP commit `c050bd2c` on `integration/admin-store-settings-shipping`, not pushed — and it
+must be rebuilt on the "send only changed paths" rule from the start, because its `textList` /
+`countryMap` fields have exactly the same absent-vs-empty trap.**
+
+### The review's finding, which was a real defect: an absent setting is not an empty one
+
+The first cut submitted **every field on the card**. An untouched, **absent** `fraud.providers`
+therefore went out as `[]` — and the core reads an absent `providers` as **both checks run**
+(`DEFAULT_FRAUD_SETTINGS`). So opening the Fraud card and pressing Save would have switched fraud
+checking **off** on any store nobody had configured. The fix is three rules, and they generalise to
+every settings form:
+
+1. **send only the paths that differ** from what the page rendered (the footer says how many);
+2. **show an absent path as "not set (default: …)"**, naming what the core does without it — traced
+   from each owning module's reader, never guessed (absent `radar_highest` **refuses** the payment;
+   absent `support_refund_limit_minor` is **no ceiling**);
+3. **clearing a field deletes the path**, never `''` / `0` / `[]`.
+
+A test then found a second bug behind the same confusion: an unset integer rendered as `''`, parsed
+back as `0`, failed its own minimum — a card with any unset number could not be saved at all.
+**Lesson: a form over optional server-side settings has three states, not two, and "the default" is
+a value only the owning module can tell you.**
+
+### The confirmation had to name what it confirmed
+
+It was a bare `boolean`, so a confirmation for €500 could save €5,000. It is now the
+`[{path, to}]` list the dialog showed, and the action refuses unless it matches the changes it
+recomputes from the store it just re-read; an edit after the dialog opens withdraws it.
+**Lesson: a confirmation flag proves someone clicked, not what they agreed to.**
+
+### What the manager asked me to trace, and the answer
+
+`support_refund_limit_minor` is compared in **no currency at all**: `refunds.ts` does
+`input.amountMinor > input.limitMinor`, and its own error message prints the limit bare. So on an
+order in another currency the ceiling is that many minor units of **that** currency. The card now
+says this to every reader, since it changes what the number means; issue **#969** carries the four
+options for fixing it in the core. **Lesson: when a number crosses a module boundary, find the
+comparison, not the field.**
 
 ### The finding that shaped the PR
 

@@ -233,6 +233,14 @@ export default async function SettingsPage({
                 : {})}
             />
             <CardBody>
+              {/*
+                A card may carry something true that its fields cannot show — the refund limit's
+                currency is compared without conversion (#969). It is shown to every reader, not
+                only to the one who may edit, because it changes what the number means.
+              */}
+              {card.note === undefined ? null : (
+                <p className="text-muted mb-4 text-sm">{card.note}</p>
+              )}
               {!store.ok ? (
                 <RequestErrorPanel status={store.status} error={store.error} />
               ) : can.canEditStore ? (
