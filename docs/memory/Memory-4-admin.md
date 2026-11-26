@@ -1109,6 +1109,12 @@ Complete Store view against the real Admin API: catalog with variants/media, ord
   testTimeout 15 s; settings contract suite :4217 → :4223 (bi kept 4217; roles was already on 4218);
   test/contract-ports.test.ts guards it; CLAUDE.md load-signature line. Then evaluate Dependabot #956
   (@hookform/resolvers 7) and #955 (ESLint 10): report, do not merge.
+- **#966 MERGE posted (a5d41216, nit 56cda812 folded in). #946 (privacy), 2026-11-25:** branch
+  `admin/phase6-946-search-post` from main de4ee3be. POST-backed search for customers + orders
+  (search-lists.ts actions, useTermSearch hook, DataTable `termSearch`); URL keys exclude q; bulk + export get
+  the effective filters by POST. PermissionRule.relation widened to EffectiveRelation (viewer). Logging
+  evidence: nothing logs query strings (no next logging, no telemetry, no CSP report-uri, ALB without access
+  logs). Catalog / price-list q left in URL (product terms). Mutation-checked (scratchpad mutate-946.cjs).
 ## Brand D pre-flight (admin side; input for window 10's wave-3 D8 task — brand D = Japan)
 
 Written 2026-11-10 and extended 2026-11-11 for **brand D = Japan** (JPY, ja-JP, ships to JP). Read-only, on

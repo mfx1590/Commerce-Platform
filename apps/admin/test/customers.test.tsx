@@ -25,6 +25,11 @@ const actions = vi.hoisted(() => ({
   eraseCustomerAction: vi.fn(),
 }));
 vi.mock('@/app/actions/customers', () => actions);
+// #946: the tables' POST-backed search; its own behaviour is pinned in test/term-search.test.tsx.
+vi.mock('@/app/actions/search-lists', () => ({
+  searchCustomersAction: vi.fn(),
+  searchOrdersAction: vi.fn(),
+}));
 // The section guard reads the principal through the cached loader; the fixture decides the role.
 const principalOf = vi.hoisted(() => ({ current: 'support' as string }));
 vi.mock('@/lib/principal', () => ({

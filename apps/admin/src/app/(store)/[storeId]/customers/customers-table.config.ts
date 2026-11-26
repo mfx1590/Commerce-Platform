@@ -8,6 +8,13 @@ export const CUSTOMERS_SORTABLE_COLUMNS = ['created_at', 'email', 'last_name'] a
 /** The contract's own filter parameters — anything else would be a 400. */
 export const CUSTOMER_FILTER_KEYS = ['q', 'group_id'] as const;
 
+/**
+ * What the ADDRESS may carry (#946): every filter except the free-text `q`. A typed email in the URL lands in
+ * browser history and in a same-origin `Referer`; the term goes through `searchCustomersAction` (POST)
+ * instead, and a `q` already in a bookmarked address is ignored.
+ */
+export const CUSTOMER_URL_FILTER_KEYS = CUSTOMER_FILTER_KEYS.filter((key) => key !== 'q');
+
 export const CUSTOMERS_TABLE_DEFAULTS: TableQueryDefaults = { sort: 'created_at', order: 'desc' };
 
 export type CustomerTone = 'neutral' | 'success' | 'warning' | 'danger';

@@ -25,6 +25,7 @@ import { PROMOTION_PERMISSIONS } from '../promotions/permissions';
 import type { Principal } from '../nav/navigation';
 import { loadPrincipal } from '../principal';
 import { ROLES_PERMISSIONS } from '../roles/permissions';
+import { LIST_SEARCH_PERMISSIONS } from '../table/search-permissions';
 import { REGISTRY_PERMISSIONS } from '../settings';
 import { SHIPPING_PERMISSIONS } from '../shipping-options';
 import { TAX_PERMISSIONS } from '../tax-rates';
@@ -43,6 +44,7 @@ const OPERATIONS = {
   ...CUSTOMER_PERMISSIONS,
   ...PRICING_PERMISSIONS,
   ...PROMOTION_PERMISSIONS,
+  ...LIST_SEARCH_PERMISSIONS,
   ...MARKETING_PERMISSIONS,
 } satisfies Record<string, PermissionRule>;
 

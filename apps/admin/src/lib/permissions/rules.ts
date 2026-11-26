@@ -8,10 +8,16 @@
  */
 
 import { findStore, type Principal } from '../nav/navigation';
-import { expandOrganizationRelations, expandStoreRelations, type Relation } from '../nav/relations';
+import {
+  expandOrganizationRelations,
+  expandStoreRelations,
+  type EffectiveRelation,
+  type Relation,
+} from '../nav/relations';
 
 export interface PermissionRule {
-  relation: Relation;
+  /** A grantable relation, or `viewer` (any relation on the object), as `x-permission` writes it. */
+  relation: EffectiveRelation;
   /** `organization` = `organization:hq`; `store` = `store:{storeId}`. */
   object: 'organization' | 'store';
 }
