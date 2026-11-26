@@ -11,7 +11,7 @@ import { loadPrincipal } from '@/lib/principal';
 import { parseTableQuery, toContractQuery } from '@/lib/table/query-state';
 import { OrderFilters } from './order-filters';
 import { OrdersTable } from './orders-table';
-import { ORDERS_TABLE_DEFAULTS, ORDER_FILTER_KEYS } from './orders-table.config';
+import { ORDERS_TABLE_DEFAULTS, ORDER_URL_FILTER_KEYS } from './orders-table.config';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,7 +35,7 @@ export default async function OrdersPage({
     if (typeof value === 'string') search.set(key, value);
   }
 
-  const query = parseTableQuery(search, ORDER_FILTER_KEYS, ORDERS_TABLE_DEFAULTS);
+  const query = parseTableQuery(search, ORDER_URL_FILTER_KEYS, ORDERS_TABLE_DEFAULTS);
   const [result, store, principal] = await Promise.all([
     listOrders(storeId, toContractQuery(query, { sortable: true })),
     getStore(storeId),

@@ -36,6 +36,11 @@ const actions = vi.hoisted(() => ({
   capturePaymentAction: vi.fn(),
 }));
 vi.mock('@/app/actions/orders', () => actions);
+// #946: the tables' POST-backed search; its own behaviour is pinned in test/term-search.test.tsx.
+vi.mock('@/app/actions/search-lists', () => ({
+  searchCustomersAction: vi.fn(),
+  searchOrdersAction: vi.fn(),
+}));
 // The table's bulk bar (#870) imports its server action; this file tests the screens, not bulk.
 vi.mock('@/app/actions/bulk-orders', () => ({ bulkCancelOrdersAction: vi.fn() }));
 vi.mock('@/app/actions/export-lists', () => ({ exportOrdersCsvAction: vi.fn() }));

@@ -1487,6 +1487,32 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   of `Consent history`; no spec reads the group field by label, and none touches addresses or
   identity. Nothing to update.
 
+### Security — #946: customer and order search terms never enter the URL
+
+- **POST-backed search:** the customers ("Email or name") and orders ("Order number or email") search boxes
+  run a server action (`searchCustomersAction` / `searchOrdersAction`).
+  - The action refuses first (support / viewer, pinned to the yaml).
+  - It whitelists the filters, clamps page and limit, and returns row projections.
+  - The rows shown during a search are its answer.
+- **The term stays out of the address:**
+  - The term never reaches the URL, a router push or a rendered link.
+  - Paging, page size and sorting within a search re-run the action.
+  - Other filters stay in the URL and re-run the search when they change.
+  - A reload drops the term, and the page says so.
+- **Bulk and export:** bulk Cancel ("all matching") and the CSV export get the term in their POST bodies, so
+  they act on the searched set.
+- **`PermissionRule.relation`:** it accepts `viewer` (any relation on the store), as `x-permission` writes it.
+- **Tests:** `term-search` (16): the actions, the tables, bulk and export, and the address check.
+- **Mutation-checked:** six ways to put the term back in the URL, or to drop it from bulk or export, each fail.
+- **Logging:** nothing in the admin or in `infra/` logs request paths with query strings today. The README has
+  the evidence.
+
+- **#970 review:**
+  - The search box has `autoComplete="off"`, so the browser keeps no form history of typed emails.
+  - Rows can't be ticked while a search is pending; the answer drops a selection made on the listed rows.
+  - Closing a bulk action's results inside a search runs the search again.
+  - The test comment is corrected.
+
 ### Added — #870 wave 1 item 4 (PR C): the GDPR export trail, beside erase
 
 - **Request an export** (`exportCustomer`, 202) and **the trail of every request**

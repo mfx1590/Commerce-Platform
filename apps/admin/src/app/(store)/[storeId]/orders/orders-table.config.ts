@@ -22,6 +22,13 @@ export const ORDER_FILTER_KEYS = [
   'placed_to',
 ] as const;
 
+/**
+ * What the ADDRESS may carry (#946): every filter except the free-text `q` (an order number or an email).
+ * The term goes through `searchOrdersAction` (POST); bulk Cancel and the CSV export still get it, in their
+ * POST bodies, through `ORDER_FILTER_KEYS`.
+ */
+export const ORDER_URL_FILTER_KEYS = ORDER_FILTER_KEYS.filter((key) => key !== 'q');
+
 export const ORDERS_TABLE_DEFAULTS: TableQueryDefaults = { sort: 'placed_at', order: 'desc' };
 
 /** The three status enums from `OrderSummary`, for the filters and the pills. */

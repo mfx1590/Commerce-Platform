@@ -6,6 +6,8 @@ import type { ReactNode } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { BulkAction } from '@/components/table/bulk-action';
 import { DataTable } from '@/components/table/data-table';
+import { useTermSearch } from '@/components/table/use-term-search';
+import { searchOrdersAction } from '@/app/actions/search-lists';
 import { bulkCancelOrdersAction } from '@/app/actions/bulk-orders';
 import { BulkCapture } from './bulk-capture';
 import { exportOrdersCsvAction } from '@/app/actions/export-lists';
@@ -37,6 +39,10 @@ function formatPlaced(value: string, locale: string): string {
 /**
  * The orders list. Money arrives as `{ amount_minor, currency }` and is rendered with the store's
  * locale — never a float in between. Each of the three statuses is a pill with its name.
+ *
+ * #946: the "Order number or email" search is POST-backed (`searchOrdersAction`): the term never enters
+ * the URL. Bulk Cancel and the CSV export get the EFFECTIVE filters, the term included, in their POST
+ * bodies, so "all matching" and the exported file mean what the table shows, not the unsearched list.
  */
 export function OrdersTable({
   storeId,
@@ -63,6 +69,11 @@ export function OrdersTable({
   emptyState?: ReactNode;
   error?: { status: number; error: AdminError } | undefined;
 }) {
+  const search = useTermSearch<OrderRow>({
+    query,
+    run: (term, request) => searchOrdersAction(storeId, term, request),
+  });
+  const shown = search.query;
   const columns: ColumnDef<OrderRow, unknown>[] = [
     {
       id: 'display_id',
@@ -146,25 +157,26 @@ export function OrdersTable({
           run={() =>
             exportOrdersCsvAction(
               storeId,
-              { ...query.filters },
-              { sort: query.sort, order: query.order },
+              { ...shown.filters },
+              { sort: shown.sort, order: shown.order },
             )
           }
         />
       </div>
       <DataTable<OrderRow>
         columns={columns}
-        rows={rows}
-        total={total}
-        query={query}
+        rows={search.rows ?? rows}
+        total={search.total ?? total}
+        query={shown}
         defaults={ORDERS_TABLE_DEFAULTS}
         getRowId={(order) => order.id}
         caption="Orders"
         sortableColumns={ORDERS_SORTABLE_COLUMNS}
         searchKey="q"
         searchPlaceholder="Order number or email"
+        termSearch={search.control}
         emptyState={emptyState}
-        error={error}
+        error={search.control.term === null ? error : search.error}
         {...(canCancel || canCapture
           ? {
               bulkActions: (selection, { clear }) => (
@@ -182,7 +194,7 @@ export function OrdersTable({
                       label="Cancel…"
                       noun={{ one: 'order', many: 'orders' }}
                       selection={selection}
-                      filters={query.filters}
+                      filters={shown.filters}
                       filterNames={filterNames}
                       run={(sent, reason) => bulkCancelOrdersAction(storeId, sent, reason)}
                       onClose={clear}

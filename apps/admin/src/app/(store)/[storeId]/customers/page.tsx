@@ -6,7 +6,7 @@ import { listCustomerGroups, listCustomers } from '@/lib/api/admin';
 import { forCustomerRows } from '@/lib/customers/projection';
 import { parseTableQuery, toContractQuery } from '@/lib/table/query-state';
 import { CustomersTable } from './customers-table';
-import { CUSTOMERS_TABLE_DEFAULTS, CUSTOMER_FILTER_KEYS } from './customers-table.config';
+import { CUSTOMERS_TABLE_DEFAULTS, CUSTOMER_URL_FILTER_KEYS } from './customers-table.config';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,7 +40,7 @@ export default async function CustomersPage({
     if (typeof value === 'string') search.set(key, value);
   }
 
-  const query = parseTableQuery(search, CUSTOMER_FILTER_KEYS, CUSTOMERS_TABLE_DEFAULTS);
+  const query = parseTableQuery(search, CUSTOMER_URL_FILTER_KEYS, CUSTOMERS_TABLE_DEFAULTS);
   const [result, groups] = await Promise.all([
     listCustomers(storeId, toContractQuery(query, { sortable: true })),
     listCustomerGroups(storeId),

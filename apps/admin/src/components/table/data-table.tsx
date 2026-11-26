@@ -38,6 +38,7 @@ import {
   type Selection,
 } from '@/lib/table/selection';
 import { cn } from '@/lib/utils';
+import type { TermSearchControl } from './use-term-search';
 
 export interface DataTableProps<T> {
   /** Typed against `AdminComponents['Store' | 'Product' | 'OrderSummary' | …]` at the call site. */
@@ -59,6 +60,11 @@ export interface DataTableProps<T> {
   bulkActions?: (selection: Selection, helpers: { clear: () => void }) => ReactNode;
   /** Filter key wired to the search box (`q` for every list in contracts-v0.1). */
   searchKey?: string;
+  /**
+   * POST-backed search (#946): the term goes to this control, never to the URL. While a term is active,
+   * paging, sorting and page size go to it as well, and the URL keeps only the other filters.
+   */
+  termSearch?: TermSearchControl;
   searchPlaceholder?: string;
   emptyState?: ReactNode;
   /** Offered when the list is empty *and* unfiltered — "create your first product". */
@@ -79,6 +85,7 @@ export function DataTable<T>({
   bulkActions,
   searchKey,
   searchPlaceholder,
+  termSearch,
   emptyState,
   emptyAction,
   error,
@@ -114,9 +121,23 @@ export function DataTable<T>({
       setSelection(EMPTY_SELECTION);
     }
   }, [filterSignature]);
+  // While a search is pending the rows on screen are about to be replaced, so nothing can be ticked
+  // (#970 review): a selection is always made on the rows it names. Submitting a term already resets the
+  // selection (the effective filters gain `q`); paging within a search keeps it, as paging always does.
+  const selectionLocked = termSearch?.pending === true;
 
+  const searching = termSearch !== undefined && termSearch.term !== null;
   const navigate = (next: TableQuery) => {
-    const search = toSearchParams(next, defaults);
+    if (searching) {
+      termSearch.navigate(next);
+      return;
+    }
+    // With a POST-backed search the search key never reaches the URL, whatever the query holds.
+    const { [searchKey ?? '']: _term, ...urlFilters } = next.filters;
+    const search = toSearchParams(
+      termSearch !== undefined && searchKey !== undefined ? { ...next, filters: urlFilters } : next,
+      defaults,
+    );
     startTransition(() => {
       router.push(search === '' ? pathname : `${pathname}?${search}`);
     });
@@ -134,7 +155,12 @@ export function DataTable<T>({
             className="flex items-center gap-2"
             action={(formData) => {
               const value = formData.get('search');
-              navigate(withFilter(query, searchKey, typeof value === 'string' ? value : null));
+              const typed = typeof value === 'string' ? value : null;
+              if (termSearch !== undefined) {
+                termSearch.submit(typed);
+                return;
+              }
+              navigate(withFilter(query, searchKey, typed));
             }}
           >
             <label htmlFor={`${caption}-search`} className="sr-only">
@@ -144,14 +170,45 @@ export function DataTable<T>({
               id={`${caption}-search`}
               name="search"
               type="search"
-              defaultValue={query.filters[searchKey] ?? ''}
+              // #970 review: the browser must not remember typed emails as form history either.
+              autoComplete="off"
+              key={termSearch === undefined ? undefined : (termSearch.term ?? '')}
+              defaultValue={
+                termSearch === undefined
+                  ? (query.filters[searchKey] ?? '')
+                  : (termSearch.term ?? '')
+              }
+              {...(termSearch === undefined
+                ? {}
+                : { 'aria-describedby': `${caption}-search-note` })}
               placeholder={searchPlaceholder ?? 'Search'}
               className="border-line bg-surface h-9 w-56 rounded-md border px-3 text-sm"
             />
-            <Button type="submit" variant="secondary" size="sm">
-              Search
+            <Button type="submit" variant="secondary" size="sm" disabled={termSearch?.pending}>
+              {termSearch?.pending ? 'Searching…' : 'Search'}
             </Button>
+            {searching && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => termSearch.submit(null)}
+              >
+                Clear search
+              </Button>
+            )}
           </form>
+        )}
+        {searching && termSearch.message !== null && (
+          <p role="alert" className="text-danger basis-full text-sm">
+            {termSearch.message}
+          </p>
+        )}
+        {termSearch !== undefined && (
+          <p id={`${caption}-search-note`} className="text-muted basis-full text-xs">
+            Search terms aren&apos;t kept in the address, so they don&apos;t land in browser
+            history. Reloading the page clears the search.
+          </p>
         )}
 
         <details className="relative ml-auto">
@@ -193,7 +250,12 @@ export function DataTable<T>({
           </Button>
           {bulkActions !== undefined && (
             <div className="ml-auto flex items-center gap-2">
-              {bulkActions(selection, { clear: () => setSelection(clearSelection()) })}
+              {bulkActions(selection, {
+                clear: () => {
+                  setSelection(clearSelection());
+                  if (searching) termSearch.refresh();
+                },
+              })}
             </div>
           )}
         </div>
@@ -203,10 +265,23 @@ export function DataTable<T>({
         // One dispatcher, so a 401 here looks like a 401 everywhere else.
         <ApiStatePanel status={error.status} error={error.error} what={caption} />
       ) : rows.length === 0 ? (
-        (emptyState ?? <EmptyTable caption={caption} query={query} action={emptyAction} />)
+        searching && termSearch.message !== null ? null : searching ? (
+          <EmptyTable
+            caption={caption}
+            query={query}
+            action={emptyAction}
+            onClearTerm={() => termSearch.submit(null)}
+          />
+        ) : (
+          (emptyState ?? <EmptyTable caption={caption} query={query} action={emptyAction} />)
+        )
       ) : (
         <div className="border-line bg-surface overflow-x-auto rounded-lg border">
-          <table className="w-full text-sm" aria-busy={isPending} aria-label={caption}>
+          <table
+            className="w-full text-sm"
+            aria-busy={isPending || termSearch?.pending === true}
+            aria-label={caption}
+          >
             <caption className="sr-only">{caption}</caption>
             <thead className="border-line bg-canvas border-b">
               {table.getHeaderGroups().map((headerGroup) => (
@@ -217,6 +292,7 @@ export function DataTable<T>({
                         type="checkbox"
                         aria-label={`Select all ${rows.length} rows on this page`}
                         checked={isPageFullySelected(selection, pageIds)}
+                        disabled={selectionLocked}
                         onChange={() => setSelection(togglePage(selection, pageIds))}
                       />
                     </th>
@@ -264,6 +340,7 @@ export function DataTable<T>({
                         type="checkbox"
                         aria-label={`Select row ${row.id}`}
                         checked={isRowSelected(selection, row.id)}
+                        disabled={selectionLocked}
                         onChange={() => setSelection(toggleRow(selection, row.id))}
                       />
                     </td>
@@ -347,17 +424,20 @@ function EmptyTable({
   caption,
   query,
   action,
+  onClearTerm,
 }: {
   caption: string;
   query: TableQuery;
   action: ReactNode;
+  /** A POST-backed search is active: "Clear filters" drops the term too. */
+  onClearTerm?: () => void;
 }) {
   const filtered = Object.keys(query.filters).length > 0;
   return filtered ? (
     <EmptyPanel
       title={`No ${caption.toLowerCase()} match this filter`}
       description="Nothing here matched what you searched for."
-      action={<ClearFiltersButton />}
+      action={<ClearFiltersButton {...(onClearTerm === undefined ? {} : { onClearTerm })} />}
     />
   ) : (
     <EmptyPanel
@@ -368,11 +448,17 @@ function EmptyTable({
 }
 
 /** Clears every filter by navigating to the bare path — the URL is the state. */
-function ClearFiltersButton() {
+function ClearFiltersButton({ onClearTerm }: { onClearTerm?: () => void }) {
   const router = useRouter();
   const pathname = usePathname();
   return (
-    <Button variant="secondary" onClick={() => router.push(pathname)}>
+    <Button
+      variant="secondary"
+      onClick={() => {
+        onClearTerm?.();
+        router.push(pathname);
+      }}
+    >
       Clear filters
     </Button>
   );

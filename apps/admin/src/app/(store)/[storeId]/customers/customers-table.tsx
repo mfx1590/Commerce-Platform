@@ -5,6 +5,8 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { DataTable } from '@/components/table/data-table';
+import { useTermSearch } from '@/components/table/use-term-search';
+import { searchCustomersAction } from '@/app/actions/search-lists';
 import type { AdminError } from '@/lib/api/admin-client';
 import type { CustomerRow } from '@/lib/customers/projection';
 import type { TableQuery } from '@/lib/table/query-state';
@@ -25,6 +27,10 @@ function formatDate(value: string): string {
  * — exactly the columns it renders, the consent already summarised, no phone, no identity id, no
  * raw consent (`src/lib/customers/projection.ts`) — renders them as text, and never logs or
  * forwards them anywhere. The full `Customer` does not typecheck as a row.
+ *
+ * #946: the "Email or name" search is POST-backed (`searchCustomersAction`). The typed term never enters
+ * the URL, so a customer's email does not land in browser history; the rows shown while searching are the
+ * action's answer. The group filter, page size and sort stay in the URL as before.
  */
 export function CustomersTable({
   storeId,
@@ -44,6 +50,10 @@ export function CustomersTable({
   emptyState?: ReactNode;
   error?: { status: number; error: AdminError } | undefined;
 }) {
+  const search = useTermSearch<CustomerRow>({
+    query,
+    run: (term, request) => searchCustomersAction(storeId, term, request),
+  });
   const columns: ColumnDef<CustomerRow, unknown>[] = [
     {
       id: 'email',
@@ -103,17 +113,18 @@ export function CustomersTable({
   return (
     <DataTable<CustomerRow>
       columns={columns}
-      rows={rows}
-      total={total}
-      query={query}
+      rows={search.rows ?? rows}
+      total={search.total ?? total}
+      query={search.query}
       defaults={CUSTOMERS_TABLE_DEFAULTS}
       getRowId={(customer) => customer.id}
       caption="Customers"
       sortableColumns={CUSTOMERS_SORTABLE_COLUMNS}
       searchKey="q"
       searchPlaceholder="Email or name"
+      termSearch={search.control}
       emptyState={emptyState}
-      error={error}
+      error={search.control.term === null ? error : search.error}
     />
   );
 }

@@ -1309,3 +1309,32 @@ look-alike without a session is redirected to sign in, a `Next-Action` POST incl
 - **Contract suites:** each starts its own Prism on its own port. `test/contract-ports.test.ts` fails when two
   suites share one; bi and settings both took :4217 and failed with EADDRINUSE together. It also fails on
   :4011 (`pnpm mock`) or :4013 (the accounting e2e mock).
+
+## Searching customers and orders without the address (#946)
+
+A search term on Customers ("Email or name") or Orders ("Order number or email") is usually personal data.
+It is **never written to the URL**, so it doesn't land in browser history or in a same-origin `Referer`.
+
+- **POST-backed:** the search box submits to a server action (`searchCustomersAction` / `searchOrdersAction`,
+  `src/app/actions/search-lists.ts`).
+  - It refuses first (`refuseUnlessPermitted`: `listCustomers` support, `listOrders` viewer, pinned to the
+    yaml in `LIST_SEARCH_PERMISSIONS`).
+  - It whitelists the filters, clamps page and limit, and answers the same row projections as the page.
+- **Everything else stays in the URL:** group, statuses, dates, page size and sort, as before. Changing one of
+  them while a term is active re-runs the search from page 1.
+- **Within a search:** paging, page size and sorting re-run the action (`useTermSearch`), never `router.push`.
+- **Bulk Cancel and CSV export get the term** in their POST bodies, so "all matching" and the file mean the
+  searched set, not the whole list.
+- **A reload drops the term.** The page says so: "Search terms aren't kept in the address, so they don't land
+  in browser history."
+- **Ignored on purpose:** a `q` in an old bookmark (`CUSTOMER_URL_FILTER_KEYS` / `ORDER_URL_FILTER_KEYS`
+  exclude it).
+- **Out of scope:** Catalog and the price-list editor still keep `q` in the URL. Their terms are product titles
+  and SKUs, not personal data.
+- **Who logs request paths with query strings (checked for #946): nothing today.**
+  - The admin has no Next `logging` option, and the middleware and API clients log no URLs.
+  - There's no server telemetry, and the CSP has no `report-uri` / `report-to`.
+  - In `infra/`, the admin sits behind an AWS ALB, and no ALB access logs, WAF logging, CloudFront or flow
+    logs are configured.
+  - If ALB access logs are ever turned on, they record full request lines. That is one more reason to keep
+    personal data out of URLs.
