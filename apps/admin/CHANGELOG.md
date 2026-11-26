@@ -1530,3 +1530,57 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   would be refused" cases, the owner path naming the asker, the erased and empty states, a refused
   trail, and the pure wording/size/count helpers. `test/action-permissions.test.ts` gained the
   export action. Grepped `apps/*/e2e`: no spec touches exports or the new table.
+
+### Added — #870 wave 1 item 4 (follow-up): handing a GDPR bundle over
+
+- **`GET /{storeId}/customers/{customerId}/exports/{exportId}`** downloads one ready export bundle.
+  #962 shipped the trail and deliberately did not wrap `getCustomerExport`, because that operation's
+  200 **is** the bundle; the decision afterwards was that a subject-access request cannot be
+  answered without it, so this is the route that hands it over.
+- **Gated in the handler, before anything is fetched.** `loadPrincipal()` + `store_admin` on that
+  store — a route handler is reachable by typing a URL, which a section guard cannot stop (the #896
+  review's finding on `/audit/export`). No session is 401; a failed `/admin/me` forwards its own
+  status, so a fail-closed 503 stays 503; a reader without the relation, **including a store admin
+  of a different store**, is 403; and a path that is not three uuids is 400. Every refusal is
+  asserted to happen with the fetch never called.
+- **Streamed, never read.** `src/lib/customers/bundle.ts` reads the response as text and the handler
+  passes it through with `content-disposition: attachment` and `cache-control: no-store` — it is
+  never parsed, rendered or logged, and the admin is a conduit rather than a reader. It does not go
+  through `adminCall`, which parses every payload; same raw-fetch shape as the BI CSV export. The
+  session token is attached **server-side**, so nothing authenticating is in a URL — the only thing
+  in the path is the export's own uuid, which is not a credential.
+- **410 is a state, not a failure:** forwarded as `export_expired` with "request a new export",
+  because a purged bundle is the normal end of its life.
+- **A second bundle is not queued by accident** (#962 review nit): a pending export replaces the
+  request button with the reason, read from the **trail's** status rather than the control's own
+  state — before this, a reload re-armed the button while the core was still building one.
+- `mayAdministerCustomer` moved into `src/lib/customers/permissions.ts` and is now the one predicate
+  the page and the route share: the screen and the handler cannot drift about who may do this.
+- The download is audited by the core, verified rather than assumed:
+  `apps/core/src/modules/customers/export-delivery.ts` writes `customer_export.download` (ids and a
+  byte count) on the single path behind both the customer's own download and this one.
+- Tests: `test/customer-export-download.test.ts` (14) for the route; the panel's tests now pin
+  **where** a bundle may be reached from — a link on a ready row only, none while pending or after a
+  purge — replacing #962's "no download anywhere", which was true of that PR and is not of this one.
+
+- #965 review (Fable):
+  - **The route no longer echoes the Admin API's failure body.** Every non-410 failure becomes one
+    of our own messages — 404 `not_found`, 401/403 `forbidden` with the status kept, everything else
+    502 `unavailable` — instead of forwarding `bundle.body` with its upstream `content-type`. On a
+    route whose success case is one person's whole record, handing back bytes this handler never
+    looked at (an upstream proxy's HTML error page, say) is not something to do for convenience. A
+    test feeds it an HTML 404 and asserts none of that text, and no `text/html`, reaches the caller.
+  - **`fetchExportBundle` has its own tests** (9): the URL built from the three encoded ids, the
+    token in an **Authorization header and never in the URL**, `cache: 'no-store'`, the body read as
+    text and handed back unparsed, and a thrown fetch becoming a 503 rather than an exception.
+  - **The route's `status === 0` branch was dead** — the module answers 503 when it cannot reach the
+    API — so it is gone, and 503 now lands in the same 502 `unavailable` as any other unexpected
+    status. Tested for 500, 503 and an unexpected 418.
+  - `redirect: 'error'` on the fetch: a 3xx would otherwise be followed **with the Authorization
+    header attached**, to wherever it pointed.
+  - `x-content-type-options: nosniff` on the bundle and on every error response.
+  - `getCustomerExport` added to `CUSTOMER_PERMISSIONS`, so the download's relation is pinned
+    against the yaml like the rest. It is the one entry guarding a **route** rather than a server
+    action, which the exhaustiveness test now names explicitly rather than being loosened.
+  - A `support` reader has no way to reach a bundle from anywhere on the page: asserted by href, not
+    only by the panel being absent.

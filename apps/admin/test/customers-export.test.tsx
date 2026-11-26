@@ -120,16 +120,55 @@ beforeEach(() => {
   api.listUsers.mockResolvedValue(ok({ page: 1, limit: 100, total: 0, items: [] }));
 });
 
-describe('the bundle is never served from this screen', () => {
-  it('offers no download for a ready export, only the fact that it is ready', async () => {
+describe('handing a bundle over', () => {
+  // PR C asserted the opposite — no download anywhere — because the manager's note said "never the
+  // bundle" while the contract's `getCustomerExport` IS the bundle. After #962 the decision was
+  // made deliberately: a subject-access request cannot be answered without it. So the assertion
+  // changed with the decision, and what it pins now is WHERE the bundle may be reached from.
+  it('offers the download only on a ready bundle, pointing at the gated route', async () => {
     render(await page());
     const table = screen.getByRole('table', { name: 'Data export requests' });
-    expect(within(table).getByText('ready')).toBeTruthy();
-    expect(within(table).queryByRole('link')).toBeNull();
-    expect(within(table).queryByRole('button')).toBeNull();
-    expect(screen.queryByRole('link', { name: /download/i })).toBeNull();
-    expect(screen.queryByRole('button', { name: /download/i })).toBeNull();
-    expect(screen.getByText(/bundle is not downloadable from this screen/)).toBeTruthy();
+    const link = within(table).getByRole('link', { name: 'Download the bundle' });
+    expect(link.getAttribute('href')).toBe(`/${STORE}/customers/${CUSTOMER}/exports/e1`);
+  });
+
+  it('offers none while it is being built, and none once it has been purged', async () => {
+    api.listCustomerExports.mockResolvedValue(
+      ok({
+        items: [
+          request({ id: 'p', status: 'pending', ready_at: null, size_bytes: null }),
+          request({ id: 'x', status: 'expired', reason: null }),
+        ],
+      }),
+    );
+    render(await page());
+    const table = screen.getByRole('table', { name: 'Data export requests' });
+    expect(within(table).queryByRole('link', { name: 'Download the bundle' })).toBeNull();
+  });
+
+  it('never renders the bundle itself, only a link to it', async () => {
+    render(await page());
+    // The panel reads ids, statuses, sizes and counts. Nothing it renders came out of a bundle.
+    expect(screen.queryByText(/customer-export\/v1/)).toBeNull();
+    expect(screen.getByText(/A download hands over everything this store holds/)).toBeTruthy();
+  });
+});
+
+describe('a second bundle is not queued by accident (#962 review nit)', () => {
+  it('a pending export replaces the request button, and survives a reload', async () => {
+    // The flag comes from the TRAIL, not from the control's own state: before this, a reload
+    // re-armed the button although the core was already building a bundle.
+    api.listCustomerExports.mockResolvedValue(
+      ok({ items: [request({ status: 'pending', ready_at: null, size_bytes: null })] }),
+    );
+    render(await page());
+    expect(screen.queryByRole('button', { name: 'Request a data export' })).toBeNull();
+    expect(screen.getByText(/An export is already being built/)).toBeTruthy();
+  });
+
+  it('a ready or expired export leaves the button available', async () => {
+    render(await page());
+    expect(screen.getByRole('button', { name: 'Request a data export' })).toBeTruthy();
   });
 });
 
@@ -140,6 +179,11 @@ describe('nothing is asked that would be refused', () => {
     expect(api.listCustomerExports).not.toHaveBeenCalled();
     expect(screen.getByText(/Only a store admin can request or see data exports/)).toBeTruthy();
     expect(screen.queryByRole('table', { name: 'Data export requests' })).toBeNull();
+    // And no way to reach a bundle from anywhere on the page (#965 review).
+    expect(screen.queryByRole('link', { name: /Download the bundle/ })).toBeNull();
+    for (const anchor of screen.queryAllByRole('link')) {
+      expect(anchor.getAttribute('href') ?? '').not.toContain('/exports/');
+    }
   });
 
   it('a store admin: the trail adds no staff lookup of its own, and shows a short id', async () => {

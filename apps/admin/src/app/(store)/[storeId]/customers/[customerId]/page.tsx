@@ -30,9 +30,9 @@ import {
   type CustomerAddress,
 } from '@/lib/customers/addresses';
 import { channelLabel, consentRows } from '@/lib/customers/consent';
-import { findStore, type Principal } from '@/lib/nav/navigation';
+import { mayAdministerCustomer } from '@/lib/customers/permissions';
 import type { Relation } from '@/lib/nav/relations';
-import { expandOrganizationRelations, expandStoreRelations } from '@/lib/nav/relations';
+import { expandOrganizationRelations } from '@/lib/nav/relations';
 import { loadPrincipal } from '@/lib/principal';
 import { customerTone, displayName } from '../customers-table.config';
 import { CustomerForm } from './customer-form';
@@ -42,14 +42,6 @@ import { ActivityPanel, activityPage } from '@/components/audit/activity-panel';
 import { loadActivity } from '@/lib/audit/load';
 
 export const dynamic = 'force-dynamic';
-
-function canErase(principal: Principal, storeId: string): boolean {
-  const store = findStore(principal, storeId);
-  return expandStoreRelations(
-    (store?.relations ?? []) as Relation[],
-    principal.organization_relations as Relation[],
-  ).has('store_admin');
-}
 
 function formatAt(value: string | null): string {
   if (value === null) return '—';
@@ -139,7 +131,7 @@ export default async function CustomerDetailPage({
   // Both GDPR operations are `store_admin`. `support` can read this page, so the trail is fetched
   // only for a reader who may have it — a 403 the screen would then have to excuse is worse than
   // not asking (#870 item 4 PR C).
-  const mayAdminister = principal.ok && canErase(principal.data, storeId);
+  const mayAdminister = principal.ok && mayAdministerCustomer(principal.data, storeId);
   const mayErase = mayAdminister && !erased;
   const exports = mayAdminister ? await listCustomerExports(storeId, customerId) : null;
   // `listUsers` is `owner` on organization:hq. A store admin reading their own store's trail would
@@ -494,7 +486,15 @@ export default async function CustomerDetailPage({
                     This customer is erased, so there is nothing left to export.
                   </p>
                 ) : (
-                  <ExportControl storeId={storeId} customerId={current.id} />
+                  <ExportControl
+                    storeId={storeId}
+                    customerId={current.id}
+                    hasPending={
+                      exports !== null &&
+                      exports.ok &&
+                      exports.data.items.some((entry) => entry.status === 'pending')
+                    }
+                  />
                 )}
                 {exports === null || !exports.ok ? (
                   <RequestErrorPanel
@@ -537,6 +537,18 @@ export default async function CustomerDetailPage({
                               {downloads !== null && (
                                 <span className="text-muted mt-1 block text-xs">{downloads}</span>
                               )}
+                              {entry.status === 'ready' && (
+                                /* A plain anchor, not `<Link>`: this is a file, not a navigation.
+                                   The route gates on `store_admin` itself and streams the bundle as
+                                   an attachment, so nothing about it is rendered and the only thing
+                                   in the address is the export's own uuid. */
+                                <a
+                                  href={`/${storeId}/customers/${current.id}/exports/${entry.id}`}
+                                  className="text-accent mt-1 block text-xs hover:underline"
+                                >
+                                  Download the bundle
+                                </a>
+                              )}
                             </td>
                           </tr>
                         );
@@ -545,8 +557,9 @@ export default async function CustomerDetailPage({
                   </table>
                 )}
                 <p className="text-muted text-xs">
-                  The bundle is not downloadable from this screen. Handing one over is the
-                  core&rsquo;s job, and every download it serves is audited.
+                  A download hands over everything this store holds about one person, so it needs
+                  store_admin and the core records every one. An expired bundle has been purged
+                  &mdash; request a new export instead.
                 </p>
               </>
             )}

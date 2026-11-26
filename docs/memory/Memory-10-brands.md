@@ -556,6 +556,77 @@ table. All of them are role-scoped (`getByRole('list', { name: 'Payments' })`,
 "Order lines" is not a substring of "Activity on this order" — `getByRole`'s `name` matches a
 substring by default, which is the trap #896 hit.
 
+## In progress — #870 item 4, the bundle download (2026-11-25)
+
+### #965 Fable review: BLOCK on two, then MERGE (2026-11-25)
+
+**The finding I should have seen: the route echoed the upstream failure body.** Every non-410
+failure forwarded `bundle.body` with the Admin API's own `content-type`. On a route whose success
+case is one person's entire record, that hands the browser bytes the handler never looked at — an
+upstream proxy's HTML error page under `text/html`, for instance. Now every failure becomes one of
+our messages: 404 `not_found`, 401/403 `forbidden` with the status kept, everything else 502
+`unavailable`. The test feeds it an HTML 404 and asserts neither the text nor the content type
+crosses.
+
+**The rule worth keeping: a proxy must decide what it says.** I had been thinking of the handler as
+a conduit, and for the 200 that is right — stream it, never parse it. For a FAILURE it is the
+opposite: the handler owns the message, because an error body is attacker-influenced in a way the
+success body is not.
+
+**And `bundle.ts` had no test at all,** which is how the dead `status === 0` branch survived: the
+module answers 503 on a throw and never 0, so the route's check could never fire. Nine tests now
+pin the request itself — URL from the three encoded ids, token in an **Authorization header and
+never in the URL**, `cache: 'no-store'`, body read as text and unparsed, throw → 503. **The module
+that holds the credential was the one without a test**, which is the wrong way round.
+
+Folded in: `redirect: 'error'` (a 3xx would otherwise be followed **with the Authorization header
+attached**), `nosniff` everywhere, `getCustomerExport` in `CUSTOMER_PERMISSIONS` — the only entry
+guarding a route rather than a server action, so the exhaustiveness test names it in `ROUTE_ONLY`
+instead of being loosened — and a `support` reader asserted to have no path to a bundle by href,
+not merely by the panel being absent.
+
+
+**PR #965**, branch `integration/admin-customers-download` (code commit `e7e9e177`; head = this
+memory commit). **Stacked on #962**, which is itself Fable-approved and retargeted to main —
+retarget this one when #962 merges. Admin suite **1750 / 95**; lint, format:check, typecheck 30/30,
+ownership green.
+
+The manager's decision after #962: a subject-access request cannot be answered without the bundle,
+so `store_admin` may download one. `GET /{storeId}/customers/{customerId}/exports/{exportId}`
+resolves the principal and requires `store_admin` **before any fetch**; the bundle is read as text
+by `src/lib/customers/bundle.ts` and streamed as an attachment, never parsed, rendered or logged;
+410 becomes `export_expired`. `mayAdministerCustomer` now lives in `customers/permissions.ts` so
+the page and the route share one predicate.
+
+### Three things worth keeping
+
+**A test I inverted on purpose.** #962 asserted "no download link or button anywhere". That was
+true of #962 and false here. I replaced it with assertions about **where** a bundle may be reached
+from (ready rows only, never pending or purged) rather than deleting it — a test that contradicts a
+new decision should be rewritten to pin the new rule, and the PR body says which assertion changed
+and why.
+
+**The stale docstring I wrote myself.** `admin.ts` said nothing in this app could pull the bundle
+"until someone decides it should". Someone did, a day later. Any sentence of the form "nothing does
+X yet" is a dated claim, and the third review-caught false statement in this stretch was exactly
+this shape. Corrected in the same commit — and the lesson generalises: **do not write "not yet" in
+a docstring; describe what the code does.**
+
+**The manager's nit was a real defect, not polish.** `ExportControl`'s `scheduled` was client state
+only, so a reload re-armed "Request export" while the core was still building a bundle — a store
+admin could queue several copies of one person's data by accident. The flag now comes from the
+trail's status. Worth remembering: **any "already done" state held only in a component dies at the
+next reload**; if it guards something that costs money or copies data, it has to come from the
+server's own record.
+
+### A process slip of mine, recorded so it does not repeat
+
+One edit script asserted five anchors and wrote the file only at the end; the fifth assertion
+failed, so **the first four edits silently did not land** — and two tests then failed for what
+looked like a logic reason. I debugged the symptom before checking whether the write had happened.
+**When a test fails right after a scripted multi-edit, verify the file changed before reading the
+failure.** Write per-edit or check the diff.
+
 ## In progress — #870 item 4 PR C, the GDPR export trail (2026-11-25)
 
 **PR #962**, branch `integration/admin-customers-export` (code commit `4890c7da`; head = this

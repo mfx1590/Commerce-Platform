@@ -4,6 +4,8 @@
  * refused in the admin before the request is sent, not only by the Admin API.
  */
 
+import { findStore, type Principal } from '../nav/navigation';
+import { expandStoreRelations, type Relation } from '../nav/relations';
 import type { PermissionRule } from '../permissions/rules';
 
 export const CUSTOMER_PERMISSIONS = {
@@ -12,4 +14,24 @@ export const CUSTOMER_PERMISSIONS = {
   // A GDPR export schedules a bundle of everything held about one person, so it is `store_admin`
   // like erasure — not `support`, which is enough to READ the record on screen.
   exportCustomer: { relation: 'store_admin', object: 'store' },
+  // Downloading a bundle is the same class of act as scheduling one, and the download ROUTE checks
+  // this rule (#965 review) — the only entry here that guards a route handler rather than a server
+  // action, because a route is reachable by typing a URL.
+  getCustomerExport: { relation: 'store_admin', object: 'store' },
 } as const satisfies Record<string, PermissionRule>;
+
+/**
+ * Holds `store_admin` on this store, directly or by implication — the relation the three
+ * privacy-critical customer operations need: `eraseCustomer`, `exportCustomer`, and downloading a
+ * bundle.
+ *
+ * It lives here, not in a page, because the bundle **route handler** needs the same answer as the
+ * screen and a guard component cannot reach a route. Two readers of one predicate cannot drift.
+ */
+export function mayAdministerCustomer(principal: Principal, storeId: string): boolean {
+  const store = findStore(principal, storeId);
+  return expandStoreRelations(
+    (store?.relations ?? []) as Relation[],
+    principal.organization_relations as Relation[],
+  ).has('store_admin');
+}
