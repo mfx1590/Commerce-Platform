@@ -431,7 +431,11 @@ makes the product visible to shoppers, archive because `DELETE` is the verb even
 contract archives rather than hard-deletes — and both render what the server returned (`status`,
 `published_at`). Variants are created deliberately from the gap between the option matrix and what
 exists (one button per row, or "Create all N"), and edited inline (SKU, title, price per currency).
-`/{storeId}/catalog/categories` assembles the tree from the flat list, showing an orphan at the root
+`/{storeId}/catalog/merchandising` lists the search rules (pin / boost / bury per category or
+search query) with URL filters over the full list the API returns, an editor that picks products
+by name, bulk enable / disable / delete, a CSV, and "Publish to search", which reports each rule
+from the list read back afterwards (the API answers with counts only) and says when its counts
+disagree. `/{storeId}/catalog/categories` assembles the tree from the flat list, showing an orphan at the root
 rather than dropping it, and is the source of the category picker.
 
 Every catalog mutation is a server action that calls the Admin API, which re-checks the operation's

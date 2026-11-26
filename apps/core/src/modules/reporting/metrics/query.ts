@@ -10,6 +10,7 @@ import {
   METRIC_IDS,
   METRICS,
   REFUND_REASONS,
+  TOUCHES,
   type Dimension,
   type Grain,
   type MetricId,
@@ -32,6 +33,17 @@ export interface MetricQuery {
     category_ids?: string[];
     customer_types?: string[];
     warehouse_ids?: string[];
+    // BI v2 wave 2 (#935)
+    customer_group_ids?: string[];
+    campaign_ids?: string[];
+    promotion_ids?: string[];
+    utm_sources?: string[];
+    utm_mediums?: string[];
+    utm_campaigns?: string[];
+    carriers?: string[];
+    providers?: string[];
+    /** The attribution touch model; `last` when an attribution metric is asked and this is omitted. */
+    touch?: 'first' | 'last';
   };
   order_by?: { metric: MetricId; direction: 'desc' | 'asc' };
   limit: number;
@@ -119,8 +131,29 @@ const oneOf =
 const uuid = (x: string): x is string => UUID.test(x);
 const currency = (x: string): x is string => CURRENCY.test(x);
 const country = (x: string): x is string => /^[A-Z]{2}$/.test(x);
+/** A utm value as the models store it (#935): lower-case, trimmed, 1–64 characters. */
+const utm = (x: string): x is string =>
+  x.length >= 1 && x.length <= 64 && x === x.trim().toLowerCase();
+/** A carrier or provider code (lower-case word characters). */
+const code = (x: string): x is string => /^[a-z0-9_-]{1,40}$/.test(x);
 
-export function parseMetricQuery(body: unknown): MetricQuery {
+/** The wave 2 filters (#935): field, limit, item check, lower-cased (uuids). */
+const WAVE2_FILTERS = [
+  ['customer_group_ids', LIMITS.max_customer_group_ids, uuid, true],
+  ['campaign_ids', LIMITS.max_campaign_ids, uuid, true],
+  ['promotion_ids', LIMITS.max_promotion_ids, uuid, true],
+  ['utm_sources', LIMITS.max_utm_values, utm, false],
+  ['utm_mediums', LIMITS.max_utm_values, utm, false],
+  ['utm_campaigns', LIMITS.max_utm_values, utm, false],
+  ['carriers', LIMITS.max_carriers, code, false],
+  ['providers', LIMITS.max_providers, code, false],
+] as const;
+
+/**
+ * `csv` (#935): a text/csv answer may ask for up to LIMITS.max_csv_rows rows; JSON stays at LIMITS.max_rows. The
+ * default limit is the JSON one either way.
+ */
+export function parseMetricQuery(body: unknown, opts: { csv?: boolean } = {}): MetricQuery {
   if (!body || typeof body !== 'object' || Array.isArray(body))
     throw validationError('the body must be a MetricQuery object');
   const b = body as Record<string, unknown>;
@@ -208,6 +241,8 @@ export function parseMetricQuery(body: unknown): MetricQuery {
           'category_ids',
           'customer_types',
           'warehouse_ids',
+          ...WAVE2_FILTERS.map(([name]) => name),
+          'touch',
         ].includes(k)
       )
         throw validationError(`unknown filter ${k}`, { field: `filters.${k}` });
@@ -273,7 +308,23 @@ export function parseMetricQuery(body: unknown): MetricQuery {
         uuid,
         1,
       ).map((s) => s.toLowerCase());
+    for (const [name, max, ok, lower] of WAVE2_FILTERS)
+      if (f[name] !== undefined) {
+        const values = list(f[name], `filters.${name}`, max, ok, 1);
+        filters[name] = lower ? values.map((s) => s.toLowerCase()) : values;
+      }
+    if (f.touch !== undefined) {
+      if (typeof f.touch !== 'string' || !oneOf(TOUCHES)(f.touch))
+        throw validationError(`filters.touch is one of ${TOUCHES.join(', ')}`, {
+          field: 'filters.touch',
+        });
+      filters.touch = f.touch;
+    }
   }
+  if (filters.touch !== undefined && !metrics.some((m) => METRICS[m].source?.id === 'attribution'))
+    throw validationError('filters.touch applies to attribution metrics only', {
+      field: 'filters.touch',
+    });
 
   let order_by: MetricQuery['order_by'];
   if (b.order_by !== undefined) {
@@ -293,8 +344,13 @@ export function parseMetricQuery(body: unknown): MetricQuery {
     order_by = { metric: o.metric as MetricId, direction };
   }
   const limit = b.limit ?? LIMITS.max_rows;
-  if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > LIMITS.max_rows)
-    throw validationError(`limit is an integer 1–${LIMITS.max_rows}`, { field: 'limit' });
+  const maxLimit = opts.csv ? LIMITS.max_csv_rows : LIMITS.max_rows;
+  if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > maxLimit)
+    throw validationError(
+      `limit is an integer 1–${maxLimit}` +
+        (opts.csv ? '' : ` (up to ${LIMITS.max_csv_rows} as text/csv)`),
+      { field: 'limit' },
+    );
 
   let compare: CompareMode | undefined;
   if (b.compare !== undefined) {

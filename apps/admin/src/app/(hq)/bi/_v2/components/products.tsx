@@ -22,7 +22,14 @@ import {
   type MetricResult,
   type Raw,
 } from '../model';
-import { categoriesQuery, PRODUCT_RANKS, productsQuery, type ProductRank } from '../queries';
+import {
+  categoriesQuery,
+  customerFilterRefused,
+  PRODUCT_RANKS,
+  productsQuery,
+  SMALL_CELL_REFUSAL,
+  type ProductRank,
+} from '../queries';
 import { BiExport } from './bi-export';
 import { BiNav, Controls, CurrencyTabs, Definition, FilterChips, Notice } from './shell';
 
@@ -338,7 +345,13 @@ function RowsTable({
   catalogHref?: ((id: string) => string) | undefined;
 }) {
   if (answer === null)
-    return <p className="text-muted text-sm">Not offered by {dimension} in the catalogue.</p>;
+    return customerFilterRefused(state, [dimension]) ? (
+      <p role="note" className="text-muted text-sm">
+        {SMALL_CELL_REFUSAL}
+      </p>
+    ) : (
+      <p className="text-muted text-sm">Not offered by {dimension} in the catalogue.</p>
+    );
   if (!answer.ok)
     return (
       <ApiStatePanel status={answer.status} error={answer.error} what={`the ${dimension} table`} />

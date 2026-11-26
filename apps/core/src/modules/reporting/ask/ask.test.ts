@@ -188,7 +188,8 @@ describe('the scope (#606 acceptance: a store-A principal asking about store B)'
     [
       true,
       [
-        'captured_minor, fee_minor take store, provider',
+        // #935: the payment outcome counts take the same dimensions
+        'captured_minor, fee_minor, payments_authorized, payments_captured, payments_with_outcome, payment_failure_rate_bp take store, provider',
         'refunds_minor take store, refund_reason, country, sales_channel',
       ],
     ],
@@ -200,7 +201,7 @@ describe('the scope (#606 acceptance: a store-A principal asking about store B)'
     expect(tool.description).not.toContain('days_of_cover');
     const props = tool.inputSchema.properties as Record<string, { description?: string }>;
     expect(props.dimensions!.description).toBe(
-      'One row per value of each: product = one row per product (the way to rank products); products, categories, channels and warehouses come back as aliases (p1, c1, ch1, w1) — write the alias, the server puts the name in',
+      'One row per value of each: product = one row per product (the way to rank products); products, categories, channels, warehouses, customer groups, campaigns, promotions and utm values come back as aliases (p1, c1, ch1, w1, g1, cp1, pr1, u1) — write the alias, the server puts the name in; a filter may name an alias an earlier result of this question returned',
     );
     expect(props.order_by!.description).toBe(
       'Sorts the rows; with a dimension, grain total and limit it gives a top or bottom N',

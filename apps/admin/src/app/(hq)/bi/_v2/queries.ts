@@ -56,6 +56,26 @@ export const PRODUCT_LIMIT = 20;
 const compareOf = (state: BiState): Pick<MetricQuery, 'compare'> =>
   state.compare === 'none' ? {} : { compare: state.compare };
 
+/**
+ * Admin API 0.4.31 (#951): an answer cut by customer type rests on customers, so every row must be countable in
+ * customers to protect small groups. Customers cannot be counted by product or category (nor under a product or
+ * category filter): the API refuses that combination (400 `small_cell_unverifiable`), so the view does not send it and
+ * says why instead. The customer filter is only ever sent when the user chose it.
+ */
+export const SMALL_CELL_REFUSAL =
+  'This breakdown can’t be combined with a customer filter — small groups of customers can’t be protected.';
+const CUSTOMER_COUNTABLE: ReadonlySet<string> = new Set(['store', 'country', 'sales_channel']);
+
+/** Whether the API would refuse these dimensions under the state's customer filter. */
+export function customerFilterRefused(state: BiState, dimensions: readonly string[]): boolean {
+  return (
+    state.customer !== '' &&
+    (dimensions.some((d) => !CUSTOMER_COUNTABLE.has(d)) ||
+      state.category !== '' ||
+      state.product !== '')
+  );
+}
+
 function base(state: BiState, storeId?: string): Pick<MetricQuery, 'from' | 'to' | 'filters'> {
   const filters = filtersOf(state, storeId);
   return {
@@ -72,6 +92,7 @@ export function overviewQueries(
   storeId?: string,
 ): { queries: MetricQuery[]; missing: MetricId[] } {
   const { metrics, missing } = offered(catalogue, OVERVIEW_METRICS);
+  if (customerFilterRefused(state, [])) return { queries: [], missing: [] };
   return {
     queries: chunk(metrics, catalogue.max_metrics).map((group) => ({
       metrics: group,
@@ -92,6 +113,7 @@ export function breakdownQuery(
   storeId?: string,
 ): { query: MetricQuery | null; missing: MetricId[] } {
   const { metrics, missing } = offered(catalogue, BREAKDOWN_METRICS, state.by);
+  if (customerFilterRefused(state, [state.by])) return { query: null, missing: [] };
   if (metrics.length === 0) return { query: null, missing };
   return {
     query: {
@@ -110,6 +132,7 @@ export function breakdownQuery(
 /** "What changed": net sales by the chosen breakdown, ranked by absolute change per currency. */
 export function moversQuery(state: BiState, storeId?: string): MoversQuery | null {
   if (state.compare === 'none') return null;
+  if (customerFilterRefused(state, [state.by])) return null;
   const filters = filtersOf(state, storeId);
   return {
     metric: 'net_sales_minor',
@@ -131,6 +154,7 @@ export function productsQuery(
   storeId?: string,
 ): { query: MetricQuery | null; missing: MetricId[] } {
   const { metrics, missing } = offered(catalogue, PRODUCT_METRICS, 'product');
+  if (customerFilterRefused(state, ['product'])) return { query: null, missing: [] };
   if (!metrics.includes(rank)) return { query: null, missing: [...missing] };
   return {
     query: {
@@ -153,6 +177,7 @@ export function categoriesQuery(
   storeId?: string,
 ): { query: MetricQuery | null; missing: MetricId[] } {
   const { metrics, missing } = offered(catalogue, PRODUCT_METRICS, 'category');
+  if (customerFilterRefused(state, ['category'])) return { query: null, missing: [] };
   if (metrics.length === 0) return { query: null, missing };
   return {
     query: {
