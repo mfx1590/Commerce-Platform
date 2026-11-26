@@ -215,6 +215,155 @@ describe('money is the store’s own', () => {
   });
 });
 
+describe('lists and the country map (#870 item 7 PR B)', () => {
+  const shipping = (over: Record<string, unknown> = {}) => (
+    <SettingsCardForm
+      storeId={STORE}
+      cardId="shipping"
+      current={cardValues('shipping', {
+        shipping: {
+          provider: 'easypost',
+          services: ['ups_ground', 'usps_priority'],
+          carrier_account_ids: ['ca_1'],
+          ...over,
+        },
+      })}
+      updatedAt={LOADED}
+      currency="EUR"
+      locale="en-GB"
+    />
+  );
+
+  it('shows a list one per line and sends it as an array', async () => {
+    const user = userEvent.setup();
+    render(shipping());
+
+    const services = screen.getByLabelText(/Services offered/);
+    expect(services).toHaveValue('ups_ground\nusps_priority');
+    await user.clear(services);
+    await user.type(services, 'ups_ground');
+    await user.click(screen.getByRole('button', { name: /Save shipping/ }));
+
+    // Exactly one key: `provider` and `carrier_account_ids` were not touched, so they are not sent.
+    expect(save).toHaveBeenCalledWith(
+      STORE,
+      'shipping',
+      { 'shipping.services': ['ups_ground'] },
+      LOADED,
+      [],
+    );
+  });
+
+  it('asks before swapping carrier accounts, because that changes who is billed', async () => {
+    const user = userEvent.setup();
+    render(shipping());
+
+    const accounts = screen.getByLabelText(/Carrier accounts/);
+    await user.clear(accounts);
+    await user.type(accounts, 'ca_2');
+    await user.click(screen.getByRole('button', { name: /Save shipping/ }));
+
+    const dialog = screen.getByRole('group', { name: /Confirm the shipping defaults change/ });
+    expect(within(dialog).getByText('ca_1')).toBeTruthy();
+    expect(within(dialog).getByText('ca_2')).toBeTruthy();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('reads the country map as lines and sends it as an object', async () => {
+    const user = userEvent.setup();
+    render(
+      <SettingsCardForm
+        storeId={STORE}
+        cardId="fulfillment"
+        current={cardValues('fulfillment', {
+          fulfillment: { routing: { countries: { NL: 'wh-eu' } } },
+        })}
+        updatedAt={LOADED}
+        currency="EUR"
+        locale="en-GB"
+      />,
+    );
+
+    const map = screen.getByLabelText(/Per-country overrides/);
+    expect(map).toHaveValue('NL = wh-eu');
+    await user.clear(map);
+    await user.type(map, 'NL = wh-eu\njp: wh-jp');
+    await user.click(screen.getByRole('button', { name: /Save fulfilment/ }));
+
+    expect(save).toHaveBeenCalledWith(
+      STORE,
+      'fulfillment',
+      // A lower-case country is upper-cased, and a colon is accepted because somebody will type one.
+      { 'fulfillment.routing.countries': { NL: 'wh-eu', JP: 'wh-jp' } },
+      LOADED,
+      [],
+    );
+  });
+
+  it('an emptied list clears the path instead of sending an empty array', async () => {
+    // `[]` is a VALUE to the core: empty `services` would be read as "narrow to nothing" and empty
+    // `carrier_account_ids` as "send no accounts". Absent is what means "the carrier's default".
+    const user = userEvent.setup();
+    render(shipping());
+
+    await user.clear(screen.getByLabelText(/Services offered/));
+    await user.click(screen.getByRole('button', { name: /Save shipping/ }));
+
+    expect(save).toHaveBeenCalledWith(
+      STORE,
+      'shipping',
+      { 'shipping.services': undefined },
+      LOADED,
+      [],
+    );
+  });
+
+  it('shows the core default for a list nobody has set, and it is not "none"', () => {
+    render(
+      <SettingsCardForm
+        storeId={STORE}
+        cardId="shipping"
+        current={cardValues('shipping', {})}
+        updatedAt={LOADED}
+        currency="EUR"
+        locale="en-GB"
+      />,
+    );
+    // An absent `services` offers EVERYTHING the carrier quotes. Reading it as "none offered" is
+    // backwards, which is why the default is spelled out rather than left as an empty box.
+    expect(screen.getByText(/not set .default: no narrowing/)).toBeTruthy();
+    const format = screen.getByLabelText('Label format');
+    expect(format).toHaveValue('');
+    // An enum, not a free-text box: the core accepts only pdf/png/zpl and silently ignores the
+    // rest, so a typed `PDF417` would have looked accepted.
+    expect(
+      within(format)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['not set (default: pdf)', 'pdf', 'png', 'zpl']);
+  });
+
+  it('says which line is wrong rather than dropping it', async () => {
+    const user = userEvent.setup();
+    render(
+      <SettingsCardForm
+        storeId={STORE}
+        cardId="fulfillment"
+        current={cardValues('fulfillment', {})}
+        updatedAt={LOADED}
+        currency="EUR"
+        locale="en-GB"
+      />,
+    );
+
+    await user.type(screen.getByLabelText(/Per-country overrides/), 'Netherlands = wh-eu');
+    await user.click(screen.getByRole('button', { name: /Save fulfilment/ }));
+
+    expect(save).not.toHaveBeenCalled();
+    expect(screen.getByText(/"Netherlands = wh-eu" is not/)).toBeTruthy();
+  });
+});
+
 describe('clearing a value', () => {
   it('an emptied limit means "no ceiling", and the diff says so before it is saved', async () => {
     const user = userEvent.setup();

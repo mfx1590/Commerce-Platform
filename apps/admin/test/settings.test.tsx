@@ -20,6 +20,7 @@ import {
 } from '@/lib/settings';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { SETTINGS_CARDS } from '@/lib/settings/fields';
 import { SEED, principals, type PrincipalKey } from './fixtures/principals';
 
 type Store = AdminComponents['Store'];
@@ -600,14 +601,10 @@ describe('the settings `updateStore` has always accepted (#870 item 7)', () => {
   it('gives a store admin a form per card, with the value the store has now', async () => {
     await renderAs('storeAdmin');
 
-    // Four cards, each its own form: a save carries only that card's paths.
-    for (const title of [
-      'Tax settings',
-      'Fraud settings',
-      'Refunds settings',
-      'Brand voice settings',
-    ]) {
-      expect(screen.getByRole('form', { name: title })).toBeTruthy();
+    // One form per card, derived from the catalogue so adding a card does not need this edited:
+    // each save carries only that card's own paths.
+    for (const card of SETTINGS_CARDS) {
+      expect(screen.getByRole('form', { name: `${card.title} settings` })).toBeTruthy();
     }
     // Nothing under `tax` is in the fixture, so every tax field reads "not set (default: …)" —
     // NOT "off" and not `table`. The #968 review made this the point: an absent path means the
@@ -638,7 +635,7 @@ describe('the settings `updateStore` has always accepted (#870 item 7)', () => {
   it('points each card at the store history it actually has', async () => {
     await renderAs('storeAdmin');
     const links = screen.getAllByRole('link', { name: 'History' });
-    expect(links.length).toBe(4);
+    expect(links.length).toBe(SETTINGS_CARDS.length);
     for (const link of links) {
       expect(link.getAttribute('href')).toBe(`/${STORE_ID}/settings?activity=1#activity`);
     }

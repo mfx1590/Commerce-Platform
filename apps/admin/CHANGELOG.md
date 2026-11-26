@@ -1573,6 +1573,60 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   `store-settings-drift.test.ts` (7); three more in `settings.test.tsx`. Grepped `apps/*/e2e`: the
   settings assertions are scoped forms and specific text, and no form name collides.
 
+### Added — #870 wave 1 item 7 (PR B): shipping defaults and fulfilment routing
+
+- **Two more settings cards**, on PR A's pattern and under its rules (only changed fields sent, an
+  absent path shown as "not set (default: …)", clearing deletes the path): **Shipping defaults**
+  (`shipping.provider`, `shipping.carrier_account_ids`, `shipping.services`, the four
+  `shipping.default_parcel.*` dimensions, `shipping.label_format`) and **Fulfilment routing**
+  (`fulfillment.provider`, `fulfillment.routing.default`, `fulfillment.routing.countries`). Every
+  path moved out of `NOT_EDITED_PATHS` into a card, and the drift guard — which accounts for
+  **every** path the core reads — is what proves nothing was dropped on the way.
+- **Two new field kinds, both with their format explained** rather than guessable: a **list** one
+  per line (`services`, `carrier_account_ids`) and a **country map** written `NL = wh-eu`. A colon
+  is accepted too because somebody will type one, a lower-case country is upper-cased, and a line
+  that is neither says **which line** rather than being dropped. The drift guard requires a hint on
+  both kinds, since nothing about "one per line" is discoverable from the field itself.
+- **Three things the core does with these values that the first cut got wrong.** The shapes in
+  `settings-schema.ts` are deliberately loose, so what a value MEANS lives in the owning module,
+  and reading it changed the cards:
+  - **`shipping.label_format` is an enum, not free text.** `labelFormatOf` accepts only `pdf`,
+    `png` and `zpl` and **silently falls back to `pdf`** for anything else — a text box would have
+    accepted `PDF417` and looked saved while the core ignored it. It is now a select of three.
+  - **`shipping.default_parcel` is all-or-nothing.** `parcelOf` returns `null` unless length,
+    width, height and weight are **all** present and positive, and the whole parcel then falls back
+    to 30×20×10 cm / 1000 g — so filling three boxes changes **nothing**. The card says so and the
+    **action refuses a partial parcel**, while still allowing the one field that completes one
+    (which matters precisely because only changed fields are now sent) and allowing all four to be
+    cleared together.
+  - **An empty list is not "none".** `shipping.services` is a **narrowing** filter: absent or empty
+    offers every service the carrier quotes, and listing some keeps only those. An empty
+    `carrier_account_ids` means no account list is sent at all, so the carrier's own default
+    applies. Reading either as "nothing enabled" is exactly backwards, so both default labels say
+    what absent really does.
+- **The drift guard now reads the owning modules too.** Every `defaultLabel` is a claim about
+  another module, so `store-settings-drift.test.ts` also pins `shipping/config.ts` (the three label
+  formats, `parcelOf`'s all-four line, `DEFAULT_PARCEL`'s numbers, the `?? 'manual'` and `?? 'pdf'`
+  fallbacks), `easypost-provider.ts` (that `services` narrows and an empty account list is not
+  sent) and `fulfillment/registry.ts` (`DEFAULT_FULFILLMENT_PROVIDER`). If window 8 adds a label
+  format or makes the parcel per-field, this fails instead of the card quietly lying.
+- **`fulfillment.routing.default` is a typed warehouse CODE, not a picker.** Listing warehouses
+  needs `operations` on the organization, which a store admin does not have, so a picker would be a
+  certain 403 — the hint says where the codes come from instead. The card also says what these two
+  fields really do: they override only the front of the core's order (country, then this default,
+  then destination country, then region, then lowest priority), so clearing them hands the decision
+  back to the last three rules rather than switching routing off.
+- **Swapping `shipping.carrier_account_ids` is confirmed against a diff**, with the manager's
+  reasoning: it changes who is billed, which is as consequential as a number with a currency on it.
+- The settings tests derive the card list from the catalogue, so adding a card no longer edits them.
+- Tests: `store-settings-action.test.ts` 21 → **27** (the partial-parcel refusal, the field that
+  completes a parcel, clearing all four, a label format the core would ignore, an empty list entry,
+  a country-map key that is not a country); `store-settings-form.test.tsx` 12 → **18** (a list
+  shown one per line and sent as an array, an emptied list clearing the path instead of sending
+  `[]`, the country map read from lines and upper-cased, the wrong line named, the carrier-account
+  confirmation, and the core defaults shown for an unset list and format);
+  `store-settings-drift.test.ts` 7 → **11**. Grepped `apps/*/e2e`: no spec touches these cards.
+
 ### Added — #870 wave 1 item 4 (PR C): the GDPR export trail, beside erase
 
 - **Request an export** (`exportCustomer`, 202) and **the trail of every request**

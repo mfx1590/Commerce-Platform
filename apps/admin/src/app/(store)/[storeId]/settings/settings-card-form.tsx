@@ -107,6 +107,22 @@ export function SettingsCardForm({
         } else values[field.path] = parsed;
       } else if (field.kind === 'enumArray') {
         values[field.path] = raw.split(',').filter((item) => item !== '');
+      } else if (field.kind === 'textList') {
+        // An emptied box never reaches here: the clear above took it, so never `[]`.
+        values[field.path] = lines(raw);
+      } else if (field.kind === 'countryMap') {
+        const map: Record<string, string> = {};
+        for (const line of lines(raw)) {
+          // `NL = wh-eu`, and `NL: wh-eu` because somebody will type a colon.
+          const match = /^([A-Za-z]{2})\s*[=:]\s*(.+)$/.exec(line);
+          if (match === null) {
+            errors[field.path] =
+              `Each line is a country and a warehouse code, like "NL = wh-eu". "${line}" is not.`;
+            break;
+          }
+          map[match[1]!.toUpperCase()] = match[2]!.trim();
+        }
+        if (errors[field.path] === undefined) values[field.path] = map;
       } else {
         values[field.path] = raw;
       }
@@ -325,6 +341,25 @@ function FieldInput({
     );
   }
 
+  if (field.kind === 'textList' || field.kind === 'countryMap') {
+    return (
+      <Field
+        label={field.label}
+        htmlFor={id}
+        {...(hint === undefined ? {} : { hint })}
+        error={error}
+      >
+        <textarea
+          id={id}
+          rows={4}
+          value={value}
+          onChange={(event) => onChange(event.currentTarget.value)}
+          className="border-line bg-surface rounded-md border px-2 py-1 font-mono text-xs"
+        />
+      </Field>
+    );
+  }
+
   return (
     <TextField
       label={field.label}
@@ -336,6 +371,13 @@ function FieldInput({
     />
   );
 }
+
+/** Non-empty trimmed lines of a textarea. */
+const lines = (raw: string): string[] =>
+  raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
 
 /**
  * The form's string state, from the values the page rendered.
@@ -355,6 +397,16 @@ function initialDraft(
     else if (field.kind === 'boolean') draft[field.path] = value === true ? 'true' : 'false';
     else if (field.kind === 'enumArray')
       draft[field.path] = Array.isArray(value) ? value.join(',') : NOT_SET;
+    else if (field.kind === 'textList')
+      draft[field.path] = Array.isArray(value) ? value.join('\n') : NOT_SET;
+    else if (field.kind === 'countryMap')
+      draft[field.path] =
+        typeof value === 'object' && value !== null
+          ? Object.entries(value as Record<string, unknown>)
+              .map(([country, code]) => `${country} = ${String(code)}`)
+              .sort()
+              .join('\n')
+          : NOT_SET;
     else if (field.money === true && typeof value === 'number')
       draft[field.path] = formatMoneyInput(value, currency);
     else draft[field.path] = String(value);

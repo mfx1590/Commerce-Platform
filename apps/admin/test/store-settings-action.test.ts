@@ -332,6 +332,121 @@ describe('the guards', () => {
     }
   });
 
+  it('refuses a parcel with three of its four numbers (#870 item 7 PR B)', async () => {
+    // `parcelOf` in the core returns null unless all four are present and positive, and the whole
+    // parcel then falls back to 30x20x10 / 1000g. Writing three would be a silent no-op, so it is
+    // refused here rather than stored.
+    const result = await saveStoreSettingsAction(
+      STORE,
+      'shipping',
+      {
+        'shipping.default_parcel.length_cm': 40,
+        'shipping.default_parcel.width_cm': 30,
+        'shipping.default_parcel.height_cm': 20,
+      },
+      LOADED,
+      [],
+    );
+    expect(result.status).toBe('error');
+    if (result.status === 'error') expect(result.formError).toMatch(/all four/);
+    expect(api.updateStore).not.toHaveBeenCalled();
+  });
+
+  it('allows the one field that COMPLETES a parcel, because only changed fields are sent', async () => {
+    api.getStore.mockResolvedValue(
+      ok(
+        store({
+          settings: {
+            ...SETTINGS,
+            shipping: {
+              ...SETTINGS.shipping,
+              default_parcel: { length_cm: 40, width_cm: 30, height_cm: 20 },
+            },
+          },
+        }),
+      ),
+    );
+    const result = await saveStoreSettingsAction(
+      STORE,
+      'shipping',
+      { 'shipping.default_parcel.weight_g': 2000 },
+      LOADED,
+      [],
+    );
+    expect(result.status).toBe('success');
+    const parcel = (sentSettings()['shipping'] as Record<string, unknown>)['default_parcel'];
+    expect(parcel).toEqual({ length_cm: 40, width_cm: 30, height_cm: 20, weight_g: 2000 });
+  });
+
+  it('clearing the whole parcel is allowed: none is as valid as four', async () => {
+    api.getStore.mockResolvedValue(
+      ok(
+        store({
+          settings: {
+            ...SETTINGS,
+            shipping: {
+              ...SETTINGS.shipping,
+              default_parcel: { length_cm: 40, width_cm: 30, height_cm: 20, weight_g: 2000 },
+            },
+          },
+        }),
+      ),
+    );
+    const result = await saveStoreSettingsAction(
+      STORE,
+      'shipping',
+      {
+        'shipping.default_parcel.length_cm': undefined,
+        'shipping.default_parcel.width_cm': undefined,
+        'shipping.default_parcel.height_cm': undefined,
+        'shipping.default_parcel.weight_g': undefined,
+      },
+      LOADED,
+      [],
+    );
+    expect(result.status).toBe('success');
+    expect((sentSettings()['shipping'] as Record<string, unknown>)['default_parcel']).toEqual({});
+  });
+
+  it('refuses a label format the core would silently ignore', async () => {
+    const result = await saveStoreSettingsAction(
+      STORE,
+      'shipping',
+      { 'shipping.label_format': 'PDF417' },
+      LOADED,
+      [],
+    );
+    expect(result.status).toBe('error');
+    if (result.status === 'error') {
+      expect(Object.keys(result.fieldErrors ?? {})).toEqual(['shipping.label_format']);
+    }
+    expect(api.updateStore).not.toHaveBeenCalled();
+  });
+
+  it('refuses an empty entry in a list rather than storing a code that matches nothing', async () => {
+    const result = await saveStoreSettingsAction(
+      STORE,
+      'shipping',
+      { 'shipping.services': ['ups_ground', '  '] },
+      LOADED,
+      [],
+    );
+    expect(result.status).toBe('error');
+    expect(api.updateStore).not.toHaveBeenCalled();
+  });
+
+  it('refuses a country map key that is not a country', async () => {
+    const result = await saveStoreSettingsAction(
+      STORE,
+      'fulfillment',
+      { 'fulfillment.routing.countries': { Netherlands: 'wh-eu' } },
+      LOADED,
+      [],
+    );
+    expect(result.status).toBe('error');
+    expect(api.updateStore).not.toHaveBeenCalled();
+  });
+
   it('refuses an unknown card', async () => {
     const result = await saveStoreSettingsAction(
       STORE,

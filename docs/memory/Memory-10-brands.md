@@ -472,6 +472,80 @@ HQ › Roles, neither affected.
 out at 5 s in the full parallel run and passes 19/19 alone. Window 12's file, and nothing in my diff
 touches BI. Re-ran the suite green and reported it rather than touching another window's test.
 
+## In progress — #870 item 7 PR B, shipping and fulfilment settings (2026-11-25)
+
+Branch `integration/admin-store-settings-shipping`, **stacked on PR A (#968)** — not from main as
+the manager said, because PR B must move `shipping.*` and `fulfillment.*` out of
+`NOT_EDITED_PATHS` into new cards, i.e. edit the file PR A creates. From main that file does not
+exist, so "from main" would have meant re-creating A's work inside B. Flagged to the manager with
+the reason; retarget when A merges.
+
+**Scope settled (manager, 2026-11-26): the shipping-option fields are B2**, a separate PR after B,
+so the Fable reviews stay small and the `live` ⇒ `service` guard gets its own look. B is the two
+settings cards only.
+
+### Done (2026-11-26): the two cards are built on A's rules
+
+Admin suite **1794 / 98**; lint, typecheck 30/30, format:check, ownership green. The merge of A's
+`2c68171f` and the rebuild are one commit, because the resolution WAS the rebuild: B's own
+"empty integer means not set" branch became dead code under A's generic clear, and its tests still
+passed a boolean confirmation.
+
+### The plan that produced it, after merging A's review fixes in (2026-11-26)
+
+A's head `2c68171f` is merged into this branch (README and the card form conflicted; A's rules won
+and B's two kinds were re-applied on top, and B's integer-specific "empty means not set" branch
+became dead code because A's clear is now generic). What remains:
+
+1. a `defaultLabel` for all eleven new fields — **required** since A's review, and traced from
+   `apps/core/src/modules/shipping/config.ts` / the fulfilment router, never guessed;
+2. the three findings below, which change what the cards offer;
+3. tests for `textList` / `countryMap` under the three-state rule, the drift guard extension, then
+   CHANGELOG / README / this file, and one push.
+
+### Three findings from the core, before writing the cards
+
+- **`shipping.label_format` is an enum, not free text.** `labelFormatOf` accepts only `pdf`, `png`,
+  `zpl` and **silently falls back to `pdf`** for anything else, so a free-text box would let someone
+  type `PDF417` and see it accepted while the core ignores it. It becomes an enum.
+- **`shipping.default_parcel` is all-or-nothing.** `parcelOf` returns `null` unless **all four** of
+  length / width / height / weight are present and positive, and then the whole parcel falls back
+  to 30×20×10 cm / 1000 g. So filling three boxes changes **nothing** — the worst kind of silent
+  no-op. The card says so, and the action refuses a partial parcel rather than writing one.
+- **Empty `services` / `carrier_account_ids` are not "none".** `services` is a **narrowing filter**:
+  empty means every service the carrier returns is offered, and listing some keeps only those
+  (`easypost-provider.ts` line ~272, and the manual provider the same way). Empty
+  `carrier_account_ids` means no `carrier_accounts` key is sent, so EasyPost uses the account's own
+  default. Both default labels say that, because "empty" reading as "nothing offered" is exactly
+  backwards.
+
+### What the research gave
+
+`ShippingOptionPatch.rules` is `additionalProperties: true` — free-form again — and the keys are
+documented in **window 8's README**, not the contract: `min_subtotal_minor`, `max_weight_g`,
+`free_over_subtotal_minor`, `live`. And `live: true` **requires a `service`**, otherwise the option
+opts into carrier pricing with nothing to match. That interaction is the guard worth building when
+the option fields land. Third surface in a row where the shape lives in code rather than the
+contract (settings, order audit payloads, these rules).
+
+### A bug my own test found
+
+An unset integer rendered as an empty box, my parser read `''` as `0`, and `0` failed the minimum —
+so a card with **any** unset number could not be saved at all. Empty now means "not set", which the
+core already treats as "keep my default", and for `support_refund_limit_minor` that is the only way
+to express "no ceiling". Because that path is confirmed, the diff spells it out as
+"€50.00 → not set" first. **The test I wrote to check a list round-trip is what caught it**, two
+fields away from what it was testing — an argument for testing the card as a whole rather than each
+parser in isolation.
+
+### Two escaping traps, same family as before
+
+`
+` inside a Python heredoc collapsed into real newlines in the generated TS, giving unterminated
+string literals; repaired by building the escape as `chr(92) + 'n'`. And a prettier reflow had
+already broken a multi-line anchor, so I replaced that block **by line range** instead. Both are
+the recorded rule again: for generated code, prefer line-range edits and build escapes explicitly.
+
 ## In progress — #870 item 7 PR A, store settings (2026-11-25)
 
 **PR #968**, branch `integration/admin-store-settings`. Tax, Fraud, Refunds, Brand voice — eleven

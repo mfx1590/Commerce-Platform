@@ -18,7 +18,16 @@
  * Pure: no `next/*`, no React, no I/O.
  */
 
-export type SettingKind = 'boolean' | 'integer' | 'enum' | 'text' | 'enumArray';
+export type SettingKind =
+  | 'boolean'
+  | 'integer'
+  | 'enum'
+  | 'text'
+  | 'enumArray'
+  /** Free strings, one per line: `shipping.services`, `shipping.carrier_account_ids`. */
+  | 'textList'
+  /** `{ NL: 'wh-eu' }` — `fulfillment.routing.countries`, written `NL = wh-eu` per line. */
+  | 'countryMap';
 
 export interface SettingField {
   /** Dotted path inside `store.settings`, exactly as the core reads it. */
@@ -50,7 +59,7 @@ export interface SettingField {
   defaultLabel: string;
 }
 
-export type CardId = 'tax' | 'fraud' | 'refunds' | 'content';
+export type CardId = 'tax' | 'fraud' | 'refunds' | 'content' | 'shipping' | 'fulfillment';
 
 export interface SettingsCard {
   id: CardId;
@@ -180,6 +189,109 @@ export const SETTINGS_CARDS: readonly SettingsCard[] = [
     ],
   },
   {
+    id: 'shipping',
+    title: 'Shipping defaults',
+    description:
+      'The carrier integration and the parcel a rate is quoted for when a product carries no dimensions of its own. Changing this needs store admin.',
+    note: 'The four parcel boxes are all-or-nothing: the core reads the parcel only when length, width, height and weight are ALL set and positive, and otherwise uses 30×20×10 cm / 1000 g. Three of four changes nothing, so this card refuses a partial parcel rather than writing one.',
+    fields: [
+      {
+        path: 'shipping.provider',
+        defaultLabel: 'manual — this store’s own shipping_option table, no carrier call',
+        label: 'Carrier integration',
+        kind: 'text',
+        minLength: 1,
+        maxLength: 60,
+        hint: 'The registered provider, e.g. `manual` or `easypost`. A name nothing is registered under falls back to the table rates rather than failing a cart.',
+      },
+      {
+        path: 'shipping.carrier_account_ids',
+        defaultLabel: 'none sent — the carrier account’s own default accounts are used',
+        label: 'Carrier accounts',
+        kind: 'textList',
+        hint: 'The carrier account ids rates are bought against, one per line. Swapping these changes who is billed. Empty is not "no accounts": no account list is sent at all, so the carrier uses its own default.',
+      },
+      {
+        path: 'shipping.services',
+        defaultLabel: 'no narrowing — every service the carrier returns is offered',
+        label: 'Services offered',
+        kind: 'textList',
+        hint: 'Carrier service codes, one per line. This NARROWS what the carrier returns: empty offers everything it quotes, and listing some keeps only those. It is not a list of services to enable.',
+      },
+      {
+        path: 'shipping.default_parcel.length_cm',
+        defaultLabel: '30 (only when all four are set)',
+        label: 'Parcel length (cm)',
+        kind: 'integer',
+        min: 1,
+      },
+      {
+        path: 'shipping.default_parcel.width_cm',
+        defaultLabel: '20 (only when all four are set)',
+        label: 'Parcel width (cm)',
+        kind: 'integer',
+        min: 1,
+      },
+      {
+        path: 'shipping.default_parcel.height_cm',
+        defaultLabel: '10 (only when all four are set)',
+        label: 'Parcel height (cm)',
+        kind: 'integer',
+        min: 1,
+      },
+      {
+        path: 'shipping.default_parcel.weight_g',
+        defaultLabel: '1000 (only when all four are set)',
+        label: 'Parcel weight (g)',
+        kind: 'integer',
+        min: 1,
+      },
+      {
+        path: 'shipping.label_format',
+        defaultLabel: 'pdf',
+        label: 'Label format',
+        kind: 'enum',
+        // The core accepts ONLY these three (`labelFormatOf`) and silently falls back to `pdf` for
+        // anything else, so a free-text box would accept `PDF417` and quietly ignore it.
+        options: ['pdf', 'png', 'zpl'],
+      },
+    ],
+  },
+  {
+    id: 'fulfillment',
+    title: 'Fulfilment routing',
+    description: 'Which warehouse an order is sent to. Changing this needs store admin.',
+    note: 'These two only override the front of the core’s order: a country override first, then this default, then a warehouse in the destination country, then one in its region, then the lowest priority. Clearing them does not stop routing — it hands the decision back to those last three rules.',
+    fields: [
+      {
+        path: 'fulfillment.provider',
+        defaultLabel: 'memory — the built-in provider, which forgets every job on restart',
+        label: '3PL integration',
+        kind: 'text',
+        minLength: 1,
+        maxLength: 60,
+        hint: 'The registered fulfilment provider. A name nothing is registered under also falls back to `memory`, so a typo here is silent: the orders keep fulfilling against the built-in provider.',
+      },
+      {
+        path: 'fulfillment.routing.default',
+        defaultLabel:
+          'no store default — the core routes by destination, then region, then priority',
+        label: 'Default warehouse code',
+        kind: 'text',
+        minLength: 1,
+        maxLength: 60,
+        hint: 'A warehouse CODE, not an id. Codes are listed in HQ › Warehouse, which needs `operations` on the organization — so this is typed, not picked. A code no warehouse has is not refused here and falls through to the core’s own rules.',
+      },
+      {
+        path: 'fulfillment.routing.countries',
+        defaultLabel: 'no per-country overrides',
+        label: 'Per-country overrides',
+        kind: 'countryMap',
+        hint: 'One per line, `NL = wh-eu`. A destination not listed falls through to the default and then to the core’s own order.',
+      },
+    ],
+  },
+  {
     id: 'content',
     title: 'Brand voice',
     description:
@@ -227,21 +339,11 @@ export const NOT_EDITED_PATHS: readonly string[] = [
   'fraud',
   'fraud.velocity',
   'content',
+  // Group keys: the core's own "this must be an object" checks, not fields.
   'shipping',
-  'shipping.provider',
-  'shipping.carrier_account_ids',
-  'shipping.services',
   'shipping.default_parcel',
-  'shipping.default_parcel.length_cm',
-  'shipping.default_parcel.width_cm',
-  'shipping.default_parcel.height_cm',
-  'shipping.default_parcel.weight_g',
-  'shipping.label_format',
   'fulfillment',
-  'fulfillment.provider',
   'fulfillment.routing',
-  'fulfillment.routing.default',
-  'fulfillment.routing.countries',
 ];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -309,9 +411,26 @@ export function describeValue(
   if (value === undefined || value === null) return 'not set';
   if (field.money && typeof value === 'number') return money(value);
   if (Array.isArray(value)) return value.length === 0 ? 'none' : value.join(', ');
+  if (field.kind === 'countryMap' && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>);
+    return entries.length === 0
+      ? 'none'
+      : entries
+          .map(([country, warehouse]) => `${country} → ${String(warehouse)}`)
+          .sort()
+          .join(', ');
+  }
   if (typeof value === 'boolean') return value ? 'on' : 'off';
   if (typeof value === 'string') return value.trim() === '' ? 'empty' : value;
   if (typeof value === 'number') return String(value);
+  // A country map: `NL = wh-eu, DE = wh-de`. Sorted, so a diff never reads as a change because the
+  // API returned the keys in another order.
+  if (isRecord(value)) {
+    const pairs = Object.entries(value)
+      .map(([country, code]) => `${country} = ${String(code)}`)
+      .sort();
+    return pairs.length === 0 ? 'none' : pairs.join(', ');
+  }
   return 'not shown';
 }
 

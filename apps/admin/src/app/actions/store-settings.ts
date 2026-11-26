@@ -29,6 +29,14 @@ function failure(formError: string): ActionResult<never> {
 }
 
 /** Per-field validation built from the catalogue, which mirrors what the core enforces. */
+/** The four paths the core reads as one parcel, or not at all. */
+const PARCEL_PATHS: readonly string[] = [
+  'shipping.default_parcel.length_cm',
+  'shipping.default_parcel.width_cm',
+  'shipping.default_parcel.height_cm',
+  'shipping.default_parcel.weight_g',
+];
+
 function schemaFor(field: SettingField): z.ZodTypeAny {
   switch (field.kind) {
     case 'boolean':
@@ -50,6 +58,16 @@ function schemaFor(field: SettingField): z.ZodTypeAny {
         .trim()
         .min(field.minLength ?? 1)
         .max(field.maxLength ?? 500);
+    case 'textList':
+      // The core checks "array of strings"; an empty entry would be stored and read as a service
+      // or an account id that matches nothing, so it is refused here rather than silently kept.
+      return z.array(z.string().trim().min(1)).max(50);
+    case 'countryMap':
+      // `{ NL: 'wh-eu' }` — the core requires an ISO-3166-1 alpha-2 key and a non-empty code.
+      return z.record(
+        z.string().regex(/^[A-Za-z]{2}$/, 'A two-letter country code.'),
+        z.string().trim().min(1),
+      );
   }
 }
 
@@ -154,9 +172,23 @@ export async function saveStoreSettingsAction(
     }
   }
 
-  const result = await updateStore(storeId, {
-    settings: withPaths(store.settings, Object.fromEntries(changed)),
-  });
+  const next = withPaths(store.settings, Object.fromEntries(changed));
+
+  // The default parcel is all-or-nothing in the core: `parcelOf` returns null unless length, width,
+  // height and weight are ALL present and positive, and the whole parcel then falls back to
+  // 30x20x10 cm / 1000 g. Three of four is not a smaller parcel, it is no parcel — a silent no-op.
+  // Checked on the MERGED settings, not on what was submitted: since only changed fields are sent,
+  // filling the last box is a one-field save that completes a parcel, and that must be allowed.
+  const parcel = PARCEL_PATHS.map((path) => valueAt(next, path)).filter(
+    (value) => value !== undefined && value !== null,
+  );
+  if (parcel.length > 0 && parcel.length < PARCEL_PATHS.length) {
+    return failure(
+      'The default parcel needs all four of length, width, height and weight, or none of them: the core ignores a partial one and quotes 30×20×10 cm at 1000 g instead. Nothing was saved.',
+    );
+  }
+
+  const result = await updateStore(storeId, { settings: next });
   if (!result.ok) {
     return actionError(
       { fieldErrors: {}, formError: describeSettingsError(result) },

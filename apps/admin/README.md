@@ -714,6 +714,25 @@ switching fraud checking off on a store nobody had configured. So each field car
 **"not set (default: …)"** rather than as a value, clearing a field **deletes the path**, and the
 request contains only the paths that differ from what the page rendered. The footer says how many.
 
+A **list** field (`shipping.services`, `shipping.carrier_account_ids`) is one entry per line and a
+**country map** (`fulfillment.routing.countries`) is `NL = wh-eu` per line; a line that parses as
+neither names itself rather than being dropped. An emptied list or map **clears the path** like
+every other kind, and that distinction carries weight here: `shipping.services` **narrows** what
+the carrier returns, so absent offers everything it quotes while `[]` would be a value meaning
+"narrow to nothing". `fulfillment.routing.default` is a typed warehouse **code**, not a picker,
+because listing warehouses needs `operations` on the organization and a store admin would get a 403.
+
+**The loose shapes are not the semantics, so the guard reads the owning module.**
+`settings-schema.ts` says `shipping.label_format` is a non-empty string and each parcel dimension a
+positive integer. What the core DOES with them is in `shipping/config.ts`: `labelFormatOf` accepts
+only `pdf` / `png` / `zpl` and silently falls back to `pdf` (so the field is an enum, not a text
+box), and `parcelOf` returns `null` unless **all four** dimensions are set, falling back to
+30×20×10 cm / 1000 g (so three of four is a silent no-op, and the action refuses a partial parcel
+while still allowing the one field that completes one). Every `defaultLabel` is a claim about
+another module, so `test/store-settings-drift.test.ts` pins those readers too —
+`shipping/config.ts`, `easypost-provider.ts` and `fulfillment/registry.ts` — and fails when one
+moves.
+
 **Consequential changes are confirmed against a diff**: money (`support_refund_limit_minor`,
 `tax.prices_include_tax`), `tax.shipping_taxable`, the fraud rules and
 `shipping.carrier_account_ids`. The dialog is in the form, but the **action** refuses an
