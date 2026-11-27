@@ -50,7 +50,7 @@ export async function warmUrls(urls, options = {}) {
     while (now() < deadline) {
       attempts += 1;
       const started = now();
-      let ok = false;
+      let ok;
       try {
         const response = await fetchImpl(url, {
           // A browser's user agent, so the request takes the same rendering path Lighthouse's will.

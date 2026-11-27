@@ -293,6 +293,8 @@ export async function replayOutbox(
         }),
       ]);
     } catch (err) {
+      // The error CLASS only, never the message (relay.ts `errorClass`): a `cause` would carry the message on.
+      // eslint-disable-next-line preserve-caught-error -- redaction is the point; see the line above.
       throw new Error(
         `replay of ${opts.topic} stopped after ${summary.published} row(s) in ${summary.batches} batch(es) (last_seq ${lastSeq}; resume with --after-seq ${lastSeq}): ${errorClass(err)}`,
       );
