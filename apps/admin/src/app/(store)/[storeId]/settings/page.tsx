@@ -2,7 +2,13 @@ import { CreateApiKey } from '@/components/registry/api-key-create';
 import { AddDomainForm } from '@/components/registry/domain-form';
 import { ApiKeyList, DomainList, SalesChannelList } from '@/components/registry/lists';
 import { CreateSalesChannelForm } from '@/components/registry/sales-channel-form';
+import Link from 'next/link';
+import { ActivityPanel, activityPage } from '@/components/audit/activity-panel';
+import { loadActivity } from '@/lib/audit/load';
 import { StoreSectionGuard } from '@/components/shell/section-guard';
+import { SETTINGS_CARDS, cardValues, describeValue, valueAt } from '@/lib/settings/fields';
+import { formatMoney } from '@/lib/forms/money';
+import { SettingsCardForm } from './settings-card-form';
 import {
   ApiStatePanel,
   ForbiddenPanel,
@@ -99,8 +105,15 @@ function ReadOnlyGeneral({ store }: { store: AdminComponents['Store'] }) {
  *
  * Lists render here on the server; the client forms take ids, options and six scalars.
  */
-export default async function SettingsPage({ params }: { params: Promise<{ storeId: string }> }) {
+export default async function SettingsPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ storeId: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { storeId } = await params;
+  const activityPageNumber = activityPage((await searchParams)?.['activity']);
   const principal = await loadPrincipal();
   const can = principal.ok ? settingsPermissions(principal.data, storeId) : NONE;
   const storeObject = `store:${storeId}`;
@@ -119,6 +132,14 @@ export default async function SettingsPage({ params }: { params: Promise<{ store
       listShippingOptions(storeId),
     ],
   );
+  // The store's own audit rows (#896 panel, `entity_type: 'store'`): `store.update` carries the
+  // changed field names, so a settings change is answerable with "who turned this on".
+  const activity = await loadActivity({
+    storeId,
+    entityType: 'store',
+    entityId: storeId,
+    page: activityPageNumber,
+  });
   const categoryOptions = categories.ok
     ? categories.data.items.map((c) => ({ id: c.id, name: c.name }))
     : [];
@@ -184,6 +205,86 @@ export default async function SettingsPage({ params }: { params: Promise<{ store
             )}
           </CardBody>
         </Card>
+
+        {/*
+          #870 item 7: the `store.settings` groups `updateStore` has always accepted and no screen
+          showed. Each card saves only its own paths (through a read-modify-write, because
+          `updateStore` replaces the whole settings column), and a change to a consequential path
+          is confirmed against a diff first. Below `store_admin` the values are still shown — a
+          support user reading a store should be able to see how it is configured — with the
+          relation they would need to change them.
+        */}
+        {SETTINGS_CARDS.map((card) => (
+          <Card key={card.id} id={`settings-${card.id}`}>
+            <CardHeader
+              title={card.title}
+              description={card.description}
+              {...(store.ok
+                ? {
+                    action: (
+                      <Link
+                        href={`/${storeId}/settings?activity=1#activity`}
+                        className="text-accent text-sm hover:underline"
+                      >
+                        History
+                      </Link>
+                    ),
+                  }
+                : {})}
+            />
+            <CardBody>
+              {/*
+                A card may carry something true that its fields cannot show — the refund limit's
+                currency is compared without conversion (#969). It is shown to every reader, not
+                only to the one who may edit, because it changes what the number means.
+              */}
+              {card.note === undefined ? null : (
+                <p className="text-muted mb-4 text-sm">{card.note}</p>
+              )}
+              {!store.ok ? (
+                <RequestErrorPanel status={store.status} error={store.error} />
+              ) : can.canEditStore ? (
+                <SettingsCardForm
+                  storeId={storeId}
+                  cardId={card.id}
+                  current={cardValues(card.id, store.data.settings)}
+                  updatedAt={store.data.updated_at}
+                  currency={store.data.default_currency}
+                  locale={store.data.default_locale}
+                />
+              ) : (
+                <div className="space-y-3">
+                  <dl className="grid gap-2 sm:grid-cols-2">
+                    {card.fields.map((field) => (
+                      <div key={field.path}>
+                        <dt className="text-muted text-xs tracking-wide uppercase">
+                          {field.label}
+                        </dt>
+                        <dd className="text-sm">
+                          {describeValue(
+                            field,
+                            valueAt(store.data.settings, field.path),
+                            (amountMinor) =>
+                              formatMoney(
+                                amountMinor,
+                                store.data.default_currency,
+                                store.data.default_locale,
+                              ),
+                          )}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                  <Needs
+                    relation="store_admin"
+                    object={storeObject}
+                    to={`Changing ${card.title.toLowerCase()}`}
+                  />
+                </div>
+              )}
+            </CardBody>
+          </Card>
+        ))}
 
         <Card>
           <CardHeader
@@ -318,6 +419,20 @@ export default async function SettingsPage({ params }: { params: Promise<{ store
             )}
           </CardBody>
         </Card>
+
+        {/*
+          Where the cards' "History" links point: the store's own audit rows. `store.update` records
+          the changed field names, so "who turned prices-include-tax on" is answerable here, by
+          anyone who can read this page — the panel's own redaction decides what values show.
+        */}
+        <div id="activity">
+          <ActivityPanel
+            activity={activity}
+            entityType="store"
+            basePath={`/${storeId}/settings`}
+            note="A settings change records which fields moved; values appear only for fields that are safe to print."
+          />
+        </div>
       </div>
     </StoreSectionGuard>
   );

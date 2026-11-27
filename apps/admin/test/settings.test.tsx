@@ -61,6 +61,9 @@ const api = vi.hoisted(() => ({
   listTaxRates: vi.fn(),
   listCategories: vi.fn(),
   listShippingOptions: vi.fn(),
+  // #870 item 7: the page now shows the store's own audit rows under the settings cards.
+  listAuditLog: vi.fn(),
+  listUsers: vi.fn(),
 }));
 vi.mock('@/lib/api/admin', () => api);
 
@@ -123,6 +126,8 @@ beforeEach(() => {
   api.listShippingOptions.mockResolvedValue(ok({ items: [] }));
   api.listCategories.mockResolvedValue(ok({ items: [] }));
   api.listApiKeys.mockResolvedValue(ok({ items: [existingKey, secondKey] }));
+  api.listAuditLog.mockResolvedValue(ok({ page: 1, limit: 20, total: 0, items: [] }));
+  api.listUsers.mockResolvedValue(ok({ page: 1, limit: 100, total: 0, items: [] }));
 });
 
 async function renderAs(role: PrincipalKey) {
@@ -588,5 +593,57 @@ describe('API keys: revoking asks first and never the last live key', () => {
   it('without canRevoke (store_staff never gets here; HQ passes none) there is no Revoke', () => {
     render(<ApiKeyList channels={channels} keys={[existingKey, secondKey]} />);
     expect(screen.queryByRole('button')).toBeNull();
+  });
+});
+
+describe('the settings `updateStore` has always accepted (#870 item 7)', () => {
+  it('gives a store admin a form per card, with the value the store has now', async () => {
+    await renderAs('storeAdmin');
+
+    // Four cards, each its own form: a save carries only that card's paths.
+    for (const title of [
+      'Tax settings',
+      'Fraud settings',
+      'Refunds settings',
+      'Brand voice settings',
+    ]) {
+      expect(screen.getByRole('form', { name: title })).toBeTruthy();
+    }
+    // Nothing under `tax` is in the fixture, so every tax field reads "not set (default: …)" —
+    // NOT "off" and not `table`. The #968 review made this the point: an absent path means the
+    // core's own default, and displaying it as a value is how a card ends up writing one.
+    const tax = screen.getByRole('form', { name: 'Tax settings' });
+    const inclusive = within(tax).getByLabelText('Prices include tax');
+    expect(inclusive).toHaveValue('');
+    expect(within(inclusive).getByRole('option', { selected: true })).toHaveTextContent(
+      /not set \(default: off/,
+    );
+    expect(within(tax).getByLabelText('Calculated by')).toHaveValue('');
+    // The refund ceiling is money: 5000 minor units in EUR, shown as an amount.
+    const refunds = screen.getByRole('form', { name: 'Refunds settings' });
+    expect(within(refunds).getByLabelText(/Support refund limit/)).toHaveValue('50.00');
+  });
+
+  it('shows the values to a support reader, with the relation needed to change them', async () => {
+    await renderAs('support');
+
+    expect(screen.queryByRole('form', { name: 'Tax settings' })).toBeNull();
+    // Still readable: a support user looking at a store should see how it is configured.
+    const card = document.getElementById('settings-refunds');
+    expect(card).not.toBeNull();
+    expect(card?.textContent).toContain('€50.00');
+    expect(card?.textContent).toMatch(/store_admin/);
+  });
+
+  it('points each card at the store history it actually has', async () => {
+    await renderAs('storeAdmin');
+    const links = screen.getAllByRole('link', { name: 'History' });
+    expect(links.length).toBe(4);
+    for (const link of links) {
+      expect(link.getAttribute('href')).toBe(`/${STORE_ID}/settings?activity=1#activity`);
+    }
+    // The anchor and the panel exist, so the link is not a promise to nothing.
+    expect(document.getElementById('activity')).not.toBeNull();
+    expect(screen.getByText(/Who changed this store/)).toBeTruthy();
   });
 });

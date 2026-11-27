@@ -472,6 +472,101 @@ HQ › Roles, neither affected.
 out at 5 s in the full parallel run and passes 19/19 alone. Window 12's file, and nothing in my diff
 touches BI. Re-ran the suite green and reported it rather than touching another window's test.
 
+## In progress — #870 item 7 PR A, store settings (2026-11-25)
+
+**PR #968**, branch `integration/admin-store-settings`. Tax, Fraud, Refunds, Brand voice — eleven
+settings paths. Fable's **BLOCK review fixed in one push** (see below), with `origin/main` merged in
+the same push because #962 and #965 had landed and made the PR conflicting; the merge was clean and
+`pnpm install` ran after it (merged lockfile). CONTRACT CHANGE **#967** filed for the settings
+paths, issue **#969** for the refund limit's missing currency.
+**PR B (shipping defaults, fulfilment routing, shipping-option carrier/service/channel/rules) is
+next; WIP commit `c050bd2c` on `integration/admin-store-settings-shipping`, not pushed — and it
+must be rebuilt on the "send only changed paths" rule from the start, because its `textList` /
+`countryMap` fields have exactly the same absent-vs-empty trap.**
+
+### The review's finding, which was a real defect: an absent setting is not an empty one
+
+The first cut submitted **every field on the card**. An untouched, **absent** `fraud.providers`
+therefore went out as `[]` — and the core reads an absent `providers` as **both checks run**
+(`DEFAULT_FRAUD_SETTINGS`). So opening the Fraud card and pressing Save would have switched fraud
+checking **off** on any store nobody had configured. The fix is three rules, and they generalise to
+every settings form:
+
+1. **send only the paths that differ** from what the page rendered (the footer says how many);
+2. **show an absent path as "not set (default: …)"**, naming what the core does without it — traced
+   from each owning module's reader, never guessed (absent `radar_highest` **refuses** the payment;
+   absent `support_refund_limit_minor` is **no ceiling**);
+3. **clearing a field deletes the path**, never `''` / `0` / `[]`.
+
+A test then found a second bug behind the same confusion: an unset integer rendered as `''`, parsed
+back as `0`, failed its own minimum — a card with any unset number could not be saved at all.
+**Lesson: a form over optional server-side settings has three states, not two, and "the default" is
+a value only the owning module can tell you.**
+
+### The confirmation had to name what it confirmed
+
+It was a bare `boolean`, so a confirmation for €500 could save €5,000. It is now the
+`[{path, to}]` list the dialog showed, and the action refuses unless it matches the changes it
+recomputes from the store it just re-read; an edit after the dialog opens withdraws it.
+**Lesson: a confirmation flag proves someone clicked, not what they agreed to.**
+
+### The one CI caught that no local gate would have (2026-11-26)
+
+#968's first review-fix head went red on the live e2e, and the cause was mine and bad: the settings
+page **500s in a production build**. `cardValues`, the pure helper the **server** component calls to
+build each card's props, was exported from the `'use client'` form module. tsc was happy, all 1778
+unit tests passed (they import the function directly), `next dev` ran it — and `next build` threw
+"Attempted to call cardValues() from the server", taking the whole page down including the
+General settings and API-key cards that had worked for weeks. The e2e caught it because the e2e is
+the only gate that **builds for real** (which is exactly why the admin README insists on a
+production build there).
+
+**Lessons, both recorded as rules for me:**
+
+- a function a server component CALLS must not live in a `'use client'` file — exporting a pure
+  helper from a client module next to the component that uses it is the trap, and the fix is a pure
+  module both sides import;
+- **run `pnpm --filter @platform/admin build` before pushing anything that adds a page or moves a
+  helper across the client boundary.** lint + typecheck + test cannot see this class of bug; a
+  30-second build can. A guard test now pins the page's import list, but the build is the real gate.
+
+### What the manager asked me to trace, and the answer
+
+`support_refund_limit_minor` is compared in **no currency at all**: `refunds.ts` does
+`input.amountMinor > input.limitMinor`, and its own error message prints the limit bare. So on an
+order in another currency the ceiling is that many minor units of **that** currency. The card now
+says this to every reader, since it changes what the number means; issue **#969** carries the four
+options for fixing it in the core. **Lesson: when a number crosses a module boundary, find the
+comparison, not the field.**
+
+### The finding that shaped the PR
+
+The manager's precondition was "tell me if the core merges settings shallowly". It is **worse**:
+`updateStoreInTx` does `settings = $n` from `JSON.stringify(patch.settings)` — a **wholesale
+replace**. A card sending only its own group would delete every other module's keys. The answer was
+already in the repo, though: `store-payment.ts` (#825) had solved it for one key — re-read, merge,
+send everything, plus an `updated_at` compare-and-refuse. **Looking for the pattern before asking
+the question turned a blocker into a generalisation.**
+
+### Where the path list lives, and the guard
+
+`Store.settings` is `additionalProperties: true` in the contract: the real list is the core's
+`STORE_SETTINGS_SHAPES`. So `fields.ts` mirrors it and `store-settings-drift.test.ts` reads the
+core's file **as text** (no cross-app import) and fails **both** ways — a path we edit that the core
+does not read, and a path the core reads that nobody here has decided about, which is the failure
+mode a mirror actually has. It also pins the core's enums and bounds instead of a guess.
+
+### Two of my own slips, both caught before the PR landed
+
+- **I wrote a "History" link to an Activity panel the settings page did not have** — the exact
+  mistake I had written a lesson about in `entity-links`. tsc caught it (a missing `Link` import),
+  not my thinking. Added the `entity_type: 'store'` panel the link points at. **A link is a promise:
+  check the target exists in the same breath as writing the href.**
+- **An unescaped backtick in a `gh pr create --body` heredoc executed as a command**, so #968 went
+  up with a mangled heading. Repaired with `gh pr edit --body-file`. **Long PR bodies go in a file
+  written with the Write tool** — a rule I already had and skipped. Also learnt: Windows Python
+  cannot open a `/c/...` git-bash path, so the repair script failed until I used `sed`.
+
 ## In progress — #921, the order's own history (2026-11-19)
 
 **PR #933**, branch `integration/admin-order-history` from main `74d8c474` (code commit

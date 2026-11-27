@@ -1487,6 +1487,101 @@ Three new views under HQ › BI (`/bi/overview`, `/bi/products`, `/bi/inventory`
   of `Consent history`; no spec reads the group field by label, and none touches addresses or
   identity. Nothing to update.
 
+### Added — #870 wave 1 item 7 (PR A): the store settings `updateStore` always accepted
+
+- **Four new cards on Settings** — Tax, Fraud, Refunds and Brand voice — each showing every field
+  with the value the store has now: `tax.provider`, `tax.prices_include_tax`, `tax.shipping_taxable`,
+  `fraud.providers`, `fraud.velocity.max_orders`, `fraud.velocity.window_minutes`,
+  `fraud.country_mismatch`, `fraud.radar_highest`, `support_refund_limit_minor`,
+  `content.brand_voice`, `content.audience`. Shipping defaults and fulfilment routing follow in PR B.
+- **Each card saves only its own paths — through a read-modify-write, because `updateStore`
+  REPLACES the whole settings column** (`settings = $n` in the core's `updateStoreInTx`; not a
+  shallow merge, a wholesale one). The store is re-read and the card's paths are deep-set into the
+  settings as the core has them now, so no other module's keys are lost. A crafted request cannot
+  reach another card's path, or `payment.methods`, which the core refuses anyway. This generalises
+  what `store-payment.ts` did for one key in #825.
+- **A stale page cannot undo someone else's edit:** the form submits the `updated_at` it rendered
+  and the action refuses when the store has moved since. One request's worth of window remains
+  between that re-read and the PATCH — the contract has no `If-Match` — and the merge preserves
+  every key read in the same breath, so the exposure is one card's fields rather than the object.
+- **A diff before a consequential save:** money (`support_refund_limit_minor`,
+  `tax.prices_include_tax`) and, by the manager's decision, the fraud rules and
+  `shipping.carrier_account_ids` — loosening a fraud check lets orders through unchecked, which is
+  as consequential as an amount. The dialog is a courtesy; **the action refuses an unconfirmed
+  change to one of those paths**, so skipping the dialog does not skip the check.
+- **Money is the store's own:** the refund ceiling is read and shown as an amount in the store
+  currency and sent as minor units — ¥1,980 is 1980, and a zero-decimal store never sees "19.80".
+  The Refunds card says what the limit does: it bounds what **support** may refund, and does not
+  limit a store admin.
+- **Below `store_admin` the values are still shown**, read-only, with the relation needed to change
+  them — a support user reading a store should be able to see how it is configured.
+- **Each card links to the store's own history**, and the page now renders the `entity_type: 'store'`
+  Activity panel that link points at. (It was a link to nothing for about ten minutes; a link to a
+  route or anchor that does not exist is worse than no link.)
+- **A drift guard instead of a mirrored list nobody checks.** `Store.settings` is
+  `additionalProperties: true` in the contract, so the path list lives in the core
+  (`STORE_SETTINGS_SHAPES`). `test/store-settings-drift.test.ts` reads that file as **text** — no
+  import across an app boundary — and fails **both** ways: a path this app edits that the core does
+  not read, and a path the core reads that this app neither edits nor lists as deliberately not
+  edited. It also pins the core's own enums and bounds rather than a guess at them. CONTRACT CHANGE
+  #967 asks for the paths to be described in the yaml; the guard then reads that instead.
+- `theme` stays read-only (a free-form object with no shape to validate), and `payment.methods` is
+  shown as derived and never offered as an input.
+- **Only the fields someone changed are sent, and an absent one reads "not set" (review of #968).**
+  The first cut submitted every field on the card, so an untouched **absent** `fraud.providers`
+  went out as `[]` — and the core reads an absent `providers` as **both checks run**, so opening a
+  card and pressing Save would have switched fraud checking **off** on any store nobody had
+  configured. Now:
+  - the form sends **only the paths whose value differs from what the page rendered** ("N fields
+    changed; the rest are not sent." under each card), so a card can never write a default it
+    merely displayed;
+  - an absent path is shown as **"not set (default: …)"** naming what the **core** does without it —
+    traced from each owning module's reader, not guessed: `fraud.providers` absent runs **both**
+    checks, `fraud.radar_highest` absent **refuses** the payment, `support_refund_limit_minor`
+    absent is **no ceiling at all**, `tax.shipping_taxable` absent is taxable only for an EU legal
+    entity;
+  - clearing a field **deletes the path** rather than storing `''`, `0` or `[]`, which is the only
+    way to say "no ceiling" and the only value the core reads as "use my default". (Two bugs lived
+    here. An unset integer rendered as `''` parsed back as `0` and failed its own minimum, so a
+    card with any unset number could not be saved at all; and the action cleared only `text`
+    fields, so `z.number()` refused the `undefined` a cleared amount sends — "support has no
+    ceiling" was unsayable. The form test could not see the second one: there the action is a mock.
+    It took an action test to find it.)
+  - unchecking every fraud check therefore leaves the path **not set**, and the hint says so:
+    switching fraud checking off is deliberately not reachable from a checkbox.
+- **`tax.shipping_taxable` joined the confirmed set** — it changes what every order is taxed on and
+  its default depends on the legal entity's country, so flipping it is never obviously right.
+- **The confirmation is bound to the values that were shown, not a boolean (review of #968).** The
+  form sends the `[{path, to}]` list the dialog displayed, and the action recomputes the
+  consequential changes from the store it just re-read and **refuses unless the two match exactly**
+  — a confirmation for €500 cannot save €5,000, a confirmation naming a path this save does not
+  change is refused, and one of two changes left unconfirmed refuses the whole save. Editing any
+  field after the dialog opens withdraws the confirmation.
+- **The refund card says which currency the limit is compared in.** The core compares
+  `support_refund_limit_minor` against the refund amount as a **plain integer, without converting**
+  (`refunds.ts`; its own error prints the limit with no currency at all), so on an order in another
+  currency it acts as that many minor units of **that** currency. The card says this to every
+  reader, because it changes what the number means. Issue #969 asks for the comparison to carry a
+  currency; this PR does not change the core.
+- **Fixed before merge: the settings page crashed in a production build.** `cardValues` — the pure
+  helper the **server** component uses to build each card's props — was exported from the
+  `'use client'` form module. It type-checked, every unit test passed (they import the function
+  directly) and `next dev` ran it happily; a real build threw _"Attempted to call cardValues() from
+  the server"_ and took the **whole** settings page down, the pre-existing General settings and
+  API-key cards with it. Only the e2e caught it, because that is the one gate that builds for real.
+  The helper now lives in `src/lib/settings/fields.ts`, and a test asserts the page imports nothing
+  but the component itself out of the client module. **A function a server component calls must not
+  live in a client file, and `pnpm --filter @platform/admin build` is the gate that proves it.**
+- Tests: `store-settings-action.test.ts` (21) — only the card's paths written, other modules' keys
+  preserved, the stale-`updated_at` refusal, the unconfirmed-change refusal per consequential path,
+  the four binding cases above, clearing a number / an enum / an array by **deleting the path**, the
+  core's 422 said in words;
+  `store-settings-form.test.tsx` (12) — the diff shown before a save, cancel, an ordinary change
+  not interrupted, money in EUR and JPY, **only the touched field sent**, an edit withdrawing the
+  confirmation, a cleared limit reading "not set", and the core default shown for an unset field;
+  `store-settings-drift.test.ts` (7); three more in `settings.test.tsx`. Grepped `apps/*/e2e`: the
+  settings assertions are scoped forms and specific text, and no form name collides.
+
 ### Added — #870 wave 1 item 5 (PR C): search merchandising rules (window 3; Opus review)
 
 - **Catalog › Search merchandising** (`/{storeId}/catalog/merchandising`): every pin / boost / bury rule of the store, per category or per whole search query. Reading needs store_staff; creating, editing, bulk changes and publishing need store_admin, checked server-side before the API (bulk: again per row).

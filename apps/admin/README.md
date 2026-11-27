@@ -701,6 +701,46 @@ forms at all, every card read-only with the relation named, keys card the store_
 No core defects found. Screenshots in [`docs/settings/`](./docs/settings/) — the revealed key is
 redacted in the DOM before capture; no key value is committed.
 
+### Store settings (#870 wave 1 item 7)
+
+`Store.settings` is `additionalProperties: true` in the contract: the paths the core reads live in
+`apps/core/src/modules/registry/settings-schema.ts` (`STORE_SETTINGS_SHAPES`), and its 422 names
+each offending path in `details.settings`. `src/lib/settings/fields.ts` mirrors that list per card,
+and `test/store-settings-drift.test.ts` reads the core's file as text and fails if either side moves
+— including when the core gains a path nobody has decided about. CONTRACT CHANGE #967 asks for the
+paths to be described in the yaml; the guard then reads that.
+
+**`updateStore` replaces the whole settings column**, so every save is a read-modify-write:
+re-read, deep-set only that card's paths into the settings as the core has them now, send the lot.
+A card that sent only its own group would delete every other module's keys. The form submits the
+`updated_at` it rendered and the action refuses a stale one, so a tab left open cannot undo another
+admin's change; one request's worth of window remains between the re-read and the PATCH, because
+the contract has no `If-Match`.
+
+**Only the fields someone changed are sent.** An absent path is not "off" or "empty" — the core
+has a default for it, and for `fraud.providers` that default is **both checks run**. A card that
+submitted every field would write `[]` for an absent `providers` the moment anyone pressed Save,
+switching fraud checking off on a store nobody had configured. So each field carries a
+`defaultLabel` (traced from the owning module's reader, not guessed), an absent value is shown as
+**"not set (default: …)"** rather than as a value, clearing a field **deletes the path**, and the
+request contains only the paths that differ from what the page rendered. The footer says how many.
+
+**Consequential changes are confirmed against a diff**: money (`support_refund_limit_minor`,
+`tax.prices_include_tax`), `tax.shipping_taxable`, the fraud rules and
+`shipping.carrier_account_ids`. The dialog is in the form, but the **action** refuses an
+unconfirmed change to those paths — the check is not the UI. The confirmation is the
+`[{path, to}]` list the dialog showed, and the action refuses unless it matches the changes it
+recomputes from the store it just re-read, so a confirmation cannot be reused for a different
+value; editing any field withdraws it.
+
+Money is minor units on the wire and an amount on screen, in the store's currency. The refund
+ceiling is the exception worth knowing: the core compares it against the refund amount as a plain
+integer **without converting** (`apps/core/src/modules/payments/refunds.ts`), so on an order in
+another currency it means that many minor units of _that_ currency. The card says so; issue #969
+asks for the comparison to carry a currency.
+
+Below `store_admin` every value is still shown, read-only, with the relation needed to change it.
+
 ## HQ › Finance (issue #851; Accounting API 0.1.0)
 
 `/finance` reads the accounting service (apps/accounting, `packages/contracts/openapi/accounting.yaml`). It is
